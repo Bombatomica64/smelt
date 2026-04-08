@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "type": "object",
+  "properties": {
+    "output": {
+      "$ref": "#/$defs/Output"
+    },
+    "project": {
+      "$ref": "#/$defs/Project"
+    },
+    "runtime": {
+      "$ref": "#/$defs/Runtime"
+    },
+    "rust": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Rust"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sources": {
+      "$ref": "#/$defs/Source"
+    },
+    "strict": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Strict"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "project",
+    "sources",
+    "output",
+    "runtime"
+  ],
+  "$defs": {
+    "CloneStrategy": {
+      "type": "string",
+      "enum": [
+        "always",
+        "aggressive",
+        "never"
+      ]
+    },
+    "Output": {
+      "type": "object",
+      "properties": {
+        "build": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "crate-name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target"
+      ]
+    },
+    "Project": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ]
+    },
+    "Runtime": {
+      "type": "object",
+      "properties": {
+        "clone-strategy": {
+          "$ref": "#/$defs/CloneStrategy"
+        }
+      },
+      "required": [
+        "clone-strategy"
+      ]
+    },
+    "Rust": {
+      "type": "object",
+      "properties": {
+        "dependencies": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "edition": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "roots": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "entries"
+      ]
+    },
+    "Strict": {
+      "type": "object",
+      "properties": {
+        "python": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "typescript": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

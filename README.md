@@ -1,1 +1,68 @@
-# smelt
+# SMELT
+
+> Smelt your TypeScript and Python into Rust.
+
+**smelt** is a transpiler that takes strictly-typed TypeScript and Python source code and compiles it down to idiomatic Rust. The goal is not to transpile *all* TS/Python — it is to transpile the statically-typed subset where types actually mean something.
+
+## Why
+
+TypeScript and Python both have rich, expressive type systems that are mostly used for editor tooling and runtime validation. smelt takes those types seriously: if your code is fully typed and passes strict checks, smelt can lower it through a shared intermediate representation and emit Rust that compiles, runs, and is reasonably idiomatic.
+
+The long-term vision is **language-interchangeable modules**: a Python file importing from a TypeScript file, both lowering to the same HIR, both becoming the same Rust crate.
+
+## Status
+
+Pre-alpha. See the milestones in github issues for the v1.0 roadmap.
+
+## v1.0 Goals
+
+- A real Express app (TypeScript, strict mode) compiles to a working `axum` server.
+- A real FastAPI app (Python, fully typed, passes `ty`) compiles to a working `axum` server.
+- Both produce structurally similar Rust output, validating the shared HIR design.
+- Configuration via `Smelt.toml`, CLI modeled after `cargo`.
+
+## Non-Goals (for v1.0)
+
+- LSP / editor integration.
+- Ownership/borrow inference (v1.0 clones aggressively).
+- Supporting dynamic features (`eval`, `getattr`, monkey-patching, `any`).
+- Multiple Rust web framework backends. v1.0 targets `axum` only.
+- Incremental compilation.
+
+## Architecture at a Glance
+
+```
+TypeScript ──┐                                      ┌── Rust source
+             ├──> Frontend ──> HIR ──> MIR ──> Codegen
+Python ──────┘                                      └── Cargo.toml (generated)
+```
+
+See `specs/architecture.md` for the full picture.
+
+## Repository Layout
+
+```
+crates/
+  smelt-frontend-ts/    TypeScript parser → HIR
+  smelt-frontend-py/    Python parser → HIR
+  smelt-hir/            High-level IR types and validation
+  smelt-mir/            Mid-level IR (SSA-ish, ownership-naive)
+  smelt-codegen-rust/   MIR → Rust source
+  smelt-runtime/        Runtime helpers that transpiled code depends on
+  smelt-cli/            The `smelt` binary
+specs/                  Design documents
+examples/               Example projects (Express demo, FastAPI demo)
+```
+
+## License
+
+[GNU General Public License v3.0](LICENSE)
+
+## AI use
+
+This project will use AI tool for everything but code gen. PRs that are AI generated will be accepted if not too big and if they make sense.
+Commit messages, issues, documentation (like readmes, design docs, comments) can be AI generated.
+
+## Contributing
+
+Fork the repo and submit a pr :)

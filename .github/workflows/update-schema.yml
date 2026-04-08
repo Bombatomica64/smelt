@@ -1,0 +1,28 @@
+name: Update Smelt.toml schema
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/smelt-cli/src/config.rs"
+
+jobs:
+  update-schema:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate schema
+        run: cargo run --bin smelt -- dump-schema > smelt-schema.json
+
+      - name: Commit schema
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: regenerate smelt-schema.json"
+          file_pattern: smelt-schema.json

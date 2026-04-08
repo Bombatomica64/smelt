@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "crates/smelt-frontend-ts",
+    "crates/smelt-frontend-py",
+    "crates/smelt-hir",
+    "crates/smelt-mir",
+    "crates/smelt-codegen-rust",
+    "crates/smelt-runtime",
+    "crates/smelt-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+# Deps used by more than one crate — pin version here, reference with { workspace = true } in members
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "1.1.2"

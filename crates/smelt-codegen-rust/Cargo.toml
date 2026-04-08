@@ -1,0 +1,8 @@
+[package]
+name = "smelt-codegen-rust"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+smelt-mir = { path = "../smelt-mir" }
+smelt-hir = { path = "../smelt-hir" }

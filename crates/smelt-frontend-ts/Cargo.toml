@@ -1,0 +1,11 @@
+[package]
+name = "smelt-frontend-ts"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+smelt-hir = { path = "../smelt-hir" }
+oxc = { version = "0.124.0", features = ["semantic"] }
+
+[dev-dependencies]
+pico-args = "0.5"
