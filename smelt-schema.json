@@ -12,16 +12,6 @@
     "runtime": {
       "$ref": "#/$defs/Runtime"
     },
-    "rust": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/Rust"
-        },
-        {
-          "type": "null"
-        }
-      ]
-    },
     "sources": {
       "$ref": "#/$defs/Source"
     },
@@ -105,24 +95,6 @@
       "required": [
         "clone-strategy"
       ]
-    },
-    "Rust": {
-      "type": "object",
-      "properties": {
-        "dependencies": {
-          "type": [
-            "object",
-            "null"
-          ],
-          "additionalProperties": true
-        },
-        "edition": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
     },
     "Source": {
       "type": "object",
