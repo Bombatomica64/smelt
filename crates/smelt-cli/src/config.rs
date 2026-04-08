@@ -16,7 +16,6 @@ pub struct Config {
     sources: Source,
     output: Output,
     runtime: Runtime,
-    rust: Option<Rust>,
     strict: Option<Strict>,
 }
 
@@ -46,12 +45,6 @@ pub enum CloneStrategy {
 pub struct Runtime {
     #[serde(rename = "clone-strategy")]
     clone_strategy: CloneStrategy,
-}
-
-#[derive(Deserialize, Debug, JsonSchema)]
-pub struct Rust {
-    edition: Option<String>,
-    dependencies: Option<HashMap<String, serde_json::Value>>,
 }
 
 #[derive(Deserialize, Debug, JsonSchema)]
