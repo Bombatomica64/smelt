@@ -3,6 +3,12 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pipeline {
+    TypeScript,
+    Python,
+}
+
 #[derive(Deserialize, Debug, JsonSchema)]
 pub struct Project {
     name: String,
@@ -17,6 +23,29 @@ pub struct Config {
     output: Output,
     runtime: Runtime,
     strict: Option<Strict>,
+}
+
+impl Config {
+    pub fn pipelines(&self) -> Vec<Pipeline> {
+        let mut out = Vec::new();
+        let has_ts = self
+            .sources
+            .entries
+            .iter()
+            .any(|p| p.extension().map_or(false, |e| e == "ts"));
+        let has_py = self
+            .sources
+            .entries
+            .iter()
+            .any(|p| p.extension().map_or(false, |e| e == "py"));
+        if has_ts {
+            out.push(Pipeline::TypeScript);
+        }
+        if has_py {
+            out.push(Pipeline::Python);
+        }
+        out
+    }
 }
 
 #[derive(Deserialize, Debug, JsonSchema)]

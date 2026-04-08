@@ -9,7 +9,7 @@ Source (.ts / .py)
       │
       ▼
 ┌──────────────┐
-│   Frontend   │   tree-sitter parse + ty/tsc type info
+│   Frontend   │   tree-sitter parse + ty/tsgo type info
 │ (per-lang)   │   normalize into shared HIR
 └──────┬───────┘
        │
@@ -53,9 +53,8 @@ Source (.ts / .py)
 
 ### `smelt-frontend-ts`
 
-- Parses TypeScript via `tree-sitter-typescript` (or `oxc` if richer semantics are needed).
-- Calls out to `tsc --noEmit` (or embeds equivalent type info) to verify strict mode.
-- Walks the AST and produces HIR nodes.
+- Runs the check pipeline: oxclint → tsgo --noEmit → smelt rules → HIR construction. See `specs/check-pipeline.md`.
+- Walks the type-annotated AST and produces HIR nodes.
 - Rejects unsupported constructs with clear, source-located errors.
 
 ### `smelt-frontend-py`

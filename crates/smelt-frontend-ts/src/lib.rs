@@ -1,5 +1,5 @@
 // TypeScript parser → HIR — stub for M1
-
+pub mod checker;
 use oxc::allocator::Allocator;
 use oxc::parser::{ParseOptions, Parser};
 use oxc::semantic::SemanticBuilder;

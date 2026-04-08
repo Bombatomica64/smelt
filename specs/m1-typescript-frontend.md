@@ -63,7 +63,7 @@ This is the first real piece of the compiler. It also defines what "strictly typ
 ## Implementation Notes
 
 - Use `tree-sitter-typescript` for parsing. Consider `oxc` if richer semantic analysis is needed; decide early in the milestone.
-- Strict-mode verification: shell out to `tsc --noEmit --strict` or embed equivalent checks. Decision and rationale documented in a sub-issue.
+- The check pipeline runs in four phases: oxclint → tsgo --noEmit → smelt rules → HIR construction. See `specs/check-pipeline.md` for the full rationale and the list of smelt-specific rejections.
 - Walker is implemented as a visitor that produces `smelt_hir::Module`.
 - Naming: convert `camelCase` to `snake_case` at the boundary, preserve original names in a side table for diagnostics.
 
