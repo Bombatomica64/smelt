@@ -1,6 +1,7 @@
+#![allow(dead_code)]
+
 use schemars::JsonSchema;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +27,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn entries(&self) -> &[PathBuf] {
+        &self.sources.entries
+    }
+
     pub fn pipelines(&self) -> Vec<Pipeline> {
         let mut out = Vec::new();
         let has_ts = self

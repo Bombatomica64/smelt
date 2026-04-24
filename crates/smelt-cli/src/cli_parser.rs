@@ -18,7 +18,15 @@ pub struct Args {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Read manifest, transpile, and emit a Rust crate
-    Build,
+    Build {
+        /// Print compact HIR after frontend lowering and stop
+        #[arg(long)]
+        hir: bool,
+
+        /// Print full debug HIR after frontend lowering and stop
+        #[arg(long = "hir-debug")]
+        hir_debug: bool,
+    },
     /// Type-check and validate without emitting any output
     Check,
     /// Scaffold a new smelt project
@@ -31,8 +39,14 @@ pub enum Command {
         python: bool,
     },
 
-    /// Print the HIR for a single source file (debug)
-    DumpHir { file: String },
+    /// Print compact HIR for a single source file
+    DumpHir {
+        /// Print the full debug representation instead of compact HIR
+        #[arg(long)]
+        debug: bool,
+
+        file: String,
+    },
 
     /// Print the MIR for a single source file (debug)
     DumpMir { file: String },
