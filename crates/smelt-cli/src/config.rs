@@ -53,12 +53,12 @@ impl Config {
             .sources
             .entries
             .iter()
-            .any(|p| p.extension().map_or(false, |e| e == "ts"));
+            .any(|p| p.extension().is_some_and(|e| e == "ts"));
         let has_py = self
             .sources
             .entries
             .iter()
-            .any(|p| p.extension().map_or(false, |e| e == "py"));
+            .any(|p| p.extension().is_some_and(|e| e == "py"));
         if has_ts {
             out.push(Pipeline::TypeScript);
         }

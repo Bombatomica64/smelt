@@ -13,6 +13,8 @@ use std::{
     process::Command as ProcessCommand,
 };
 
+type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
+
 fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     for pipeline in config.pipelines() {
         match pipeline {
@@ -25,7 +27,7 @@ fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
 
 fn lower_typescript_files(
     files: &[String],
-) -> Result<(smelt_hir::Crate, Vec<(String, ModuleId)>), Box<dyn std::error::Error>> {
+) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut ctx = HirCtx::new();
     let mut modules = Vec::new();
 
@@ -46,7 +48,7 @@ fn lower_typescript_files(
 fn lower_manifest_typescript(
     config: &Config,
     manifest_path: &Path,
-) -> Result<(smelt_hir::Crate, Vec<(String, ModuleId)>), Box<dyn std::error::Error>> {
+) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let files = config
         .entries()

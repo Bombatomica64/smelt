@@ -213,11 +213,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 if rendered_args.is_empty() {
                     Ok("{ println!(); }".to_owned())
                 } else {
-                    let format = args
-                        .iter()
-                        .map(|arg| self.console_format_spec(arg))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .join(" ");
+                    let format = vec!["{}"; rendered_args.len()].join(" ");
                     Ok(format!(
                         "{{ println!(\"{format}\", {}); }}",
                         rendered_args.join(", ")
@@ -258,15 +254,7 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    fn console_format_spec(&self, operand: &Operand) -> Result<&'static str, EmitError> {
-        if self.operand_ty(operand)? == self.none_ty {
-            Ok("{}")
-        } else {
-            Ok("{}")
-        }
-    }
-
-    fn operand_ty(&self, operand: &Operand) -> Result<TypeId, EmitError> {
+fn operand_ty(&self, operand: &Operand) -> Result<TypeId, EmitError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_ty(place),
             Operand::Const(Constant::None) => Ok(self.none_ty),

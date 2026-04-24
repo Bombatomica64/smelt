@@ -16,7 +16,6 @@ pub struct LowerError {
     pub span: Option<Span>,
 }
 
-#[must_use]
 pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let hir_errors = smelt_hir::validate(krate);
     if !hir_errors.is_empty() {
