@@ -27,8 +27,24 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn project_name(&self) -> &str {
+        &self.project.name
+    }
+
     pub fn entries(&self) -> &[PathBuf] {
         &self.sources.entries
+    }
+
+    pub fn output_target(&self) -> &PathBuf {
+        &self.output.target
+    }
+
+    pub fn output_crate_name(&self) -> Option<&str> {
+        self.output.crate_name.as_deref()
+    }
+
+    pub fn should_build_output(&self) -> bool {
+        self.output.build.unwrap_or(false)
     }
 
     pub fn pipelines(&self) -> Vec<Pipeline> {

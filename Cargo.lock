@@ -831,6 +831,7 @@ dependencies = [
 name = "smelt-codegen-rust"
 version = "0.1.0"
 dependencies = [
+ "smelt-frontend-ts",
  "smelt-hir",
  "smelt-mir",
 ]
@@ -864,6 +865,8 @@ dependencies = [
 name = "smelt-mir"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "smelt-frontend-ts",
  "smelt-hir",
 ]
 
