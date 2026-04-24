@@ -112,3 +112,68 @@ clone-strategy = "aggressive"
     assert!(generated.contains("fn main()"));
     assert!(generated.contains("println!"));
 }
+
+#[test]
+fn end_to_end_examples_match_expected_outputs() {
+    for name in [
+        "01_number",
+        "02_string",
+        "03_boolean",
+        "04_null",
+        "05_alias",
+    ] {
+        let example = workspace_root()
+            .join("examples/typescript/end-to-end")
+            .join(name);
+        let input = example.join("input.ts");
+        let expected_mir = fs::read_to_string(example.join("expected.mir")).expect("expected MIR");
+
+        let actual_mir = smelt(&[
+            "dump-mir",
+            input
+                .strip_prefix(workspace_root())
+                .expect("relative input")
+                .to_str()
+                .expect("input path utf8"),
+        ]);
+        assert_eq!(actual_mir, expected_mir, "MIR mismatch for {name}");
+
+        let project = temp_project();
+        fs::create_dir_all(project.join("src")).expect("create temp project");
+        fs::write(
+            project.join("src/main.ts"),
+            fs::read_to_string(&input).expect("input source"),
+        )
+        .expect("write temp source");
+        fs::write(
+            project.join("Smelt.toml"),
+            r#"[project]
+name = "example-app"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "example_app"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+        )
+        .expect("write manifest");
+
+        let manifest = project.join("Smelt.toml");
+        smelt(&[
+            "--manifest-path",
+            manifest.to_str().expect("manifest path utf8"),
+            "build",
+        ]);
+
+        let expected_rs = fs::read_to_string(example.join("expected.rs")).expect("expected Rust");
+        let actual_rs = fs::read_to_string(project.join("dist/src/main.rs")).expect("actual Rust");
+        assert_eq!(actual_rs, expected_rs, "Rust mismatch for {name}");
+    }
+}
