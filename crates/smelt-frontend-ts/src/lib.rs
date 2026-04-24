@@ -291,7 +291,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     fn ensure_console_log_item(&mut self, span: Span) -> smelt_hir::ItemId {
-        let name = self.ctx.krate.symbols.intern("console_log");
+        let name = self.ctx.krate.symbols.intern(smelt_hir::CONSOLE_LOG_SYMBOL);
         let none = self.ctx.krate.types.intern(Type::None);
         self.ctx
             .krate
@@ -301,7 +301,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 params: Vec::new(),
                 return_ty: none,
                 is_async: false,
-                body: smelt_hir::BodyId(u32::MAX),
+                body: None,
             }))
     }
 

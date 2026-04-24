@@ -29,12 +29,50 @@ fn smelt(args: &[&str]) -> String {
     String::from_utf8(output.stdout).expect("stdout utf8")
 }
 
-fn temp_project() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time")
-        .as_nanos();
-    std::env::temp_dir().join(format!("smelt-cli-test-{}-{nonce}", std::process::id()))
+struct TempProject {
+    path: PathBuf,
+}
+
+impl TempProject {
+    fn new() -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        Self {
+            path: std::env::temp_dir()
+                .join(format!("smelt-cli-test-{}-{nonce}", std::process::id())),
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempProject {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn cargo_run_manifest(manifest: &Path) -> String {
+    let output = Command::new("cargo")
+        .arg("run")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(manifest)
+        .output()
+        .expect("run generated crate");
+
+    assert!(
+        output.status.success(),
+        "generated crate failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8(output.stdout).expect("generated stdout utf8")
 }
 
 #[test]
@@ -74,10 +112,11 @@ fn dump_mir_prints_optimized_mir_for_single_file() {
 
 #[test]
 fn build_emits_compilable_rust_crate() {
-    let project = temp_project();
-    fs::create_dir_all(project.join("src")).expect("create temp project");
+    let project = TempProject::new();
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src")).expect("create temp project");
     fs::write(
-        project.join("Smelt.toml"),
+        project_path.join("Smelt.toml"),
         r#"[project]
 name = "generated-app"
 version = "0.1.0"
@@ -96,19 +135,20 @@ clone-strategy = "aggressive"
     )
     .expect("write manifest");
     fs::write(
-        project.join("src/main.ts"),
+        project_path.join("src/main.ts"),
         "const message = \"hello smelt\";\nconsole.log(message);\n",
     )
     .expect("write source");
 
-    let manifest = project.join("Smelt.toml");
+    let manifest = project_path.join("Smelt.toml");
     smelt(&[
         "--manifest-path",
         manifest.to_str().expect("manifest path utf8"),
         "build",
     ]);
 
-    let generated = fs::read_to_string(project.join("dist/src/main.rs")).expect("generated main");
+    let generated =
+        fs::read_to_string(project_path.join("dist/src/main.rs")).expect("generated main");
     assert!(generated.contains("fn main()"));
     assert!(generated.contains("println!"));
 }
@@ -138,15 +178,16 @@ fn end_to_end_examples_match_expected_outputs() {
         ]);
         assert_eq!(actual_mir, expected_mir, "MIR mismatch for {name}");
 
-        let project = temp_project();
-        fs::create_dir_all(project.join("src")).expect("create temp project");
+        let project = TempProject::new();
+        let project_path = project.path();
+        fs::create_dir_all(project_path.join("src")).expect("create temp project");
         fs::write(
-            project.join("src/main.ts"),
+            project_path.join("src/main.ts"),
             fs::read_to_string(&input).expect("input source"),
         )
         .expect("write temp source");
         fs::write(
-            project.join("Smelt.toml"),
+            project_path.join("Smelt.toml"),
             r#"[project]
 name = "example-app"
 version = "0.1.0"
@@ -165,7 +206,7 @@ clone-strategy = "aggressive"
         )
         .expect("write manifest");
 
-        let manifest = project.join("Smelt.toml");
+        let manifest = project_path.join("Smelt.toml");
         smelt(&[
             "--manifest-path",
             manifest.to_str().expect("manifest path utf8"),
@@ -173,7 +214,16 @@ clone-strategy = "aggressive"
         ]);
 
         let expected_rs = fs::read_to_string(example.join("expected.rs")).expect("expected Rust");
-        let actual_rs = fs::read_to_string(project.join("dist/src/main.rs")).expect("actual Rust");
+        let actual_rs =
+            fs::read_to_string(project_path.join("dist/src/main.rs")).expect("actual Rust");
         assert_eq!(actual_rs, expected_rs, "Rust mismatch for {name}");
+
+        let expected_stdout =
+            fs::read_to_string(example.join("expected.stdout")).expect("expected stdout");
+        let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"));
+        assert_eq!(
+            actual_stdout, expected_stdout,
+            "runtime stdout mismatch for {name}"
+        );
     }
 }

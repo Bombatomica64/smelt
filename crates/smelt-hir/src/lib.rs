@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+pub const CONSOLE_LOG_SYMBOL: &str = "console_log";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FileId(pub u32);
 
@@ -141,7 +143,7 @@ pub struct Function {
     pub params: Vec<Param>,
     pub return_ty: TypeId,
     pub is_async: bool,
-    pub body: BodyId,
+    pub body: Option<BodyId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

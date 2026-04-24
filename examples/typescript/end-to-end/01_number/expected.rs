@@ -3,6 +3,4 @@
 fn main() {
     let count: f64 = 42.0;
     let _smelt_tmp_1: () = { println!("{}", count.clone()); };
-    return;
 }
-
