@@ -383,6 +383,26 @@ console.log(x);
     }
 
     #[test]
+    fn formats_compact_hir() {
+        let mut ctx = HirCtx::new();
+        let module_id = to_hir(
+            "let count = 42;
+console.log(count);
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("valid HIR");
+
+        let output = smelt_hir::format_compact(&ctx.krate, &[("sample.ts".to_owned(), module_id)]);
+
+        assert_eq!(
+            output,
+            "module sample.ts (ModuleId(0))\n  body BodyId(0)\n  locals\n    %0 let count: Float\n  exprs\n    #0: Float = 42.0\n    #1: Float = %0\n    #2: None = @0(console_log)\n    #3: None = call #2(#1)\n  stmts\n    s0: let %0: Float = #0\n    s1: #3\n\ninterned types\n  t0 = Float\n  t1 = None\n"
+        );
+    }
+
+    #[test]
     fn normalizes_camel_case() {
         assert_eq!(camel_to_snake("myFunction"), "my_function");
         assert_eq!(camel_to_snake("URLParser"), "url_parser");

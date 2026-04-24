@@ -5,7 +5,7 @@ description = "An Express app smelted into Rust"
 
 [sources]
 # Entry points. smelt walks imports from here to discover the rest.
-entries = ["src/01_number.ts"]
+entries = ["01_number.ts"]
 # Optional: extra roots searched during import resolution.
 roots = ["src", "lib"]
 

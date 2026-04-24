@@ -7,7 +7,10 @@ use cli_parser::{Args, Command};
 use config::{Config, Pipeline};
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::{FileId, ModuleId, format_compact};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     for pipeline in config.pipelines() {
@@ -41,12 +44,18 @@ fn lower_typescript_files(
 
 fn lower_manifest_typescript(
     config: &Config,
+    manifest_path: &Path,
 ) -> Result<(smelt_hir::Crate, Vec<(String, ModuleId)>), Box<dyn std::error::Error>> {
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let files = config
         .entries()
         .iter()
         .filter(|path| path.extension().is_some_and(|extension| extension == "ts"))
-        .map(|path| path.display().to_string())
+        .map(|path| {
+            resolve_manifest_path(manifest_dir, path)
+                .display()
+                .to_string()
+        })
         .collect::<Vec<_>>();
 
     if files.is_empty() {
@@ -58,6 +67,14 @@ fn lower_manifest_typescript(
     }
 
     lower_typescript_files(&files)
+}
+
+fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        manifest_dir.join(path)
+    }
 }
 
 fn print_hir(krate: &smelt_hir::Crate, modules: &[(String, ModuleId)], debug: bool) {
@@ -78,12 +95,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let manifest_path = args.manifest_path.unwrap_or("Smelt.toml".to_string());
-    let config = config_parser::parse(&manifest_path)?;
+    let manifest_path = PathBuf::from(manifest_path);
+    let config = config_parser::parse(
+        manifest_path
+            .to_str()
+            .ok_or("manifest path contains invalid UTF-8")?,
+    )?;
     match args.command {
         Command::Check => check(&config)?,
         Command::Build { hir, hir_debug } => {
             if hir || hir_debug {
-                let (krate, modules) = lower_manifest_typescript(&config)?;
+                let (krate, modules) = lower_manifest_typescript(&config, &manifest_path)?;
                 print_hir(&krate, &modules, hir_debug);
                 return Ok(());
             }
