@@ -10,6 +10,7 @@ use smelt_hir::{FileId, ModuleId, format_compact};
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command as ProcessCommand,
 };
 
 fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
@@ -85,6 +86,69 @@ fn print_hir(krate: &smelt_hir::Crate, modules: &[(String, ModuleId)], debug: bo
     }
 }
 
+fn print_mir(krate: &smelt_hir::Crate) -> Result<(), Box<dyn std::error::Error>> {
+    let mir = lower_to_optimized_mir(krate)?;
+    print!("{}", smelt_mir::format_compact(&mir));
+    Ok(())
+}
+
+fn lower_to_optimized_mir(
+    krate: &smelt_hir::Crate,
+) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
+    let mut mir = smelt_mir::lower_hir(krate).map_err(|errors| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("MIR lowering failed:\n{errors:#?}"),
+        )
+    })?;
+    smelt_mir::opt::optimize(&mut mir);
+    let validation_errors = smelt_mir::validate(&mir);
+    if !validation_errors.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("MIR validation failed:\n{validation_errors:#?}"),
+        )
+        .into());
+    }
+    Ok(mir)
+}
+
+fn build_rust_crate(
+    config: &Config,
+    manifest_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (krate, _) = lower_manifest_typescript(config, manifest_path)?;
+    let mir = lower_to_optimized_mir(&krate)?;
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let output_dir = resolve_manifest_path(manifest_dir, config.output_target());
+    let crate_name = config
+        .output_crate_name()
+        .unwrap_or_else(|| config.project_name())
+        .replace('-', "_");
+    smelt_codegen_rust::emit_crate(
+        &mir,
+        &output_dir,
+        &smelt_codegen_rust::EmitOptions { crate_name },
+    )?;
+
+    if config.should_build_output() {
+        let output = ProcessCommand::new("cargo")
+            .arg("build")
+            .current_dir(&output_dir)
+            .output()?;
+        if !output.status.success() {
+            return Err(std::io::Error::other(format!(
+                "generated crate failed to build\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ))
+            .into());
+        }
+    }
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
@@ -109,15 +173,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 print_hir(&krate, &modules, hir_debug);
                 return Ok(());
             }
-            check(&config)?;
-            todo!("codegen")
+            build_rust_crate(&config, &manifest_path)?;
         }
         Command::New { name, python } => todo!("new {name} python={python}"),
         Command::DumpHir { file, debug } => {
             let (krate, modules) = lower_typescript_files(&[file])?;
             print_hir(&krate, &modules, debug);
         }
-        Command::DumpMir { file } => todo!("dump-mir {file}"),
+        Command::DumpMir { file } => {
+            let (krate, _) = lower_typescript_files(&[file])?;
+            print_mir(&krate)?;
+        }
         Command::Clean => todo!("clean"),
         Command::DumpSchema => unreachable!(),
     }
