@@ -3,6 +3,4 @@
 fn main() {
     let enabled: bool = true;
     let _smelt_tmp_1: () = { println!("{}", enabled.clone()); };
-    return;
 }
-

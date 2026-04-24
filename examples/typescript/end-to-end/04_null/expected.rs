@@ -2,7 +2,5 @@
 
 fn main() {
     let empty: () = ();
-    let _smelt_tmp_1: () = { println!("{}", empty.clone()); };
-    return;
+    let _smelt_tmp_1: () = { println!("{}", "null"); };
 }
-

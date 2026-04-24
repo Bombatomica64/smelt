@@ -49,3 +49,13 @@ The generated `Cargo.toml` pins a specific Tokio minor version. Document the cho
 - `Send`/`Sync` analysis (we just slap `Send` on everything and let `cargo build` complain if it's wrong).
 - Streams / async iterators (deferred).
 - Cancellation safety analysis (deferred).
+
+## Reference: How Perry Does It
+
+Perry (a TS→native compiler with no JS runtime) solved async without a GC or JS runtime — worth reading before/during implementation:
+
+- [Threading overview](https://github.com/PerryTS/perry/blob/main/docs/src/threading/overview.md) — how Perry maps async/await to real OS threads and coroutines via LLVM
+- [spawn](https://github.com/PerryTS/perry/blob/main/docs/src/threading/spawn.md) — their spawn primitive
+- [parallelMap](https://github.com/PerryTS/perry/blob/main/docs/src/threading/parallel-map.md) — their `Promise.all` equivalent
+
+Smelt's approach differs (we emit Tokio/Rust async rather than LLVM coroutines), but Perry's constraint — async without a JS runtime and without a GC — is the same constraint we're operating under. Their solutions for async boundaries and thread safety are worth comparing against our lowering strategy.

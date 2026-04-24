@@ -222,40 +222,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 body,
             ),
             Expression::CallExpression(call) => {
-                if let Expression::StaticMemberExpression(member) = &call.callee {
-                    if let Expression::Identifier(object) = &member.object {
-                        if object.name == "console" && member.property.name == "log" {
-                            let mut args = Vec::new();
-                            for arg in &call.arguments {
-                                let Argument::Identifier(ident) = arg else {
-                                    return Err(SmeltError::unsupported(
-                                        self.span(call.span.start, call.span.end),
-                                        "console.log currently accepts identifier arguments only",
-                                    ));
-                                };
-                                args.push(self.identifier_expression(
-                                    ident.name.as_str(),
-                                    ident.span.start,
-                                    ident.span.end,
-                                    body,
-                                )?);
-                            }
-                            let ty = self.ctx.krate.types.intern(Type::None);
-                            let callee_item = self.ensure_console_log_item(
-                                self.span(member.span.start, member.span.end),
-                            );
-                            let callee = body.push_expr(Expr {
-                                kind: ExprKind::Item(callee_item),
-                                ty,
-                                span: self.span(member.span.start, member.span.end),
-                            });
-                            return Ok(body.push_expr(Expr {
-                                kind: ExprKind::Call { callee, args },
-                                ty,
-                                span: self.span(call.span.start, call.span.end),
-                            }));
-                        }
+                if let Expression::StaticMemberExpression(member) = &call.callee
+                    && let Expression::Identifier(object) = &member.object
+                    && object.name == "console"
+                    && member.property.name == "log"
+                {
+                    let mut args = Vec::new();
+                    for arg in &call.arguments {
+                        let Argument::Identifier(ident) = arg else {
+                            return Err(SmeltError::unsupported(
+                                self.span(call.span.start, call.span.end),
+                                "console.log currently accepts identifier arguments only",
+                            ));
+                        };
+                        args.push(self.identifier_expression(
+                            ident.name.as_str(),
+                            ident.span.start,
+                            ident.span.end,
+                            body,
+                        )?);
                     }
+                    let ty = self.ctx.krate.types.intern(Type::None);
+                    let callee_item = self
+                        .ensure_console_log_item(self.span(member.span.start, member.span.end));
+                    let callee = body.push_expr(Expr {
+                        kind: ExprKind::Item(callee_item),
+                        ty,
+                        span: self.span(member.span.start, member.span.end),
+                    });
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Call { callee, args },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
                 }
                 Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -291,7 +290,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     fn ensure_console_log_item(&mut self, span: Span) -> smelt_hir::ItemId {
-        let name = self.ctx.krate.symbols.intern("console_log");
+        let name = self.ctx.krate.symbols.intern(smelt_hir::CONSOLE_LOG_SYMBOL);
         let none = self.ctx.krate.types.intern(Type::None);
         self.ctx
             .krate
@@ -301,7 +300,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 params: Vec::new(),
                 return_ty: none,
                 is_async: false,
-                body: smelt_hir::BodyId(u32::MAX),
+                body: None,
             }))
     }
 
