@@ -243,9 +243,12 @@ impl<'hir> LoweringCtx<'hir> {
         else_hir: Option<smelt_hir::BlockId>,
     ) -> Result<(), LowerError> {
         let cond = self.lower_expr(cond)?;
-        let span = self.block().span;
-        let then_mir = self.function.push_block(span);
-        let else_mir = self.function.push_block(span);
+        let then_span = self.body.blocks[then_hir.0 as usize].span;
+        let else_span = else_hir
+            .map(|block| self.body.blocks[block.0 as usize].span)
+            .unwrap_or_else(|| self.block().span);
+        let then_mir = self.function.push_block(then_span);
+        let else_mir = self.function.push_block(else_span);
         self.set_terminator(Terminator::Switch {
             cond,
             then_block: then_mir,
@@ -256,7 +259,7 @@ impl<'hir> LoweringCtx<'hir> {
         self.lower_block_stmts(then_hir)?;
 
         if let Some(else_hir) = else_hir {
-            let join = self.function.push_block(span);
+            let join = self.function.push_block(self.block().span);
             if self.block().terminator.is_none() {
                 self.set_terminator(Terminator::Goto(join));
             }

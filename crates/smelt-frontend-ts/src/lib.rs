@@ -164,6 +164,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "declare functions are not lowered yet",
             ));
         };
+        if function.r#async {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "async functions are not lowered yet",
+            ));
+        }
 
         let name_text = id.name.as_str();
         let name = self.intern_source_name(name_text);
@@ -482,7 +488,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(declarator.span.start, declarator.span.end),
+                    "for...of bindings must have explicit type annotations",
+                )
+            })?;
         let name = binding.name.as_str();
         let symbol = self.intern_source_name(name);
         let local = body.push_local(LocalDecl {
@@ -558,8 +569,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     BinaryOperator::Subtraction => BinOp::Sub,
                     BinaryOperator::Multiplication => BinOp::Mul,
                     BinaryOperator::Division => BinOp::Div,
-                    BinaryOperator::Equality | BinaryOperator::StrictEquality => BinOp::Eq,
-                    BinaryOperator::Inequality | BinaryOperator::StrictInequality => BinOp::NotEq,
+                    BinaryOperator::StrictEquality => BinOp::Eq,
+                    BinaryOperator::StrictInequality => BinOp::NotEq,
+                    BinaryOperator::Equality | BinaryOperator::Inequality => {
+                        return Err(SmeltError::unsupported(
+                            self.span(binary.span.start, binary.span.end),
+                            "coercive equality is not lowered; use === or !==",
+                        ));
+                    }
                     BinaryOperator::LessThan => BinOp::Lt,
                     BinaryOperator::LessEqualThan => BinOp::Lte,
                     BinaryOperator::GreaterThan => BinOp::Gt,
@@ -1040,5 +1057,54 @@ console.log(result);
         assert_eq!(arms.len(), 3);
         assert!(default.is_none());
         assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    }
+
+    #[test]
+    fn rejects_coercive_equality() {
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(
+            "function same(a: number, b: number): boolean {
+  return a == b;
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect_err("coercive equality is unsupported");
+
+        assert!(errors[0].message.contains("coercive equality"));
+    }
+
+    #[test]
+    fn rejects_untyped_for_of_binding() {
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(
+            "let values = 1;
+for (let item of values) {
+  continue;
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect_err("for-of binding must be typed");
+
+        assert!(errors[0].message.contains("explicit type annotations"));
+    }
+
+    #[test]
+    fn rejects_async_functions_until_async_lowering_exists() {
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(
+            "async function load(): string {
+  return \"done\";
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect_err("async functions are unsupported");
+
+        assert!(errors[0].message.contains("async functions"));
     }
 }

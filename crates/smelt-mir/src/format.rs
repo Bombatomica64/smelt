@@ -79,27 +79,10 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!(
                 "{} {} {}",
                 operand_text(lhs),
-                bin_op_text(*op),
+                smelt_hir::bin_op_text(*op),
                 operand_text(rhs)
             )
         }
-    }
-}
-
-fn bin_op_text(op: smelt_hir::BinOp) -> &'static str {
-    match op {
-        smelt_hir::BinOp::Add => "+",
-        smelt_hir::BinOp::Sub => "-",
-        smelt_hir::BinOp::Mul => "*",
-        smelt_hir::BinOp::Div => "/",
-        smelt_hir::BinOp::Eq => "==",
-        smelt_hir::BinOp::NotEq => "!=",
-        smelt_hir::BinOp::Lt => "<",
-        smelt_hir::BinOp::Lte => "<=",
-        smelt_hir::BinOp::Gt => ">",
-        smelt_hir::BinOp::Gte => ">=",
-        smelt_hir::BinOp::And => "&&",
-        smelt_hir::BinOp::Or => "||",
     }
 }
 

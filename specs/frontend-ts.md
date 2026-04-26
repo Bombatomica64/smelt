@@ -69,6 +69,7 @@ A separate visitor pass over the oxc `Program` (already type-annotated by phase 
 | `smelt::no-jsx`                       | JSX/TSX syntax                                             |
 | `smelt::no-namespace`                 | `namespace`/`module` declarations                          |
 | `smelt::no-mixed-eq`                  | `==` between mixed-type operands (use `===` on same types) |
+| `smelt::no-coercive-eq`               | `==` / `!=` coercive equality (use `===` / `!==`)           |
 | `smelt::no-untyped-let`               | `let x = …` where the inferred type contains `any`         |
 | `smelt::no-multiple-inheritance`      | `class C extends A, B` (the parser would reject; safety)   |
 

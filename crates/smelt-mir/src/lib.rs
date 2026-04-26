@@ -53,4 +53,37 @@ mod tests {
 
         assert!(output.contains("%2 = call @console_log(copy %0) -> bb1"));
     }
+
+    #[test]
+    fn while_and_for_lowering_fail_without_panicking() {
+        let mut ctx = HirCtx::new();
+        to_hir(
+            "let count = 0;
+while (count < 10) {
+  break;
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("HIR");
+
+        let errors = lower_hir(&ctx.krate).expect_err("while lowering is deferred");
+        assert!(errors[0].message.contains("while CFG lowering"));
+
+        let mut ctx = HirCtx::new();
+        to_hir(
+            "let values = 1;
+for (let item: number of values) {
+  continue;
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("HIR");
+
+        let errors = lower_hir(&ctx.krate).expect_err("for lowering is deferred");
+        assert!(errors[0].message.contains("for CFG lowering"));
+    }
 }

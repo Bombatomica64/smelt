@@ -248,12 +248,18 @@ impl<'mir> FunctionEmitter<'mir> {
             return self.emit_block(self.block(*then_target)?, out);
         }
 
-        out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
-        self.emit_block(then, out)?;
-        out.push_str("    } else {\n");
-        self.emit_block(else_, out)?;
-        out.push_str("    }\n");
-        Ok(())
+        if block_terminates(then) && block_terminates(else_) {
+            out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+            self.emit_block(then, out)?;
+            out.push_str("    } else {\n");
+            self.emit_block(else_, out)?;
+            out.push_str("    }\n");
+            return Ok(());
+        }
+
+        Err(EmitError::new(
+            "if/else codegen requires structured branches with a shared join or terminating arms",
+        ))
     }
 
     fn emit_match(
@@ -321,7 +327,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::Binary { op, lhs, rhs } => Ok(format!(
                 "{} {} {}",
                 self.operand_text(lhs)?,
-                bin_op_text(*op),
+                smelt_hir::bin_op_text(*op),
                 self.operand_text(rhs)?
             )),
         }
@@ -518,21 +524,11 @@ fn constant_text(constant: &Constant) -> String {
     }
 }
 
-fn bin_op_text(op: smelt_hir::BinOp) -> &'static str {
-    match op {
-        smelt_hir::BinOp::Add => "+",
-        smelt_hir::BinOp::Sub => "-",
-        smelt_hir::BinOp::Mul => "*",
-        smelt_hir::BinOp::Div => "/",
-        smelt_hir::BinOp::Eq => "==",
-        smelt_hir::BinOp::NotEq => "!=",
-        smelt_hir::BinOp::Lt => "<",
-        smelt_hir::BinOp::Lte => "<=",
-        smelt_hir::BinOp::Gt => ">",
-        smelt_hir::BinOp::Gte => ">=",
-        smelt_hir::BinOp::And => "&&",
-        smelt_hir::BinOp::Or => "||",
-    }
+fn block_terminates(block: &BasicBlock) -> bool {
+    matches!(
+        block.terminator,
+        Some(Terminator::Return(_) | Terminator::Unreachable)
+    )
 }
 
 fn sanitize_ident(name: &str) -> String {
