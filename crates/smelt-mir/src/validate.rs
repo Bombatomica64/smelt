@@ -81,6 +81,28 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     define_local(function, &mut definitions, *dest, errors);
                     validate_block_exists(function, *target, errors);
                 }
+                Terminator::Switch {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
+                    validate_operand(function, &definitions, cond, errors);
+                    validate_block_exists(function, *then_block, errors);
+                    validate_block_exists(function, *else_block, errors);
+                }
+                Terminator::Match {
+                    scrutinee,
+                    arms,
+                    default,
+                } => {
+                    validate_operand(function, &definitions, scrutinee, errors);
+                    for arm in arms {
+                        validate_block_exists(function, arm.target, errors);
+                    }
+                    if let Some(default) = default {
+                        validate_block_exists(function, *default, errors);
+                    }
+                }
                 Terminator::Return(operand) => {
                     validate_operand(function, &definitions, operand, errors);
                 }
@@ -117,6 +139,10 @@ fn validate_rvalue(
 ) {
     match value {
         Rvalue::Use(operand) => validate_operand(function, definitions, operand, errors),
+        Rvalue::Binary { lhs, rhs, .. } => {
+            validate_operand(function, definitions, lhs, errors);
+            validate_operand(function, definitions, rhs, errors);
+        }
     }
 }
 

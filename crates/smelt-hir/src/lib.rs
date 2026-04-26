@@ -8,7 +8,7 @@ mod symbol;
 mod ty;
 mod validate;
 
-pub use body::{Block, Body, LocalDecl, Pattern, Stmt};
+pub use body::{Block, Body, LocalDecl, MatchArm, Pattern, Stmt};
 pub use expr::{BinOp, Expr, ExprKind, Literal, UnaryOp};
 pub use format::format_compact;
 pub use ids::{

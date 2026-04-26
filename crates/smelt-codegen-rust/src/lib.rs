@@ -70,7 +70,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
 
 fn cargo_toml(options: &EmitOptions) -> String {
     format!(
-        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n",
+        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n",
         options.crate_name
     )
 }
@@ -121,8 +121,22 @@ impl<'mir> FunctionEmitter<'mir> {
         if name == "main" && self.function.return_ty == self.none_ty {
             out.push_str("fn main() {\n");
         } else {
+            let params = self
+                .function
+                .params
+                .iter()
+                .map(|param| {
+                    let local = self.local_decl(*param)?;
+                    Ok(format!(
+                        "{}: {}",
+                        self.local_name(*param)?,
+                        self.type_text(local.ty)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
             out.push_str(&format!(
-                "fn {}() -> {} {{\n",
+                "fn {}({params}) -> {} {{\n",
                 sanitize_ident(name),
                 self.type_text(self.function.return_ty)?
             ));
@@ -162,9 +176,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     fn emit_terminator(&self, terminator: &Terminator, out: &mut String) -> Result<(), EmitError> {
         match terminator {
-            Terminator::Goto(_) => Err(EmitError::new(
-                "goto codegen is not implemented yet; CFG must be structured before Rust emission",
-            )),
+            Terminator::Goto(target) => self.emit_block(self.block(*target)?, out),
             Terminator::Call {
                 callee,
                 args,
@@ -180,6 +192,16 @@ impl<'mir> FunctionEmitter<'mir> {
                 ));
                 self.emit_block(self.block(*target)?, out)
             }
+            Terminator::Switch {
+                cond,
+                then_block,
+                else_block,
+            } => self.emit_switch(cond, *then_block, *else_block, out),
+            Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            } => self.emit_match(scrutinee, arms, *default, out),
             Terminator::Return(operand) => {
                 if self.function.return_ty == self.none_ty {
                     if !matches!(operand, Operand::Const(Constant::None)) {
@@ -197,9 +219,111 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    fn emit_switch(
+        &self,
+        cond: &Operand,
+        then_block: smelt_mir::BlockId,
+        else_block: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let then = self.block(then_block)?;
+        let else_ = self.block(else_block)?;
+
+        if matches!(then.terminator, Some(Terminator::Goto(target)) if target == else_block) {
+            out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+            self.emit_block_until_goto(then, else_block, out)?;
+            out.push_str("    }\n");
+            return self.emit_block(else_, out);
+        }
+
+        if let (Some(Terminator::Goto(then_target)), Some(Terminator::Goto(else_target))) =
+            (&then.terminator, &else_.terminator)
+            && then_target == else_target
+        {
+            out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+            self.emit_block_until_goto(then, *then_target, out)?;
+            out.push_str("    } else {\n");
+            self.emit_block_until_goto(else_, *else_target, out)?;
+            out.push_str("    }\n");
+            return self.emit_block(self.block(*then_target)?, out);
+        }
+
+        out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+        self.emit_block(then, out)?;
+        out.push_str("    } else {\n");
+        self.emit_block(else_, out)?;
+        out.push_str("    }\n");
+        Ok(())
+    }
+
+    fn emit_match(
+        &self,
+        scrutinee: &Operand,
+        arms: &[smelt_mir::MatchArm],
+        default: Option<smelt_mir::BlockId>,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let scrutinee = self.match_scrutinee_text(scrutinee)?;
+        out.push_str(&format!("    match {scrutinee} {{\n"));
+        for arm in arms {
+            out.push_str(&format!(
+                "        {} => {{\n",
+                self.match_label_text(&arm.label)
+            ));
+            self.emit_block_as_match_arm(self.block(arm.target)?, out)?;
+            out.push_str("        }\n");
+        }
+        if let Some(default) = default {
+            out.push_str("        _ => {\n");
+            self.emit_block_as_match_arm(self.block(default)?, out)?;
+            out.push_str("        }\n");
+        } else {
+            out.push_str("        _ => unreachable!(),\n");
+        }
+        out.push_str("    }\n");
+        Ok(())
+    }
+
+    fn emit_block_as_match_arm(
+        &self,
+        block: &BasicBlock,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        for statement in &block.statements {
+            self.emit_statement(statement, out)?;
+        }
+        match &block.terminator {
+            Some(Terminator::Goto(_)) => Ok(()),
+            Some(terminator) => self.emit_terminator(terminator, out),
+            None => Err(EmitError::new("basic block has no terminator")),
+        }
+    }
+
+    fn emit_block_until_goto(
+        &self,
+        block: &BasicBlock,
+        stop: smelt_mir::BlockId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        for statement in &block.statements {
+            self.emit_statement(statement, out)?;
+        }
+        match &block.terminator {
+            Some(Terminator::Goto(target)) if *target == stop => Ok(()),
+            Some(terminator) => self.emit_terminator(terminator, out),
+            None => Err(EmitError::new("basic block has no terminator")),
+        }
+    }
+
     fn rvalue_text(&self, value: &Rvalue) -> Result<String, EmitError> {
         match value {
             Rvalue::Use(operand) => self.operand_text(operand),
+            Rvalue::Binary { op, lhs, rhs } => Ok(format!(
+                "{} {} {}",
+                self.operand_text(lhs)?,
+                bin_op_text(*op),
+                self.operand_text(rhs)?
+            )),
         }
     }
 
@@ -254,7 +378,22 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-fn operand_ty(&self, operand: &Operand) -> Result<TypeId, EmitError> {
+    fn match_scrutinee_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        if self.operand_ty(operand)? == self.type_id(Type::String)? {
+            Ok(format!("{}.as_str()", self.operand_text(operand)?))
+        } else {
+            self.operand_text(operand)
+        }
+    }
+
+    fn match_label_text(&self, constant: &Constant) -> String {
+        match constant {
+            Constant::String(value) => format!("{value:?}"),
+            _ => constant_text(constant),
+        }
+    }
+
+    fn operand_ty(&self, operand: &Operand) -> Result<TypeId, EmitError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_ty(place),
             Operand::Const(Constant::None) => Ok(self.none_ty),
@@ -379,6 +518,23 @@ fn constant_text(constant: &Constant) -> String {
     }
 }
 
+fn bin_op_text(op: smelt_hir::BinOp) -> &'static str {
+    match op {
+        smelt_hir::BinOp::Add => "+",
+        smelt_hir::BinOp::Sub => "-",
+        smelt_hir::BinOp::Mul => "*",
+        smelt_hir::BinOp::Div => "/",
+        smelt_hir::BinOp::Eq => "==",
+        smelt_hir::BinOp::NotEq => "!=",
+        smelt_hir::BinOp::Lt => "<",
+        smelt_hir::BinOp::Lte => "<=",
+        smelt_hir::BinOp::Gt => ">",
+        smelt_hir::BinOp::Gte => ">=",
+        smelt_hir::BinOp::And => "&&",
+        smelt_hir::BinOp::Or => "||",
+    }
+}
+
 fn sanitize_ident(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     for (idx, ch) in name.chars().enumerate() {
@@ -474,5 +630,64 @@ mod tests {
         let source = source_for("const message = \"hello smelt\";\nconsole.log(message);\n");
 
         assert!(source.contains("let message: String = \"hello smelt\".to_owned();"));
+    }
+
+    #[test]
+    fn emits_static_function_with_params_and_return_value() {
+        let source = source_for(
+            "function add(a: number, b: number): number {
+  return a + b;
+}
+const result = add(2, 3);
+console.log(result);
+",
+        );
+
+        assert!(source.contains("fn add(arg_0: f64, arg_1: f64) -> f64 {"));
+        assert!(source.contains("arg_0.clone() + arg_1.clone()"));
+        assert!(source.contains("let _smelt_tmp_1: f64 = add(2.0, 3.0);"));
+    }
+
+    #[test]
+    fn emits_if_else_control_flow() {
+        let source = source_for(
+            "function max(a: number, b: number): number {
+  if (a > b) {
+    return a;
+  }
+  return b;
+}
+const result = max(2, 3);
+console.log(result);
+",
+        );
+
+        assert!(source.contains("if _smelt_tmp_2.clone() {"));
+        assert!(source.contains("return arg_0.clone();"));
+        assert!(source.contains("return arg_1.clone();"));
+    }
+
+    #[test]
+    fn emits_switch_as_rust_match() {
+        let source = source_for(
+            "function label(status: \"pending\" | \"approved\" | \"rejected\"): string {
+  switch (status) {
+    case \"pending\":
+      return \"Waiting\";
+    case \"approved\":
+      return \"Approved\";
+    case \"rejected\":
+      return \"Rejected\";
+  }
+}
+const result = label(\"approved\");
+console.log(result);
+",
+        );
+
+        assert!(source.contains("match arg_0.clone().as_str() {"));
+        assert!(source.contains("\"pending\" => {"));
+        assert!(source.contains("return \"Waiting\".to_owned();"));
+        assert!(source.contains("_ => unreachable!(),"));
     }
 }

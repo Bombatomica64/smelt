@@ -91,6 +91,44 @@ fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
         Stmt::Expr(expr) => expr_ref(*expr),
         Stmt::Return(Some(expr)) => format!("return {}", expr_ref(*expr)),
         Stmt::Return(None) => "return".to_owned(),
+        Stmt::If {
+            cond,
+            then_block,
+            else_block,
+        } => {
+            let else_text = else_block
+                .map(|block| format!(" else {block:?}"))
+                .unwrap_or_default();
+            format!("if {} then {:?}{}", expr_ref(*cond), then_block, else_text)
+        }
+        Stmt::While { cond, body } => format!("while {} {:?}", expr_ref(*cond), body),
+        Stmt::For {
+            pat,
+            iter,
+            body: loop_body,
+        } => {
+            format!(
+                "for {} in {} {:?}",
+                pattern_text(body, *pat),
+                expr_ref(*iter),
+                loop_body
+            )
+        }
+        Stmt::Match {
+            scrutinee,
+            arms,
+            default,
+        } => {
+            let arms = arms
+                .iter()
+                .map(|arm| format!("{} => {:?}", literal_text(&arm.label), arm.body))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let default = default
+                .map(|block| format!(" default {block:?}"))
+                .unwrap_or_default();
+            format!("match {} {{{}}}{}", expr_ref(*scrutinee), arms, default)
+        }
         Stmt::Throw(expr) => format!("throw {}", expr_ref(*expr)),
         Stmt::Break => "break".to_owned(),
         Stmt::Continue => "continue".to_owned(),

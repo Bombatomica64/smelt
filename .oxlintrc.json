@@ -1,0 +1,11 @@
+{
+  "options": {
+    "typeAware": true
+  },
+  "rules": {
+    "no-explicit-any": "error",
+    "no-var": "error",
+    "no-eval": "error",
+    "typescript/switch-exhaustiveness-check": "error"
+  }
+}
