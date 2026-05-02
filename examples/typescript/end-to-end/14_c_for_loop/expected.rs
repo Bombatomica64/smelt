@@ -4,10 +4,12 @@ fn main() {
     let mut sum: f64 = 0.0;
     let mut i: f64 = 0.0;
     while i.clone() < 4.0 {
-    let _smelt_tmp_3: f64 = sum.clone() + i.clone();
-    sum = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: f64 = i.clone() + 1.0;
-    i = _smelt_tmp_4.clone();
+        let _smelt_tmp_3: f64 = sum.clone() + i.clone();
+        sum = _smelt_tmp_3.clone();
+        let _smelt_tmp_4: f64 = i.clone() + 1.0;
+        i = _smelt_tmp_4.clone();
     }
-    let _smelt_tmp_5: () = { println!("{}", sum.clone()); };
+    let _smelt_tmp_5: () = {
+        println!("{}", sum.clone());
+    };
 }

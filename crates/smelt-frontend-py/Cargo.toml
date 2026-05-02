@@ -8,6 +8,18 @@ workspace = true
 
 [dependencies]
 smelt-hir = { path = "../smelt-hir" }
-# Python parsing. Type-checking via `ty` CLI (shelled out) — embed decision deferred to M8.
-tree-sitter = "0.26"
-tree-sitter-python = "0.25"
+
+# Python parsing via Astral's Ruff parser. Not published to crates.io, so we
+# pull it from the upstream git repo — the same approach `ty` (Astral's type
+# checker) takes. Type-checking is deferred to a later milestone; here we only
+# need the parser + AST + text-size primitives.
+#
+# TODO: pin to a specific `rev = "<sha>"` once we settle on a baseline. Using
+# `branch = "main"` lets Cargo's lockfile record the SHA at first build, but
+# rebuilds may pick up upstream churn until pinned.
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", branch = "main" }
+ruff_python_ast    = { git = "https://github.com/astral-sh/ruff", branch = "main" }
+ruff_text_size     = { git = "https://github.com/astral-sh/ruff", branch = "main" }
+
+[dev-dependencies]
+pico-args = "0.5"

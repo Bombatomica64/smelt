@@ -5,13 +5,29 @@ mod config_parser;
 use clap::Parser;
 use cli_parser::{Args, Command};
 use config::{Config, Pipeline};
-use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::{FileId, ModuleId, format_compact};
 use std::{
     fs,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
 };
+
+/// Source language inferred from a file path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceLang {
+    TypeScript,
+    Python,
+}
+
+impl SourceLang {
+    fn from_path(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        match Path::new(path).extension().and_then(|e| e.to_str()) {
+            Some("ts") => Ok(Self::TypeScript),
+            Some("py") => Ok(Self::Python),
+            _ => Err(format!("unsupported source extension: {path}").into()),
+        }
+    }
+}
 
 type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
 
@@ -26,21 +42,64 @@ fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn lower_typescript_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let mut ctx = HirCtx::new();
+    let mut ctx = smelt_frontend_ts::HirCtx::new();
     let mut modules = Vec::new();
 
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
-        let module = to_hir(&source, FileId(idx as u32), &mut ctx).map_err(|errors| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("{}:\n{errors:#?}", Path::new(file).display()),
-            )
-        })?;
+        let module =
+            smelt_frontend_ts::to_hir(&source, FileId(idx as u32), &mut ctx).map_err(|errors| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{}:\n{errors:#?}", Path::new(file).display()),
+                )
+            })?;
         modules.push((file.clone(), module));
     }
 
     Ok((ctx.krate, modules))
+}
+
+fn lower_python_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+    let mut ctx = smelt_frontend_py::HirCtx::new();
+    let mut modules = Vec::new();
+
+    for (idx, file) in files.iter().enumerate() {
+        let source = fs::read_to_string(file)?;
+        let module =
+            smelt_frontend_py::to_hir(&source, FileId(idx as u32), &mut ctx).map_err(|errors| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{}:\n{errors:#?}", Path::new(file).display()),
+                )
+            })?;
+        modules.push((file.clone(), module));
+    }
+
+    Ok((ctx.krate, modules))
+}
+
+/// Dispatch a single source file to the right frontend based on its extension.
+fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+    match SourceLang::from_path(file)? {
+        SourceLang::TypeScript => lower_typescript_files(&[file.to_string()]),
+        SourceLang::Python => lower_python_files(&[file.to_string()]),
+    }
+}
+
+/// Parse a Python file and dump the Ruff AST. Used for the M8 scaffold while
+/// HIR lowering is still incomplete — lets the user verify parsing works
+/// end-to-end via the CLI without needing a fully-populated HIR.
+fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let source = fs::read_to_string(file)?;
+    let module = smelt_frontend_py::parse_module(&source, FileId(0)).map_err(|errors| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("{}:\n{errors:#?}", Path::new(file).display()),
+        )
+    })?;
+    println!("{module:#?}");
+    Ok(())
 }
 
 fn lower_manifest_typescript(
@@ -177,12 +236,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Command::New { name, python } => todo!("new {name} python={python}"),
         Command::DumpHir { file, debug } => {
-            let (krate, modules) = lower_typescript_files(&[file])?;
+            let (krate, modules) = lower_single_file(&file)?;
             print_hir(&krate, &modules, debug);
         }
         Command::DumpMir { file } => {
-            let (krate, _) = lower_typescript_files(&[file])?;
+            let (krate, _) = lower_single_file(&file)?;
             print_mir(&krate)?;
+        }
+        Command::DumpAst { file } => {
+            // Currently Python-only; TS already roundtrips through HIR cleanly.
+            match SourceLang::from_path(&file)? {
+                SourceLang::Python => dump_python_ast(&file)?,
+                SourceLang::TypeScript => {
+                    return Err("--dump-ast is only supported for .py files; \
+                                use `smelt dump-hir --debug` for TypeScript"
+                        .into());
+                }
+            }
         }
         Command::Clean => todo!("clean"),
         Command::DumpSchema => unreachable!(),

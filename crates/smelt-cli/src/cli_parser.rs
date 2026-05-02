@@ -51,6 +51,9 @@ pub enum Command {
     /// Print the MIR for a single source file (debug)
     DumpMir { file: String },
 
+    /// Print the raw parser AST for a single source file (Python only for now)
+    DumpAst { file: String },
+
     /// Remove the output target directory
     Clean,
     /// Print the JSON Schema for Smelt.toml
