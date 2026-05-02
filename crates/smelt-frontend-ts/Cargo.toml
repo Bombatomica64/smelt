@@ -3,6 +3,9 @@ name = "smelt-frontend-ts"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 smelt-hir = { path = "../smelt-hir" }
 oxc = { version = "0.124.0", features = ["semantic"] }

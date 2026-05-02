@@ -374,7 +374,22 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 for case in &switch_stmt.cases {
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     for statement in &case.consequent {
+                        if matches!(
+                            statement,
+                            Statement::BreakStatement(_) | Statement::ContinueStatement(_)
+                        ) {
+                            return Err(SmeltError::unsupported(
+                                self.statement_span(statement),
+                                "switch break/continue lowering is not implemented yet",
+                            ));
+                        }
                         self.statement_in_block(statement, body, case_block)?;
+                    }
+                    if !case.consequent.iter().any(statement_terminates) {
+                        return Err(SmeltError::unsupported(
+                            self.span(case.span.start, case.span.end),
+                            "switch fallthrough is not lowered yet; each case must return or throw",
+                        ));
                     }
 
                     if let Some(test) = &case.test {
@@ -844,6 +859,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 }
 
+fn statement_terminates(statement: &Statement<'_>) -> bool {
+    match statement {
+        Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,
+        Statement::BlockStatement(block) => block.body.iter().any(statement_terminates),
+        Statement::IfStatement(if_stmt) => if_stmt.alternate.as_ref().is_some_and(|alternate| {
+            statement_terminates(&if_stmt.consequent) && statement_terminates(alternate)
+        }),
+        _ => false,
+    }
+}
+
 pub fn camel_to_snake(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
     let mut out = String::with_capacity(name.len());
@@ -1106,5 +1132,31 @@ for (let item of values) {
         .expect_err("async functions are unsupported");
 
         assert!(errors[0].message.contains("async functions"));
+    }
+
+    #[test]
+    fn rejects_switch_fallthrough_until_it_is_modeled() {
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(
+            "function label(status: \"pending\" | \"approved\"): string {
+  switch (status) {
+    case \"pending\":
+      const waiting = \"waiting\";
+    case \"approved\":
+      return \"Approved\";
+  }
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect_err("switch fallthrough is unsupported");
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("switch fallthrough")),
+            "expected switch fallthrough error, got {errors:?}"
+        );
     }
 }

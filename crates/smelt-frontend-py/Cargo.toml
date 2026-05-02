@@ -3,6 +3,9 @@ name = "smelt-frontend-py"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 smelt-hir = { path = "../smelt-hir" }
 # Python parsing. Type-checking via `ty` CLI (shelled out) — embed decision deferred to M8.

@@ -25,9 +25,7 @@ fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn lower_typescript_files(
-    files: &[String],
-) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+fn lower_typescript_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut ctx = HirCtx::new();
     let mut modules = Vec::new();
 

@@ -86,4 +86,59 @@ for (let item: number of values) {
         let errors = lower_hir(&ctx.krate).expect_err("for lowering is deferred");
         assert!(errors[0].message.contains("for CFG lowering"));
     }
+
+    #[test]
+    fn validation_is_cfg_aware_for_definite_assignment() {
+        let mut types = smelt_hir::TypeInterner::default();
+        let mut symbols = smelt_hir::SymbolInterner::default();
+        let bool_ty = types.intern(smelt_hir::Type::Bool);
+        let none_ty = types.intern(smelt_hir::Type::None);
+        let name = symbols.intern("main");
+        let mut mir = Mir::new(types, symbols);
+        let mut function = MirFunction::new(
+            FuncId(0),
+            name,
+            HirOrigin::Body(smelt_hir::BodyId(0)),
+            none_ty,
+            smelt_hir::Span::new(FileId(0), 0, 0),
+        );
+        let cond = function.push_local(LocalDecl {
+            ty: bool_ty,
+            kind: LocalKind::Param,
+            span: smelt_hir::Span::new(FileId(0), 0, 0),
+        });
+        let branch_only = function.push_local(LocalDecl {
+            ty: bool_ty,
+            kind: LocalKind::Temp,
+            span: smelt_hir::Span::new(FileId(0), 0, 0),
+        });
+        function.params.push(cond);
+        let then_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
+        let else_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
+        let join_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
+        function.blocks[0].terminator = Some(Terminator::Switch {
+            cond: Operand::Copy(Place::Local(cond)),
+            then_block,
+            else_block,
+        });
+        function.blocks[then_block.0 as usize]
+            .statements
+            .push(Statement::Assign {
+                dest: branch_only,
+                value: Rvalue::Use(Operand::Const(Constant::Bool(true))),
+            });
+        function.blocks[then_block.0 as usize].terminator = Some(Terminator::Goto(join_block));
+        function.blocks[else_block.0 as usize].terminator = Some(Terminator::Goto(join_block));
+        function.blocks[join_block.0 as usize].terminator =
+            Some(Terminator::Return(Operand::Copy(Place::Local(branch_only))));
+        mir.push_function(function);
+
+        let errors = validate(&mir);
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.message.contains("definitely defined")),
+            "expected definite-assignment error, got {errors:?}"
+        );
+    }
 }

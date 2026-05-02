@@ -287,6 +287,9 @@ impl<'mir> FunctionEmitter<'mir> {
             out.push_str("        _ => unreachable!(),\n");
         }
         out.push_str("    }\n");
+        if let Some(join) = self.match_join(arms, default)? {
+            self.emit_block(self.block(join)?, out)?;
+        }
         Ok(())
     }
 
@@ -303,6 +306,25 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(terminator) => self.emit_terminator(terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
+    }
+
+    fn match_join(
+        &self,
+        arms: &[smelt_mir::MatchArm],
+        default: Option<smelt_mir::BlockId>,
+    ) -> Result<Option<smelt_mir::BlockId>, EmitError> {
+        let mut join = None;
+        for target in arms.iter().map(|arm| arm.target).chain(default) {
+            let block = self.block(target)?;
+            if let Some(Terminator::Goto(target)) = block.terminator {
+                if join.replace(target).is_some_and(|seen| seen != target) {
+                    return Err(EmitError::new(
+                        "match codegen requires all non-terminating arms to share one join block",
+                    ));
+                }
+            }
+        }
+        Ok(join)
     }
 
     fn emit_block_until_goto(
@@ -386,7 +408,13 @@ impl<'mir> FunctionEmitter<'mir> {
 
     fn match_scrutinee_text(&self, operand: &Operand) -> Result<String, EmitError> {
         if self.operand_ty(operand)? == self.type_id(Type::String)? {
-            Ok(format!("{}.as_str()", self.operand_text(operand)?))
+            match operand {
+                Operand::Copy(place) | Operand::Move(place) => {
+                    Ok(format!("{}.as_str()", self.place_text(place)?))
+                }
+                Operand::Const(Constant::String(value)) => Ok(format!("{value:?}")),
+                _ => self.operand_text(operand),
+            }
         } else {
             self.operand_text(operand)
         }
@@ -595,6 +623,22 @@ fn is_rust_keyword(name: &str) -> bool {
             | "use"
             | "where"
             | "while"
+            | "async"
+            | "await"
+            | "become"
+            | "box"
+            | "do"
+            | "dyn"
+            | "final"
+            | "macro"
+            | "override"
+            | "priv"
+            | "try"
+            | "typeof"
+            | "union"
+            | "unsized"
+            | "virtual"
+            | "yield"
     )
 }
 
@@ -681,7 +725,7 @@ console.log(result);
 ",
         );
 
-        assert!(source.contains("match arg_0.clone().as_str() {"));
+        assert!(source.contains("match arg_0.as_str() {"));
         assert!(source.contains("\"pending\" => {"));
         assert!(source.contains("return \"Waiting\".to_owned();"));
         assert!(source.contains("_ => unreachable!(),"));

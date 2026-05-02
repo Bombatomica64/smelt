@@ -3,6 +3,9 @@ name = "smelt-cli"
 version.workspace = true
 edition.workspace = true
 
+[lints]
+workspace = true
+
 [[bin]]
 name = "smelt"
 path = "src/main.rs"

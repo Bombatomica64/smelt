@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 use smelt_hir::TypeId;
 
@@ -26,11 +26,6 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
         )));
     }
 
-    let mut definitions = HashSet::new();
-    for param in &function.params {
-        definitions.insert(*param);
-    }
-
     for (block_idx, block) in function.blocks.iter().enumerate() {
         if block.id.0 as usize != block_idx {
             errors.push(error(format!(
@@ -47,17 +42,17 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
 
         for phi in &block.phis {
             validate_type(mir, phi.ty, errors);
+            validate_local_exists(function, phi.dest, errors);
             for (_, operand) in &phi.incoming {
-                validate_operand(function, &definitions, operand, errors);
+                validate_operand_exists(function, operand, errors);
             }
-            define_local(function, &mut definitions, phi.dest, errors);
         }
 
         for stmt in &block.statements {
             match stmt {
                 Statement::Assign { dest, value } => {
-                    validate_rvalue(function, &definitions, value, errors);
-                    define_local(function, &mut definitions, *dest, errors);
+                    validate_rvalue_exists(function, value, errors);
+                    validate_local_exists(function, *dest, errors);
                 }
                 Statement::StorageLive(local) | Statement::StorageDead(local) => {
                     validate_local_exists(function, *local, errors);
@@ -74,11 +69,11 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     dest,
                     target,
                 } => {
-                    validate_callee(mir, function, &definitions, callee, errors);
+                    validate_callee_exists(mir, function, callee, errors);
                     for arg in args {
-                        validate_operand(function, &definitions, arg, errors);
+                        validate_operand_exists(function, arg, errors);
                     }
-                    define_local(function, &mut definitions, *dest, errors);
+                    validate_local_exists(function, *dest, errors);
                     validate_block_exists(function, *target, errors);
                 }
                 Terminator::Switch {
@@ -86,7 +81,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     then_block,
                     else_block,
                 } => {
-                    validate_operand(function, &definitions, cond, errors);
+                    validate_operand_exists(function, cond, errors);
                     validate_block_exists(function, *then_block, errors);
                     validate_block_exists(function, *else_block, errors);
                 }
@@ -95,7 +90,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     arms,
                     default,
                 } => {
-                    validate_operand(function, &definitions, scrutinee, errors);
+                    validate_operand_exists(function, scrutinee, errors);
                     for arm in arms {
                         validate_block_exists(function, arm.target, errors);
                     }
@@ -104,7 +99,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     }
                 }
                 Terminator::Return(operand) => {
-                    validate_operand(function, &definitions, operand, errors);
+                    validate_operand_exists(function, operand, errors);
                 }
                 Terminator::Unreachable => {}
             }
@@ -114,20 +109,162 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
     for local in &function.locals {
         validate_type(mir, local.ty, errors);
     }
+
+    validate_definite_assignment(function, errors);
 }
 
-fn define_local(
+fn validate_rvalue_exists(
     function: &MirFunction,
-    definitions: &mut HashSet<LocalId>,
-    local: LocalId,
+    value: &Rvalue,
     errors: &mut Vec<ValidationError>,
 ) {
-    validate_local_exists(function, local, errors);
-    if !definitions.insert(local) {
-        errors.push(error(format!(
-            "function {:?} local {:?} is defined more than once",
-            function.id, local
-        )));
+    match value {
+        Rvalue::Use(operand) => validate_operand_exists(function, operand, errors),
+        Rvalue::Binary { lhs, rhs, .. } => {
+            validate_operand_exists(function, lhs, errors);
+            validate_operand_exists(function, rhs, errors);
+        }
+    }
+}
+
+fn validate_operand_exists(
+    function: &MirFunction,
+    operand: &Operand,
+    errors: &mut Vec<ValidationError>,
+) {
+    match operand {
+        Operand::Copy(place) | Operand::Move(place) => {
+            validate_place_exists(function, place, errors);
+        }
+        Operand::Const(_) => {}
+    }
+}
+
+fn validate_place_exists(function: &MirFunction, place: &Place, errors: &mut Vec<ValidationError>) {
+    match place {
+        Place::Local(local) => {
+            validate_local_exists(function, *local, errors);
+        }
+    }
+}
+
+fn validate_callee_exists(
+    mir: &Mir,
+    function: &MirFunction,
+    callee: &Callee,
+    errors: &mut Vec<ValidationError>,
+) {
+    match callee {
+        Callee::Static(func) => {
+            if mir.functions.get(func.0 as usize).is_none() {
+                errors.push(error(format!("call references unknown function {func:?}")));
+            }
+        }
+        Callee::Indirect(operand) => {
+            validate_operand_exists(function, operand, errors);
+        }
+        Callee::Builtin(_) => {}
+    }
+}
+
+fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<ValidationError>) {
+    if function.blocks.get(function.entry.0 as usize).is_none() {
+        return;
+    }
+
+    let block_count = function.blocks.len();
+    let mut in_sets = vec![None::<HashSet<LocalId>>; block_count];
+    let mut queue = VecDeque::new();
+    let mut entry_defs = HashSet::new();
+    entry_defs.extend(function.params.iter().copied());
+    in_sets[function.entry.0 as usize] = Some(entry_defs);
+    queue.push_back(function.entry);
+
+    while let Some(block_id) = queue.pop_front() {
+        let Some(block) = function.blocks.get(block_id.0 as usize) else {
+            continue;
+        };
+        let mut definitions = in_sets[block_id.0 as usize].clone().unwrap_or_default();
+        let before_phi = definitions.clone();
+
+        for phi in &block.phis {
+            for (_, operand) in &phi.incoming {
+                validate_operand(function, &before_phi, operand, errors);
+            }
+            definitions.insert(phi.dest);
+        }
+
+        for stmt in &block.statements {
+            match stmt {
+                Statement::Assign { dest, value } => {
+                    validate_rvalue(function, &definitions, value, errors);
+                    definitions.insert(*dest);
+                }
+                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
+            }
+        }
+
+        if let Some(terminator) = &block.terminator {
+            match terminator {
+                Terminator::Goto(_) | Terminator::Unreachable => {}
+                Terminator::Call {
+                    callee, args, dest, ..
+                } => {
+                    validate_callee(function, &definitions, callee, errors);
+                    for arg in args {
+                        validate_operand(function, &definitions, arg, errors);
+                    }
+                    definitions.insert(*dest);
+                }
+                Terminator::Switch { cond, .. } => {
+                    validate_operand(function, &definitions, cond, errors);
+                }
+                Terminator::Match { scrutinee, .. } => {
+                    validate_operand(function, &definitions, scrutinee, errors);
+                }
+                Terminator::Return(operand) => {
+                    validate_operand(function, &definitions, operand, errors);
+                }
+            }
+
+            for successor in successors(terminator) {
+                let idx = successor.0 as usize;
+                if idx >= block_count {
+                    continue;
+                }
+                let changed = if let Some(existing) = &mut in_sets[idx] {
+                    let intersection = existing
+                        .intersection(&definitions)
+                        .copied()
+                        .collect::<HashSet<_>>();
+                    let changed = *existing != intersection;
+                    *existing = intersection;
+                    changed
+                } else {
+                    in_sets[idx] = Some(definitions.clone());
+                    true
+                };
+                if changed {
+                    queue.push_back(successor);
+                }
+            }
+        }
+    }
+}
+
+fn successors(terminator: &Terminator) -> Vec<crate::BlockId> {
+    match terminator {
+        Terminator::Goto(target) => vec![*target],
+        Terminator::Call { target, .. } => vec![*target],
+        Terminator::Switch {
+            then_block,
+            else_block,
+            ..
+        } => vec![*then_block, *else_block],
+        Terminator::Match { arms, default, .. } => {
+            arms.iter().map(|arm| arm.target).chain(*default).collect()
+        }
+        Terminator::Return(_) | Terminator::Unreachable => Vec::new(),
     }
 }
 
@@ -168,10 +305,9 @@ fn validate_place(
 ) {
     match place {
         Place::Local(local) => {
-            validate_local_exists(function, *local, errors);
             if !definitions.contains(local) {
                 errors.push(error(format!(
-                    "function {:?} reads local {:?} before it is defined",
+                    "function {:?} reads local {:?} before it is definitely defined",
                     function.id, local
                 )));
             }
@@ -180,22 +316,16 @@ fn validate_place(
 }
 
 fn validate_callee(
-    mir: &Mir,
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
     callee: &Callee,
     errors: &mut Vec<ValidationError>,
 ) {
     match callee {
-        Callee::Static(func) => {
-            if mir.functions.get(func.0 as usize).is_none() {
-                errors.push(error(format!("call references unknown function {func:?}")));
-            }
-        }
+        Callee::Static(_) | Callee::Builtin(_) => {}
         Callee::Indirect(operand) => {
             validate_operand(function, definitions, operand, errors);
         }
-        Callee::Builtin(_) => {}
     }
 }
 

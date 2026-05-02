@@ -6,6 +6,7 @@
     "no-explicit-any": "error",
     "no-var": "error",
     "no-eval": "error",
+    "no-with": "error",
     "typescript/switch-exhaustiveness-check": "error"
   }
 }
