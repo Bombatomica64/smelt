@@ -54,6 +54,10 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     validate_rvalue_exists(function, value, errors);
                     validate_local_exists(function, *dest, errors);
                 }
+                Statement::AssignPlace { place, value } => {
+                    validate_place_exists(function, place, errors);
+                    validate_rvalue_exists(function, value, errors);
+                }
                 Statement::StorageLive(local) | Statement::StorageDead(local) => {
                     validate_local_exists(function, *local, errors);
                 }
@@ -216,6 +220,17 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
                 Statement::Assign { dest, value } => {
                     validate_rvalue(function, &definitions, value, errors);
                     definitions.insert(*dest);
+                }
+                Statement::AssignPlace { place, value } => {
+                    validate_rvalue(function, &definitions, value, errors);
+                    match place {
+                        Place::Local(local) => {
+                            definitions.insert(*local);
+                        }
+                        Place::Field { .. } | Place::Index { .. } => {
+                            validate_place(function, &definitions, place, errors);
+                        }
+                    }
                 }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }

@@ -69,8 +69,15 @@ fn propagate_function(function: &mut MirFunction) -> bool {
             }
         }
         for stmt in &mut block.statements {
-            if let Statement::Assign { dest, value } = stmt {
-                changed |= rewrite_rvalue(value, &aliases, Some(*dest));
+            match stmt {
+                Statement::Assign { dest, value } => {
+                    changed |= rewrite_rvalue(value, &aliases, Some(*dest));
+                }
+                Statement::AssignPlace { place, value } => {
+                    changed |= rewrite_place(place, &aliases);
+                    changed |= rewrite_rvalue(value, &aliases, None);
+                }
+                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
             }
         }
         if let Some(terminator) = &mut block.terminator {
@@ -140,6 +147,23 @@ fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, Lo
 
 fn rewrite_operand(operand: &mut Operand, aliases: &HashMap<LocalId, LocalId>) -> bool {
     rewrite_operand_except(operand, aliases, None)
+}
+
+fn rewrite_place(place: &mut Place, aliases: &HashMap<LocalId, LocalId>) -> bool {
+    match place {
+        Place::Local(local) | Place::Field { base: local, .. } => {
+            let resolved = resolve_alias(aliases, *local);
+            let changed = resolved != *local;
+            *local = resolved;
+            changed
+        }
+        Place::Index { base, index } => {
+            let resolved = resolve_alias(aliases, *base);
+            let changed = resolved != *base;
+            *base = resolved;
+            rewrite_operand(index, aliases) | changed
+        }
+    }
 }
 
 fn rewrite_operand_except(

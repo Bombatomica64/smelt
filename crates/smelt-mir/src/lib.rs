@@ -55,7 +55,7 @@ mod tests {
     }
 
     #[test]
-    fn while_and_for_lowering_fail_without_panicking() {
+    fn while_lowers_to_cfg_and_for_of_stays_deferred() {
         let mut ctx = HirCtx::new();
         to_hir(
             "let count = 0;
@@ -68,8 +68,11 @@ while (count < 10) {
         )
         .expect("HIR");
 
-        let errors = lower_hir(&ctx.krate).expect_err("while lowering is deferred");
-        assert!(errors[0].message.contains("while CFG lowering"));
+        let mir = lower_hir(&ctx.krate).expect("while lowers");
+        assert!(validate(&mir).is_empty());
+        let output = format_compact(&mir);
+        assert!(output.contains("switch copy %1 ? bb1 : bb2"));
+        assert!(output.contains("goto bb2"));
 
         let mut ctx = HirCtx::new();
         to_hir(

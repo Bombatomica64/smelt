@@ -1,0 +1,24 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user i: Float
+    %1 user sum: Float
+    %2 temp: Bool
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: None
+  bb0:
+    %0 = 0.0
+    %1 = 0.0
+    %2 = copy %0 < 4.0
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    %3 = copy %1 + copy %0
+    %1 = copy %3
+    %4 = copy %0 + 1.0
+    %0 = copy %4
+    goto bb0
+  bb2:
+    %5 = call @console_log(copy %1) -> bb3
+  bb3:
+    return none
+

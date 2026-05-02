@@ -88,6 +88,9 @@ fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
                 value
             )
         }
+        Stmt::Assign { target, value } => {
+            format!("{} = {}", expr_ref(*target), expr_ref(*value))
+        }
         Stmt::Expr(expr) => expr_ref(*expr),
         Stmt::Return(Some(expr)) => format!("return {}", expr_ref(*expr)),
         Stmt::Return(None) => "return".to_owned(),

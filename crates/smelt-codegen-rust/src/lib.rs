@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{
@@ -79,6 +83,7 @@ struct FunctionEmitter<'mir> {
     mir: &'mir Mir,
     function: &'mir MirFunction,
     names: HashMap<LocalId, String>,
+    mutable_locals: HashSet<LocalId>,
     none_ty: TypeId,
 }
 
@@ -107,11 +112,13 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             names.insert(local_id, unique_name(base, &mut used));
         }
+        let mutable_locals = assigned_locals(function);
 
         Ok(Self {
             mir,
             function,
             names,
+            mutable_locals,
             none_ty,
         })
     }
@@ -148,6 +155,22 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
+        if let Some((cond, then_block, else_block, cond_statement_idx)) =
+            self.while_header(block)?
+        {
+            for (idx, statement) in block.statements.iter().enumerate() {
+                if idx != cond_statement_idx {
+                    self.emit_statement(statement, out)?;
+                }
+            }
+            let then = self.block(then_block)?;
+            let else_ = self.block(else_block)?;
+            out.push_str(&format!("    while {cond} {{\n"));
+            self.emit_block_until_goto(then, block.id, Some(else_block), out)?;
+            out.push_str("    }\n");
+            return self.emit_block(else_, out);
+        }
+
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
         }
@@ -155,7 +178,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let Some(terminator) = &block.terminator else {
             return Err(EmitError::new("basic block has no terminator"));
         };
-        self.emit_terminator(terminator, out)
+        self.emit_terminator(block.id, terminator, out)
     }
 
     fn emit_statement(&self, statement: &Statement, out: &mut String) -> Result<(), EmitError> {
@@ -164,17 +187,33 @@ impl<'mir> FunctionEmitter<'mir> {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
                 let value = self.rvalue_text(value)?;
+                let mutability = if self.mutable_locals.contains(dest) {
+                    "mut "
+                } else {
+                    ""
+                };
                 out.push_str(&format!(
-                    "    let {name}: {} = {value};\n",
+                    "    let {mutability}{name}: {} = {value};\n",
                     self.type_text(local.ty)?
                 ));
+                Ok(())
+            }
+            Statement::AssignPlace { place, value } => {
+                let place = self.place_text(place)?;
+                let value = self.rvalue_text(value)?;
+                out.push_str(&format!("    {place} = {value};\n"));
                 Ok(())
             }
             Statement::StorageLive(_) | Statement::StorageDead(_) => Ok(()),
         }
     }
 
-    fn emit_terminator(&self, terminator: &Terminator, out: &mut String) -> Result<(), EmitError> {
+    fn emit_terminator(
+        &self,
+        current: smelt_mir::BlockId,
+        terminator: &Terminator,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         match terminator {
             Terminator::Goto(target) => self.emit_block(self.block(*target)?, out),
             Terminator::Call {
@@ -196,7 +235,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 cond,
                 then_block,
                 else_block,
-            } => self.emit_switch(cond, *then_block, *else_block, out),
+            } => self.emit_switch(current, cond, *then_block, *else_block, out),
             Terminator::Match {
                 scrutinee,
                 arms,
@@ -221,6 +260,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     fn emit_switch(
         &self,
+        current: smelt_mir::BlockId,
         cond: &Operand,
         then_block: smelt_mir::BlockId,
         else_block: smelt_mir::BlockId,
@@ -229,9 +269,16 @@ impl<'mir> FunctionEmitter<'mir> {
         let then = self.block(then_block)?;
         let else_ = self.block(else_block)?;
 
+        if matches!(then.terminator, Some(Terminator::Goto(target)) if target == current) {
+            out.push_str(&format!("    while {} {{\n", self.operand_text(cond)?));
+            self.emit_block_until_goto(then, current, Some(else_block), out)?;
+            out.push_str("    }\n");
+            return self.emit_block(else_, out);
+        }
+
         if matches!(then.terminator, Some(Terminator::Goto(target)) if target == else_block) {
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
-            self.emit_block_until_goto(then, else_block, out)?;
+            self.emit_block_until_goto(then, else_block, None, out)?;
             out.push_str("    }\n");
             return self.emit_block(else_, out);
         }
@@ -241,9 +288,9 @@ impl<'mir> FunctionEmitter<'mir> {
             && then_target == else_target
         {
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
-            self.emit_block_until_goto(then, *then_target, out)?;
+            self.emit_block_until_goto(then, *then_target, None, out)?;
             out.push_str("    } else {\n");
-            self.emit_block_until_goto(else_, *else_target, out)?;
+            self.emit_block_until_goto(else_, *else_target, None, out)?;
             out.push_str("    }\n");
             return self.emit_block(self.block(*then_target)?, out);
         }
@@ -260,6 +307,42 @@ impl<'mir> FunctionEmitter<'mir> {
         Err(EmitError::new(
             "if/else codegen requires structured branches with a shared join or terminating arms",
         ))
+    }
+
+    fn while_header(
+        &self,
+        block: &BasicBlock,
+    ) -> Result<Option<(String, smelt_mir::BlockId, smelt_mir::BlockId, usize)>, EmitError> {
+        let Some(Terminator::Switch {
+            cond: Operand::Copy(Place::Local(cond_local)),
+            then_block,
+            else_block,
+        }) = &block.terminator
+        else {
+            return Ok(None);
+        };
+        let then = self.block(*then_block)?;
+        if !matches!(then.terminator, Some(Terminator::Goto(target)) if target == block.id) {
+            return Ok(None);
+        }
+        let Some((idx, Statement::Assign { dest, value })) = block
+            .statements
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, statement)| matches!(statement, Statement::Assign { .. }))
+        else {
+            return Ok(None);
+        };
+        if dest != cond_local {
+            return Ok(None);
+        }
+        Ok(Some((
+            self.rvalue_text(value)?,
+            *then_block,
+            *else_block,
+            idx,
+        )))
     }
 
     fn emit_match(
@@ -303,7 +386,7 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         match &block.terminator {
             Some(Terminator::Goto(_)) => Ok(()),
-            Some(terminator) => self.emit_terminator(terminator, out),
+            Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
     }
@@ -331,6 +414,7 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         block: &BasicBlock,
         stop: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
     ) -> Result<(), EmitError> {
         for statement in &block.statements {
@@ -338,7 +422,11 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         match &block.terminator {
             Some(Terminator::Goto(target)) if *target == stop => Ok(()),
-            Some(terminator) => self.emit_terminator(terminator, out),
+            Some(Terminator::Goto(target)) if Some(*target) == break_target => {
+                out.push_str("    break;\n");
+                Ok(())
+            }
+            Some(terminator) => self.emit_terminator(block.id, terminator, out),
             None => Err(EmitError::new("basic block has no terminator")),
         }
     }
@@ -663,6 +751,22 @@ fn block_terminates(block: &BasicBlock) -> bool {
         block.terminator,
         Some(Terminator::Return(_) | Terminator::Unreachable)
     )
+}
+
+fn assigned_locals(function: &MirFunction) -> HashSet<LocalId> {
+    let mut locals = HashSet::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            if let Statement::AssignPlace {
+                place: Place::Local(local),
+                ..
+            } = statement
+            {
+                locals.insert(*local);
+            }
+        }
+    }
+    locals
 }
 
 fn sanitize_ident(name: &str) -> String {

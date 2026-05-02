@@ -100,6 +100,10 @@ pub enum Stmt {
         ty: TypeId,
         value: Option<ExprId>,
     },
+    Assign {
+        target: ExprId,
+        value: ExprId,
+    },
     Expr(ExprId),
     Return(Option<ExprId>),
     If {

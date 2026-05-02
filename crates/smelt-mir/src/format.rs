@@ -67,6 +67,9 @@ fn statement_text(statement: &Statement) -> String {
         Statement::Assign { dest, value } => {
             format!("{} = {}", local_ref(*dest), rvalue_text(value))
         }
+        Statement::AssignPlace { place, value } => {
+            format!("{} = {}", place_text(place), rvalue_text(value))
+        }
         Statement::StorageLive(local) => format!("StorageLive({})", local_ref(*local)),
         Statement::StorageDead(local) => format!("StorageDead({})", local_ref(*local)),
     }

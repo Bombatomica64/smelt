@@ -167,6 +167,8 @@ fn end_to_end_examples_match_expected_outputs() {
         "09_index_access",
         "10_unary_logical",
         "11_console_log_expressions",
+        "12_while_sum",
+        "14_c_for_loop",
     ] {
         let example = workspace_root()
             .join("examples/typescript/end-to-end")

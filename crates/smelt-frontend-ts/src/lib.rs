@@ -4,12 +4,15 @@ use std::collections::HashMap;
 
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, ArrayExpressionElement, BindingPattern, Expression, ForStatementLeft,
-    ObjectPropertyKind, Program, PropertyKey, Statement, TSTupleElement, TSType, TSTypeName,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, Expression,
+    ForStatementInit, ForStatementLeft, ObjectPropertyKind, Program, PropertyKey,
+    SimpleAssignmentTarget, Statement, TSTupleElement, TSType, TSTypeName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
-use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
+use oxc::syntax::operator::{
+    AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
+};
 use smelt_hir::{
     BinOp, Body, Crate as HirCrate, Expr, ExprKind, FileId, Function, Item, Language, Literal,
     LocalDecl, MatchArm, Module, ModuleId, Param, Pattern, SourceFile, Span, Stmt, Type, UnaryOp,
@@ -265,46 +268,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         match statement {
-            Statement::VariableDeclaration(decl) => {
-                for declarator in &decl.declarations {
-                    let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
-                        return Err(SmeltError::unsupported(
-                            self.span(declarator.span.start, declarator.span.end),
-                            "destructuring declarations are not lowered yet",
-                        ));
-                    };
-
-                    let annotated_ty = declarator
-                        .type_annotation
-                        .as_ref()
-                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                        .transpose()?;
-                    let value = match &declarator.init {
-                        Some(init) => Some(self.expression_with_hint(init, body, annotated_ty)?),
-                        None => None,
-                    };
-                    let ty = annotated_ty
-                        .or_else(|| value.map(|expr_id| body.exprs[expr_id.0 as usize].ty))
-                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
-                    let name = binding.name.as_str();
-                    let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
-                    self.ctx.krate.names.record(symbol, name);
-                    let local = body.push_local(LocalDecl {
-                        name: Some(symbol),
-                        ty,
-                        mutable: matches!(
-                            declarator.kind,
-                            oxc::ast::ast::VariableDeclarationKind::Let
-                        ),
-                        span: self.span(binding.span.start, binding.span.end),
-                    });
-                    self.locals.insert(name.to_owned(), local);
-                    let pat = body.push_pattern(Pattern::Binding(local));
-                    body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
-                }
-                Ok(())
-            }
+            Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
             Statement::ExpressionStatement(expr_stmt) => {
+                if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    let (target, value) = self.assignment_parts(assign, body)?;
+                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                    return Ok(());
+                }
+                if let Expression::UpdateExpression(update) = &expr_stmt.expression {
+                    let (target, value) = self.update_parts(update, body)?;
+                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                    return Ok(());
+                }
                 let expr = self.expression(&expr_stmt.expression, body)?;
                 body.push_stmt_to_block(block, Stmt::Expr(expr));
                 Ok(())
@@ -368,10 +343,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 );
                 Ok(())
             }
-            Statement::ForStatement(for_stmt) => Err(SmeltError::unsupported(
-                self.span(for_stmt.span.start, for_stmt.span.end),
-                "C-style for loops need assignment/update lowering; use for...of for now",
-            )),
+            Statement::ForStatement(for_stmt) => self.c_for_statement(for_stmt, body, block),
             Statement::SwitchStatement(switch_stmt) => {
                 let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
                 let mut arms = Vec::new();
@@ -478,6 +450,106 @@ impl<'ctx> ModuleBuilder<'ctx> {
             _ => self.statement_in_block(statement, body, block)?,
         }
         Ok(block)
+    }
+
+    fn variable_declaration(
+        &mut self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        for declarator in &decl.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                return Err(SmeltError::unsupported(
+                    self.span(declarator.span.start, declarator.span.end),
+                    "destructuring declarations are not lowered yet",
+                ));
+            };
+
+            let annotated_ty = declarator
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
+            let value = match &declarator.init {
+                Some(init) => Some(self.expression_with_hint(init, body, annotated_ty)?),
+                None => None,
+            };
+            let ty = annotated_ty
+                .or_else(|| value.map(|expr_id| body.exprs[expr_id.0 as usize].ty))
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+            let name = binding.name.as_str();
+            let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
+            self.ctx.krate.names.record(symbol, name);
+            let local = body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable: matches!(declarator.kind, oxc::ast::ast::VariableDeclarationKind::Let),
+                span: self.span(binding.span.start, binding.span.end),
+            });
+            self.locals.insert(name.to_owned(), local);
+            let pat = body.push_pattern(Pattern::Binding(local));
+            body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
+        }
+        Ok(())
+    }
+
+    fn c_for_statement(
+        &mut self,
+        for_stmt: &oxc::ast::ast::ForStatement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        if let Some(init) = &for_stmt.init {
+            match init {
+                ForStatementInit::VariableDeclaration(decl) => {
+                    self.variable_declaration(decl, body, block)?;
+                }
+                ForStatementInit::AssignmentExpression(assign) => {
+                    let (target, value) = self.assignment_parts(assign, body)?;
+                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                }
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(init.span().start, init.span().end),
+                        "for-loop init must be a variable declaration or assignment",
+                    ));
+                }
+            }
+        }
+
+        let cond = if let Some(test) = &for_stmt.test {
+            self.expression(test, body)?
+        } else {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty,
+                span: self.span(for_stmt.span.start, for_stmt.span.end),
+            })
+        };
+        let loop_body = self.block_from_statement(&for_stmt.body, body)?;
+        if let Some(update) = &for_stmt.update {
+            let (target, value) = match update {
+                Expression::AssignmentExpression(assign) => self.assignment_parts(assign, body)?,
+                Expression::UpdateExpression(update) => self.update_parts(update, body)?,
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.expression_span(update),
+                        "for-loop update must be assignment or increment/decrement",
+                    ));
+                }
+            };
+            body.push_stmt_to_block(loop_body, Stmt::Assign { target, value });
+        }
+        body.push_stmt_to_block(
+            block,
+            Stmt::While {
+                cond,
+                body: loop_body,
+            },
+        );
+        Ok(())
     }
 
     fn for_left_pattern(
@@ -1308,6 +1380,122 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    fn assignment_parts(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+    ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
+        let target = self.assignment_target_expr(&assign.left, body)?;
+        let right = self.expression(&assign.right, body)?;
+        let value = match assign.operator {
+            AssignmentOperator::Assign => right,
+            AssignmentOperator::Addition
+            | AssignmentOperator::Subtraction
+            | AssignmentOperator::Multiplication
+            | AssignmentOperator::Division => {
+                let op = match assign.operator {
+                    AssignmentOperator::Addition => BinOp::Add,
+                    AssignmentOperator::Subtraction => BinOp::Sub,
+                    AssignmentOperator::Multiplication => BinOp::Mul,
+                    AssignmentOperator::Division => BinOp::Div,
+                    _ => unreachable!(),
+                };
+                let ty = body.exprs[target.0 as usize].ty;
+                body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op,
+                        lhs: target,
+                        rhs: right,
+                    },
+                    ty,
+                    span: self.span(assign.span.start, assign.span.end),
+                })
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(assign.span.start, assign.span.end),
+                    format!(
+                        "assignment operator is not lowered yet: {:?}",
+                        assign.operator
+                    ),
+                ));
+            }
+        };
+        Ok((target, value))
+    }
+
+    fn update_parts(
+        &mut self,
+        update: &oxc::ast::ast::UpdateExpression<'_>,
+        body: &mut Body,
+    ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
+        let target = self.simple_assignment_target_expr(&update.argument, body)?;
+        let one_ty = body.exprs[target.0 as usize].ty;
+        let one = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(1.0)),
+            ty: one_ty,
+            span: self.span(update.span.start, update.span.end),
+        });
+        let op = match update.operator {
+            UpdateOperator::Increment => BinOp::Add,
+            UpdateOperator::Decrement => BinOp::Sub,
+        };
+        let value = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op,
+                lhs: target,
+                rhs: one,
+            },
+            ty: one_ty,
+            span: self.span(update.span.start, update.span.end),
+        });
+        Ok((target, value))
+    }
+
+    fn assignment_target_expr(
+        &mut self,
+        target: &AssignmentTarget<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match target {
+            AssignmentTarget::AssignmentTargetIdentifier(ident) => self.identifier_expression(
+                ident.name.as_str(),
+                ident.span.start,
+                ident.span.end,
+                body,
+            ),
+            AssignmentTarget::StaticMemberExpression(member) => self.static_member(member, body),
+            AssignmentTarget::ComputedMemberExpression(member) => {
+                self.computed_member(member, body)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(target.span().start, target.span().end),
+                "assignment target must be a local, field, or index expression",
+            )),
+        }
+    }
+
+    fn simple_assignment_target_expr(
+        &mut self,
+        target: &SimpleAssignmentTarget<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match target {
+            SimpleAssignmentTarget::AssignmentTargetIdentifier(ident) => self
+                .identifier_expression(ident.name.as_str(), ident.span.start, ident.span.end, body),
+            SimpleAssignmentTarget::StaticMemberExpression(member) => {
+                self.static_member(member, body)
+            }
+            SimpleAssignmentTarget::ComputedMemberExpression(member) => {
+                self.computed_member(member, body)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(target.span().start, target.span().end),
+                "update target must be a local, field, or index expression",
+            )),
+        }
     }
 
     fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {

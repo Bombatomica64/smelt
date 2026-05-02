@@ -109,6 +109,13 @@ struct LoweringCtx<'hir> {
     current_block: BlockId,
     locals: HashMap<HirLocalId, LocalId>,
     exprs: HashMap<ExprId, Operand>,
+    loops: Vec<LoopTargets>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LoopTargets {
+    break_target: BlockId,
+    continue_target: BlockId,
 }
 
 impl<'hir> LoweringCtx<'hir> {
@@ -153,6 +160,7 @@ impl<'hir> LoweringCtx<'hir> {
             current_block: BlockId(0),
             locals,
             exprs: HashMap::new(),
+            loops: Vec::new(),
         }
     }
 
@@ -202,6 +210,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Ok(())
             }
+            HirStmt::Assign { target, value } => {
+                let place = self.lower_place(*target)?;
+                let value = self.lower_expr(*value)?;
+                self.block_mut().statements.push(Statement::AssignPlace {
+                    place,
+                    value: Rvalue::Use(value),
+                });
+                Ok(())
+            }
             HirStmt::Expr(expr) => {
                 self.lower_expr(*expr)?;
                 Ok(())
@@ -225,13 +242,22 @@ impl<'hir> LoweringCtx<'hir> {
                 arms,
                 default,
             } => self.lower_match(*scrutinee, arms, *default),
-            HirStmt::While { .. } => {
-                Err(self.error("while CFG lowering is not implemented yet", None))
-            }
+            HirStmt::While { cond, body } => self.lower_while(*cond, *body),
             HirStmt::For { .. } => Err(self.error("for CFG lowering is not implemented yet", None)),
             HirStmt::Throw(_) => Err(self.error("throw lowering is not implemented yet", None)),
-            HirStmt::Break | HirStmt::Continue => {
-                Err(self.error("loop control lowering is not implemented yet", None))
+            HirStmt::Break => {
+                let Some(targets) = self.loops.last().copied() else {
+                    return Err(self.error("break used outside a loop", None));
+                };
+                self.set_terminator(Terminator::Goto(targets.break_target));
+                Ok(())
+            }
+            HirStmt::Continue => {
+                let Some(targets) = self.loops.last().copied() else {
+                    return Err(self.error("continue used outside a loop", None));
+                };
+                self.set_terminator(Terminator::Goto(targets.continue_target));
+                Ok(())
             }
         }
     }
@@ -277,6 +303,36 @@ impl<'hir> LoweringCtx<'hir> {
             self.current_block = else_mir;
         }
 
+        Ok(())
+    }
+
+    fn lower_while(
+        &mut self,
+        cond: ExprId,
+        body_hir: smelt_hir::BlockId,
+    ) -> Result<(), LowerError> {
+        let header = self.current_block;
+        let body_span = self.body.blocks[body_hir.0 as usize].span;
+        let body_mir = self.function.push_block(body_span);
+        let after = self.function.push_block(self.block().span);
+        let cond = self.lower_expr(cond)?;
+        self.set_terminator(Terminator::Switch {
+            cond,
+            then_block: body_mir,
+            else_block: after,
+        });
+
+        self.loops.push(LoopTargets {
+            break_target: after,
+            continue_target: header,
+        });
+        self.current_block = body_mir;
+        self.lower_block_stmts(body_hir)?;
+        if self.block().terminator.is_none() {
+            self.set_terminator(Terminator::Goto(header));
+        }
+        self.loops.pop();
+        self.current_block = after;
         Ok(())
     }
 
@@ -492,6 +548,39 @@ impl<'hir> LoweringCtx<'hir> {
             kind: LocalKind::Temp,
             span,
         })
+    }
+
+    fn lower_place(&mut self, expr_id: ExprId) -> Result<Place, LowerError> {
+        let expr = &self.body.exprs[expr_id.0 as usize];
+        match &expr.kind {
+            ExprKind::Local(local) => {
+                let local = self.locals.get(local).copied().ok_or_else(|| {
+                    self.error("assignment references an unknown local", Some(expr.span))
+                })?;
+                Ok(Place::Local(local))
+            }
+            ExprKind::Field { receiver, field } => {
+                let receiver = self.lower_expr(*receiver)?;
+                let base = self.local_operand(receiver, expr.span)?;
+                Ok(Place::Field {
+                    base,
+                    field: *field,
+                })
+            }
+            ExprKind::Index { receiver, index } => {
+                let receiver = self.lower_expr(*receiver)?;
+                let base = self.local_operand(receiver, expr.span)?;
+                let index = self.lower_expr(*index)?;
+                Ok(Place::Index {
+                    base,
+                    index: Box::new(index),
+                })
+            }
+            _ => Err(self.error(
+                "only local, field, and index expressions can be assigned",
+                Some(expr.span),
+            )),
+        }
     }
 
     fn local_operand(&self, operand: Operand, span: Span) -> Result<LocalId, LowerError> {

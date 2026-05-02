@@ -177,6 +177,7 @@ pub enum Rvalue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Statement {
     Assign { dest: LocalId, value: Rvalue },
+    AssignPlace { place: Place, value: Rvalue },
     StorageLive(LocalId),
     StorageDead(LocalId),
 }
