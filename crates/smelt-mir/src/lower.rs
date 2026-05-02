@@ -31,6 +31,43 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let mut mir = Mir::new(krate.types.clone(), krate.symbols.clone());
     let none = mir.types.intern(Type::None);
     let mut errors = Vec::new();
+    let mut item_functions = HashMap::new();
+
+    for (idx, item) in krate.items.iter().enumerate() {
+        let item_id = smelt_hir::ItemId(idx as u32);
+        if let smelt_hir::Item::Function(function) = item
+            && function.body.is_some()
+        {
+            item_functions.insert(item_id, FuncId(item_functions.len() as u32));
+        }
+    }
+
+    for (idx, item) in krate.items.iter().enumerate() {
+        let item_id = smelt_hir::ItemId(idx as u32);
+        let smelt_hir::Item::Function(function) = item else {
+            continue;
+        };
+        let Some(body_id) = function.body else {
+            continue;
+        };
+        let body = &krate.bodies[body_id.0 as usize];
+        match LoweringCtx::new(
+            krate,
+            &item_functions,
+            item_functions[&item_id],
+            body_id,
+            body,
+            function.name,
+            function.return_ty,
+        )
+        .lower()
+        {
+            Ok(function) => {
+                mir.push_function(function);
+            }
+            Err(error) => errors.push(error),
+        }
+    }
 
     for module in &krate.modules {
         let Some(body_id) = module.body else {
@@ -39,7 +76,17 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         let body = &krate.bodies[body_id.0 as usize];
         let name = mir.symbols.intern(&module.name);
         let function_id = mir.next_function_id();
-        match LoweringCtx::new(krate, function_id, body_id, body, name, none).lower() {
+        match LoweringCtx::new(
+            krate,
+            &item_functions,
+            function_id,
+            body_id,
+            body,
+            name,
+            none,
+        )
+        .lower()
+        {
             Ok(function) => {
                 mir.push_function(function);
             }
@@ -56,6 +103,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
 
 struct LoweringCtx<'hir> {
     krate: &'hir smelt_hir::Crate,
+    item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
     body: &'hir Body,
     function: MirFunction,
     current_block: BlockId,
@@ -66,6 +114,7 @@ struct LoweringCtx<'hir> {
 impl<'hir> LoweringCtx<'hir> {
     fn new(
         krate: &'hir smelt_hir::Crate,
+        item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
         function_id: FuncId,
         body_id: BodyId,
         body: &'hir Body,
@@ -79,17 +128,26 @@ impl<'hir> LoweringCtx<'hir> {
 
         for (idx, local) in body.locals.iter().enumerate() {
             let hir_local = HirLocalId(idx as u32);
-            let kind = local.name.map_or(LocalKind::Temp, LocalKind::UserBinding);
+            let is_param = body.params.contains(&hir_local);
+            let kind = if is_param {
+                LocalKind::Param
+            } else {
+                local.name.map_or(LocalKind::Temp, LocalKind::UserBinding)
+            };
             let mir_local = function.push_local(LocalDecl {
                 ty: local.ty,
                 kind,
                 span: local.span,
             });
+            if is_param {
+                function.params.push(mir_local);
+            }
             locals.insert(hir_local, mir_local);
         }
 
         Self {
             krate,
+            item_functions,
             body,
             function,
             current_block: BlockId(0),
@@ -99,12 +157,9 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     fn lower(mut self) -> Result<MirFunction, LowerError> {
-        let root = &self.body.blocks[self.body.root.0 as usize];
-        for stmt_id in &root.stmts {
-            let stmt = &self.body.stmts[stmt_id.0 as usize];
-            self.lower_stmt(stmt)?;
-        }
+        self.lower_block_stmts(self.body.root)?;
 
+        let root = &self.body.blocks[self.body.root.0 as usize];
         if let Some(tail) = root.tail {
             let operand = self.lower_expr(tail)?;
             self.set_terminator(Terminator::Return(operand));
@@ -113,6 +168,18 @@ impl<'hir> LoweringCtx<'hir> {
         }
 
         Ok(self.function)
+    }
+
+    fn lower_block_stmts(&mut self, block_id: smelt_hir::BlockId) -> Result<(), LowerError> {
+        let block = &self.body.blocks[block_id.0 as usize];
+        for stmt_id in &block.stmts {
+            if self.block().terminator.is_some() {
+                break;
+            }
+            let stmt = &self.body.stmts[stmt_id.0 as usize];
+            self.lower_stmt(stmt)?;
+        }
+        Ok(())
     }
 
     fn lower_stmt(&mut self, stmt: &HirStmt) -> Result<(), LowerError> {
@@ -148,11 +215,117 @@ impl<'hir> LoweringCtx<'hir> {
                 self.set_terminator(Terminator::Return(Operand::Const(Constant::None)));
                 Ok(())
             }
+            HirStmt::If {
+                cond,
+                then_block,
+                else_block,
+            } => self.lower_if(*cond, *then_block, *else_block),
+            HirStmt::Match {
+                scrutinee,
+                arms,
+                default,
+            } => self.lower_match(*scrutinee, arms, *default),
+            HirStmt::While { .. } => {
+                Err(self.error("while CFG lowering is not implemented yet", None))
+            }
+            HirStmt::For { .. } => Err(self.error("for CFG lowering is not implemented yet", None)),
             HirStmt::Throw(_) => Err(self.error("throw lowering is not implemented yet", None)),
             HirStmt::Break | HirStmt::Continue => {
                 Err(self.error("loop control lowering is not implemented yet", None))
             }
         }
+    }
+
+    fn lower_if(
+        &mut self,
+        cond: ExprId,
+        then_hir: smelt_hir::BlockId,
+        else_hir: Option<smelt_hir::BlockId>,
+    ) -> Result<(), LowerError> {
+        let cond = self.lower_expr(cond)?;
+        let then_span = self.body.blocks[then_hir.0 as usize].span;
+        let else_span = else_hir
+            .map(|block| self.body.blocks[block.0 as usize].span)
+            .unwrap_or_else(|| self.block().span);
+        let then_mir = self.function.push_block(then_span);
+        let else_mir = self.function.push_block(else_span);
+        self.set_terminator(Terminator::Switch {
+            cond,
+            then_block: then_mir,
+            else_block: else_mir,
+        });
+
+        self.current_block = then_mir;
+        self.lower_block_stmts(then_hir)?;
+
+        if let Some(else_hir) = else_hir {
+            let join = self.function.push_block(self.block().span);
+            if self.block().terminator.is_none() {
+                self.set_terminator(Terminator::Goto(join));
+            }
+
+            self.current_block = else_mir;
+            self.lower_block_stmts(else_hir)?;
+            if self.block().terminator.is_none() {
+                self.set_terminator(Terminator::Goto(join));
+            }
+            self.current_block = join;
+        } else {
+            if self.block().terminator.is_none() {
+                self.set_terminator(Terminator::Goto(else_mir));
+            }
+            self.current_block = else_mir;
+        }
+
+        Ok(())
+    }
+
+    fn lower_match(
+        &mut self,
+        scrutinee: ExprId,
+        arms: &[smelt_hir::MatchArm],
+        default: Option<smelt_hir::BlockId>,
+    ) -> Result<(), LowerError> {
+        let scrutinee = self.lower_expr(scrutinee)?;
+        let span = self.block().span;
+        let join = self.function.push_block(span);
+        let mut mir_arms = Vec::new();
+        let mut arm_blocks = Vec::new();
+
+        for arm in arms {
+            let target = self.function.push_block(span);
+            mir_arms.push(crate::MatchArm {
+                label: lower_literal(&arm.label),
+                target,
+            });
+            arm_blocks.push((target, arm.body));
+        }
+
+        let default_target = default.map(|_| self.function.push_block(span));
+        self.set_terminator(Terminator::Match {
+            scrutinee,
+            arms: mir_arms,
+            default: default_target,
+        });
+
+        for (target, hir_block) in arm_blocks {
+            self.current_block = target;
+            self.lower_block_stmts(hir_block)?;
+            if self.block().terminator.is_none() {
+                self.set_terminator(Terminator::Goto(join));
+            }
+        }
+
+        if let (Some(target), Some(default_block)) = (default_target, default) {
+            self.current_block = target;
+            self.lower_block_stmts(default_block)?;
+            if self.block().terminator.is_none() {
+                self.set_terminator(Terminator::Goto(join));
+            }
+        }
+
+        self.current_block = join;
+        Ok(())
     }
 
     fn lower_expr(&mut self, expr_id: ExprId) -> Result<Operand, LowerError> {
@@ -195,10 +368,19 @@ impl<'hir> LoweringCtx<'hir> {
                     Some(expr.span),
                 ));
             }
+            ExprKind::BinOp { op, lhs, rhs } => {
+                let lhs = self.lower_expr(*lhs)?;
+                let rhs = self.lower_expr(*rhs)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Binary { op: *op, lhs, rhs },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Method { .. }
             | ExprKind::Field { .. }
             | ExprKind::Index { .. }
-            | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
@@ -238,6 +420,8 @@ impl<'hir> LoweringCtx<'hir> {
         };
         if name == smelt_hir::CONSOLE_LOG_SYMBOL {
             Ok(Callee::Builtin(BuiltinFn::ConsoleLog))
+        } else if let Some(function_id) = self.item_functions.get(&item_id).copied() {
+            Ok(Callee::Static(function_id))
         } else {
             Err(self.error(
                 format!("function `{name}` is not resolvable to MIR yet"),

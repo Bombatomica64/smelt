@@ -158,6 +158,11 @@ pub enum Constant {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Rvalue {
     Use(Operand),
+    Binary {
+        op: smelt_hir::BinOp,
+        lhs: Operand,
+        rhs: Operand,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,8 +181,24 @@ pub enum Terminator {
         dest: LocalId,
         target: BlockId,
     },
+    Switch {
+        cond: Operand,
+        then_block: BlockId,
+        else_block: BlockId,
+    },
+    Match {
+        scrutinee: Operand,
+        arms: Vec<MatchArm>,
+        default: Option<BlockId>,
+    },
     Return(Operand),
     Unreachable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchArm {
+    pub label: Constant,
+    pub target: BlockId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

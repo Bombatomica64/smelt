@@ -100,6 +100,9 @@ fn rewrite_rvalue(
 ) -> bool {
     match value {
         Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
+        Rvalue::Binary { lhs, rhs, .. } => {
+            rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
+        }
     }
 }
 
@@ -107,6 +110,8 @@ fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, Lo
     match terminator {
         Terminator::Goto(_) | Terminator::Unreachable => false,
         Terminator::Return(operand) => rewrite_operand(operand, aliases),
+        Terminator::Switch { cond, .. } => rewrite_operand(cond, aliases),
+        Terminator::Match { scrutinee, .. } => rewrite_operand(scrutinee, aliases),
         Terminator::Call {
             callee, args, dest, ..
         } => {

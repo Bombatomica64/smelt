@@ -75,6 +75,14 @@ fn statement_text(statement: &Statement) -> String {
 fn rvalue_text(value: &Rvalue) -> String {
     match value {
         Rvalue::Use(operand) => operand_text(operand),
+        Rvalue::Binary { op, lhs, rhs } => {
+            format!(
+                "{} {} {}",
+                operand_text(lhs),
+                smelt_hir::bin_op_text(*op),
+                operand_text(rhs)
+            )
+        }
     }
 }
 
@@ -95,6 +103,37 @@ fn terminator_text(terminator: &Terminator) -> String {
                 args,
                 target.0
             )
+        }
+        Terminator::Switch {
+            cond,
+            then_block,
+            else_block,
+        } => format!(
+            "switch {} ? bb{} : bb{}",
+            operand_text(cond),
+            then_block.0,
+            else_block.0
+        ),
+        Terminator::Match {
+            scrutinee,
+            arms,
+            default,
+        } => {
+            let arms = arms
+                .iter()
+                .map(|arm| format!("{} => bb{}", constant_text(&arm.label), arm.target.0))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let default = default
+                .map(|target| {
+                    if arms.is_empty() {
+                        format!("_ => bb{}", target.0)
+                    } else {
+                        format!(", _ => bb{}", target.0)
+                    }
+                })
+                .unwrap_or_default();
+            format!("match {} {{{}{}}}", operand_text(scrutinee), arms, default)
         }
         Terminator::Return(operand) => format!("return {}", operand_text(operand)),
         Terminator::Unreachable => "unreachable".to_owned(),

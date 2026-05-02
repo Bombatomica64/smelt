@@ -51,9 +51,23 @@ impl Body {
     }
 
     pub fn push_stmt(&mut self, stmt: Stmt) -> StmtId {
+        self.push_stmt_to_block(self.root, stmt)
+    }
+
+    pub fn push_stmt_to_block(&mut self, block: BlockId, stmt: Stmt) -> StmtId {
         let id = StmtId(self.stmts.len() as u32);
         self.stmts.push(stmt);
-        self.blocks[self.root.0 as usize].stmts.push(id);
+        self.blocks[block.0 as usize].stmts.push(id);
+        id
+    }
+
+    pub fn push_block(&mut self, span: Span) -> BlockId {
+        let id = BlockId(self.blocks.len() as u32);
+        self.blocks.push(Block {
+            stmts: Vec::new(),
+            tail: None,
+            span,
+        });
         id
     }
 
@@ -88,9 +102,34 @@ pub enum Stmt {
     },
     Expr(ExprId),
     Return(Option<ExprId>),
+    If {
+        cond: ExprId,
+        then_block: BlockId,
+        else_block: Option<BlockId>,
+    },
+    While {
+        cond: ExprId,
+        body: BlockId,
+    },
+    For {
+        pat: PatternId,
+        iter: ExprId,
+        body: BlockId,
+    },
+    Match {
+        scrutinee: ExprId,
+        arms: Vec<MatchArm>,
+        default: Option<BlockId>,
+    },
     Throw(ExprId),
     Break,
     Continue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatchArm {
+    pub label: Literal,
+    pub body: BlockId,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

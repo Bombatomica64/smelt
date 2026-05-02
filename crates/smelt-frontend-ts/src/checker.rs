@@ -14,7 +14,11 @@ fn run_tsc(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 fn run_oxlint(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let output = Command::new("npx").arg("oxlint").arg(path).output()?;
+    let output = Command::new("npx")
+        .arg("oxlint")
+        .arg("--type-aware")
+        .arg(path)
+        .output()?;
     if !output.status.success() {
         return Err(Box::new(std::io::Error::other(
             String::from_utf8_lossy(&output.stderr).into_owned(),

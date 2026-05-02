@@ -57,6 +57,7 @@ Current rejections (v1.0):
 | Conditional types (`T extends U ? X : Y`) | Not lowerable |
 | Mapped types (`{ [K in T]: U }`) | Not lowerable |
 | Index signatures (`[key: string]: T`) | No MIR equivalent |
+| Non-exhaustive `switch` over unions/enums | Rust `match` emission expects exhaustiveness; oxclint enforces this with `typescript/switch-exhaustiveness-check` |
 | `eval`, `Function()`, `with` | Fundamentally dynamic |
 | Decorators | Deferred to v1.1 |
 | `var` | `let`/`const` only |
