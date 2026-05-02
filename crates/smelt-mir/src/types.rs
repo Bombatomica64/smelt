@@ -137,6 +137,8 @@ pub struct Phi {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Place {
     Local(LocalId),
+    Field { base: LocalId, field: Symbol },
+    Index { base: LocalId, index: Box<Operand> },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -158,10 +160,17 @@ pub enum Constant {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Rvalue {
     Use(Operand),
+    List(Vec<Operand>),
+    Dict(Vec<(Operand, Operand)>),
+    Tuple(Vec<Operand>),
     Binary {
         op: smelt_hir::BinOp,
         lhs: Operand,
         rhs: Operand,
+    },
+    Unary {
+        op: smelt_hir::UnaryOp,
+        operand: Operand,
     },
 }
 

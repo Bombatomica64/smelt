@@ -346,12 +346,53 @@ impl<'mir> FunctionEmitter<'mir> {
     fn rvalue_text(&self, value: &Rvalue) -> Result<String, EmitError> {
         match value {
             Rvalue::Use(operand) => self.operand_text(operand),
+            Rvalue::List(items) => {
+                let items = items
+                    .iter()
+                    .map(|item| self.operand_text(item))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                Ok(format!("vec![{items}]"))
+            }
+            Rvalue::Dict(entries) => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        Ok(format!(
+                            "({}, {})",
+                            self.operand_text(key)?,
+                            self.operand_text(value)?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                Ok(format!("::std::collections::HashMap::from([{entries}])"))
+            }
+            Rvalue::Tuple(items) => {
+                let items = items
+                    .iter()
+                    .map(|item| self.operand_text(item))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                if items.contains(',') {
+                    Ok(format!("({items})"))
+                } else {
+                    Ok(format!("({items},)"))
+                }
+            }
             Rvalue::Binary { op, lhs, rhs } => Ok(format!(
                 "{} {} {}",
                 self.operand_text(lhs)?,
                 smelt_hir::bin_op_text(*op),
                 self.operand_text(rhs)?
             )),
+            Rvalue::Unary { op, operand } => {
+                let op = match op {
+                    smelt_hir::UnaryOp::Not => "!",
+                    smelt_hir::UnaryOp::Neg => "-",
+                };
+                Ok(format!("{op}{}", self.operand_text(operand)?))
+            }
         }
     }
 
@@ -360,16 +401,22 @@ impl<'mir> FunctionEmitter<'mir> {
             Callee::Builtin(BuiltinFn::ConsoleLog) => {
                 let rendered_args = args
                     .iter()
-                    .map(|arg| self.console_operand_text(arg))
+                    .map(|arg| self.console_arg_text(arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 if rendered_args.is_empty() {
                     Ok("{ println!(); }".to_owned())
                 } else {
-                    let format = vec!["{}"; rendered_args.len()].join(" ");
-                    Ok(format!(
-                        "{{ println!(\"{format}\", {}); }}",
-                        rendered_args.join(", ")
-                    ))
+                    let format = rendered_args
+                        .iter()
+                        .map(|(format, _)| *format)
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    let args = rendered_args
+                        .into_iter()
+                        .map(|(_, value)| value)
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    Ok(format!("{{ println!(\"{format}\", {args}); }}"))
                 }
             }
             Callee::Static(func) => {
@@ -398,11 +445,16 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    fn console_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    fn console_arg_text(&self, operand: &Operand) -> Result<(&'static str, String), EmitError> {
         if self.operand_ty(operand)? == self.none_ty {
-            Ok("\"null\"".to_owned())
+            Ok(("{}", "\"null\"".to_owned()))
+        } else if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+        ) {
+            Ok(("{:?}", self.operand_text(operand)?))
         } else {
-            self.operand_text(operand)
+            Ok(("{}", self.operand_text(operand)?))
         }
     }
 
@@ -441,12 +493,66 @@ impl<'mir> FunctionEmitter<'mir> {
     fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
             Place::Local(local) => self.local_name(*local).map(str::to_owned),
+            Place::Field { base, field } => {
+                let base_ty = self.local_decl(*base)?.ty;
+                if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty)
+                    && self.mir.types.get(*key) == Some(&Type::String)
+                {
+                    let field = self.symbol_name(*field)?;
+                    return Ok(format!(
+                        "{}.get({field:?}).cloned().expect(\"missing field\")",
+                        self.local_name(*base)?
+                    ));
+                }
+                Ok(format!(
+                    "{}.{}",
+                    self.local_name(*base)?,
+                    sanitize_ident(self.symbol_name(*field)?)
+                ))
+            }
+            Place::Index { base, index } => {
+                let base_ty = self.local_decl(*base)?.ty;
+                match self.mir.types.get(base_ty) {
+                    Some(Type::List(_)) => Ok(format!(
+                        "{}.get({} as usize).cloned().expect(\"index out of bounds\")",
+                        self.local_name(*base)?,
+                        self.operand_text(index)?
+                    )),
+                    Some(Type::Dict(_, _)) => Ok(format!(
+                        "{}.get(&{}).cloned().expect(\"index out of bounds\")",
+                        self.local_name(*base)?,
+                        self.operand_text(index)?
+                    )),
+                    _ => Err(EmitError::new(
+                        "index codegen is only implemented for lists and dicts",
+                    )),
+                }
+            }
         }
     }
 
     fn place_ty(&self, place: &Place) -> Result<TypeId, EmitError> {
         match place {
             Place::Local(local) => Ok(self.local_decl(*local)?.ty),
+            Place::Field { base, .. } => {
+                let base_ty = self.local_decl(*base)?.ty;
+                match self.mir.types.get(base_ty) {
+                    Some(Type::Dict(_, value)) => Ok(*value),
+                    _ => Err(EmitError::new(
+                        "field type lookup is only implemented for dicts",
+                    )),
+                }
+            }
+            Place::Index { base, .. } => {
+                let base_ty = self.local_decl(*base)?.ty;
+                match self.mir.types.get(base_ty) {
+                    Some(Type::List(item)) => Ok(*item),
+                    Some(Type::Dict(_, value)) => Ok(*value),
+                    _ => Err(EmitError::new(
+                        "index type lookup is only implemented for lists and dicts",
+                    )),
+                }
+            }
         }
     }
 

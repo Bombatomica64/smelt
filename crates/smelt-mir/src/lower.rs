@@ -378,16 +378,72 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::UnaryOp { op, operand } => {
+                let operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Unary { op: *op, operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListLit(items) => {
+                let items = items
+                    .iter()
+                    .map(|item| self.lower_expr(*item))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::List(items),
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DictLit(entries) => {
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| Ok((self.lower_expr(*key)?, self.lower_expr(*value)?)))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Dict(entries),
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::TupleLit(items) => {
+                let items = items
+                    .iter()
+                    .map(|item| self.lower_expr(*item))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Tuple(items),
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::Field { receiver, field } => {
+                let receiver = self.lower_expr(*receiver)?;
+                let base = self.local_operand(receiver, expr.span)?;
+                Operand::Copy(Place::Field {
+                    base,
+                    field: *field,
+                })
+            }
+            ExprKind::Index { receiver, index } => {
+                let receiver = self.lower_expr(*receiver)?;
+                let base = self.local_operand(receiver, expr.span)?;
+                let index = self.lower_expr(*index)?;
+                Operand::Copy(Place::Index {
+                    base,
+                    index: Box::new(index),
+                })
+            }
             ExprKind::Method { .. }
-            | ExprKind::Field { .. }
-            | ExprKind::Index { .. }
-            | ExprKind::UnaryOp { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
-            | ExprKind::ListLit(_)
             | ExprKind::SetLit(_)
-            | ExprKind::DictLit(_)
-            | ExprKind::TupleLit(_)
             | ExprKind::New { .. } => {
                 return Err(self.error(
                     "expression kind is not implemented in MIR yet",
@@ -436,6 +492,16 @@ impl<'hir> LoweringCtx<'hir> {
             kind: LocalKind::Temp,
             span,
         })
+    }
+
+    fn local_operand(&self, operand: Operand, span: Span) -> Result<LocalId, LowerError> {
+        match operand {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Ok(local),
+            _ => Err(self.error(
+                "field and index reads currently require a local receiver",
+                Some(span),
+            )),
+        }
     }
 
     fn block(&self) -> &BasicBlock {

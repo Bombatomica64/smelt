@@ -1,0 +1,12 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user values: List<Float>
+    %1 temp: List<Float>
+    %2 temp: None
+  bb0:
+    %1 = [1.0, 2.0, 3.0]
+    %0 = copy %1
+    %2 = call @console_log(copy %1) -> bb1
+  bb1:
+    return none
+

@@ -120,10 +120,22 @@ fn validate_rvalue_exists(
 ) {
     match value {
         Rvalue::Use(operand) => validate_operand_exists(function, operand, errors),
+        Rvalue::List(items) | Rvalue::Tuple(items) => {
+            for item in items {
+                validate_operand_exists(function, item, errors);
+            }
+        }
+        Rvalue::Dict(entries) => {
+            for (key, value) in entries {
+                validate_operand_exists(function, key, errors);
+                validate_operand_exists(function, value, errors);
+            }
+        }
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand_exists(function, lhs, errors);
             validate_operand_exists(function, rhs, errors);
         }
+        Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
     }
 }
 
@@ -144,6 +156,11 @@ fn validate_place_exists(function: &MirFunction, place: &Place, errors: &mut Vec
     match place {
         Place::Local(local) => {
             validate_local_exists(function, *local, errors);
+        }
+        Place::Field { base, .. } => validate_local_exists(function, *base, errors),
+        Place::Index { base, index } => {
+            validate_local_exists(function, *base, errors);
+            validate_operand_exists(function, index, errors);
         }
     }
 }
@@ -276,10 +293,22 @@ fn validate_rvalue(
 ) {
     match value {
         Rvalue::Use(operand) => validate_operand(function, definitions, operand, errors),
+        Rvalue::List(items) | Rvalue::Tuple(items) => {
+            for item in items {
+                validate_operand(function, definitions, item, errors);
+            }
+        }
+        Rvalue::Dict(entries) => {
+            for (key, value) in entries {
+                validate_operand(function, definitions, key, errors);
+                validate_operand(function, definitions, value, errors);
+            }
+        }
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand(function, definitions, lhs, errors);
             validate_operand(function, definitions, rhs, errors);
         }
+        Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
     }
 }
 
@@ -311,6 +340,13 @@ fn validate_place(
                     function.id, local
                 )));
             }
+        }
+        Place::Field { base, .. } => {
+            validate_place(function, definitions, &Place::Local(*base), errors)
+        }
+        Place::Index { base, index } => {
+            validate_place(function, definitions, &Place::Local(*base), errors);
+            validate_operand(function, definitions, index, errors);
         }
     }
 }

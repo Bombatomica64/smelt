@@ -75,6 +75,30 @@ fn statement_text(statement: &Statement) -> String {
 fn rvalue_text(value: &Rvalue) -> String {
     match value {
         Rvalue::Use(operand) => operand_text(operand),
+        Rvalue::List(items) => format!(
+            "[{}]",
+            items
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Rvalue::Dict(entries) => format!(
+            "{{{}}}",
+            entries
+                .iter()
+                .map(|(key, value)| format!("{}: {}", operand_text(key), operand_text(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Rvalue::Tuple(items) => format!(
+            "({})",
+            items
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Rvalue::Binary { op, lhs, rhs } => {
             format!(
                 "{} {} {}",
@@ -82,6 +106,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::bin_op_text(*op),
                 operand_text(rhs)
             )
+        }
+        Rvalue::Unary { op, operand } => {
+            let op = match op {
+                smelt_hir::UnaryOp::Not => "!",
+                smelt_hir::UnaryOp::Neg => "-",
+            };
+            format!("{op}{}", operand_text(operand))
         }
     }
 }
@@ -159,6 +190,8 @@ fn operand_text(operand: &Operand) -> String {
 fn place_text(place: &Place) -> String {
     match place {
         Place::Local(local) => local_ref(*local),
+        Place::Field { base, field } => format!("{}.field{}", local_ref(*base), field.0),
+        Place::Index { base, index } => format!("{}[{}]", local_ref(*base), operand_text(index)),
     }
 }
 

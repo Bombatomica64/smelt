@@ -161,6 +161,12 @@ fn end_to_end_examples_match_expected_outputs() {
         "03_boolean",
         "04_null",
         "05_alias",
+        "06_array_literal",
+        "07_tuple_literal",
+        "08_record_literal",
+        "09_index_access",
+        "10_unary_logical",
+        "11_console_log_expressions",
     ] {
         let example = workspace_root()
             .join("examples/typescript/end-to-end")

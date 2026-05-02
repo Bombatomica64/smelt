@@ -100,9 +100,20 @@ fn rewrite_rvalue(
 ) -> bool {
     match value {
         Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
+        Rvalue::List(items) | Rvalue::Tuple(items) => {
+            items.iter_mut().fold(false, |changed, item| {
+                rewrite_operand_except(item, aliases, dest) | changed
+            })
+        }
+        Rvalue::Dict(entries) => entries.iter_mut().fold(false, |changed, (key, value)| {
+            rewrite_operand_except(key, aliases, dest)
+                | rewrite_operand_except(value, aliases, dest)
+                | changed
+        }),
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
         }
+        Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
     }
 }
 

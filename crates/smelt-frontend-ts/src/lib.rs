@@ -4,14 +4,15 @@ use std::collections::HashMap;
 
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, BindingPattern, Expression, ForStatementLeft, Program, Statement, TSType,
+    Argument, ArrayExpressionElement, BindingPattern, Expression, ForStatementLeft,
+    ObjectPropertyKind, Program, PropertyKey, Statement, TSTupleElement, TSType, TSTypeName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
-use oxc::syntax::operator::BinaryOperator;
+use oxc::syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
 use smelt_hir::{
     BinOp, Body, Crate as HirCrate, Expr, ExprKind, FileId, Function, Item, Language, Literal,
-    LocalDecl, MatchArm, Module, ModuleId, Param, Pattern, SourceFile, Span, Stmt, Type,
+    LocalDecl, MatchArm, Module, ModuleId, Param, Pattern, SourceFile, Span, Stmt, Type, UnaryOp,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -273,12 +274,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         ));
                     };
 
+                    let annotated_ty = declarator
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?;
                     let value = match &declarator.init {
-                        Some(init) => Some(self.expression(init, body)?),
+                        Some(init) => Some(self.expression_with_hint(init, body, annotated_ty)?),
                         None => None,
                     };
-                    let ty = value
-                        .map(|expr_id| body.exprs[expr_id.0 as usize].ty)
+                    let ty = annotated_ty
+                        .or_else(|| value.map(|expr_id| body.exprs[expr_id.0 as usize].ty))
                         .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
                     let name = binding.name.as_str();
                     let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
@@ -539,6 +545,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
         expression: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.expression_with_hint(expression, body, None)
+    }
+
+    fn expression_with_hint(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         match expression {
             Expression::NumericLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::Float);
@@ -578,6 +593,99 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ident.span.end,
                 body,
             ),
+            Expression::ArrayExpression(array) => {
+                let mut items = Vec::new();
+                for element in &array.elements {
+                    let expr = match element {
+                        ArrayExpressionElement::SpreadElement(_) => {
+                            return Err(SmeltError::unsupported(
+                                self.span(element.span().start, element.span().end),
+                                "array spread elements are not lowered yet",
+                            ));
+                        }
+                        ArrayExpressionElement::Elision(_) => {
+                            return Err(SmeltError::unsupported(
+                                self.span(element.span().start, element.span().end),
+                                "array elisions are not lowered",
+                            ));
+                        }
+                        _ => self.array_element(element, body)?,
+                    };
+                    items.push(expr);
+                }
+                let ty = if let Some(hint) = type_hint {
+                    hint
+                } else if let Some(first) = items.first() {
+                    let item_ty = body.exprs[first.0 as usize].ty;
+                    self.ctx.krate.types.intern(Type::List(item_ty))
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "empty arrays require an explicit type annotation",
+                    ));
+                };
+                Ok(body.push_expr(Expr {
+                    kind: if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
+                        ExprKind::TupleLit(items)
+                    } else {
+                        ExprKind::ListLit(items)
+                    },
+                    ty,
+                    span: self.span(array.span.start, array.span.end),
+                }))
+            }
+            Expression::ObjectExpression(object) => {
+                let Some(ty) = type_hint else {
+                    return Err(SmeltError::unsupported(
+                        self.span(object.span.start, object.span.end),
+                        "object literals require a Record<string, T> annotation",
+                    ));
+                };
+                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
+                    return Err(SmeltError::unsupported(
+                        self.span(object.span.start, object.span.end),
+                        "object literals currently require a Record<string, T> annotation",
+                    ));
+                }
+                let mut entries = Vec::new();
+                for property in &object.properties {
+                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span().start, property.span().end),
+                            "object spread properties are not lowered yet",
+                        ));
+                    };
+                    if property.computed || property.method {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "computed object keys and object methods are not lowered yet",
+                        ));
+                    }
+                    let key_text = match &property.key {
+                        PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
+                        PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.key.span().start, property.key.span().end),
+                                "object literal keys must be static string keys",
+                            ));
+                        }
+                    };
+                    let key_ty = self.ctx.krate.types.intern(Type::String);
+                    let key = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::String(key_text)),
+                        ty: key_ty,
+                        span: self.span(property.key.span().start, property.key.span().end),
+                    });
+                    let value = self.expression(&property.value, body)?;
+                    entries.push((key, value));
+                }
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictLit(entries),
+                    ty,
+                    span: self.span(object.span.start, object.span.end),
+                }))
+            }
             Expression::BinaryExpression(binary) => {
                 let op = match binary.operator {
                     BinaryOperator::Addition => BinOp::Add,
@@ -617,6 +725,80 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span: self.span(binary.span.start, binary.span.end),
                 }))
             }
+            Expression::LogicalExpression(logical) => {
+                let op = match logical.operator {
+                    LogicalOperator::And => BinOp::And,
+                    LogicalOperator::Or => BinOp::Or,
+                    LogicalOperator::Coalesce => {
+                        return Err(SmeltError::unsupported(
+                            self.span(logical.span.start, logical.span.end),
+                            "nullish coalescing is not lowered yet",
+                        ));
+                    }
+                };
+                let lhs = self.expression(&logical.left, body)?;
+                let rhs = self.expression(&logical.right, body)?;
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::BinOp { op, lhs, rhs },
+                    ty,
+                    span: self.span(logical.span.start, logical.span.end),
+                }))
+            }
+            Expression::UnaryExpression(unary) => {
+                let op = match unary.operator {
+                    UnaryOperator::LogicalNot => UnaryOp::Not,
+                    UnaryOperator::UnaryNegation => UnaryOp::Neg,
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(unary.span.start, unary.span.end),
+                            format!("unary operator is not lowered yet: {:?}", unary.operator),
+                        ));
+                    }
+                };
+                let operand = self.expression(&unary.argument, body)?;
+                let ty = match op {
+                    UnaryOp::Not => self.ctx.krate.types.intern(Type::Bool),
+                    UnaryOp::Neg => body.exprs[operand.0 as usize].ty,
+                };
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::UnaryOp { op, operand },
+                    ty,
+                    span: self.span(unary.span.start, unary.span.end),
+                }))
+            }
+            Expression::StaticMemberExpression(member) => {
+                if member.optional {
+                    return Err(SmeltError::unsupported(
+                        self.span(member.span.start, member.span.end),
+                        "optional member access is not lowered yet",
+                    ));
+                }
+                let receiver = self.expression(&member.object, body)?;
+                let field = self.intern_source_name(member.property.name.as_str());
+                let ty = self.field_type(body.exprs[receiver.0 as usize].ty)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Field { receiver, field },
+                    ty,
+                    span: self.span(member.span.start, member.span.end),
+                }))
+            }
+            Expression::ComputedMemberExpression(member) => {
+                if member.optional {
+                    return Err(SmeltError::unsupported(
+                        self.span(member.span.start, member.span.end),
+                        "optional index access is not lowered yet",
+                    ));
+                }
+                let receiver = self.expression(&member.object, body)?;
+                let index = self.expression(&member.expression, body)?;
+                let ty = self.index_type(body.exprs[receiver.0 as usize].ty)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Index { receiver, index },
+                    ty,
+                    span: self.span(member.span.start, member.span.end),
+                }))
+            }
             Expression::CallExpression(call) => {
                 if let Expression::StaticMemberExpression(member) = &call.callee
                     && let Expression::Identifier(object) = &member.object
@@ -625,18 +807,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 {
                     let mut args = Vec::new();
                     for arg in &call.arguments {
-                        let Argument::Identifier(ident) = arg else {
-                            return Err(SmeltError::unsupported(
-                                self.span(call.span.start, call.span.end),
-                                "console.log currently accepts identifier arguments only",
-                            ));
-                        };
-                        args.push(self.identifier_expression(
-                            ident.name.as_str(),
-                            ident.span.start,
-                            ident.span.end,
-                            body,
-                        )?);
+                        args.push(self.argument(arg, body)?);
                     }
                     let ty = self.ctx.krate.types.intern(Type::None);
                     let callee_item =
@@ -751,11 +922,392 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ident.span.end,
                 body,
             ),
+            Argument::BinaryExpression(binary) => self.binary_expression(binary, body),
+            Argument::LogicalExpression(logical) => self.logical_expression(logical, body),
+            Argument::UnaryExpression(unary) => self.unary_expression(unary, body),
+            Argument::ArrayExpression(array) => self.array_expression(array, body, None),
+            Argument::ObjectExpression(object) => self.object_expression(object, body, None),
+            Argument::CallExpression(call) => self.call_expression(call, body),
+            Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
+            Argument::StaticMemberExpression(member) => self.static_member(member, body),
             _ => Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 format!("call argument kind is not lowered yet: {argument:?}"),
             )),
         }
+    }
+
+    fn array_element(
+        &mut self,
+        element: &ArrayExpressionElement<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match element {
+            ArrayExpressionElement::NumericLiteral(lit) => {
+                let ty = self.ctx.krate.types.intern(Type::Float);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Float(lit.value)),
+                    ty,
+                    span: self.span(lit.span.start, lit.span.end),
+                }))
+            }
+            ArrayExpressionElement::StringLiteral(lit) => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(lit.value.to_string())),
+                    ty,
+                    span: self.span(lit.span.start, lit.span.end),
+                }))
+            }
+            ArrayExpressionElement::BooleanLiteral(lit) => {
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(lit.value)),
+                    ty,
+                    span: self.span(lit.span.start, lit.span.end),
+                }))
+            }
+            ArrayExpressionElement::Identifier(ident) => self.identifier_expression(
+                ident.name.as_str(),
+                ident.span.start,
+                ident.span.end,
+                body,
+            ),
+            ArrayExpressionElement::BinaryExpression(binary) => {
+                self.binary_expression(binary, body)
+            }
+            ArrayExpressionElement::LogicalExpression(logical) => {
+                self.logical_expression(logical, body)
+            }
+            ArrayExpressionElement::UnaryExpression(unary) => self.unary_expression(unary, body),
+            ArrayExpressionElement::CallExpression(call) => self.call_expression(call, body),
+            ArrayExpressionElement::ComputedMemberExpression(member) => {
+                self.computed_member(member, body)
+            }
+            ArrayExpressionElement::StaticMemberExpression(member) => {
+                self.static_member(member, body)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(element.span().start, element.span().end),
+                format!("array element kind is not lowered yet: {element:?}"),
+            )),
+        }
+    }
+
+    fn binary_expression(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let op = match binary.operator {
+            BinaryOperator::Addition => BinOp::Add,
+            BinaryOperator::Subtraction => BinOp::Sub,
+            BinaryOperator::Multiplication => BinOp::Mul,
+            BinaryOperator::Division => BinOp::Div,
+            BinaryOperator::StrictEquality => BinOp::Eq,
+            BinaryOperator::StrictInequality => BinOp::NotEq,
+            BinaryOperator::Equality | BinaryOperator::Inequality => {
+                return Err(SmeltError::unsupported(
+                    self.span(binary.span.start, binary.span.end),
+                    "coercive equality is not lowered; use === or !==",
+                ));
+            }
+            BinaryOperator::LessThan => BinOp::Lt,
+            BinaryOperator::LessEqualThan => BinOp::Lte,
+            BinaryOperator::GreaterThan => BinOp::Gt,
+            BinaryOperator::GreaterEqualThan => BinOp::Gte,
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(binary.span.start, binary.span.end),
+                    format!("binary operator is not lowered yet: {:?}", binary.operator),
+                ));
+            }
+        };
+        let lhs = self.expression(&binary.left, body)?;
+        let rhs = self.expression(&binary.right, body)?;
+        let ty = match op {
+            BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
+                self.ctx.krate.types.intern(Type::Bool)
+            }
+            _ => body.exprs[lhs.0 as usize].ty,
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::BinOp { op, lhs, rhs },
+            ty,
+            span: self.span(binary.span.start, binary.span.end),
+        }))
+    }
+
+    fn logical_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let op = match logical.operator {
+            LogicalOperator::And => BinOp::And,
+            LogicalOperator::Or => BinOp::Or,
+            LogicalOperator::Coalesce => {
+                return Err(SmeltError::unsupported(
+                    self.span(logical.span.start, logical.span.end),
+                    "nullish coalescing is not lowered yet",
+                ));
+            }
+        };
+        let lhs = self.expression(&logical.left, body)?;
+        let rhs = self.expression(&logical.right, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::BinOp { op, lhs, rhs },
+            ty,
+            span: self.span(logical.span.start, logical.span.end),
+        }))
+    }
+
+    fn unary_expression(
+        &mut self,
+        unary: &oxc::ast::ast::UnaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let op = match unary.operator {
+            UnaryOperator::LogicalNot => UnaryOp::Not,
+            UnaryOperator::UnaryNegation => UnaryOp::Neg,
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(unary.span.start, unary.span.end),
+                    format!("unary operator is not lowered yet: {:?}", unary.operator),
+                ));
+            }
+        };
+        let operand = self.expression(&unary.argument, body)?;
+        let ty = match op {
+            UnaryOp::Not => self.ctx.krate.types.intern(Type::Bool),
+            UnaryOp::Neg => body.exprs[operand.0 as usize].ty,
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnaryOp { op, operand },
+            ty,
+            span: self.span(unary.span.start, unary.span.end),
+        }))
+    }
+
+    fn array_expression(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let mut items = Vec::new();
+        for element in &array.elements {
+            if matches!(
+                element,
+                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_)
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(element.span().start, element.span().end),
+                    "array spread elements and elisions are not lowered",
+                ));
+            }
+            items.push(self.array_element(element, body)?);
+        }
+        let ty = if let Some(hint) = type_hint {
+            hint
+        } else if let Some(first) = items.first() {
+            let item_ty = body.exprs[first.0 as usize].ty;
+            self.ctx.krate.types.intern(Type::List(item_ty))
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(array.span.start, array.span.end),
+                "empty arrays require an explicit type annotation",
+            ));
+        };
+        Ok(body.push_expr(Expr {
+            kind: if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
+                ExprKind::TupleLit(items)
+            } else {
+                ExprKind::ListLit(items)
+            },
+            ty,
+            span: self.span(array.span.start, array.span.end),
+        }))
+    }
+
+    fn object_expression(
+        &mut self,
+        object: &oxc::ast::ast::ObjectExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(ty) = type_hint else {
+            return Err(SmeltError::unsupported(
+                self.span(object.span.start, object.span.end),
+                "object literals require a Record<string, T> annotation",
+            ));
+        };
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
+            return Err(SmeltError::unsupported(
+                self.span(object.span.start, object.span.end),
+                "object literals currently require a Record<string, T> annotation",
+            ));
+        }
+        let mut entries = Vec::new();
+        for property in &object.properties {
+            let ObjectPropertyKind::ObjectProperty(property) = property else {
+                return Err(SmeltError::unsupported(
+                    self.span(property.span().start, property.span().end),
+                    "object spread properties are not lowered yet",
+                ));
+            };
+            if property.computed || property.method {
+                return Err(SmeltError::unsupported(
+                    self.span(property.span.start, property.span.end),
+                    "computed object keys and object methods are not lowered yet",
+                ));
+            }
+            let key_text = match &property.key {
+                PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
+                PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(property.key.span().start, property.key.span().end),
+                        "object literal keys must be static string keys",
+                    ));
+                }
+            };
+            let key_ty = self.ctx.krate.types.intern(Type::String);
+            let key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(key_text)),
+                ty: key_ty,
+                span: self.span(property.key.span().start, property.key.span().end),
+            });
+            let value = self.expression(&property.value, body)?;
+            entries.push((key, value));
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty,
+            span: self.span(object.span.start, object.span.end),
+        }))
+    }
+
+    fn static_member(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if member.optional {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "optional member access is not lowered yet",
+            ));
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let field = self.intern_source_name(member.property.name.as_str());
+        let ty = self.field_type(body.exprs[receiver.0 as usize].ty)?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Field { receiver, field },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    fn computed_member(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if member.optional {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "optional index access is not lowered yet",
+            ));
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let index = self.expression(&member.expression, body)?;
+        let ty = self.index_type(body.exprs[receiver.0 as usize].ty)?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Index { receiver, index },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    fn call_expression(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && let Expression::Identifier(object) = &member.object
+            && object.name == "console"
+            && member.property.name == "log"
+        {
+            let args = call
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let ty = self.ctx.krate.types.intern(Type::None);
+            let callee_item =
+                self.ensure_console_log_item(self.span(member.span.start, member.span.end));
+            let callee = body.push_expr(Expr {
+                kind: ExprKind::Item(callee_item),
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Call { callee, args },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        if let Expression::Identifier(callee_ident) = &call.callee {
+            let Some(item) = self.items.get(callee_ident.name.as_str()).copied() else {
+                return Err(SmeltError::unsupported(
+                    self.span(callee_ident.span.start, callee_ident.span.end),
+                    format!("unresolved function `{}`", callee_ident.name),
+                ));
+            };
+            let (params, return_ty, is_async) = match &self.ctx.krate.items[item.0 as usize] {
+                Item::Function(function) => (
+                    function.params.iter().map(|param| param.ty).collect(),
+                    function.return_ty,
+                    function.is_async,
+                ),
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(callee_ident.span.start, callee_ident.span.end),
+                        "callee item is not a function",
+                    ));
+                }
+            };
+            let args = call
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let callee = body.push_expr(Expr {
+                kind: ExprKind::Item(item),
+                ty: self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Function(smelt_hir::FunctionType {
+                        params,
+                        return_ty,
+                        is_async,
+                    })),
+                span: self.span(callee_ident.span.start, callee_ident.span.end),
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Call { callee, args },
+                ty: return_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(call.span.start, call.span.end),
+            "call expression is not lowered yet",
+        ))
     }
 
     fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -783,21 +1335,140 @@ impl<'ctx> ModuleBuilder<'ctx> {
             },
             TSType::TSUnionType(union) => {
                 let mut lowered = Vec::new();
+                let mut nullish = Vec::new();
                 for member in &union.types {
                     let member_ty = self.ts_type_to_hir(member)?;
-                    if !lowered.contains(&member_ty) {
+                    if matches!(self.ctx.krate.types.get(member_ty), Some(Type::None)) {
+                        nullish.push(member_ty);
+                    } else if !lowered.contains(&member_ty) {
                         lowered.push(member_ty);
                     }
                 }
-                if lowered.len() == 1 {
+                if lowered.len() == 1 && !nullish.is_empty() {
+                    Ok(self.ctx.krate.types.intern(Type::Optional(lowered[0])))
+                } else if lowered.len() == 1 {
                     Ok(lowered[0])
                 } else {
+                    lowered.extend(nullish);
                     Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
                 }
             }
+            TSType::TSArrayType(array) => {
+                let item = self.ts_type_to_hir(&array.element_type)?;
+                Ok(self.ctx.krate.types.intern(Type::List(item)))
+            }
+            TSType::TSTupleType(tuple) => {
+                let mut items = Vec::new();
+                for item in &tuple.element_types {
+                    items.push(self.tuple_element_type_to_hir(item)?);
+                }
+                Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
+            }
+            TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
             _ => Err(SmeltError::unsupported(
                 self.span(ty.span().start, ty.span().end),
                 format!("type annotation is not lowered yet: {ty:?}"),
+            )),
+        }
+    }
+
+    fn tuple_element_type_to_hir(
+        &mut self,
+        item: &TSTupleElement<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        match item {
+            TSTupleElement::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
+            TSTupleElement::TSStringKeyword(_) => Ok(self.ctx.krate.types.intern(Type::String)),
+            TSTupleElement::TSBooleanKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Bool)),
+            TSTupleElement::TSNullKeyword(_)
+            | TSTupleElement::TSUndefinedKeyword(_)
+            | TSTupleElement::TSVoidKeyword(_) => Ok(self.ctx.krate.types.intern(Type::None)),
+            TSTupleElement::TSArrayType(array) => {
+                let item = self.ts_type_to_hir(&array.element_type)?;
+                Ok(self.ctx.krate.types.intern(Type::List(item)))
+            }
+            TSTupleElement::TSTupleType(tuple) => {
+                let mut items = Vec::new();
+                for item in &tuple.element_types {
+                    items.push(self.tuple_element_type_to_hir(item)?);
+                }
+                Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
+            }
+            TSTupleElement::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSTupleElement::TSOptionalType(optional) => {
+                let inner = self.ts_type_to_hir(&optional.type_annotation)?;
+                Ok(self.ctx.krate.types.intern(Type::Optional(inner)))
+            }
+            TSTupleElement::TSRestType(rest) => Err(SmeltError::unsupported(
+                self.span(rest.span.start, rest.span.end),
+                "tuple rest types are not lowered yet",
+            )),
+            TSTupleElement::TSNamedTupleMember(named) => {
+                self.tuple_element_type_to_hir(&named.element_type)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(item.span().start, item.span().end),
+                format!("tuple element type is not lowered yet: {item:?}"),
+            )),
+        }
+    }
+
+    fn type_reference_to_hir(
+        &mut self,
+        reference: &oxc::ast::ast::TSTypeReference<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+            return Err(SmeltError::unsupported(
+                self.span(reference.span.start, reference.span.end),
+                "qualified type references are not lowered yet",
+            ));
+        };
+        let name_text = name.name.as_str();
+        let args = reference
+            .type_arguments
+            .as_ref()
+            .map(|args| args.params.iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+        match name_text {
+            "Array" if args.len() == 1 => {
+                let item = self.ts_type_to_hir(args[0])?;
+                Ok(self.ctx.krate.types.intern(Type::List(item)))
+            }
+            "Record" if args.len() == 2 => {
+                let key = self.ts_type_to_hir(args[0])?;
+                if self.ctx.krate.types.get(key) != Some(&Type::String) {
+                    return Err(SmeltError::unsupported(
+                        self.span(reference.span.start, reference.span.end),
+                        "only Record<string, T> is lowered for now",
+                    ));
+                }
+                let value = self.ts_type_to_hir(args[1])?;
+                Ok(self.ctx.krate.types.intern(Type::Dict(key, value)))
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(reference.span.start, reference.span.end),
+                format!("type reference is not lowered yet: {name_text}"),
+            )),
+        }
+    }
+
+    fn field_type(&self, receiver_ty: smelt_hir::TypeId) -> Result<smelt_hir::TypeId, SmeltError> {
+        match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::Dict(_, value)) => Ok(*value),
+            _ => Err(SmeltError::unsupported(
+                self.span(0, 0),
+                "field access is only lowered for Record<string, T> values for now",
+            )),
+        }
+    }
+
+    fn index_type(&self, receiver_ty: smelt_hir::TypeId) -> Result<smelt_hir::TypeId, SmeltError> {
+        match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::List(item)) => Ok(*item),
+            Some(Type::Dict(_, value)) => Ok(*value),
+            _ => Err(SmeltError::unsupported(
+                self.span(0, 0),
+                "index access is only lowered for arrays and records for now",
             )),
         }
     }
