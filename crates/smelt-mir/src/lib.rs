@@ -55,7 +55,7 @@ mod tests {
     }
 
     #[test]
-    fn while_lowers_to_cfg_and_for_of_stays_deferred() {
+    fn while_and_for_of_lower_to_cfg() {
         let mut ctx = HirCtx::new();
         to_hir(
             "let count = 0;
@@ -86,8 +86,10 @@ for (let item: number of values) {
         )
         .expect("HIR");
 
-        let errors = lower_hir(&ctx.krate).expect_err("for lowering is deferred");
-        assert!(errors[0].message.contains("for CFG lowering"));
+        let mir = lower_hir(&ctx.krate).expect("for lowers");
+        assert!(validate(&mir).is_empty());
+        let output = format_compact(&mir);
+        assert!(output.contains("len copy %0"));
     }
 
     #[test]

@@ -42,6 +42,52 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         }
     }
 
+    for item in &krate.items {
+        match item {
+            smelt_hir::Item::Class(class) => {
+                mir.classes.push(crate::MirClass {
+                    name: class.name,
+                    kind: class.kind.clone(),
+                    base: class.base,
+                    fields: class
+                        .fields
+                        .iter()
+                        .map(|field| crate::MirField {
+                            name: field.name,
+                            ty: field.ty,
+                            visibility: field.visibility,
+                        })
+                        .collect(),
+                    constructor: class
+                        .constructor
+                        .and_then(|item| item_functions.get(&item).copied()),
+                    methods: class
+                        .methods
+                        .iter()
+                        .filter_map(|item| item_functions.get(item).copied())
+                        .collect(),
+                    implements: class.implements.clone(),
+                });
+            }
+            smelt_hir::Item::Interface(interface) => {
+                mir.interfaces.push(crate::MirInterface {
+                    name: interface.name,
+                    fields: interface
+                        .fields
+                        .iter()
+                        .map(|field| crate::MirField {
+                            name: field.name,
+                            ty: field.ty,
+                            visibility: field.visibility,
+                        })
+                        .collect(),
+                    methods: interface.methods.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+
     for (idx, item) in krate.items.iter().enumerate() {
         let item_id = smelt_hir::ItemId(idx as u32);
         let smelt_hir::Item::Function(function) = item else {
@@ -59,6 +105,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             body,
             function.name,
             function.return_ty,
+            function.owner,
         )
         .lower()
         {
@@ -84,6 +131,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             body,
             name,
             none,
+            smelt_hir::FunctionOwner::Module,
         )
         .lower()
         {
@@ -127,10 +175,22 @@ impl<'hir> LoweringCtx<'hir> {
         body: &'hir Body,
         name: Symbol,
         return_ty: TypeId,
+        owner: smelt_hir::FunctionOwner,
     ) -> Self {
         let span = body.blocks[body.root.0 as usize].span;
-        let mut function =
-            MirFunction::new(function_id, name, HirOrigin::Body(body_id), return_ty, span);
+        let origin = match owner {
+            smelt_hir::FunctionOwner::Module => HirOrigin::Body(body_id),
+            smelt_hir::FunctionOwner::Constructor { class } => HirOrigin::ClassConstructor {
+                class,
+                body: body_id,
+            },
+            smelt_hir::FunctionOwner::ClassMethod { class, method } => HirOrigin::ClassMethod {
+                class,
+                method,
+                body: body_id,
+            },
+        };
+        let mut function = MirFunction::new(function_id, name, origin, return_ty, span);
         let mut locals = HashMap::new();
 
         for (idx, local) in body.locals.iter().enumerate() {
@@ -165,6 +225,18 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     fn lower(mut self) -> Result<MirFunction, LowerError> {
+        if let HirOrigin::ClassConstructor { class, .. } = self.function.origin {
+            let Some(this) = self.function.locals.first().map(|_| LocalId(0)) else {
+                return Err(self.error("constructor is missing synthetic this local", None));
+            };
+            self.block_mut().statements.push(Statement::Assign {
+                dest: this,
+                value: Rvalue::Struct {
+                    class,
+                    fields: Vec::new(),
+                },
+            });
+        }
         self.lower_block_stmts(self.body.root)?;
 
         let root = &self.body.blocks[self.body.root.0 as usize];
@@ -172,6 +244,10 @@ impl<'hir> LoweringCtx<'hir> {
             let operand = self.lower_expr(tail)?;
             self.set_terminator(Terminator::Return(operand));
         } else if self.block().terminator.is_none() {
+            if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
+                self.set_terminator(Terminator::Return(Operand::Move(Place::Local(LocalId(0)))));
+                return Ok(self.function);
+            }
             self.set_terminator(Terminator::Return(Operand::Const(Constant::None)));
         }
 
@@ -243,7 +319,7 @@ impl<'hir> LoweringCtx<'hir> {
                 default,
             } => self.lower_match(*scrutinee, arms, *default),
             HirStmt::While { cond, body } => self.lower_while(*cond, *body),
-            HirStmt::For { .. } => Err(self.error("for CFG lowering is not implemented yet", None)),
+            HirStmt::For { pat, iter, body } => self.lower_for(*pat, *iter, *body),
             HirStmt::Throw(_) => Err(self.error("throw lowering is not implemented yet", None)),
             HirStmt::Break => {
                 let Some(targets) = self.loops.last().copied() else {
@@ -332,6 +408,105 @@ impl<'hir> LoweringCtx<'hir> {
             self.set_terminator(Terminator::Goto(header));
         }
         self.loops.pop();
+        self.current_block = after;
+        Ok(())
+    }
+
+    fn lower_for(
+        &mut self,
+        pat: smelt_hir::PatternId,
+        iter: ExprId,
+        body_hir: smelt_hir::BlockId,
+    ) -> Result<(), LowerError> {
+        let smelt_hir::Pattern::Binding(hir_local) = self.body.patterns[pat.0 as usize] else {
+            return Err(self.error("only binding for patterns can lower to MIR yet", None));
+        };
+        let item_local = self
+            .locals
+            .get(&hir_local)
+            .copied()
+            .ok_or_else(|| self.error("for pattern references an unknown local", None))?;
+        let iter_operand = self.lower_expr(iter)?;
+        let iter_local =
+            self.local_operand(iter_operand.clone(), self.body.exprs[iter.0 as usize].span)?;
+        let float_ty = self
+            .krate
+            .types
+            .all()
+            .iter()
+            .position(|ty| *ty == Type::Float)
+            .map(|idx| TypeId(idx as u32))
+            .unwrap_or(self.body.locals[hir_local.0 as usize].ty);
+        let bool_ty = self
+            .krate
+            .types
+            .all()
+            .iter()
+            .position(|ty| *ty == Type::Bool)
+            .map(|idx| TypeId(idx as u32))
+            .unwrap_or(float_ty);
+        let idx = self.push_temp(float_ty, self.body.exprs[iter.0 as usize].span);
+        self.block_mut().statements.push(Statement::Assign {
+            dest: idx,
+            value: Rvalue::Use(Operand::Const(Constant::Float(0.0))),
+        });
+
+        let header = self.function.push_block(self.block().span);
+        self.set_terminator(Terminator::Goto(header));
+        self.current_block = header;
+        let len = self.push_temp(float_ty, self.block().span);
+        self.block_mut().statements.push(Statement::Assign {
+            dest: len,
+            value: Rvalue::Len(Operand::Copy(Place::Local(iter_local))),
+        });
+        let cond = self.push_temp(bool_ty, self.block().span);
+        self.block_mut().statements.push(Statement::Assign {
+            dest: cond,
+            value: Rvalue::Binary {
+                op: smelt_hir::BinOp::Lt,
+                lhs: Operand::Copy(Place::Local(idx)),
+                rhs: Operand::Copy(Place::Local(len)),
+            },
+        });
+        let body_mir = self
+            .function
+            .push_block(self.body.blocks[body_hir.0 as usize].span);
+        let update_block = self.function.push_block(self.block().span);
+        let after = self.function.push_block(self.block().span);
+        self.set_terminator(Terminator::Switch {
+            cond: Operand::Copy(Place::Local(cond)),
+            then_block: body_mir,
+            else_block: after,
+        });
+
+        self.loops.push(LoopTargets {
+            break_target: after,
+            continue_target: update_block,
+        });
+        self.current_block = body_mir;
+        self.block_mut().statements.push(Statement::Assign {
+            dest: item_local,
+            value: Rvalue::Use(Operand::Copy(Place::Index {
+                base: iter_local,
+                index: Box::new(Operand::Copy(Place::Local(idx))),
+            })),
+        });
+        self.lower_block_stmts(body_hir)?;
+        if self.block().terminator.is_none() {
+            self.set_terminator(Terminator::Goto(update_block));
+        }
+        self.loops.pop();
+        self.current_block = update_block;
+        let one = Operand::Const(Constant::Float(1.0));
+        self.block_mut().statements.push(Statement::AssignPlace {
+            place: Place::Local(idx),
+            value: Rvalue::Binary {
+                op: smelt_hir::BinOp::Add,
+                lhs: Operand::Copy(Place::Local(idx)),
+                rhs: one,
+            },
+        });
+        self.set_terminator(Terminator::Goto(header));
         self.current_block = after;
         Ok(())
     }
@@ -496,11 +671,55 @@ impl<'hir> LoweringCtx<'hir> {
                     index: Box::new(index),
                 })
             }
-            ExprKind::Method { .. }
-            | ExprKind::Block(_)
-            | ExprKind::Lambda { .. }
-            | ExprKind::SetLit(_)
-            | ExprKind::New { .. } => {
+            ExprKind::Method { .. } => {
+                if let ExprKind::Method {
+                    receiver,
+                    method,
+                    args,
+                } = &expr.kind
+                {
+                    let receiver = self.lower_expr(*receiver)?;
+                    let base = self.local_operand(receiver.clone(), expr.span)?;
+                    let receiver_ty = self.function.locals[base.0 as usize].ty;
+                    let callee = self.resolve_method(receiver_ty, *method, expr.span)?;
+                    let mut lowered_args = vec![receiver];
+                    lowered_args.extend(
+                        args.iter()
+                            .map(|arg| self.lower_expr(*arg))
+                            .collect::<Result<Vec<_>, _>>()?,
+                    );
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    let target = self.function.push_block(expr.span);
+                    self.set_terminator(Terminator::Call {
+                        callee: Callee::Static(callee),
+                        args: lowered_args,
+                        dest,
+                        target,
+                    });
+                    self.current_block = target;
+                    Operand::Copy(Place::Local(dest))
+                } else {
+                    unreachable!()
+                }
+            }
+            ExprKind::New { class, args } => {
+                let callee = self.resolve_constructor(*class, expr.span)?;
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                let target = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Call {
+                    callee: Callee::Static(callee),
+                    args: lowered_args,
+                    dest,
+                    target,
+                });
+                self.current_block = target;
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::Block(_) | ExprKind::Lambda { .. } | ExprKind::SetLit(_) => {
                 return Err(self.error(
                     "expression kind is not implemented in MIR yet",
                     Some(expr.span),
@@ -540,6 +759,54 @@ impl<'hir> LoweringCtx<'hir> {
                 Some(expr.span),
             ))
         }
+    }
+
+    fn resolve_constructor(&self, class: Symbol, span: Span) -> Result<FuncId, LowerError> {
+        for item in &self.krate.items {
+            if let smelt_hir::Item::Class(class_item) = item
+                && class_item.name == class
+                && let Some(constructor) = class_item.constructor
+                && let Some(func) = self.item_functions.get(&constructor)
+            {
+                return Ok(*func);
+            }
+        }
+        let name = self.krate.symbols.get(class).unwrap_or("<unknown>");
+        Err(self.error(
+            format!("class `{name}` has no resolvable constructor"),
+            Some(span),
+        ))
+    }
+
+    fn resolve_method(
+        &self,
+        receiver_ty: TypeId,
+        method: Symbol,
+        span: Span,
+    ) -> Result<FuncId, LowerError> {
+        let Some(Type::Class { name, .. }) = self.krate.types.get(receiver_ty) else {
+            return Err(self.error("method receiver must be a class value", Some(span)));
+        };
+        for item in &self.krate.items {
+            if let smelt_hir::Item::Class(class_item) = item
+                && class_item.name == *name
+            {
+                for method_item in &class_item.methods {
+                    if let smelt_hir::Item::Function(function) =
+                        &self.krate.items[method_item.0 as usize]
+                        && function.name == method
+                        && let Some(func) = self.item_functions.get(method_item)
+                    {
+                        return Ok(*func);
+                    }
+                }
+            }
+        }
+        let name = self.krate.symbols.get(method).unwrap_or("<unknown>");
+        Err(self.error(
+            format!("class method `{name}` is not resolvable"),
+            Some(span),
+        ))
     }
 
     fn push_temp(&mut self, ty: TypeId, span: Span) -> LocalId {

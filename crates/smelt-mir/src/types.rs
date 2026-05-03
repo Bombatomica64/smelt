@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use smelt_hir::{BodyId, Span, Symbol, TypeId};
+use smelt_hir::{BodyId, Span, Symbol, TypeId, Visibility};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct FuncId(pub u32);
@@ -13,6 +13,8 @@ pub struct LocalId(pub u32);
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mir {
     pub functions: Vec<MirFunction>,
+    pub classes: Vec<MirClass>,
+    pub interfaces: Vec<MirInterface>,
     pub types: smelt_hir::TypeInterner,
     pub symbols: smelt_hir::SymbolInterner,
 }
@@ -22,6 +24,8 @@ impl Mir {
     pub fn new(types: smelt_hir::TypeInterner, symbols: smelt_hir::SymbolInterner) -> Self {
         Self {
             functions: Vec::new(),
+            classes: Vec::new(),
+            interfaces: Vec::new(),
             types,
             symbols,
         }
@@ -38,6 +42,34 @@ impl Mir {
         self.functions.push(function);
         id
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirClass {
+    pub name: Symbol,
+    /// Propagated from HIR for codegen (e.g. emit `#[derive(PartialEq, Eq)]`
+    /// for frozen dataclasses).
+    pub kind: smelt_hir::ClassKind,
+    /// Single base class, if any (multiple inheritance is rejected upstream).
+    pub base: Option<Symbol>,
+    pub fields: Vec<MirField>,
+    pub constructor: Option<FuncId>,
+    pub methods: Vec<FuncId>,
+    pub implements: Vec<Symbol>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirInterface {
+    pub name: Symbol,
+    pub fields: Vec<MirField>,
+    pub methods: Vec<smelt_hir::MethodSig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirField {
+    pub name: Symbol,
+    pub ty: TypeId,
+    pub visibility: Visibility,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +134,15 @@ impl MirFunction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HirOrigin {
     Body(BodyId),
+    ClassConstructor {
+        class: Symbol,
+        body: BodyId,
+    },
+    ClassMethod {
+        class: Symbol,
+        method: Symbol,
+        body: BodyId,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +213,11 @@ pub enum Rvalue {
         op: smelt_hir::UnaryOp,
         operand: Operand,
     },
+    Struct {
+        class: Symbol,
+        fields: Vec<(Symbol, Operand)>,
+    },
+    Len(Operand),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

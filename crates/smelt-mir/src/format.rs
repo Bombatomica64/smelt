@@ -8,6 +8,33 @@ use crate::{
 #[must_use]
 pub fn format_compact(mir: &Mir) -> String {
     let mut out = String::new();
+    for class in &mir.classes {
+        let name = mir.symbols.get(class.name).unwrap_or("<unknown>");
+        let fields = class
+            .fields
+            .iter()
+            .map(|field| {
+                format!(
+                    "{:?} {}: {}",
+                    field.visibility,
+                    mir.symbols.get(field.name).unwrap_or("<unknown>"),
+                    type_ref(mir, field.ty)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&format!(
+            "class {name} fields [{fields}] constructor {:?} methods {:?}\n",
+            class.constructor, class.methods
+        ));
+    }
+    for interface in &mir.interfaces {
+        let name = mir.symbols.get(interface.name).unwrap_or("<unknown>");
+        out.push_str(&format!("interface {name}\n"));
+    }
+    if !mir.classes.is_empty() || !mir.interfaces.is_empty() {
+        out.push('\n');
+    }
     for function in &mir.functions {
         let name = mir.symbols.get(function.name).unwrap_or("<unknown>");
         out.push_str(&format!(
@@ -117,6 +144,15 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("{op}{}", operand_text(operand))
         }
+        Rvalue::Struct { class, fields } => {
+            let fields = fields
+                .iter()
+                .map(|(field, value)| format!("field{}: {}", field.0, operand_text(value)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("struct{} {{{fields}}}", class.0)
+        }
+        Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
     }
 }
 

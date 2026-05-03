@@ -140,6 +140,12 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, rhs, errors);
         }
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
+        Rvalue::Struct { fields, .. } => {
+            for (_, value) in fields {
+                validate_operand_exists(function, value, errors);
+            }
+        }
+        Rvalue::Len(operand) => validate_operand_exists(function, operand, errors),
     }
 }
 
@@ -324,6 +330,12 @@ fn validate_rvalue(
             validate_operand(function, definitions, rhs, errors);
         }
         Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
+        Rvalue::Struct { fields, .. } => {
+            for (_, value) in fields {
+                validate_operand(function, definitions, value, errors);
+            }
+        }
+        Rvalue::Len(operand) => validate_operand(function, definitions, operand, errors),
     }
 }
 

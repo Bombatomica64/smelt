@@ -121,6 +121,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
         }
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
+        Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
+            rewrite_operand_except(value, aliases, dest) | changed
+        }),
+        Rvalue::Len(operand) => rewrite_operand_except(operand, aliases, dest),
     }
 }
 
