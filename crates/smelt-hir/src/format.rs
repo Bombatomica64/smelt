@@ -5,6 +5,8 @@ use crate::item::Item;
 use crate::krate::Crate;
 use crate::ty::Type;
 
+/// Format the HIR of `modules` in a compact, human-readable form.
+#[must_use]
 pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
     let mut out = String::new();
 
@@ -17,53 +19,19 @@ pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
             continue;
         };
 
-        let body = &krate.bodies[body_id.0 as usize];
         out.push_str(&format!("  body {body_id:?}\n"));
 
-        if !body.locals.is_empty() {
-            out.push_str("  locals\n");
-            for (idx, local) in body.locals.iter().enumerate() {
-                let local_id = LocalId(idx as u32);
-                let mutability = if local.mutable { "let" } else { "const" };
-                let name = local
-                    .name
-                    .and_then(|symbol| {
-                        krate
-                            .names
-                            .get(symbol)
-                            .or_else(|| krate.symbols.get(symbol))
-                    })
-                    .unwrap_or("_");
-                out.push_str(&format!(
-                    "    {} {} {}: {}\n",
-                    local_ref(local_id),
-                    mutability,
-                    name,
-                    type_ref(krate, local.ty)
-                ));
+        if !module.items.is_empty() {
+            out.push_str("  items\n");
+            for item in &module.items {
+                out.push_str("    ");
+                out.push_str(&item_text(krate, *item));
+                out.push('\n');
             }
         }
 
-        if !body.exprs.is_empty() {
-            out.push_str("  exprs\n");
-            for (idx, expr) in body.exprs.iter().enumerate() {
-                let expr_id = ExprId(idx as u32);
-                out.push_str(&format!(
-                    "    {}: {} = {}\n",
-                    expr_ref(expr_id),
-                    type_ref(krate, expr.ty),
-                    expr_text(krate, expr)
-                ));
-            }
-        }
-
-        if !body.stmts.is_empty() {
-            out.push_str("  stmts\n");
-            for (idx, stmt) in body.stmts.iter().enumerate() {
-                out.push_str(&format!("    s{}: {}\n", idx, stmt_text(krate, body, stmt)));
-            }
-        }
-
+        let body = &krate.bodies[body_id.0 as usize];
+        format_body_sections(krate, body, &mut out);
         out.push('\n');
     }
 
@@ -73,6 +41,48 @@ pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
     }
 
     out
+}
+
+/// Append the locals/exprs/stmts sections of a [`Body`] to `out`.
+fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
+    if !body.locals.is_empty() {
+        out.push_str("  locals\n");
+        for (idx, local) in body.locals.iter().enumerate() {
+            let local_id = LocalId(idx as u32);
+            let mutability = if local.mutable { "let" } else { "const" };
+            let name = local
+                .name
+                .and_then(|sym| krate.names.get(sym).or_else(|| krate.symbols.get(sym)))
+                .unwrap_or("_");
+            out.push_str(&format!(
+                "    {} {} {}: {}\n",
+                local_ref(local_id),
+                mutability,
+                name,
+                type_ref(krate, local.ty)
+            ));
+        }
+    }
+
+    if !body.exprs.is_empty() {
+        out.push_str("  exprs\n");
+        for (idx, expr) in body.exprs.iter().enumerate() {
+            let expr_id = ExprId(idx as u32);
+            out.push_str(&format!(
+                "    {}: {} = {}\n",
+                expr_ref(expr_id),
+                type_ref(krate, expr.ty),
+                expr_text(krate, expr)
+            ));
+        }
+    }
+
+    if !body.stmts.is_empty() {
+        out.push_str("  stmts\n");
+        for (idx, stmt) in body.stmts.iter().enumerate() {
+            out.push_str(&format!("    s{}: {}\n", idx, stmt_text(krate, body, stmt)));
+        }
+    }
 }
 
 fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
@@ -251,12 +261,96 @@ fn item_ref(krate: &Crate, item: ItemId) -> String {
     let name = match item_value {
         Item::Function(function) => krate.symbols.get(function.name),
         Item::Class(class) => krate.symbols.get(class.name),
+        Item::Interface(interface) => krate.symbols.get(interface.name),
         Item::TypeAlias(alias) => krate.symbols.get(alias.name),
         Item::Const(item) => krate.symbols.get(item.name),
     }
     .unwrap_or("<unknown>");
 
     format!("@{}({})", item.0, name)
+}
+
+fn item_text(krate: &Crate, item: ItemId) -> String {
+    match &krate.items[item.0 as usize] {
+        Item::Function(function) => {
+            let name = krate.symbols.get(function.name).unwrap_or("<unknown>");
+            format!("fn {name} owner {:?}", function.owner)
+        }
+        Item::Class(class) => class_item_text(krate, class),
+        Item::Interface(interface) => interface_item_text(krate, interface),
+        Item::TypeAlias(alias) => {
+            let name = krate.symbols.get(alias.name).unwrap_or("<unknown>");
+            format!("type {name} = {}", type_ref(krate, alias.ty))
+        }
+        Item::Const(item) => {
+            let name = krate.symbols.get(item.name).unwrap_or("<unknown>");
+            format!("const {name}: {}", type_ref(krate, item.ty))
+        }
+    }
+}
+
+fn fields_text(krate: &Crate, fields: &[crate::item::Field]) -> String {
+    fields
+        .iter()
+        .map(|field| {
+            format!(
+                "{:?} {}{}: {}",
+                field.visibility,
+                krate.symbols.get(field.name).unwrap_or("<unknown>"),
+                if field.optional { "?" } else { "" },
+                type_ref(krate, field.ty)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn class_item_text(krate: &Crate, class: &crate::item::Class) -> String {
+    let name = krate.symbols.get(class.name).unwrap_or("<unknown>");
+    let fields = fields_text(krate, &class.fields);
+    let implements = class
+        .implements
+        .iter()
+        .map(|sym| krate.symbols.get(*sym).unwrap_or("<unknown>").to_owned())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "class {name} fields [{fields}] constructor {:?} methods {:?} implements [{implements}]",
+        class.constructor, class.methods
+    )
+}
+
+fn interface_item_text(krate: &Crate, interface: &crate::item::Interface) -> String {
+    let name = krate.symbols.get(interface.name).unwrap_or("<unknown>");
+    let fields = fields_text(krate, &interface.fields);
+    let methods = interface
+        .methods
+        .iter()
+        .map(|method| method_sig_text(krate, method))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("interface {name} fields [{fields}] methods [{methods}]")
+}
+
+fn method_sig_text(krate: &Crate, method: &crate::item::MethodSig) -> String {
+    let params = method
+        .params
+        .iter()
+        .map(|param| {
+            format!(
+                "{}: {}",
+                krate.symbols.get(param.name).unwrap_or("<unknown>"),
+                type_ref(krate, param.ty)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "{:?} {}({params}) -> {}",
+        method.visibility,
+        krate.symbols.get(method.name).unwrap_or("<unknown>"),
+        type_ref(krate, method.return_ty)
+    )
 }
 
 fn type_ref(krate: &Crate, ty: TypeId) -> String {
