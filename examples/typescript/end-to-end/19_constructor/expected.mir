@@ -1,0 +1,24 @@
+class Box fields [Public value: String] constructor Some(FuncId(0)) methods []
+
+fn new (FuncId(0)) -> Box
+  locals
+    %0 user this: Box
+    %1 param: String
+  bb0:
+    %0 = struct0 {}
+    %0.field1 = copy %1
+    return move %0
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user box: Box
+    %1 temp: Box
+    %2 temp: None
+  bb0:
+    %1 = call fn0("ok") -> bb1
+  bb1:
+    %0 = copy %1
+    %2 = call @console_log(copy %0.field1) -> bb2
+  bb2:
+    return none
+

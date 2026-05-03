@@ -1,0 +1,37 @@
+class User fields [Public first: String, Public last: String] constructor Some(FuncId(0)) methods [FuncId(1)]
+
+fn new (FuncId(0)) -> User
+  locals
+    %0 user this: User
+    %1 param: String
+    %2 param: String
+  bb0:
+    %0 = struct0 {}
+    %0.field1 = copy %1
+    %0.field2 = copy %2
+    return move %0
+
+fn label (FuncId(1)) -> String
+  locals
+    %0 param: User
+    %1 temp: String
+  bb0:
+    %1 = copy %0.field1 + copy %0.field2
+    return copy %1
+
+fn main (FuncId(2)) -> None
+  locals
+    %0 user user: User
+    %1 temp: User
+    %2 temp: String
+    %3 temp: None
+  bb0:
+    %1 = call fn0("Ada", "Lovelace") -> bb1
+  bb1:
+    %0 = copy %1
+    %2 = call fn1(copy %1) -> bb2
+  bb2:
+    %3 = call @console_log(copy %2) -> bb3
+  bb3:
+    return none
+

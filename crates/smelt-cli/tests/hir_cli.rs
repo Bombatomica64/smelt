@@ -168,7 +168,19 @@ fn end_to_end_examples_match_expected_outputs() {
         "10_unary_logical",
         "11_console_log_expressions",
         "12_while_sum",
+        "13_for_of_sum",
         "14_c_for_loop",
+        "15_break_continue",
+        "16_switch_break_no_fallthrough",
+        "17_mutating_array",
+        "18_class_fields",
+        "19_constructor",
+        "20_method_call",
+        "21_this_field",
+        "22_mutating_method",
+        "23_interface_shape",
+        "24_interface_method_signature",
+        "25_private_protected_metadata",
     ] {
         let example = workspace_root()
             .join("examples/typescript/end-to-end")

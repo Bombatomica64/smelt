@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
@@ -11,6 +9,7 @@ pub enum Pipeline {
 }
 
 #[derive(Deserialize, Debug, JsonSchema)]
+#[allow(dead_code)]
 pub struct Project {
     name: String,
     version: String,
@@ -18,6 +17,7 @@ pub struct Project {
 }
 
 #[derive(Deserialize, Debug, JsonSchema)]
+#[allow(dead_code)]
 pub struct Config {
     project: Project,
     sources: Source,
@@ -70,6 +70,7 @@ impl Config {
 }
 
 #[derive(Deserialize, Debug, JsonSchema)]
+#[allow(dead_code)]
 pub struct Source {
     entries: Vec<PathBuf>,
     roots: Option<Vec<PathBuf>>,
@@ -92,12 +93,14 @@ pub enum CloneStrategy {
 }
 
 #[derive(Deserialize, Debug, JsonSchema)]
+#[allow(dead_code)]
 pub struct Runtime {
     #[serde(rename = "clone-strategy")]
     clone_strategy: CloneStrategy,
 }
 
 #[derive(Deserialize, Debug, JsonSchema)]
+#[allow(dead_code)]
 pub struct Strict {
     typescript: Option<bool>,
     python: Option<bool>,
