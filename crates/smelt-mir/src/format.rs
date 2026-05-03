@@ -1,3 +1,8 @@
+//! Pretty-printing utilities for MIR structures.
+//!
+//! This module provides functions to format MIR in a human-readable compact format,
+//! suitable for debugging and testing.
+
 use smelt_hir::{Type, TypeId};
 
 use crate::{
@@ -5,6 +10,7 @@ use crate::{
     Terminator,
 };
 
+/// Formats a MIR module into a human-readable compact string representation.
 #[must_use]
 pub fn format_compact(mir: &Mir) -> String {
     let mut out = String::new();
@@ -79,6 +85,7 @@ pub fn format_compact(mir: &Mir) -> String {
     out
 }
 
+/// Formats a local kind to human-readable text.
 fn local_kind_text(mir: &Mir, kind: LocalKind) -> String {
     match kind {
         LocalKind::Param => "param".to_owned(),
@@ -89,6 +96,7 @@ fn local_kind_text(mir: &Mir, kind: LocalKind) -> String {
     }
 }
 
+/// Formats a statement to human-readable text.
 fn statement_text(statement: &Statement) -> String {
     match statement {
         Statement::Assign { dest, value } => {
@@ -102,6 +110,7 @@ fn statement_text(statement: &Statement) -> String {
     }
 }
 
+/// Formats an rvalue to human-readable text.
 fn rvalue_text(value: &Rvalue) -> String {
     match value {
         Rvalue::Use(operand) => operand_text(operand),
@@ -156,6 +165,7 @@ fn rvalue_text(value: &Rvalue) -> String {
     }
 }
 
+/// Formats a terminator to human-readable text.
 fn terminator_text(terminator: &Terminator) -> String {
     match terminator {
         Terminator::Goto(target) => format!("goto bb{}", target.0),
@@ -210,6 +220,7 @@ fn terminator_text(terminator: &Terminator) -> String {
     }
 }
 
+/// Formats a callee to human-readable text.
 fn callee_text(callee: &Callee) -> String {
     match callee {
         Callee::Static(func) => format!("fn{}", func.0),
@@ -218,6 +229,7 @@ fn callee_text(callee: &Callee) -> String {
     }
 }
 
+/// Formats an operand to human-readable text.
 fn operand_text(operand: &Operand) -> String {
     match operand {
         Operand::Copy(place) => format!("copy {}", place_text(place)),
@@ -226,6 +238,7 @@ fn operand_text(operand: &Operand) -> String {
     }
 }
 
+/// Formats a place to human-readable text.
 fn place_text(place: &Place) -> String {
     match place {
         Place::Local(local) => local_ref(*local),
@@ -234,6 +247,7 @@ fn place_text(place: &Place) -> String {
     }
 }
 
+/// Formats a constant to human-readable text.
 fn constant_text(constant: &Constant) -> String {
     match constant {
         Constant::Bool(value) => value.to_string(),
@@ -250,10 +264,12 @@ fn constant_text(constant: &Constant) -> String {
     }
 }
 
+/// Formats a local reference to text.
 fn local_ref(local: LocalId) -> String {
     format!("%{}", local.0)
 }
 
+/// Formats a type reference to human-readable text.
 fn type_ref(mir: &Mir, ty: TypeId) -> String {
     let Some(ty_value) = mir.types.get(ty) else {
         return format!("t{}", ty.0);

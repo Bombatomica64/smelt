@@ -1,13 +1,19 @@
+//! TypeScript frontend for the Smelt compiler.
+//!
+//! This module provides parsing and lowering of TypeScript code into the Smelt HIR (High-level
+//! Intermediate Representation). It handles type annotations, classes, interfaces, functions,
+//! and various control flow constructs.
+
 pub mod checker;
 
 use std::collections::HashMap;
 
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ClassElement, Expression,
-    ForStatementInit, ForStatementLeft, MethodDefinitionKind, ObjectPropertyKind, Program,
-    PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement,
-    TSType, TSTypeName,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ClassElement, Declaration,
+    Expression, ForStatementInit, ForStatementLeft, MethodDefinitionKind, ObjectPropertyKind,
+    Program, PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature,
+    TSTupleElement, TSType, TSTypeName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -20,15 +26,23 @@ use smelt_hir::{
     ParamSig, Pattern, SourceFile, Span, Stmt, Type, UnaryOp, Visibility,
 };
 
+/// Error type for Smelt TypeScript frontend.
+///
+/// Contains diagnostic information about parse or lowering errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmeltError {
+    /// Error code identifying the error type.
     pub code: &'static str,
+    /// Source location of the error.
     pub span: Span,
+    /// Human-readable error message.
     pub message: String,
+    /// Optional note with additional context.
     pub note: Option<String>,
 }
 
 impl SmeltError {
+    /// Create an unsupported TypeScript feature error.
     fn unsupported(span: Span, message: impl Into<String>) -> Self {
         Self {
             code: "smelt::unsupported-ts",
@@ -38,6 +52,7 @@ impl SmeltError {
         }
     }
 
+    /// Create a parse error.
     fn parse(span: Span, message: impl Into<String>) -> Self {
         Self {
             code: "smelt::parse-error",
@@ -48,12 +63,17 @@ impl SmeltError {
     }
 }
 
+/// Context for building HIR from TypeScript source.
+///
+/// Manages the crate structure and accumulates items during lowering.
 #[derive(Debug)]
 pub struct HirCtx {
+    /// The HIR crate being constructed.
     pub krate: HirCrate,
 }
 
 impl HirCtx {
+    /// Create a new empty HIR context.
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -63,11 +83,17 @@ impl HirCtx {
 }
 
 impl Default for HirCtx {
+    /// Create a new HIR context (same as `new`).
     fn default() -> Self {
         Self::new()
     }
 }
 
+/// Parse TypeScript source code and lower it to HIR.
+///
+/// # Errors
+///
+/// Returns a vector of errors if parsing or lowering fails.
 pub fn to_hir(
     source: &str,
     file_id: FileId,
@@ -96,18 +122,30 @@ pub fn to_hir(
     builder.program(&parsed.program)
 }
 
+/// Builder for lowering TypeScript module to HIR.
+///
+/// Accumulates scoping information, items, and local variables during module construction.
 struct ModuleBuilder<'ctx> {
+    /// File ID for error reporting.
     file_id: FileId,
+    /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
+    /// Local variable bindings in current scope.
     locals: HashMap<String, smelt_hir::LocalId>,
+    /// Declared items (functions, classes, interfaces).
     items: HashMap<String, smelt_hir::ItemId>,
+    /// Class definitions by name.
     classes: HashMap<String, smelt_hir::ItemId>,
+    /// Interface definitions by name.
     interfaces: HashMap<String, smelt_hir::ItemId>,
+    /// Fields for each class.
     class_fields: HashMap<String, Vec<Field>>,
+    /// Currently processing class name, if any.
     current_class: Option<String>,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
+    /// Create a new module builder.
     fn new(file_id: FileId, ctx: &'ctx mut HirCtx) -> Self {
         Self {
             file_id,
@@ -121,6 +159,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lower a TypeScript program to HIR module.
     fn program(&mut self, program: &Program<'_>) -> Result<ModuleId, Vec<SmeltError>> {
         let span = self.span(program.span.start, program.span.end);
         let mut body = Body::new(None, span);
@@ -152,6 +191,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Err(error) => errors.push(error),
                     }
                 }
+                Statement::ExportNamedDeclaration(export) => {
+                    let Some(decl) = &export.declaration else {
+                        continue;
+                    };
+                    match decl {
+                        Declaration::FunctionDeclaration(f) => match self.function_declaration(f) {
+                            Ok(item) => module.items.push(item),
+                            Err(e) => errors.push(e),
+                        },
+                        Declaration::ClassDeclaration(c) => match self.class_declaration(c) {
+                            Ok(item) => module.items.push(item),
+                            Err(e) => errors.push(e),
+                        },
+                        Declaration::TSInterfaceDeclaration(i) => {
+                            match self.interface_declaration(i) {
+                                Ok(item) => module.items.push(item),
+                                Err(e) => errors.push(e),
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 _ => {}
             }
         }
@@ -162,6 +223,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::FunctionDeclaration(_)
                     | Statement::ClassDeclaration(_)
                     | Statement::TSInterfaceDeclaration(_)
+                    | Statement::ImportDeclaration(_)
+                    | Statement::ExportNamedDeclaration(_)
+                    | Statement::ExportAllDeclaration(_)
+                    | Statement::ExportDefaultDeclaration(_)
             ) {
                 continue;
             }
@@ -180,6 +245,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(self.ctx.krate.push_module(module))
     }
 
+    /// Lower a function declaration to HIR.
     fn function_declaration(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
@@ -286,6 +352,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(item)
     }
 
+    /// Lower a class declaration to HIR.
     fn class_declaration(
         &mut self,
         class: &oxc::ast::ast::Class<'_>,
@@ -488,6 +555,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(item)
     }
 
+    /// Lower a class method or constructor to HIR.
     fn class_function(
         &mut self,
         class_text: &str,
@@ -622,10 +690,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
+    /// Lower a statement in the current scope.
     fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
         self.statement_in_block(statement, body, body.root)
     }
 
+    /// Lower an interface declaration to HIR.
     fn interface_declaration(
         &mut self,
         interface: &oxc::ast::ast::TSInterfaceDeclaration<'_>,
@@ -754,6 +824,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(item)
     }
 
+    /// Lower a statement within a specific block.
     fn statement_in_block(
         &mut self,
         statement: &Statement<'_>,
@@ -929,6 +1000,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Create a block from a statement (wrapping if needed).
     fn block_from_statement(
         &mut self,
         statement: &Statement<'_>,
@@ -947,6 +1019,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(block)
     }
 
+    /// Lower a variable declaration statement.
     fn variable_declaration(
         &mut self,
         decl: &oxc::ast::ast::VariableDeclaration<'_>,
@@ -989,6 +1062,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(())
     }
 
+    /// Lower a C-style for loop.
     fn c_for_statement(
         &mut self,
         for_stmt: &oxc::ast::ast::ForStatement<'_>,
@@ -1047,6 +1121,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(())
     }
 
+    /// Extract pattern from for-of left side.
     fn for_left_pattern(
         &mut self,
         left: &ForStatementLeft<'_>,
@@ -1094,6 +1169,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(body.push_pattern(Pattern::Binding(local)))
     }
 
+    /// Convert a switch case label expression to a literal.
     fn literal_case_label(&self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
         match expression {
             Expression::StringLiteral(lit) => Ok(Literal::String(lit.value.to_string())),
@@ -1107,6 +1183,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lower an expression without type hint.
     fn expression(
         &mut self,
         expression: &Expression<'_>,
@@ -1115,6 +1192,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.expression_with_hint(expression, body, None)
     }
 
+    /// Lower an expression with optional type hint.
     fn expression_with_hint(
         &mut self,
         expression: &Expression<'_>,
@@ -1495,6 +1573,66 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }))
             }
+            Expression::TemplateLiteral(tpl) => {
+                let str_ty = self.ctx.krate.types.intern(Type::String);
+                let span = self.span(tpl.span.start, tpl.span.end);
+
+                // Build the first segment from quasi[0]
+                let first_str = tpl.quasis[0]
+                    .value
+                    .cooked
+                    .as_ref()
+                    .map_or_else(|| tpl.quasis[0].value.raw.as_str(), |c| c.as_str())
+                    .to_owned();
+                let mut acc = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(first_str)),
+                    ty: str_ty,
+                    span,
+                });
+
+                for (i, interp) in tpl.expressions.iter().enumerate() {
+                    // Concatenate the interpolated expression
+                    let part = self.expression(interp, body)?;
+                    acc = body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: BinOp::Add,
+                            lhs: acc,
+                            rhs: part,
+                        },
+                        ty: str_ty,
+                        span,
+                    });
+                    // Concatenate the next quasi string (skip empty ones to keep HIR tidy)
+                    if let Some(quasi) = tpl.quasis.get(i + 1) {
+                        let s = quasi
+                            .value
+                            .cooked
+                            .as_ref()
+                            .map_or_else(|| quasi.value.raw.as_str(), |c| c.as_str());
+                        if !s.is_empty() {
+                            let lit = body.push_expr(Expr {
+                                kind: ExprKind::Literal(Literal::String(s.to_owned())),
+                                ty: str_ty,
+                                span,
+                            });
+                            acc = body.push_expr(Expr {
+                                kind: ExprKind::BinOp {
+                                    op: BinOp::Add,
+                                    lhs: acc,
+                                    rhs: lit,
+                                },
+                                ty: str_ty,
+                                span,
+                            });
+                        }
+                    }
+                }
+                Ok(acc)
+            }
+            Expression::TaggedTemplateExpression(tagged) => Err(SmeltError::unsupported(
+                self.span(tagged.span.start, tagged.span.end),
+                "tagged template literals are not supported",
+            )),
             _ => Err(SmeltError::unsupported(
                 self.expression_span(expression),
                 format!("expression kind is not lowered yet: {expression:?}"),
@@ -1502,6 +1640,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lower a function call argument.
     fn argument(
         &mut self,
         argument: &Argument<'_>,
@@ -1561,6 +1700,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lower an array element.
     fn array_element(
         &mut self,
         element: &ArrayExpressionElement<'_>,
@@ -1618,6 +1758,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lower a binary expression.
     fn binary_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
@@ -1662,6 +1803,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower a logical expression.
     fn logical_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
@@ -1687,6 +1829,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower a unary expression.
     fn unary_expression(
         &mut self,
         unary: &oxc::ast::ast::UnaryExpression<'_>,
@@ -1714,6 +1857,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower an array expression.
     fn array_expression(
         &mut self,
         array: &oxc::ast::ast::ArrayExpression<'_>,
@@ -1755,6 +1899,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower an object expression.
     fn object_expression(
         &mut self,
         object: &oxc::ast::ast::ObjectExpression<'_>,
@@ -1813,6 +1958,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower a static member access expression.
     fn static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -1834,6 +1980,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower a computed member access expression.
     fn computed_member(
         &mut self,
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
@@ -1855,6 +2002,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower a call expression.
     fn call_expression(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -1953,6 +2101,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         ))
     }
 
+    /// Extract target and value from assignment expression.
     fn assignment_parts(
         &mut self,
         assign: &oxc::ast::ast::AssignmentExpression<'_>,
@@ -1997,6 +2146,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok((target, value))
     }
 
+    /// Extract target and value from increment/decrement expression.
     fn update_parts(
         &mut self,
         update: &oxc::ast::ast::UpdateExpression<'_>,
@@ -2025,6 +2175,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok((target, value))
     }
 
+    /// Convert assignment target to expression.
     fn assignment_target_expr(
         &mut self,
         target: &AssignmentTarget<'_>,
@@ -2048,6 +2199,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Convert simple assignment target to expression.
     fn simple_assignment_target_expr(
         &mut self,
         target: &SimpleAssignmentTarget<'_>,
@@ -2069,6 +2221,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Convert TypeScript type to HIR type.
     fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
         match ty {
             TSType::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
@@ -2152,6 +2305,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Convert tuple element type to HIR type.
     fn tuple_element_type_to_hir(
         &mut self,
         item: &TSTupleElement<'_>,
@@ -2193,6 +2347,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Convert type reference to HIR type.
     fn type_reference_to_hir(
         &mut self,
         reference: &oxc::ast::ast::TSTypeReference<'_>,
@@ -2239,6 +2394,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Resolve the type of a class field.
     fn class_field_type(
         &self,
         receiver_ty: smelt_hir::TypeId,
@@ -2283,6 +2439,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Look up a class by its symbol.
     fn class_by_symbol(&self, name: smelt_hir::Symbol) -> Option<&Class> {
         self.ctx.krate.items.iter().find_map(|item| match item {
             Item::Class(class) if class.name == name => Some(class),
@@ -2290,6 +2447,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })
     }
 
+    /// Resolve a method call on a type.
     fn resolve_method(
         &self,
         receiver_ty: smelt_hir::TypeId,
@@ -2321,6 +2479,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         ))
     }
 
+    /// Get the element type of an indexable type.
     fn index_type(&self, receiver_ty: smelt_hir::TypeId) -> Result<smelt_hir::TypeId, SmeltError> {
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::List(item)) => Ok(*item),
@@ -2332,18 +2491,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Intern a source identifier name and convert from camelCase to snake_case.
     fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
 
+    /// Intern a type name symbol.
     fn intern_type_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(name);
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
 
+    /// Create an identifier expression from a local variable.
     fn identifier_expression(
         &self,
         name: &str,
@@ -2365,6 +2527,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Ensure a console.log item exists in the HIR.
     fn ensure_console_log_item(&mut self, span: Span) -> smelt_hir::ItemId {
         let name = self.ctx.krate.symbols.intern(smelt_hir::CONSOLE_LOG_SYMBOL);
         let none = self.ctx.krate.types.intern(Type::None);
@@ -2381,20 +2544,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }))
     }
 
+    /// Create a Span from byte offsets.
     fn span(&self, start: u32, end: u32) -> Span {
         Span::new(self.file_id, start, end)
     }
 
+    /// Get the span of a statement.
     fn statement_span(&self, statement: &Statement<'_>) -> Span {
         let span = statement.span();
         self.span(span.start, span.end)
     }
 
+    /// Get the span of an expression.
     fn expression_span(&self, expression: &Expression<'_>) -> Span {
         let span = expression.span();
         self.span(span.start, span.end)
     }
 
+    /// Convert a property key to a symbol.
     fn property_key_symbol(
         &mut self,
         key: &PropertyKey<'_>,
@@ -2873,5 +3040,28 @@ for (let item of values) {
                 .any(|error| error.message.contains("switch fallthrough")),
             "expected switch fallthrough error, got {errors:?}"
         );
+    }
+
+    #[test]
+    fn lowers_template_literal_to_string_concat() {
+        let mut ctx = HirCtx::new();
+        let _module_id = to_hir(
+            "const name: string = \"world\";\nconst msg: string = `Hello ${name}!`;",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("template literal should lower");
+        assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    }
+
+    #[test]
+    fn accepts_import_and_export_declarations() {
+        let mut ctx = HirCtx::new();
+        let _module_id = to_hir(
+            "import { foo } from './foo';\nexport function bar(): number { return 1; }",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("import and export should not crash");
     }
 }

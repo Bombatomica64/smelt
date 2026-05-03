@@ -1,3 +1,9 @@
+//! MIR (Medium-level Intermediate Representation) crate for the Smelt compiler.
+//!
+//! This crate provides the MIR IR for functions, types, and control flow,
+//! as well as utilities for lowering HIR to MIR, optimizing MIR, validating MIR,
+//! and formatting MIR for debugging.
+
 mod format;
 mod lower;
 pub mod opt;

@@ -1,3 +1,5 @@
+//! Pretty-printing utilities for HIR.
+
 use crate::body::{Body, Pattern, Stmt};
 use crate::expr::{Expr, ExprKind, Literal};
 use crate::ids::{ExprId, ItemId, LocalId, ModuleId, PatternId, TypeId};
@@ -5,7 +7,7 @@ use crate::item::Item;
 use crate::krate::Crate;
 use crate::ty::Type;
 
-/// Format the HIR of `modules` in a compact, human-readable form.
+/// Formats the HIR of the given modules in a compact, human-readable form.
 #[must_use]
 pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
     let mut out = String::new();
@@ -43,7 +45,7 @@ pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
     out
 }
 
-/// Append the locals/exprs/stmts sections of a [`Body`] to `out`.
+/// Appends the locals/exprs/stmts sections of a body to the output string.
 fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
     if !body.locals.is_empty() {
         out.push_str("  locals\n");
@@ -85,6 +87,7 @@ fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
     }
 }
 
+/// Formats a statement as text.
 fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
     match stmt {
         Stmt::Let { pat, ty, value } => {
@@ -148,6 +151,7 @@ fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
     }
 }
 
+/// Formats an expression as text.
 fn expr_text(krate: &Crate, expr: &Expr) -> String {
     match &expr.kind {
         ExprKind::Literal(literal) => literal_text(literal),
@@ -212,6 +216,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
     }
 }
 
+/// Formats a collection literal as text.
 fn collection_text(open: &str, close: &str, items: &[ExprId]) -> String {
     let items = items
         .iter()
@@ -221,6 +226,7 @@ fn collection_text(open: &str, close: &str, items: &[ExprId]) -> String {
     format!("{open}{items}{close}")
 }
 
+/// Formats a pattern as text.
 fn pattern_text(body: &Body, pattern: PatternId) -> String {
     match &body.patterns[pattern.0 as usize] {
         Pattern::Wildcard => "_".to_owned(),
@@ -237,6 +243,7 @@ fn pattern_text(body: &Body, pattern: PatternId) -> String {
     }
 }
 
+/// Formats a literal as text.
 fn literal_text(literal: &Literal) -> String {
     match literal {
         Literal::Bool(value) => value.to_string(),
@@ -253,6 +260,7 @@ fn literal_text(literal: &Literal) -> String {
     }
 }
 
+/// Formats an item reference as text.
 fn item_ref(krate: &Crate, item: ItemId) -> String {
     let Some(item_value) = krate.items.get(item.0 as usize) else {
         return format!("item{}", item.0);
@@ -270,6 +278,7 @@ fn item_ref(krate: &Crate, item: ItemId) -> String {
     format!("@{}({})", item.0, name)
 }
 
+/// Formats an item as text.
 fn item_text(krate: &Crate, item: ItemId) -> String {
     match &krate.items[item.0 as usize] {
         Item::Function(function) => {
@@ -289,6 +298,7 @@ fn item_text(krate: &Crate, item: ItemId) -> String {
     }
 }
 
+/// Formats a list of fields as text.
 fn fields_text(krate: &Crate, fields: &[crate::item::Field]) -> String {
     fields
         .iter()
@@ -305,6 +315,7 @@ fn fields_text(krate: &Crate, fields: &[crate::item::Field]) -> String {
         .join(", ")
 }
 
+/// Formats a class item as text.
 fn class_item_text(krate: &Crate, class: &crate::item::Class) -> String {
     let name = krate.symbols.get(class.name).unwrap_or("<unknown>");
     let fields = fields_text(krate, &class.fields);
@@ -320,6 +331,7 @@ fn class_item_text(krate: &Crate, class: &crate::item::Class) -> String {
     )
 }
 
+/// Formats an interface item as text.
 fn interface_item_text(krate: &Crate, interface: &crate::item::Interface) -> String {
     let name = krate.symbols.get(interface.name).unwrap_or("<unknown>");
     let fields = fields_text(krate, &interface.fields);
@@ -332,6 +344,7 @@ fn interface_item_text(krate: &Crate, interface: &crate::item::Interface) -> Str
     format!("interface {name} fields [{fields}] methods [{methods}]")
 }
 
+/// Formats a method signature as text.
 fn method_sig_text(krate: &Crate, method: &crate::item::MethodSig) -> String {
     let params = method
         .params
@@ -353,6 +366,7 @@ fn method_sig_text(krate: &Crate, method: &crate::item::MethodSig) -> String {
     )
 }
 
+/// Formats a type reference as text.
 fn type_ref(krate: &Crate, ty: TypeId) -> String {
     let Some(ty_value) = krate.types.get(ty) else {
         return format!("t{}", ty.0);
@@ -360,6 +374,7 @@ fn type_ref(krate: &Crate, ty: TypeId) -> String {
     type_text(krate, ty_value)
 }
 
+/// Formats a type as text.
 fn type_text(krate: &Crate, ty: &Type) -> String {
     match ty {
         Type::Bool => "Bool".to_owned(),
@@ -420,10 +435,12 @@ fn type_text(krate: &Crate, ty: &Type) -> String {
     }
 }
 
+/// Formats a local variable reference as text.
 fn local_ref(local: LocalId) -> String {
     format!("%{}", local.0)
 }
 
+/// Formats an expression reference as text.
 fn expr_ref(expr: ExprId) -> String {
     format!("#{}", expr.0)
 }

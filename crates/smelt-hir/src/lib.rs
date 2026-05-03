@@ -1,3 +1,9 @@
+//! Higher intermediate representation (HIR) for the Smelt compiler.
+//!
+//! This crate defines the core data structures for representing Smelt programs after
+//! frontend lowering. It includes types for expressions, statements, items (functions,
+//! classes, interfaces), control flow, and type information.
+
 mod body;
 mod expr;
 mod format;

@@ -1,5 +1,8 @@
+//! CLI argument parsing and command definitions.
+
 use clap::{Parser, Subcommand};
 
+/// Top-level CLI arguments for the smelt command.
 #[derive(Parser, Debug)]
 #[command(
     name = "smelt",
@@ -15,6 +18,7 @@ pub struct Args {
     pub command: Command,
 }
 
+/// Available CLI subcommands.
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Read manifest, transpile, and emit a Rust crate

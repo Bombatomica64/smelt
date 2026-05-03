@@ -1,12 +1,21 @@
+//! MIR optimization passes.
+//!
+//! This module provides optimization passes that can improve MIR efficiency,
+//! including copy propagation and other transformations.
+
 use std::collections::{HashMap, HashSet};
 
 use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
 
+/// A MIR optimization pass that transforms the MIR.
 pub trait Pass {
+    /// Returns the name of this pass for debugging purposes.
     fn name(&self) -> &'static str;
+    /// Runs the pass on the given MIR. Returns true if the MIR was modified.
     fn run(&self, mir: &mut Mir) -> bool;
 }
 
+/// Copy propagation optimization that eliminates alias assignments.
 #[derive(Debug, Default)]
 pub struct CopyPropagation;
 
@@ -24,11 +33,13 @@ impl Pass for CopyPropagation {
     }
 }
 
+/// Returns the default set of optimization passes.
 #[must_use]
 pub fn default_passes() -> Vec<Box<dyn Pass>> {
     vec![Box::<CopyPropagation>::default()]
 }
 
+/// Applies all default optimization passes to the MIR.
 pub fn optimize(mir: &mut Mir) {
     let passes = default_passes();
     loop {
@@ -42,6 +53,7 @@ pub fn optimize(mir: &mut Mir) {
     }
 }
 
+/// Propagates copies within a function. Returns true if the function was modified.
 fn propagate_function(function: &mut MirFunction) -> bool {
     let mut aliases = HashMap::new();
 
@@ -88,6 +100,7 @@ fn propagate_function(function: &mut MirFunction) -> bool {
     changed
 }
 
+/// Resolves a local to its canonical alias target.
 fn resolve_alias(aliases: &HashMap<LocalId, LocalId>, local: LocalId) -> LocalId {
     let mut current = local;
     let mut seen = HashSet::new();
@@ -100,6 +113,7 @@ fn resolve_alias(aliases: &HashMap<LocalId, LocalId>, local: LocalId) -> LocalId
     current
 }
 
+/// Rewrites operands in an rvalue using alias mappings. Returns true if modified.
 fn rewrite_rvalue(
     value: &mut Rvalue,
     aliases: &HashMap<LocalId, LocalId>,
@@ -128,6 +142,7 @@ fn rewrite_rvalue(
     }
 }
 
+/// Rewrites operands in a terminator using alias mappings. Returns true if modified.
 fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, LocalId>) -> bool {
     match terminator {
         Terminator::Goto(_) | Terminator::Unreachable => false,
@@ -149,10 +164,12 @@ fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, Lo
     }
 }
 
+/// Rewrites an operand using alias mappings. Returns true if modified.
 fn rewrite_operand(operand: &mut Operand, aliases: &HashMap<LocalId, LocalId>) -> bool {
     rewrite_operand_except(operand, aliases, None)
 }
 
+/// Rewrites a place using alias mappings. Returns true if modified.
 fn rewrite_place(place: &mut Place, aliases: &HashMap<LocalId, LocalId>) -> bool {
     match place {
         Place::Local(local) | Place::Field { base: local, .. } => {
@@ -170,6 +187,7 @@ fn rewrite_place(place: &mut Place, aliases: &HashMap<LocalId, LocalId>) -> bool
     }
 }
 
+/// Rewrites an operand using alias mappings, except for a specific local ID. Returns true if modified.
 fn rewrite_operand_except(
     operand: &mut Operand,
     aliases: &HashMap<LocalId, LocalId>,

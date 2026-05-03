@@ -1,3 +1,8 @@
+//! Main entry point and orchestration logic for the smelt CLI tool.
+//!
+//! This module handles parsing arguments, loading configuration, and dispatching
+//! to the appropriate frontend and codegen pipelines.
+
 mod cli_parser;
 mod config;
 mod config_parser;
@@ -20,6 +25,7 @@ enum SourceLang {
 }
 
 impl SourceLang {
+    /// Infer source language from file extension.
     fn from_path(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         match Path::new(path).extension().and_then(|e| e.to_str()) {
             Some("ts") => Ok(Self::TypeScript),
@@ -29,8 +35,10 @@ impl SourceLang {
     }
 }
 
+/// Represents a lowered crate with its modules.
 type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
 
+/// Check and validate source files without emitting any output.
 fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     for pipeline in config.pipelines() {
         match pipeline {
@@ -41,6 +49,7 @@ fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Lower TypeScript source files to HIR.
 fn lower_typescript_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut ctx = smelt_frontend_ts::HirCtx::new();
     let mut modules = Vec::new();
@@ -60,6 +69,7 @@ fn lower_typescript_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std:
     Ok((ctx.krate, modules))
 }
 
+/// Lower Python source files to HIR.
 fn lower_python_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut ctx = smelt_frontend_py::HirCtx::new();
     let mut modules = Vec::new();
@@ -102,6 +112,7 @@ fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Lower TypeScript entries from a manifest config to HIR.
 fn lower_manifest_typescript(
     config: &Config,
     manifest_path: &Path,
@@ -129,6 +140,7 @@ fn lower_manifest_typescript(
     lower_typescript_files(&files)
 }
 
+/// Resolve a path relative to the manifest directory, or return it if absolute.
 fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
@@ -137,6 +149,7 @@ fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
     }
 }
 
+/// Print the HIR in compact or debug format.
 fn print_hir(krate: &smelt_hir::Crate, modules: &[(String, ModuleId)], debug: bool) {
     if debug {
         println!("{krate:#?}");
@@ -145,12 +158,14 @@ fn print_hir(krate: &smelt_hir::Crate, modules: &[(String, ModuleId)], debug: bo
     }
 }
 
+/// Print the optimized MIR in compact format.
 fn print_mir(krate: &smelt_hir::Crate) -> Result<(), Box<dyn std::error::Error>> {
     let mir = lower_to_optimized_mir(krate)?;
     print!("{}", smelt_mir::format_compact(&mir));
     Ok(())
 }
 
+/// Lower HIR to MIR, optimize, and validate.
 fn lower_to_optimized_mir(
     krate: &smelt_hir::Crate,
 ) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
@@ -172,6 +187,7 @@ fn lower_to_optimized_mir(
     Ok(mir)
 }
 
+/// Build a Rust crate from manifest configuration.
 fn build_rust_crate(
     config: &Config,
     manifest_path: &Path,
@@ -208,11 +224,12 @@ fn build_rust_crate(
     Ok(())
 }
 
+/// Main CLI entry point.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     if let Command::DumpSchema = args.command {
-        let schema = schemars::schema_for!(config::Config);
+        let schema = schemars::schema_for!(Config);
         println!("{}", serde_json::to_string_pretty(&schema)?);
         return Ok(());
     }

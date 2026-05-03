@@ -1,3 +1,8 @@
+//! Lowering from HIR to MIR.
+//!
+//! This module contains the logic for converting a HIR crate into a MIR representation,
+//! including lowering expressions, statements, and control flow.
+
 use std::collections::HashMap;
 
 use smelt_hir::{
@@ -10,12 +15,16 @@ use crate::{
     LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator,
 };
 
+/// An error encountered during HIR to MIR lowering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LowerError {
+    /// The error message.
     pub message: String,
+    /// The source span associated with the error, if available.
     pub span: Option<Span>,
 }
 
+/// Lowers a HIR crate to MIR, or returns lowering errors if the conversion fails.
 pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let hir_errors = smelt_hir::validate(krate);
     if !hir_errors.is_empty() {
@@ -149,24 +158,37 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     }
 }
 
+/// Context for lowering a function body from HIR to MIR.
 struct LoweringCtx<'hir> {
+    /// Reference to the HIR crate.
     krate: &'hir smelt_hir::Crate,
+    /// Mapping of HIR item IDs to MIR function IDs.
     item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
+    /// The HIR body being lowered.
     body: &'hir Body,
+    /// The MIR function being constructed.
     function: MirFunction,
+    /// The current block being generated.
     current_block: BlockId,
+    /// Mapping of HIR local IDs to MIR local IDs.
     locals: HashMap<HirLocalId, LocalId>,
+    /// Mapping of HIR expression IDs to lowered operands.
     exprs: HashMap<ExprId, Operand>,
+    /// Stack of loop targets for break/continue.
     loops: Vec<LoopTargets>,
 }
 
+/// Target blocks for break and continue statements.
 #[derive(Debug, Clone, Copy)]
 struct LoopTargets {
+    /// Target block for break statements.
     break_target: BlockId,
+    /// Target block for continue statements.
     continue_target: BlockId,
 }
 
 impl<'hir> LoweringCtx<'hir> {
+    /// Creates a new lowering context for a function body.
     fn new(
         krate: &'hir smelt_hir::Crate,
         item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
@@ -224,6 +246,7 @@ impl<'hir> LoweringCtx<'hir> {
         }
     }
 
+    /// Lowers the entire function body to MIR.
     fn lower(mut self) -> Result<MirFunction, LowerError> {
         if let HirOrigin::ClassConstructor { class, .. } = self.function.origin {
             let Some(this) = self.function.locals.first().map(|_| LocalId(0)) else {
@@ -254,6 +277,7 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(self.function)
     }
 
+    /// Lowers all statements in a HIR block.
     fn lower_block_stmts(&mut self, block_id: smelt_hir::BlockId) -> Result<(), LowerError> {
         let block = &self.body.blocks[block_id.0 as usize];
         for stmt_id in &block.stmts {
@@ -266,6 +290,7 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(())
     }
 
+    /// Lowers a single HIR statement to MIR.
     fn lower_stmt(&mut self, stmt: &HirStmt) -> Result<(), LowerError> {
         match stmt {
             HirStmt::Let { pat, value, .. } => {
@@ -338,6 +363,7 @@ impl<'hir> LoweringCtx<'hir> {
         }
     }
 
+    /// Lowers an if statement to MIR with switch terminator.
     fn lower_if(
         &mut self,
         cond: ExprId,
@@ -382,6 +408,7 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(())
     }
 
+    /// Lowers a while loop to MIR with switch terminator.
     fn lower_while(
         &mut self,
         cond: ExprId,
@@ -412,6 +439,7 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(())
     }
 
+    /// Lowers a for loop to MIR with index-based iteration.
     fn lower_for(
         &mut self,
         pat: smelt_hir::PatternId,
@@ -511,6 +539,7 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(())
     }
 
+    /// Lowers a match expression to MIR with match terminator.
     fn lower_match(
         &mut self,
         scrutinee: ExprId,
@@ -559,6 +588,7 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(())
     }
 
+    /// Lowers a HIR expression to an operand, allocating temporaries as needed.
     fn lower_expr(&mut self, expr_id: ExprId) -> Result<Operand, LowerError> {
         if let Some(operand) = self.exprs.get(&expr_id) {
             return Ok(operand.clone());
@@ -731,6 +761,7 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(operand)
     }
 
+    /// Lowers a callee expression to a MIR callee.
     fn lower_callee(&self, expr_id: ExprId) -> Result<Callee, LowerError> {
         let expr = &self.body.exprs[expr_id.0 as usize];
         let ExprKind::Item(item_id) = expr.kind else {
@@ -761,6 +792,7 @@ impl<'hir> LoweringCtx<'hir> {
         }
     }
 
+    /// Resolves a class constructor to its function ID.
     fn resolve_constructor(&self, class: Symbol, span: Span) -> Result<FuncId, LowerError> {
         for item in &self.krate.items {
             if let smelt_hir::Item::Class(class_item) = item
@@ -778,6 +810,7 @@ impl<'hir> LoweringCtx<'hir> {
         ))
     }
 
+    /// Resolves a method call to its function ID based on the receiver type.
     fn resolve_method(
         &self,
         receiver_ty: TypeId,
@@ -809,6 +842,7 @@ impl<'hir> LoweringCtx<'hir> {
         ))
     }
 
+    /// Allocates a new temporary local variable.
     fn push_temp(&mut self, ty: TypeId, span: Span) -> LocalId {
         self.function.push_local(LocalDecl {
             ty,
@@ -817,6 +851,7 @@ impl<'hir> LoweringCtx<'hir> {
         })
     }
 
+    /// Lowers an lvalue expression to a MIR place for assignment targets.
     fn lower_place(&mut self, expr_id: ExprId) -> Result<Place, LowerError> {
         let expr = &self.body.exprs[expr_id.0 as usize];
         match &expr.kind {
@@ -850,6 +885,7 @@ impl<'hir> LoweringCtx<'hir> {
         }
     }
 
+    /// Extracts a local variable ID from an operand or returns an error.
     fn local_operand(&self, operand: Operand, span: Span) -> Result<LocalId, LowerError> {
         match operand {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Ok(local),
@@ -860,18 +896,22 @@ impl<'hir> LoweringCtx<'hir> {
         }
     }
 
+    /// Returns a reference to the current block.
     fn block(&self) -> &BasicBlock {
         &self.function.blocks[self.current_block.0 as usize]
     }
 
+    /// Returns a mutable reference to the current block.
     fn block_mut(&mut self) -> &mut BasicBlock {
         &mut self.function.blocks[self.current_block.0 as usize]
     }
 
+    /// Sets the terminator for the current block.
     fn set_terminator(&mut self, terminator: Terminator) {
         self.block_mut().terminator = Some(terminator);
     }
 
+    /// Creates a lowering error with optional span information.
     fn error(&self, message: impl Into<String>, span: Option<Span>) -> LowerError {
         LowerError {
             message: message.into(),
@@ -880,6 +920,7 @@ impl<'hir> LoweringCtx<'hir> {
     }
 }
 
+/// Converts a HIR literal to a MIR constant.
 fn lower_literal(literal: &HirLiteral) -> Constant {
     match literal {
         HirLiteral::Bool(value) => Constant::Bool(*value),
