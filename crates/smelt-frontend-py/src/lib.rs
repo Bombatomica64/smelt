@@ -19,16 +19,17 @@ pub use ruff_python_ast as ast;
 use std::collections::HashMap;
 
 use ruff_python_ast::{
-    BoolOp, CmpOp, ElifElseClause, Expr, Mod, ModModule, Number, Operator,
+    BoolOp, CmpOp, Decorator, ElifElseClause, Expr, Keyword, Mod, ModModule, Number, Operator,
     Pattern as RuffPattern, PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAugAssign,
-    StmtFor, StmtFunctionDef, StmtIf, StmtMatch, UnaryOp as RuffUnaryOp,
+    StmtClassDef, StmtFor, StmtFunctionDef, StmtIf, StmtMatch, UnaryOp as RuffUnaryOp,
 };
 use ruff_python_parser::{Mode, ParseOptions, parse};
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    BinOp, Body, Crate as HirCrate, Expr as HirExpr, ExprKind, FileId, Function, FunctionType,
-    Item, ItemId, Language, Literal, LocalDecl, MatchArm, Module, ModuleId, Param,
-    Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, Type, TypeId, UnaryOp,
+    BinOp, Body, Class, ClassKind, Crate as HirCrate, Expr as HirExpr, ExprKind, Field, FileId,
+    Function, FunctionOwner, FunctionType, Item, ItemId, Language, Literal, LocalDecl, MatchArm,
+    Module, ModuleId, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, Symbol,
+    Type, TypeId, UnaryOp, Visibility,
 };
 
 // ---------------------------------------------------------------------------
@@ -49,6 +50,7 @@ pub struct SmeltError {
 }
 
 impl SmeltError {
+    /// Create an "unsupported construct" error with the given message.
     fn unsupported(span: Span, message: impl Into<String>) -> Self {
         Self {
             code: "smelt::unsupported-py",
@@ -58,12 +60,70 @@ impl SmeltError {
         }
     }
 
+    /// Create a parse error.
     fn parse(span: Span, message: impl Into<String>) -> Self {
         Self {
             code: "smelt::parse-error-py",
             span,
             message: message.into(),
             note: None,
+        }
+    }
+
+    /// Error for metaclass usage, which is not supported.
+    fn no_metaclass(span: Span, class_name: &str) -> Self {
+        Self {
+            code: "smelt::no-metaclass",
+            span,
+            message: format!("class '{class_name}': metaclasses are not supported"),
+            note: Some(
+                "smelt does not support runtime metaclass customisation. \
+                 Refactor to use plain class inheritance or a decorator."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Error for Django model inheritance, which is not supported.
+    fn django_unsupported(span: Span, class_name: &str) -> Self {
+        Self {
+            code: "smelt::django-unsupported",
+            span,
+            message: format!(
+                "class '{class_name}' inherits from a Django model — Django ORM is not supported"
+            ),
+            note: Some(
+                "Django's Model metaclass and descriptor protocol cannot be expressed in smelt HIR."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Error for multiple inheritance, which is not supported.
+    fn no_multiple_inheritance(span: Span, class_name: &str) -> Self {
+        Self {
+            code: "smelt::no-multiple-inheritance",
+            span,
+            message: format!("class '{class_name}': multiple inheritance is not supported"),
+            note: Some(
+                "smelt only supports single-base class inheritance. \
+                 Use composition or interfaces instead."
+                    .to_owned(),
+            ),
+        }
+    }
+
+    /// Error for an unsupported class decorator.
+    fn unsupported_decorator(span: Span, class_name: &str, decorator: &str) -> Self {
+        Self {
+            code: "smelt::unsupported-py",
+            span,
+            message: format!(
+                "class '{class_name}': decorator '@{decorator}' is not supported"
+            ),
+            note: Some(
+                "Only '@dataclass' (and 'dataclasses.dataclass') is allowed on classes.".to_owned(),
+            ),
         }
     }
 }
@@ -176,18 +236,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls.
         for stmt in &module.body {
-            if let Stmt::FunctionDef(func) = stmt {
-                match self.function_def(func) {
+            match stmt {
+                Stmt::FunctionDef(func) => match self.function_def(func) {
                     Ok(item_id) => hir_module.items.push(item_id),
                     Err(err) => errors.push(err),
-                }
+                },
+                Stmt::ClassDef(class) => match self.class_def(class, &mut hir_module) {
+                    Ok(_) => {}
+                    Err(err) => errors.push(err),
+                },
+                _ => {}
             }
         }
 
         // Pass 2 — lower module-level statements into the module body.
         for stmt in &module.body {
-            if matches!(stmt, Stmt::FunctionDef(_)) {
-                continue; // already lowered
+            if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+                continue; // already lowered in Pass 1
             }
             if let Err(err) = self.statement(stmt, &mut body) {
                 errors.push(err);
@@ -201,6 +266,406 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let body_id = self.ctx.krate.push_body(body);
         hir_module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(hir_module))
+    }
+
+    /// Lower a Python class definition to HIR, adding all methods and
+    /// synthesising a constructor for dataclasses.
+    fn class_def(
+        &mut self,
+        class: &StmtClassDef,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let span = self.span(class.range);
+        let class_name_str = class.name.as_str();
+        let class_sym = self.intern_name(class_name_str);
+        let class_ty = self.intern_type(Type::Class {
+            name: class_sym,
+            args: vec![],
+        });
+
+        // --- Decorator check: only @dataclass is allowed ---
+        let mut kind = ClassKind::Plain;
+        for dec in &class.decorator_list {
+            match decorator_simple_name(dec) {
+                Some(n @ ("dataclass" | "dataclasses.dataclass")) => {
+                    let frozen = decorator_frozen_kwarg(dec);
+                    kind = ClassKind::DataclassLike { frozen };
+                    let _ = n;
+                }
+                Some(other) => {
+                    let other_owned = other.to_owned();
+                    return Err(SmeltError::unsupported_decorator(
+                        span,
+                        class_name_str,
+                        &other_owned,
+                    ));
+                }
+                None => {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        format!(
+                            "class '{class_name_str}': complex decorator expressions are not supported"
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // --- Metaclass check ---
+        if let Some(args) = class.arguments.as_deref() {
+            for kw in args.keywords.iter() {
+                if kw.arg.as_ref().map(|a| a.as_str()) == Some("metaclass") {
+                    return Err(SmeltError::no_metaclass(span, class_name_str));
+                }
+            }
+        }
+
+        // --- Base classes ---
+        let base: Option<Symbol> = if let Some(args) = class.arguments.as_deref() {
+            let positional: Vec<&Expr> = args.args.iter().collect();
+            match positional.len() {
+                0 => None,
+                1 => {
+                    let base_expr = positional[0];
+                    if is_django_model_base(base_expr) {
+                        return Err(SmeltError::django_unsupported(span, class_name_str));
+                    }
+                    match expr_simple_name(base_expr) {
+                        Some("object") => None,
+                        Some(name) => Some(self.intern_name(name)),
+                        None => {
+                            return Err(SmeltError::unsupported(
+                                span,
+                                format!(
+                                    "class '{class_name_str}': complex base class expression not supported"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                _ => return Err(SmeltError::no_multiple_inheritance(span, class_name_str)),
+            }
+        } else {
+            None
+        };
+
+        // --- Fields and methods ---
+        let mut fields: Vec<Field> = Vec::new();
+        let mut constructor_id: Option<ItemId> = None;
+        let mut method_ids: Vec<ItemId> = Vec::new();
+
+        for body_stmt in &class.body {
+            match body_stmt {
+                Stmt::AnnAssign(ann) => {
+                    let Expr::Name(target_name) = ann.target.as_ref() else {
+                        return Err(SmeltError::unsupported(
+                            self.span(ann.range),
+                            "class field target must be a simple name",
+                        ));
+                    };
+                    let field_name_str = target_name.id.as_str();
+                    let field_ty = self.annotation_to_hir(&ann.annotation)?;
+                    let field_sym = self.intern_name(field_name_str);
+                    fields.push(Field {
+                        name: field_sym,
+                        ty: field_ty,
+                        visibility: Visibility::Public,
+                        optional: false,
+                        span: self.span(ann.range),
+                    });
+                }
+                Stmt::FunctionDef(func) => {
+                    let method_name = func.name.as_str();
+                    if method_name == "__init__" {
+                        if matches!(kind, ClassKind::DataclassLike { .. }) {
+                            return Err(SmeltError::unsupported(
+                                self.span(func.range),
+                                format!(
+                                    "class '{class_name_str}': @dataclass must not define __init__ manually"
+                                ),
+                            ));
+                        }
+                        let mid =
+                            self.class_method(class_name_str, class_sym, class_ty, func)?;
+                        constructor_id = Some(mid);
+                        hir_module.items.push(mid);
+                    } else {
+                        let mid =
+                            self.class_method(class_name_str, class_sym, class_ty, func)?;
+                        method_ids.push(mid);
+                        hir_module.items.push(mid);
+                    }
+                }
+                Stmt::Pass(_) => {}
+                // Docstring (bare string literal as Expr statement)
+                Stmt::Expr(e) => {
+                    if !matches!(e.value.as_ref(), Expr::StringLiteral(_)) {
+                        return Err(SmeltError::unsupported(
+                            self.span(e.range),
+                            format!("class '{class_name_str}': unsupported class body statement"),
+                        ));
+                    }
+                }
+                other => {
+                    return Err(SmeltError::unsupported(
+                        self.span(other.range()),
+                        format!(
+                            "class '{class_name_str}': unsupported class body statement '{}'",
+                            stmt_kind_name(other)
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // @dataclass: synthesize __init__ from fields
+        if matches!(kind, ClassKind::DataclassLike { .. }) {
+            if fields.is_empty() {
+                return Err(SmeltError::unsupported(
+                    span,
+                    format!(
+                        "class '{class_name_str}': @dataclass requires at least one annotated field"
+                    ),
+                ));
+            }
+            let init_id = self.synthesize_dataclass_init(class_sym, class_ty, &fields, span)?;
+            constructor_id = Some(init_id);
+            hir_module.items.push(init_id);
+        }
+
+        let class_item = Item::Class(Class {
+            name: class_sym,
+            span,
+            kind,
+            base,
+            fields,
+            constructor: constructor_id,
+            methods: method_ids,
+            implements: vec![],
+        });
+        let class_item_id = self.ctx.krate.push_item(class_item);
+        self.items.insert(class_name_str.to_owned(), class_item_id);
+        hir_module.items.push(class_item_id);
+
+        Ok(())
+    }
+
+    /// Lower a method or constructor inside a class body.
+    ///
+    /// Handles `self` parameter injection, param annotation enforcement, and
+    /// body lowering.  Returns the [`ItemId`] of the generated `Function` item.
+    fn class_method(
+        &mut self,
+        class_name_str: &str,
+        class_sym: Symbol,
+        class_ty: TypeId,
+        func: &StmtFunctionDef,
+    ) -> Result<ItemId, SmeltError> {
+        let span = self.span(func.range);
+        let method_name_str = func.name.as_str();
+        let method_sym = self.intern_name(method_name_str);
+        let is_init = method_name_str == "__init__";
+
+        let return_ty = if is_init {
+            self.intern_type(Type::None)
+        } else {
+            func.returns
+                .as_deref()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        span,
+                        format!(
+                            "method '{class_name_str}.{method_name_str}' must have an explicit return type annotation"
+                        ),
+                    )
+                })
+                .and_then(|ann| self.annotation_to_hir(ann))?
+        };
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let mut fn_body = Body::new(None, span);
+        let mut params: Vec<Param> = Vec::new();
+
+        // Add `self` local for use inside the method body.
+        let self_sym = self.intern_name("self");
+        let self_local = fn_body.push_local(LocalDecl {
+            name: Some(self_sym),
+            ty: class_ty,
+            mutable: false,
+            span,
+        });
+        self.locals.insert("self".to_owned(), self_local);
+
+        let mut first = true;
+        for param_with_default in func.parameters.iter_non_variadic_params() {
+            let p = &param_with_default.parameter;
+            let param_name_str = p.name.as_str();
+            // Skip `self` — already added above.
+            if first && param_name_str == "self" {
+                first = false;
+                continue;
+            }
+            first = false;
+
+            let param_ty = p
+                .annotation
+                .as_deref()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(p.range),
+                        format!(
+                            "parameter '{param_name_str}' in '{class_name_str}.{method_name_str}' must have a type annotation"
+                        ),
+                    )
+                })
+                .and_then(|ann| self.annotation_to_hir(ann))?;
+
+            let param_sym = self.intern_name(param_name_str);
+            let local = fn_body.push_local(LocalDecl {
+                name: Some(param_sym),
+                ty: param_ty,
+                mutable: false,
+                span: self.span(p.range),
+            });
+            fn_body.params.push(local);
+            self.locals.insert(param_name_str.to_owned(), local);
+            params.push(Param {
+                name: param_sym,
+                local,
+                ty: param_ty,
+                span: self.span(p.range),
+            });
+        }
+
+        for stmt in &func.body {
+            if let Err(err) = self.statement(stmt, &mut fn_body) {
+                self.locals = saved_locals;
+                return Err(err);
+            }
+        }
+
+        self.locals = saved_locals;
+
+        let body_id = self.ctx.krate.push_body(fn_body);
+
+        let owner = if is_init {
+            FunctionOwner::Constructor { class: class_sym }
+        } else {
+            FunctionOwner::ClassMethod {
+                class: class_sym,
+                method: method_sym,
+            }
+        };
+
+        let item = Item::Function(Function {
+            name: method_sym,
+            span,
+            params,
+            return_ty,
+            is_async: false,
+            body: Some(body_id),
+            owner,
+        });
+        Ok(self.ctx.krate.push_item(item))
+    }
+
+    /// Synthesise an `__init__` method for a `@dataclass` class.
+    ///
+    /// Creates one parameter per annotated field and emits
+    /// `self.field = param` assignments in the body.
+    fn synthesize_dataclass_init(
+        &mut self,
+        class_sym: Symbol,
+        class_ty: TypeId,
+        fields: &[Field],
+        span: Span,
+    ) -> Result<ItemId, SmeltError> {
+        let saved_locals = std::mem::take(&mut self.locals);
+        let none_ty = self.intern_type(Type::None);
+        let mut fn_body = Body::new(None, span);
+        let mut params: Vec<Param> = Vec::new();
+
+        // `self` local
+        let self_sym = self.intern_name("self");
+        let self_local = fn_body.push_local(LocalDecl {
+            name: Some(self_sym),
+            ty: class_ty,
+            mutable: false,
+            span,
+        });
+        self.locals.insert("self".to_owned(), self_local);
+
+        // One param per field.
+        for field in fields {
+            let local = fn_body.push_local(LocalDecl {
+                name: Some(field.name),
+                ty: field.ty,
+                mutable: false,
+                span: field.span,
+            });
+            fn_body.params.push(local);
+            let field_name_str = self
+                .ctx
+                .krate
+                .symbols
+                .get(field.name)
+                .unwrap_or("")
+                .to_owned();
+            self.locals.insert(field_name_str, local);
+            params.push(Param {
+                name: field.name,
+                local,
+                ty: field.ty,
+                span: field.span,
+            });
+        }
+
+        // Body: `self.field = param` for each field.
+        let root_block = fn_body.root;
+        for (i, field) in fields.iter().enumerate() {
+            let param_local = fn_body.params[i];
+            let param_ty = field.ty;
+
+            let self_expr = fn_body.push_expr(HirExpr {
+                kind: ExprKind::Local(self_local),
+                ty: class_ty,
+                span,
+            });
+            let field_lhs = fn_body.push_expr(HirExpr {
+                kind: ExprKind::Field {
+                    receiver: self_expr,
+                    field: field.name,
+                },
+                ty: param_ty,
+                span: field.span,
+            });
+            let param_expr = fn_body.push_expr(HirExpr {
+                kind: ExprKind::Local(param_local),
+                ty: param_ty,
+                span: field.span,
+            });
+            fn_body.push_stmt_to_block(
+                root_block,
+                HirStmt::Assign {
+                    target: field_lhs,
+                    value: param_expr,
+                },
+            );
+        }
+
+        self.locals = saved_locals;
+        let body_id = self.ctx.krate.push_body(fn_body);
+        let init_sym = self.intern_name("__init__");
+        let item = Item::Function(Function {
+            name: init_sym,
+            span,
+            params,
+            return_ty: none_ty,
+            is_async: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Constructor { class: class_sym },
+        });
+        Ok(self.ctx.krate.push_item(item))
     }
 
     // -----------------------------------------------------------------------
@@ -247,7 +712,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(p.range),
-                        format!("parameter '{param_name_str}' must have an explicit type annotation"),
+                        format!(
+                            "parameter '{param_name_str}' must have an explicit type annotation"
+                        ),
                     )
                 })
                 .and_then(|ann| self.annotation_to_hir(ann))?;
@@ -273,9 +740,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.locals = saved_locals;
             return Err(SmeltError::unsupported(
                 self.span(func.range),
-                format!(
-                    "function '{name_str}': *args and **kwargs are not yet supported"
-                ),
+                format!("function '{name_str}': *args and **kwargs are not yet supported"),
             ));
         }
 
@@ -299,6 +764,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return_ty,
             is_async: false,
             body: Some(body_id),
+            owner: smelt_hir::FunctionOwner::Module,
         });
         let item_id = self.ctx.krate.push_item(item);
         self.items.insert(name_str.to_owned(), item_id);
@@ -432,7 +898,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         return Err(SmeltError::unsupported(
                             span,
                             "Callable first argument must be a list of param types, e.g. [int, str]",
-                        ))
+                        ));
                     }
                 };
                 let return_ty = self.annotation_to_hir(return_expr)?;
@@ -555,7 +1021,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let cond = self.expression(&while_stmt.test, body)?;
                 let loop_block = self.block_from_stmts(&while_stmt.body, body)?;
-                body.push_stmt_to_block(block, HirStmt::While { cond, body: loop_block });
+                body.push_stmt_to_block(
+                    block,
+                    HirStmt::While {
+                        cond,
+                        body: loop_block,
+                    },
+                );
                 Ok(())
             }
 
@@ -610,7 +1082,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             )),
             Stmt::ClassDef(c) => Err(SmeltError::unsupported(
                 self.span(c.range),
-                "class definitions are not yet supported",
+                "nested class definitions are not yet supported",
             )),
 
             other => Err(SmeltError::unsupported(
@@ -672,7 +1144,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 return Err(SmeltError::unsupported(
                     self.span(aug.range),
                     format!("augmented assignment operator '{other}' is not supported"),
-                ))
+                ));
             }
         };
 
@@ -682,11 +1154,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // Determine the result type from the target expression's type.
         let lhs_ty = body.exprs[target.0 as usize].ty;
         let compound = body.push_expr(HirExpr {
-            kind: ExprKind::BinOp { op, lhs: target, rhs },
+            kind: ExprKind::BinOp {
+                op,
+                lhs: target,
+                rhs,
+            },
             ty: lhs_ty,
             span: self.span(aug.range),
         });
-        body.push_stmt_to_block(block, HirStmt::Assign { target, value: compound });
+        body.push_stmt_to_block(
+            block,
+            HirStmt::Assign {
+                target,
+                value: compound,
+            },
+        );
         Ok(())
     }
 
@@ -796,7 +1278,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let pat = body.push_pattern(HirPattern::Binding(local));
         let loop_block = self.block_from_stmts(&for_stmt.body, body)?;
 
-        body.push_stmt_to_block(block, HirStmt::For { pat, iter, body: loop_block });
+        body.push_stmt_to_block(
+            block,
+            HirStmt::For {
+                pat,
+                iter,
+                body: loop_block,
+            },
+        );
         Ok(())
     }
 
@@ -863,7 +1352,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Err(SmeltError::unsupported(
                         self.span(other.range()),
                         "only literal and wildcard match patterns are supported",
-                    ))
+                    ));
                 }
             }
         }
@@ -883,10 +1372,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn match_value_literal(&self, expr: &Expr) -> Result<Literal, SmeltError> {
         match expr {
             Expr::NumberLiteral(n) => match &n.value {
-                Number::Int(i) => i
-                    .as_i64()
-                    .map(Literal::Int)
-                    .ok_or_else(|| SmeltError::unsupported(self.span(n.range), "integer literal out of i64 range")),
+                Number::Int(i) => i.as_i64().map(Literal::Int).ok_or_else(|| {
+                    SmeltError::unsupported(self.span(n.range), "integer literal out of i64 range")
+                }),
                 Number::Float(f) => Ok(Literal::Float(*f)),
                 Number::Complex { .. } => Err(SmeltError::unsupported(
                     self.span(n.range),
@@ -900,10 +1388,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Expr::UnaryOp(u) if u.op == RuffUnaryOp::USub => {
                 if let Expr::NumberLiteral(n) = u.operand.as_ref() {
                     match &n.value {
-                        Number::Int(i) => i
-                            .as_i64()
-                            .map(|v| Literal::Int(-v))
-                            .ok_or_else(|| SmeltError::unsupported(self.span(n.range), "integer literal out of i64 range")),
+                        Number::Int(i) => i.as_i64().map(|v| Literal::Int(-v)).ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(n.range),
+                                "integer literal out of i64 range",
+                            )
+                        }),
                         Number::Float(f) => Ok(Literal::Float(-f)),
                         Number::Complex { .. } => Err(SmeltError::unsupported(
                             self.span(u.range),
@@ -944,7 +1434,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Expression lowering
     // -----------------------------------------------------------------------
 
-    fn expression(&mut self, expr: &Expr, body: &mut Body) -> Result<smelt_hir::ExprId, SmeltError> {
+    fn expression(
+        &mut self,
+        expr: &Expr,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         self.expression_with_hint(expr, body, None)
     }
 
@@ -965,7 +1459,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                                 "integer literal out of i64 range",
                             )
                         })?;
-                        (ExprKind::Literal(Literal::Int(v)), self.intern_type(Type::Int))
+                        (
+                            ExprKind::Literal(Literal::Int(v)),
+                            self.intern_type(Type::Int),
+                        )
                     }
                     Number::Float(f) => (
                         ExprKind::Literal(Literal::Float(*f)),
@@ -975,10 +1472,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         return Err(SmeltError::unsupported(
                             self.span(n.range),
                             "complex number literals are not supported",
-                        ))
+                        ));
                     }
                 };
-                Ok(body.push_expr(HirExpr { kind, ty, span: self.span(n.range) }))
+                Ok(body.push_expr(HirExpr {
+                    kind,
+                    ty,
+                    span: self.span(n.range),
+                }))
             }
 
             Expr::StringLiteral(s) => {
@@ -1177,7 +1678,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 return Err(SmeltError::unsupported(
                     span,
                     format!("binary operator '{other}' is not supported"),
-                ))
+                ));
             }
         };
         let lhs = self.expression(&b.left, body)?;
@@ -1187,7 +1688,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         } else {
             body.exprs[lhs.0 as usize].ty
         };
-        Ok(body.push_expr(HirExpr { kind: ExprKind::BinOp { op, lhs, rhs }, ty, span }))
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::BinOp { op, lhs, rhs },
+            ty,
+            span,
+        }))
     }
 
     /// Lower a boolean operator — fold `a and b and c` into left-associative pairs.
@@ -1244,13 +1749,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 return Err(SmeltError::unsupported(
                     span,
                     format!("comparison operator '{other}' is not supported"),
-                ))
+                ));
             }
         };
         let lhs = self.expression(&c.left, body)?;
         let rhs = self.expression(&c.comparators[0], body)?;
         let ty = self.intern_type(Type::Bool);
-        Ok(body.push_expr(HirExpr { kind: ExprKind::BinOp { op, lhs, rhs }, ty, span }))
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::BinOp { op, lhs, rhs },
+            ty,
+            span,
+        }))
     }
 
     /// Lower a unary expression.
@@ -1267,7 +1776,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 return Err(SmeltError::unsupported(
                     span,
                     format!("unary operator '{other}' is not supported"),
-                ))
+                ));
             }
         };
         let operand = self.expression(&u.operand, body)?;
@@ -1315,38 +1824,61 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
         }
 
-        // Named function call — look up in items map.
+        // Named function call OR class constructor call.
         if let Expr::Name(name) = call.func.as_ref() {
             let name_str = name.id.as_str();
             if let Some(&item_id) = self.items.get(name_str) {
-                // Determine return type from the HIR item.
-                let return_ty = match &self.ctx.krate.items[item_id.0 as usize] {
-                    Item::Function(f) => f.return_ty,
-                    _ => self.intern_type(Type::None),
-                };
-
-                let callee = body.push_expr(HirExpr {
-                    kind: ExprKind::Item(item_id),
-                    ty: return_ty,
-                    span,
-                });
-                let args: Vec<_> = call
-                    .arguments
-                    .args
-                    .iter()
-                    .map(|a| self.expression(a, body))
-                    .collect::<Result<_, _>>()?;
-                return Ok(body.push_expr(HirExpr {
-                    kind: ExprKind::Call { callee, args },
-                    ty: return_ty,
-                    span,
-                }));
+                let item = &self.ctx.krate.items[item_id.0 as usize];
+                match item {
+                    Item::Class(c) => {
+                        // Constructor call: `MyClass(args...)`
+                        let class_sym = c.name;
+                        let class_ty = self.intern_type(Type::Class {
+                            name: class_sym,
+                            args: vec![],
+                        });
+                        let args: Vec<_> = call
+                            .arguments
+                            .args
+                            .iter()
+                            .map(|a| self.expression(a, body))
+                            .collect::<Result<_, _>>()?;
+                        return Ok(body.push_expr(HirExpr {
+                            kind: ExprKind::New {
+                                class: class_sym,
+                                args,
+                            },
+                            ty: class_ty,
+                            span,
+                        }));
+                    }
+                    Item::Function(f) => {
+                        let return_ty = f.return_ty;
+                        let callee = body.push_expr(HirExpr {
+                            kind: ExprKind::Item(item_id),
+                            ty: return_ty,
+                            span,
+                        });
+                        let args: Vec<_> = call
+                            .arguments
+                            .args
+                            .iter()
+                            .map(|a| self.expression(a, body))
+                            .collect::<Result<_, _>>()?;
+                        return Ok(body.push_expr(HirExpr {
+                            kind: ExprKind::Call { callee, args },
+                            ty: return_ty,
+                            span,
+                        }));
+                    }
+                    _ => {}
+                }
             }
         }
 
         Err(SmeltError::unsupported(
             span,
-            "only calls to top-level functions and print() are supported",
+            "only calls to top-level functions, class constructors, and print() are supported",
         ))
     }
 
@@ -1371,6 +1903,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(&item_id) = self.items.get(name) {
             let ty = match &self.ctx.krate.items[item_id.0 as usize] {
                 Item::Function(f) => f.return_ty,
+                Item::Class(c) => {
+                    let sym = c.name;
+                    self.intern_type(Type::Class {
+                        name: sym,
+                        args: vec![],
+                    })
+                }
                 _ => self.intern_type(Type::None),
             };
             return Ok(body.push_expr(HirExpr {
@@ -1380,7 +1919,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }));
         }
 
-        Err(SmeltError::unsupported(span, format!("unresolved name '{name}'")))
+        Err(SmeltError::unsupported(
+            span,
+            format!("unresolved name '{name}'"),
+        ))
     }
 
     // -----------------------------------------------------------------------
@@ -1407,7 +1949,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Some(Type::List(elem)) | Some(Type::Set(elem)) => Ok(*elem),
             Some(Type::Dict(_, val)) => Ok(*val),
             Some(Type::Tuple(items)) => items.first().copied().ok_or_else(|| {
-                SmeltError::unsupported(Span::new(self.file_id, 0, 0), "cannot index an empty tuple")
+                SmeltError::unsupported(
+                    Span::new(self.file_id, 0, 0),
+                    "cannot index an empty tuple",
+                )
             }),
             _ => Err(SmeltError::unsupported(
                 Span::new(self.file_id, 0, 0),
@@ -1434,9 +1979,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return_ty: none_ty,
             is_async: false,
             body: None,
+            owner: smelt_hir::FunctionOwner::Module,
         });
         let id = self.ctx.krate.push_item(item);
-        self.items.insert(smelt_hir::CONSOLE_LOG_SYMBOL.to_owned(), id);
+        self.items
+            .insert(smelt_hir::CONSOLE_LOG_SYMBOL.to_owned(), id);
         id
     }
 
@@ -1498,7 +2045,10 @@ fn two_type_args(slice: &Expr, span: Span) -> Result<(&Expr, &Expr), SmeltError>
             return Ok((&t.elts[0], &t.elts[1]));
         }
     }
-    Err(SmeltError::unsupported(span, "expected exactly two type arguments"))
+    Err(SmeltError::unsupported(
+        span,
+        "expected exactly two type arguments",
+    ))
 }
 
 /// Return a short name for a statement kind (for error messages).
@@ -1570,6 +2120,76 @@ fn expr_kind_name(expr: &Expr) -> &'static str {
         Expr::IpyEscapeCommand(_) => "ipy escape",
     }
 }
+
+/// Extract the decorator name from `@name`, `@module.name`, or `@name(...)`.
+///
+/// Returns `None` for anything more complex.
+fn decorator_simple_name(dec: &Decorator) -> Option<&str> {
+    fn inner(expr: &Expr) -> Option<&str> {
+        match expr {
+            Expr::Name(n) => Some(n.id.as_str()),
+            Expr::Attribute(a) => Some(a.attr.as_str()),
+            Expr::Call(c) => inner(&c.func),
+            _ => None,
+        }
+    }
+    inner(&dec.expression)
+}
+
+/// If the decorator is a call like `@dataclass(frozen=True)`, extract the
+/// `frozen` kwarg value.  Returns `false` if absent or not a bool literal.
+fn decorator_frozen_kwarg(dec: &Decorator) -> bool {
+    if let Expr::Call(call) = &dec.expression {
+        for kw in call.arguments.keywords.iter() {
+            if kw.arg.as_ref().map(|a| a.as_str()) == Some("frozen") {
+                if let Expr::BooleanLiteral(b) = &kw.value {
+                    return b.value;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Detect Django model base classes: `models.Model`, `django.db.models.Model`, etc.
+fn is_django_model_base(expr: &Expr) -> bool {
+    match expr {
+        Expr::Attribute(a) => {
+            if a.attr.as_str() == "Model" {
+                return expr_chain_contains_name(&a.value, "models")
+                    || expr_chain_contains_name(&a.value, "django");
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Return `true` if `expr` (an attribute chain) contains `name` anywhere.
+fn expr_chain_contains_name(expr: &Expr, name: &str) -> bool {
+    match expr {
+        Expr::Name(n) => n.id.as_str() == name,
+        Expr::Attribute(a) => {
+            a.attr.as_str() == name || expr_chain_contains_name(&a.value, name)
+        }
+        _ => false,
+    }
+}
+
+/// If `expr` is a simple `Name`, return the name string.
+fn expr_simple_name(expr: &Expr) -> Option<&str> {
+    if let Expr::Name(n) = expr {
+        Some(n.id.as_str())
+    } else {
+        None
+    }
+}
+
+// Suppress unused-import warning for `Keyword` which is needed for the
+// decorator kwarg helpers via the ruff_python_ast import.
+const _: fn() = || {
+    let _: Option<&Keyword> = None;
+};
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1645,8 +2265,7 @@ def find(x: int) -> str | None:
     return None
 "#;
         let mut ctx = HirCtx::new();
-        to_hir(source, FileId(0), &mut ctx)
-            .expect("PEP 604 Optional annotation should lower");
+        to_hir(source, FileId(0), &mut ctx).expect("PEP 604 Optional annotation should lower");
     }
 
     #[test]
@@ -1665,5 +2284,144 @@ print(x)
 "#;
         let mut ctx = HirCtx::new();
         to_hir(source, FileId(0), &mut ctx).expect("print() should lower");
+    }
+
+    #[test]
+    fn plain_class_lowers() {
+        let source = r#"
+class Point:
+    x: int
+    y: int
+    def __init__(self, x: int, y: int) -> None:
+        self.x = x
+        self.y = y
+"#;
+        let mut ctx = HirCtx::new();
+        let module_id =
+            to_hir(source, FileId(0), &mut ctx).expect("plain class should lower");
+        let module = &ctx.krate.modules[module_id.0 as usize];
+        let class_item_id = module.items.last().copied().expect("class item");
+        match &ctx.krate.items[class_item_id.0 as usize] {
+            smelt_hir::Item::Class(c) => {
+                assert_eq!(ctx.krate.symbols.get(c.name).unwrap(), "Point");
+                assert_eq!(c.fields.len(), 2);
+                assert!(matches!(c.kind, smelt_hir::ClassKind::Plain));
+                assert!(c.constructor.is_some());
+            }
+            _ => panic!("expected Class item"),
+        }
+    }
+
+    #[test]
+    fn dataclass_lowers() {
+        let source = r#"
+from dataclasses import dataclass
+
+@dataclass
+class Point:
+    x: int
+    y: int
+"#;
+        let mut ctx = HirCtx::new();
+        let module_id =
+            to_hir(source, FileId(0), &mut ctx).expect("dataclass should lower");
+        let module = &ctx.krate.modules[module_id.0 as usize];
+        let class_item_id = module.items.last().copied().expect("class item");
+        match &ctx.krate.items[class_item_id.0 as usize] {
+            smelt_hir::Item::Class(c) => {
+                assert!(matches!(
+                    c.kind,
+                    smelt_hir::ClassKind::DataclassLike { frozen: false }
+                ));
+                assert!(c.constructor.is_some(), "should have synthesized __init__");
+            }
+            _ => panic!("expected Class item"),
+        }
+    }
+
+    #[test]
+    fn frozen_dataclass_lowers() {
+        let source = r#"
+@dataclass(frozen=True)
+class Immutable:
+    value: int
+"#;
+        let mut ctx = HirCtx::new();
+        let module_id =
+            to_hir(source, FileId(0), &mut ctx).expect("frozen dataclass should lower");
+        let module = &ctx.krate.modules[module_id.0 as usize];
+        let class_item_id = module.items.last().copied().expect("class item");
+        match &ctx.krate.items[class_item_id.0 as usize] {
+            smelt_hir::Item::Class(c) => {
+                assert!(matches!(
+                    c.kind,
+                    smelt_hir::ClassKind::DataclassLike { frozen: true }
+                ));
+            }
+            _ => panic!("expected Class item"),
+        }
+    }
+
+    #[test]
+    fn class_constructor_call_lowers() {
+        let source = r#"
+class Dog:
+    name: str
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+d: Dog = Dog("Rex")
+"#;
+        let mut ctx = HirCtx::new();
+        to_hir(source, FileId(0), &mut ctx).expect("constructor call should lower");
+    }
+
+    #[test]
+    fn django_model_rejected() {
+        let source = r#"
+class MyModel(models.Model):
+    name: str
+"#;
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(source, FileId(0), &mut ctx)
+            .expect_err("django model should be rejected");
+        assert!(errors[0].code == "smelt::django-unsupported");
+    }
+
+    #[test]
+    fn metaclass_rejected() {
+        let source = r#"
+class Meta(metaclass=ABCMeta):
+    pass
+"#;
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(source, FileId(0), &mut ctx)
+            .expect_err("metaclass should be rejected");
+        assert_eq!(errors[0].code, "smelt::no-metaclass");
+    }
+
+    #[test]
+    fn multiple_inheritance_rejected() {
+        let source = r#"
+class C(A, B):
+    pass
+"#;
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(source, FileId(0), &mut ctx)
+            .expect_err("multiple inheritance should be rejected");
+        assert_eq!(errors[0].code, "smelt::no-multiple-inheritance");
+    }
+
+    #[test]
+    fn unknown_decorator_rejected() {
+        let source = r#"
+@some_decorator
+class Foo:
+    x: int
+"#;
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(source, FileId(0), &mut ctx)
+            .expect_err("unknown decorator should be rejected");
+        assert_eq!(errors[0].code, "smelt::unsupported-py");
     }
 }

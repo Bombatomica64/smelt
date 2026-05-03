@@ -26,11 +26,15 @@ fn main() -> Result<(), String> {
     let source = fs::read_to_string(path)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
 
-    let module = parse_module(&source, FileId(0))
-        .map_err(|errors| format!("parse errors:\n{errors:#?}"))?;
+    let module =
+        parse_module(&source, FileId(0)).map_err(|errors| format!("parse errors:\n{errors:#?}"))?;
 
     if summary_only {
-        println!("{}: {} top-level statements", path.display(), module.body.len());
+        println!(
+            "{}: {} top-level statements",
+            path.display(),
+            module.body.len()
+        );
     } else {
         println!("{module:#?}");
     }
