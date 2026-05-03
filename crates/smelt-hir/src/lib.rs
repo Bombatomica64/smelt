@@ -15,7 +15,10 @@ pub use ids::{
     BlockId, BodyId, ExprId, FileId, ItemId, LocalId, ModuleId, PatternId, Span, StmtId, Symbol,
     TypeId,
 };
-pub use item::{Class, ConstItem, Field, Function, Item, Param, TypeAlias};
+pub use item::{
+    Class, ClassKind, ConstItem, Field, Function, FunctionOwner, Interface, Item, MethodSig, Param,
+    ParamSig, TypeAlias, Visibility,
+};
 pub use krate::{CONSOLE_LOG_SYMBOL, Crate, Import, Language, Module, SourceFile};
 pub use symbol::{OriginalNameTable, SymbolInterner};
 pub use ty::{FunctionType, Type, TypeInterner};
