@@ -4,9 +4,10 @@ use std::collections::HashMap;
 
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, Expression,
-    ForStatementInit, ForStatementLeft, ObjectPropertyKind, Program, PropertyKey,
-    SimpleAssignmentTarget, Statement, TSTupleElement, TSType, TSTypeName,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ClassElement, Expression,
+    ForStatementInit, ForStatementLeft, MethodDefinitionKind, ObjectPropertyKind, Program,
+    PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement,
+    TSType, TSTypeName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -14,8 +15,9 @@ use oxc::syntax::operator::{
     AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
 };
 use smelt_hir::{
-    BinOp, Body, Crate as HirCrate, Expr, ExprKind, FileId, Function, Item, Language, Literal,
-    LocalDecl, MatchArm, Module, ModuleId, Param, Pattern, SourceFile, Span, Stmt, Type, UnaryOp,
+    BinOp, Body, Class, Crate as HirCrate, Expr, ExprKind, Field, FileId, Function, FunctionOwner,
+    Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, Param,
+    ParamSig, Pattern, SourceFile, Span, Stmt, Type, UnaryOp, Visibility,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,6 +101,10 @@ struct ModuleBuilder<'ctx> {
     ctx: &'ctx mut HirCtx,
     locals: HashMap<String, smelt_hir::LocalId>,
     items: HashMap<String, smelt_hir::ItemId>,
+    classes: HashMap<String, smelt_hir::ItemId>,
+    interfaces: HashMap<String, smelt_hir::ItemId>,
+    class_fields: HashMap<String, Vec<Field>>,
+    current_class: Option<String>,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
@@ -108,6 +114,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ctx,
             locals: HashMap::new(),
             items: HashMap::new(),
+            classes: HashMap::new(),
+            interfaces: HashMap::new(),
+            class_fields: HashMap::new(),
+            current_class: None,
         }
     }
 
@@ -125,16 +135,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
         );
 
         for statement in &program.body {
-            if let Statement::FunctionDeclaration(function) = statement {
-                match self.function_declaration(function) {
+            match statement {
+                Statement::FunctionDeclaration(function) => {
+                    match self.function_declaration(function) {
+                        Ok(item) => module.items.push(item),
+                        Err(error) => errors.push(error),
+                    }
+                }
+                Statement::ClassDeclaration(class) => match self.class_declaration(class) {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),
+                },
+                Statement::TSInterfaceDeclaration(interface) => {
+                    match self.interface_declaration(interface) {
+                        Ok(item) => module.items.push(item),
+                        Err(error) => errors.push(error),
+                    }
                 }
+                _ => {}
             }
         }
 
         for statement in &program.body {
-            if matches!(statement, Statement::FunctionDeclaration(_)) {
+            if matches!(
+                statement,
+                Statement::FunctionDeclaration(_)
+                    | Statement::ClassDeclaration(_)
+                    | Statement::TSInterfaceDeclaration(_)
+            ) {
                 continue;
             }
 
@@ -252,13 +280,478 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return_ty,
             is_async: function.r#async,
             body: Some(body_id),
+            owner: FunctionOwner::Module,
         }));
         self.items.insert(name_text.to_owned(), item);
         Ok(item)
     }
 
+    fn class_declaration(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let id = class.id.as_ref().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "anonymous classes are not lowered yet",
+            )
+        })?;
+        if !class.decorators.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "decorators are not lowered yet",
+            ));
+        }
+        if class.r#abstract {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "abstract classes are not lowered yet",
+            ));
+        }
+        if class.type_parameters.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "generic classes are not lowered yet",
+            ));
+        }
+        if class.super_class.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "class extends is not lowered yet",
+            ));
+        }
+
+        let class_text = id.name.as_str();
+        let class_name = self.intern_type_name(class_text);
+        let class_ty = self.ctx.krate.types.intern(Type::Class {
+            name: class_name,
+            args: Vec::new(),
+        });
+        let mut fields = Vec::new();
+        let mut constructor = None;
+        let mut methods = Vec::new();
+
+        for element in &class.body.body {
+            match element {
+                ClassElement::PropertyDefinition(property) => {
+                    if property.computed {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "computed property names are not lowered yet",
+                        ));
+                    }
+                    if property.r#static {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "static fields are not lowered yet",
+                        ));
+                    }
+                    if property.value.is_some() {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "field initializers are not lowered yet",
+                        ));
+                    }
+                    if property.optional {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "optional class fields are not lowered yet",
+                        ));
+                    }
+                    let name = self.property_key_symbol(&property.key)?;
+                    let ty = property
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(property.span.start, property.span.end),
+                                "class fields require explicit type annotations",
+                            )
+                        })?;
+                    fields.push(Field {
+                        name,
+                        ty,
+                        visibility: visibility(property.accessibility),
+                        optional: false,
+                        span: self.span(property.span.start, property.span.end),
+                    });
+                }
+                _ => {}
+            }
+        }
+        self.class_fields
+            .insert(class_text.to_owned(), fields.clone());
+
+        for element in &class.body.body {
+            match element {
+                ClassElement::PropertyDefinition(_) => {}
+                ClassElement::MethodDefinition(method) => {
+                    if !method.decorators.is_empty() {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "method decorators are not lowered yet",
+                        ));
+                    }
+                    if method.computed {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "computed method names are not lowered yet",
+                        ));
+                    }
+                    if method.r#static {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "static methods are not lowered yet",
+                        ));
+                    }
+                    if !matches!(
+                        method.kind,
+                        MethodDefinitionKind::Constructor | MethodDefinitionKind::Method
+                    ) {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "getters and setters are not lowered yet",
+                        ));
+                    }
+                    if method.value.r#async {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "async methods are not lowered yet",
+                        ));
+                    }
+                    let item = if method.kind == MethodDefinitionKind::Constructor {
+                        if constructor.is_some() {
+                            return Err(SmeltError::unsupported(
+                                self.span(method.span.start, method.span.end),
+                                "duplicate constructors are not allowed",
+                            ));
+                        }
+                        let item =
+                            self.class_function(class_text, class_name, class_ty, method, true)?;
+                        constructor = Some(item);
+                        item
+                    } else {
+                        let item =
+                            self.class_function(class_text, class_name, class_ty, method, false)?;
+                        methods.push(item);
+                        item
+                    };
+                    let _ = item;
+                }
+                ClassElement::AccessorProperty(accessor) => {
+                    return Err(SmeltError::unsupported(
+                        self.span(accessor.span.start, accessor.span.end),
+                        "accessor properties are not lowered yet",
+                    ));
+                }
+                ClassElement::StaticBlock(block) => {
+                    return Err(SmeltError::unsupported(
+                        self.span(block.span.start, block.span.end),
+                        "static blocks are not lowered yet",
+                    ));
+                }
+                ClassElement::TSIndexSignature(sig) => {
+                    return Err(SmeltError::unsupported(
+                        self.span(sig.span.start, sig.span.end),
+                        "class index signatures are not lowered yet",
+                    ));
+                }
+            }
+        }
+
+        if !fields.is_empty() && constructor.is_none() {
+            return Err(SmeltError::unsupported(
+                self.span(class.span.start, class.span.end),
+                "classes with required fields must declare a constructor",
+            ));
+        }
+
+        let implements = class
+            .implements
+            .iter()
+            .map(|imp| self.implements_symbol(imp))
+            .collect::<Result<Vec<_>, _>>()?;
+        let item = self.ctx.krate.push_item(Item::Class(Class {
+            name: class_name,
+            span: self.span(class.span.start, class.span.end),
+            kind: smelt_hir::ClassKind::Plain,
+            base: None,
+            fields,
+            constructor,
+            methods,
+            implements,
+        }));
+        self.classes.insert(class_text.to_owned(), item);
+        self.validate_implements(item)?;
+        Ok(item)
+    }
+
+    fn class_function(
+        &mut self,
+        class_text: &str,
+        class_name: smelt_hir::Symbol,
+        class_ty: smelt_hir::TypeId,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+        is_constructor: bool,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let Some(function_body) = &method.value.body else {
+            return Err(SmeltError::unsupported(
+                self.span(method.span.start, method.span.end),
+                "declare methods are not lowered yet",
+            ));
+        };
+        let method_name = if is_constructor {
+            self.ctx.krate.symbols.intern("new")
+        } else {
+            self.property_key_symbol(&method.key)?
+        };
+        let return_ty = if is_constructor {
+            if method.value.return_type.is_some() {
+                return Err(SmeltError::unsupported(
+                    self.span(method.span.start, method.span.end),
+                    "constructors cannot declare return types",
+                ));
+            }
+            class_ty
+        } else {
+            method
+                .value
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(method.span.start, method.span.end),
+                        "methods require explicit return types",
+                    )
+                })?
+        };
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_class = self.current_class.replace(class_text.to_owned());
+        let mut body = Body::new(
+            None,
+            self.span(function_body.span.start, function_body.span.end),
+        );
+        let mut params = Vec::new();
+        let this_symbol = self.ctx.krate.symbols.intern("this");
+        let this_local = body.push_local(LocalDecl {
+            name: Some(this_symbol),
+            ty: class_ty,
+            mutable: true,
+            span: self.span(method.span.start, method.span.start),
+        });
+        self.locals.insert("this".to_owned(), this_local);
+        if !is_constructor {
+            body.params.push(this_local);
+            params.push(Param {
+                name: this_symbol,
+                local: this_local,
+                ty: class_ty,
+                span: self.span(method.span.start, method.span.start),
+            });
+        }
+
+        for param in &method.value.params.items {
+            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                self.locals = saved_locals;
+                self.current_class = saved_class;
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "destructured parameters are not lowered yet",
+                ));
+            };
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "method parameters must have explicit type annotations",
+                    )
+                })?;
+            let param_name = self.intern_source_name(binding.name.as_str());
+            let local = body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty,
+                mutable: false,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+            body.params.push(local);
+            self.locals.insert(binding.name.to_string(), local);
+            params.push(Param {
+                name: param_name,
+                local,
+                ty,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+        }
+
+        let mut errors = Vec::new();
+        for statement in &function_body.statements {
+            if let Err(error) = self.statement(statement, &mut body) {
+                errors.push(error);
+            }
+        }
+        self.locals = saved_locals;
+        self.current_class = saved_class;
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+        let body_id = self.ctx.krate.push_body(body);
+        Ok(self.ctx.krate.push_item(Item::Function(Function {
+            name: method_name,
+            span: self.span(method.span.start, method.span.end),
+            params,
+            return_ty,
+            is_async: false,
+            body: Some(body_id),
+            owner: if is_constructor {
+                FunctionOwner::Constructor { class: class_name }
+            } else {
+                FunctionOwner::ClassMethod {
+                    class: class_name,
+                    method: method_name,
+                }
+            },
+        })))
+    }
+
     fn statement(&mut self, statement: &Statement<'_>, body: &mut Body) -> Result<(), SmeltError> {
         self.statement_in_block(statement, body, body.root)
+    }
+
+    fn interface_declaration(
+        &mut self,
+        interface: &oxc::ast::ast::TSInterfaceDeclaration<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        if interface.type_parameters.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(interface.span.start, interface.span.end),
+                "generic interfaces are not lowered yet",
+            ));
+        }
+        if !interface.extends.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(interface.span.start, interface.span.end),
+                "interface inheritance is not lowered yet",
+            ));
+        }
+        let name_text = interface.id.name.as_str();
+        let name = self.intern_type_name(name_text);
+        let mut fields = Vec::new();
+        let mut methods = Vec::new();
+        for sig in &interface.body.body {
+            match sig {
+                TSSignature::TSPropertySignature(prop) => {
+                    if prop.computed {
+                        return Err(SmeltError::unsupported(
+                            self.span(prop.span.start, prop.span.end),
+                            "computed interface property names are not lowered yet",
+                        ));
+                    }
+                    if prop.optional {
+                        return Err(SmeltError::unsupported(
+                            self.span(prop.span.start, prop.span.end),
+                            "optional interface fields are not lowered yet",
+                        ));
+                    }
+                    let ty = prop
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(prop.span.start, prop.span.end),
+                                "interface fields require explicit type annotations",
+                            )
+                        })?;
+                    fields.push(Field {
+                        name: self.property_key_symbol(&prop.key)?,
+                        ty,
+                        visibility: Visibility::Public,
+                        optional: false,
+                        span: self.span(prop.span.start, prop.span.end),
+                    });
+                }
+                TSSignature::TSMethodSignature(method) => {
+                    if method.computed
+                        || method.optional
+                        || method.type_parameters.is_some()
+                        || method.this_param.is_some()
+                    {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "generic, optional, computed, and this-parameter interface methods are not lowered yet",
+                        ));
+                    }
+                    let return_ty = method
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(method.span.start, method.span.end),
+                                "interface methods require explicit return types",
+                            )
+                        })?;
+                    let mut params = Vec::new();
+                    for param in &method.params.items {
+                        let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                            return Err(SmeltError::unsupported(
+                                self.span(param.span.start, param.span.end),
+                                "destructured interface method parameters are not lowered yet",
+                            ));
+                        };
+                        let ty = param
+                            .type_annotation
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(param.span.start, param.span.end),
+                                    "interface method parameters require explicit types",
+                                )
+                            })?;
+                        params.push(ParamSig {
+                            name: self.intern_source_name(binding.name.as_str()),
+                            ty,
+                            span: self.span(binding.span.start, binding.span.end),
+                        });
+                    }
+                    methods.push(MethodSig {
+                        name: self.property_key_symbol(&method.key)?,
+                        params,
+                        return_ty,
+                        visibility: Visibility::Public,
+                        is_async: false,
+                        span: self.span(method.span.start, method.span.end),
+                    });
+                }
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(sig.span().start, sig.span().end),
+                        "interface call, construct, and index signatures are not lowered yet",
+                    ));
+                }
+            }
+        }
+        let item = self.ctx.krate.push_item(Item::Interface(Interface {
+            name,
+            span: self.span(interface.span.start, interface.span.end),
+            fields,
+            methods,
+        }));
+        self.interfaces.insert(name_text.to_owned(), item);
+        Ok(item)
     }
 
     fn statement_in_block(
@@ -351,22 +844,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
                 for case in &switch_stmt.cases {
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
+                    let mut saw_break = false;
                     for statement in &case.consequent {
-                        if matches!(
-                            statement,
-                            Statement::BreakStatement(_) | Statement::ContinueStatement(_)
-                        ) {
+                        if matches!(statement, Statement::ContinueStatement(_)) {
                             return Err(SmeltError::unsupported(
                                 self.statement_span(statement),
-                                "switch break/continue lowering is not implemented yet",
+                                "switch continue lowering is not implemented yet",
                             ));
+                        }
+                        if matches!(statement, Statement::BreakStatement(_)) {
+                            saw_break = true;
+                            break;
                         }
                         self.statement_in_block(statement, body, case_block)?;
                     }
-                    if !case.consequent.iter().any(statement_terminates) {
+                    if !saw_break && !case.consequent.iter().any(statement_terminates) {
                         return Err(SmeltError::unsupported(
                             self.span(case.span.start, case.span.end),
-                            "switch fallthrough is not lowered yet; each case must return or throw",
+                            "switch fallthrough is not lowered yet; each case must break, return, or throw",
                         ));
                     }
 
@@ -665,6 +1160,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ident.span.end,
                 body,
             ),
+            Expression::ThisExpression(this_expr) => {
+                self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
+            }
             Expression::ArrayExpression(array) => {
                 let mut items = Vec::new();
                 for element in &array.elements {
@@ -848,7 +1346,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let receiver = self.expression(&member.object, body)?;
                 let field = self.intern_source_name(member.property.name.as_str());
-                let ty = self.field_type(body.exprs[receiver.0 as usize].ty)?;
+                let ty = self.class_field_type(body.exprs[receiver.0 as usize].ty, field)?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Field { receiver, field },
                     ty,
@@ -892,6 +1390,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::Call { callee, args },
                         ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+                if let Expression::StaticMemberExpression(member) = &call.callee {
+                    let receiver = self.expression(&member.object, body)?;
+                    let method = self.intern_source_name(member.property.name.as_str());
+                    let (return_ty, _) =
+                        self.resolve_method(body.exprs[receiver.0 as usize].ty, method)?;
+                    let mut args = Vec::new();
+                    for arg in &call.arguments {
+                        args.push(self.argument(arg, body)?);
+                    }
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Method {
+                            receiver,
+                            method,
+                            args,
+                        },
+                        ty: return_ty,
                         span: self.span(call.span.start, call.span.end),
                     }));
                 }
@@ -942,6 +1459,41 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.span(call.span.start, call.span.end),
                     "call expression is not lowered yet",
                 ))
+            }
+            Expression::NewExpression(new_expr) => {
+                let Expression::Identifier(callee) = &new_expr.callee else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "new expressions require a direct class name",
+                    ));
+                };
+                let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(callee.span.start, callee.span.end),
+                        format!("unresolved class `{}`", callee.name),
+                    ));
+                };
+                let Item::Class(class) = &self.ctx.krate.items[item.0 as usize] else {
+                    unreachable!();
+                };
+                let class_name = class.name;
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: Vec::new(),
+                });
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: class_name,
+                        args,
+                    },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }))
             }
             _ => Err(SmeltError::unsupported(
                 self.expression_span(expression),
@@ -1274,7 +1826,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let receiver = self.expression(&member.object, body)?;
         let field = self.intern_source_name(member.property.name.as_str());
-        let ty = self.field_type(body.exprs[receiver.0 as usize].ty)?;
+        let ty = self.class_field_type(body.exprs[receiver.0 as usize].ty, field)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
             ty,
@@ -1372,6 +1924,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
             });
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Call { callee, args },
+                ty: return_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
+        if let Expression::StaticMemberExpression(member) = &call.callee {
+            let receiver = self.expression(&member.object, body)?;
+            let method = self.intern_source_name(member.property.name.as_str());
+            let (return_ty, _) = self.resolve_method(body.exprs[receiver.0 as usize].ty, method)?;
+            let args = call
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Method {
+                    receiver,
+                    method,
+                    args,
+                },
                 ty: return_ty,
                 span: self.span(call.span.start, call.span.end),
             }));
@@ -1553,6 +2124,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
             }
             TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSType::TSThisType(this_ty) => {
+                let Some(class_name) = &self.current_class else {
+                    return Err(SmeltError::unsupported(
+                        self.span(this_ty.span.start, this_ty.span.end),
+                        "this types outside classes are not lowered yet",
+                    ));
+                };
+                let Some(class_item) = self.classes.get(class_name).copied() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(this_ty.span.start, this_ty.span.end),
+                        "this class type is not resolvable yet",
+                    ));
+                };
+                let Item::Class(class) = &self.ctx.krate.items[class_item.0 as usize] else {
+                    unreachable!();
+                };
+                Ok(self.ctx.krate.types.intern(Type::Class {
+                    name: class.name,
+                    args: Vec::new(),
+                }))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(ty.span().start, ty.span().end),
                 format!("type annotation is not lowered yet: {ty:?}"),
@@ -1633,6 +2225,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let value = self.ts_type_to_hir(args[1])?;
                 Ok(self.ctx.krate.types.intern(Type::Dict(key, value)))
             }
+            _ if args.is_empty() => {
+                let symbol = self.intern_type_name(name_text);
+                Ok(self.ctx.krate.types.intern(Type::Class {
+                    name: symbol,
+                    args: Vec::new(),
+                }))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(reference.span.start, reference.span.end),
                 format!("type reference is not lowered yet: {name_text}"),
@@ -1640,14 +2239,86 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    fn field_type(&self, receiver_ty: smelt_hir::TypeId) -> Result<smelt_hir::TypeId, SmeltError> {
+    fn class_field_type(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        field: smelt_hir::Symbol,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::Dict(_, value)) => Ok(*value),
+            Some(Type::Class { name, .. }) => self
+                .class_by_symbol(*name)
+                .and_then(|class| {
+                    class
+                        .fields
+                        .iter()
+                        .find(|item| item.name == field)
+                        .map(|item| item.ty)
+                })
+                .or_else(|| {
+                    let class_name = self
+                        .ctx
+                        .krate
+                        .names
+                        .get(*name)
+                        .or_else(|| self.ctx.krate.symbols.get(*name))?;
+                    self.class_fields.get(class_name).and_then(|fields| {
+                        fields
+                            .iter()
+                            .find(|item| item.name == field)
+                            .map(|item| item.ty)
+                    })
+                })
+                .ok_or_else(|| {
+                    let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
+                    SmeltError::unsupported(
+                        self.span(0, 0),
+                        format!("unknown class field `{field_name}`"),
+                    )
+                }),
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
-                "field access is only lowered for Record<string, T> values for now",
+                "field access is only lowered for Record<string, T> and class values for now",
             )),
         }
+    }
+
+    fn class_by_symbol(&self, name: smelt_hir::Symbol) -> Option<&Class> {
+        self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Class(class) if class.name == name => Some(class),
+            _ => None,
+        })
+    }
+
+    fn resolve_method(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+    ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(0, 0),
+                "method calls are only lowered for class values for now",
+            ));
+        };
+        let Some(class) = self.class_by_symbol(*name) else {
+            return Err(SmeltError::unsupported(
+                self.span(0, 0),
+                "method receiver class is unknown",
+            ));
+        };
+        for item in &class.methods {
+            if let Item::Function(function) = &self.ctx.krate.items[item.0 as usize]
+                && function.name == method
+            {
+                return Ok((function.return_ty, *item));
+            }
+        }
+        let method_name = self.ctx.krate.symbols.get(method).unwrap_or("<unknown>");
+        Err(SmeltError::unsupported(
+            self.span(0, 0),
+            format!("unknown class method `{method_name}`"),
+        ))
     }
 
     fn index_type(&self, receiver_ty: smelt_hir::TypeId) -> Result<smelt_hir::TypeId, SmeltError> {
@@ -1663,6 +2334,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
+        self.ctx.krate.names.record(symbol, name);
+        symbol
+    }
+
+    fn intern_type_name(&mut self, name: &str) -> smelt_hir::Symbol {
+        let symbol = self.ctx.krate.symbols.intern(name);
         self.ctx.krate.names.record(symbol, name);
         symbol
     }
@@ -1700,6 +2377,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 return_ty: none,
                 is_async: false,
                 body: None,
+                owner: FunctionOwner::Module,
             }))
     }
 
@@ -1715,6 +2393,148 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn expression_span(&self, expression: &Expression<'_>) -> Span {
         let span = expression.span();
         self.span(span.start, span.end)
+    }
+
+    fn property_key_symbol(
+        &mut self,
+        key: &PropertyKey<'_>,
+    ) -> Result<smelt_hir::Symbol, SmeltError> {
+        match key {
+            PropertyKey::StaticIdentifier(ident) => {
+                Ok(self.intern_source_name(ident.name.as_str()))
+            }
+            PropertyKey::PrivateIdentifier(ident) => {
+                Ok(self.intern_source_name(ident.name.as_str()))
+            }
+            PropertyKey::StringLiteral(lit) => Ok(self.intern_source_name(lit.value.as_str())),
+            _ => Err(SmeltError::unsupported(
+                self.span(key.span().start, key.span().end),
+                "property names must be static identifiers or string literals",
+            )),
+        }
+    }
+
+    fn implements_symbol(
+        &mut self,
+        item: &oxc::ast::ast::TSClassImplements<'_>,
+    ) -> Result<smelt_hir::Symbol, SmeltError> {
+        if item.type_arguments.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(item.span.start, item.span.end),
+                "generic implements clauses are not lowered yet",
+            ));
+        }
+        let TSTypeName::IdentifierReference(name) = &item.expression else {
+            return Err(SmeltError::unsupported(
+                self.span(item.span.start, item.span.end),
+                "qualified implements clauses are not lowered yet",
+            ));
+        };
+        Ok(self.intern_type_name(name.name.as_str()))
+    }
+
+    fn validate_implements(&self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
+        let Item::Class(class) = &self.ctx.krate.items[class_item.0 as usize] else {
+            return Ok(());
+        };
+        for interface_name in &class.implements {
+            let interface = self
+                .ctx
+                .krate
+                .items
+                .iter()
+                .find_map(|item| match item {
+                    Item::Interface(interface) if interface.name == *interface_name => {
+                        Some(interface)
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    let name = self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(*interface_name)
+                        .unwrap_or("<unknown>");
+                    SmeltError::unsupported(
+                        class.span,
+                        format!("implemented interface `{name}` is not declared"),
+                    )
+                })?;
+            for required in &interface.fields {
+                let Some(actual) = class
+                    .fields
+                    .iter()
+                    .find(|field| field.name == required.name)
+                else {
+                    let name = self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(required.name)
+                        .unwrap_or("<unknown>");
+                    return Err(SmeltError::unsupported(
+                        required.span,
+                        format!("class is missing implemented interface field `{name}`"),
+                    ));
+                };
+                if actual.ty != required.ty {
+                    let name = self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(required.name)
+                        .unwrap_or("<unknown>");
+                    return Err(SmeltError::unsupported(
+                        actual.span,
+                        format!("implemented interface field `{name}` has a mismatched type"),
+                    ));
+                }
+            }
+            for required in &interface.methods {
+                let Some(actual_item) = class.methods.iter().find(|item| {
+                    matches!(&self.ctx.krate.items[item.0 as usize], Item::Function(function) if function.name == required.name)
+                }) else {
+                    let name = self.ctx.krate.symbols.get(required.name).unwrap_or("<unknown>");
+                    return Err(SmeltError::unsupported(required.span, format!("class is missing implemented interface method `{name}`")));
+                };
+                let Item::Function(actual) = &self.ctx.krate.items[actual_item.0 as usize] else {
+                    unreachable!();
+                };
+                let actual_params = actual
+                    .params
+                    .iter()
+                    .filter(|param| self.ctx.krate.symbols.get(param.name) != Some("this"))
+                    .map(|param| param.ty)
+                    .collect::<Vec<_>>();
+                let required_params = required
+                    .params
+                    .iter()
+                    .map(|param| param.ty)
+                    .collect::<Vec<_>>();
+                if actual_params != required_params || actual.return_ty != required.return_ty {
+                    let name = self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(required.name)
+                        .unwrap_or("<unknown>");
+                    return Err(SmeltError::unsupported(
+                        actual.span,
+                        format!("implemented interface method `{name}` has a mismatched signature"),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn visibility(accessibility: Option<TSAccessibility>) -> Visibility {
+    match accessibility {
+        Some(TSAccessibility::Private) => Visibility::Private,
+        Some(TSAccessibility::Protected) => Visibility::Protected,
+        Some(TSAccessibility::Public) | None => Visibility::Public,
     }
 }
 
@@ -1902,6 +2722,42 @@ for (let item: number of count) {
 
         assert!(errors[0].message.contains("try/catch/finally"));
         assert!(errors[0].message.contains("Python try/else"));
+    }
+
+    #[test]
+    fn rejects_missing_implemented_interface_field() {
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(
+            "interface Named { name: string; }
+class User implements Named {
+  constructor() {}
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect_err("missing field");
+        assert_eq!(errors[0].code, "smelt::unsupported-ts");
+        assert!(errors[0].span.end >= errors[0].span.start);
+        assert!(errors[0].message.contains("field `name`"));
+    }
+
+    #[test]
+    fn rejects_implemented_method_signature_mismatch() {
+        let mut ctx = HirCtx::new();
+        let errors = to_hir(
+            "interface Named { label(prefix: string): string; }
+class User implements Named {
+  label(prefix: number): string { return \"x\"; }
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect_err("mismatch");
+        assert_eq!(errors[0].code, "smelt::unsupported-ts");
+        assert!(errors[0].span.end >= errors[0].span.start);
+        assert!(errors[0].message.contains("mismatched signature"));
     }
 
     #[test]
