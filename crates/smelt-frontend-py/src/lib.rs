@@ -14,6 +14,67 @@
 //!   (`x: int = 5`), bare assignment (`x = 5`) is only allowed to an already-
 //!   declared local.
 
+#![expect(
+    clippy::many_single_char_names,
+    reason = "Ruff AST pattern matches often use source-language single-letter names"
+)]
+#![expect(
+    clippy::unnested_or_patterns,
+    reason = "Python type-name matching is kept compact for readability"
+)]
+#![expect(
+    clippy::unnecessary_raw_string_hashes,
+    reason = "multiline Python fixtures use raw strings consistently"
+)]
+#![expect(
+    clippy::needless_raw_string_hashes,
+    reason = "multiline Python fixtures use raw strings consistently"
+)]
+#![expect(
+    clippy::ignored_unit_patterns,
+    reason = "parse handling mirrors the upstream API shape"
+)]
+#![expect(
+    clippy::too_many_lines,
+    reason = "Python lowering is still organized around large AST match functions"
+)]
+#![expect(
+    clippy::explicit_iter_loop,
+    reason = "Ruff AST containers are iterated explicitly for clarity"
+)]
+#![expect(
+    clippy::redundant_closure_for_method_calls,
+    reason = "identifier conversion closures document the projected value"
+)]
+#![expect(
+    clippy::unnecessary_wraps,
+    reason = "lowering helpers keep Result signatures to match adjacent fallible helpers"
+)]
+#![expect(
+    clippy::manual_contains,
+    reason = "type membership checks are kept uniform with other iterator predicates"
+)]
+#![expect(
+    clippy::match_same_arms,
+    reason = "separate Python AST variants are kept visible in match statements"
+)]
+#![expect(
+    clippy::single_match,
+    reason = "AST lowering uses match structure ready for nearby variants"
+)]
+#![expect(
+    clippy::single_match_else,
+    reason = "AST fallback branches read more clearly as explicit nested matches"
+)]
+#![expect(
+    clippy::missing_const_for_fn,
+    reason = "utility const qualification will be handled after behavior cleanup"
+)]
+#![expect(
+    clippy::type_complexity,
+    reason = "Ruff AST type shapes will be wrapped by local aliases in a later cleanup"
+)]
+
 pub use ruff_python_ast as ast;
 
 use std::collections::HashMap;
@@ -118,9 +179,7 @@ impl SmeltError {
         Self {
             code: "smelt::unsupported-py",
             span,
-            message: format!(
-                "class '{class_name}': decorator '@{decorator}' is not supported"
-            ),
+            message: format!("class '{class_name}': decorator '@{decorator}' is not supported"),
             note: Some(
                 "Only '@dataclass' (and 'dataclasses.dataclass') is allowed on classes.".to_owned(),
             ),
@@ -385,13 +444,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                                 ),
                             ));
                         }
-                        let mid =
-                            self.class_method(class_name_str, class_sym, class_ty, func)?;
+                        let mid = self.class_method(class_name_str, class_sym, class_ty, func)?;
                         constructor_id = Some(mid);
                         hir_module.items.push(mid);
                     } else {
-                        let mid =
-                            self.class_method(class_name_str, class_sym, class_ty, func)?;
+                        let mid = self.class_method(class_name_str, class_sym, class_ty, func)?;
                         method_ids.push(mid);
                         hir_module.items.push(mid);
                     }
@@ -819,11 +876,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }))
             }
             // Bare generic names without args are an error.
-            "Optional" | "Union" | "List" | "Dict" | "Set" | "Tuple" | "Callable"
-            | "Awaitable" => Err(SmeltError::unsupported(
-                span,
-                format!("'{name}' requires type arguments, e.g. {name}[T]"),
-            )),
+            "Optional" | "Union" | "List" | "Dict" | "Set" | "Tuple" | "Callable" | "Awaitable" => {
+                Err(SmeltError::unsupported(
+                    span,
+                    format!("'{name}' requires type arguments, e.g. {name}[T]"),
+                ))
+            }
             other => {
                 // Unknown → assume a class type (will be resolved later).
                 let sym = self.intern_name(other);
@@ -2169,9 +2227,7 @@ fn is_django_model_base(expr: &Expr) -> bool {
 fn expr_chain_contains_name(expr: &Expr, name: &str) -> bool {
     match expr {
         Expr::Name(n) => n.id.as_str() == name,
-        Expr::Attribute(a) => {
-            a.attr.as_str() == name || expr_chain_contains_name(&a.value, name)
-        }
+        Expr::Attribute(a) => a.attr.as_str() == name || expr_chain_contains_name(&a.value, name),
         _ => false,
     }
 }
@@ -2297,8 +2353,7 @@ class Point:
         self.y = y
 "#;
         let mut ctx = HirCtx::new();
-        let module_id =
-            to_hir(source, FileId(0), &mut ctx).expect("plain class should lower");
+        let module_id = to_hir(source, FileId(0), &mut ctx).expect("plain class should lower");
         let module = &ctx.krate.modules[module_id.0 as usize];
         let class_item_id = module.items.last().copied().expect("class item");
         match &ctx.krate.items[class_item_id.0 as usize] {
@@ -2323,8 +2378,7 @@ class Point:
     y: int
 "#;
         let mut ctx = HirCtx::new();
-        let module_id =
-            to_hir(source, FileId(0), &mut ctx).expect("dataclass should lower");
+        let module_id = to_hir(source, FileId(0), &mut ctx).expect("dataclass should lower");
         let module = &ctx.krate.modules[module_id.0 as usize];
         let class_item_id = module.items.last().copied().expect("class item");
         match &ctx.krate.items[class_item_id.0 as usize] {
@@ -2347,8 +2401,7 @@ class Immutable:
     value: int
 "#;
         let mut ctx = HirCtx::new();
-        let module_id =
-            to_hir(source, FileId(0), &mut ctx).expect("frozen dataclass should lower");
+        let module_id = to_hir(source, FileId(0), &mut ctx).expect("frozen dataclass should lower");
         let module = &ctx.krate.modules[module_id.0 as usize];
         let class_item_id = module.items.last().copied().expect("class item");
         match &ctx.krate.items[class_item_id.0 as usize] {
@@ -2383,8 +2436,8 @@ class MyModel(models.Model):
     name: str
 "#;
         let mut ctx = HirCtx::new();
-        let errors = to_hir(source, FileId(0), &mut ctx)
-            .expect_err("django model should be rejected");
+        let errors =
+            to_hir(source, FileId(0), &mut ctx).expect_err("django model should be rejected");
         assert!(errors[0].code == "smelt::django-unsupported");
     }
 
@@ -2395,8 +2448,7 @@ class Meta(metaclass=ABCMeta):
     pass
 "#;
         let mut ctx = HirCtx::new();
-        let errors = to_hir(source, FileId(0), &mut ctx)
-            .expect_err("metaclass should be rejected");
+        let errors = to_hir(source, FileId(0), &mut ctx).expect_err("metaclass should be rejected");
         assert_eq!(errors[0].code, "smelt::no-metaclass");
     }
 
@@ -2420,8 +2472,8 @@ class Foo:
     x: int
 "#;
         let mut ctx = HirCtx::new();
-        let errors = to_hir(source, FileId(0), &mut ctx)
-            .expect_err("unknown decorator should be rejected");
+        let errors =
+            to_hir(source, FileId(0), &mut ctx).expect_err("unknown decorator should be rejected");
         assert_eq!(errors[0].code, "smelt::unsupported-py");
     }
 }

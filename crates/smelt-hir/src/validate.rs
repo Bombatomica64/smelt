@@ -3,12 +3,15 @@ use serde::{Deserialize, Serialize};
 use crate::expr::ExprKind;
 use crate::krate::Crate;
 
+/// A validation error discovered while checking HIR.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ValidationError {
+    /// Human-readable description of the problem.
     pub message: String,
 }
 
 #[must_use]
+/// Validates a crate and returns any structural errors.
 pub fn validate(krate: &Crate) -> Vec<ValidationError> {
     let mut errors = Vec::new();
 
@@ -27,8 +30,7 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             {
                 errors.push(ValidationError {
                     message: format!(
-                        "body {body_idx} expr {expr_idx} reads unknown local {:?}",
-                        local
+                        "body {body_idx} expr {expr_idx} reads unknown local {local:?}"
                     ),
                 });
             }

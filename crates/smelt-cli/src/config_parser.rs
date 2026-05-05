@@ -1,5 +1,10 @@
 //! Configuration file parsing.
 
+#![expect(
+    clippy::type_complexity,
+    reason = "configuration parsing keeps boxed dynamic errors for CLI simplicity"
+)]
+
 use std::fs;
 
 use crate::config::Config;

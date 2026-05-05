@@ -346,6 +346,9 @@ impl<'hir> LoweringCtx<'hir> {
             HirStmt::While { cond, body } => self.lower_while(*cond, *body),
             HirStmt::For { pat, iter, body } => self.lower_for(*pat, *iter, *body),
             HirStmt::Throw(_) => Err(self.error("throw lowering is not implemented yet", None)),
+            HirStmt::TryCatch { .. } => {
+                Err(self.error("try/catch lowering is not implemented yet", None))
+            }
             HirStmt::Break => {
                 let Some(targets) = self.loops.last().copied() else {
                     return Err(self.error("break used outside a loop", None));

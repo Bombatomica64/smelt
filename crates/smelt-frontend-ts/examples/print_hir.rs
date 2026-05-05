@@ -1,4 +1,8 @@
-#![expect(clippy::print_stdout)]
+#![expect(clippy::print_stdout, reason = "example prints compact HIR output")]
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "example file IDs are small indexes from command-line arguments"
+)]
 
 use std::{env, fs, path::Path};
 

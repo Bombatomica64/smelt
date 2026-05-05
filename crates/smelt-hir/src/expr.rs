@@ -142,7 +142,7 @@ pub enum BinOp {
 
 /// Returns the text representation of a binary operator.
 #[must_use]
-pub fn bin_op_text(op: BinOp) -> &'static str {
+pub const fn bin_op_text(op: BinOp) -> &'static str {
     match op {
         BinOp::Add => "+",
         BinOp::Sub => "-",

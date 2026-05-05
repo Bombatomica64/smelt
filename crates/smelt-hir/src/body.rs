@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::expr::{Expr, Literal};
 use crate::ids::{
-    BlockId, BodyId, ExprId, ItemId, LocalId, PatternId, Span, StmtId, Symbol, TypeId,
+    BlockId, BodyId, ExprId, ItemId, LocalId, PatternId, Span, StmtId, Symbol, TypeId, id_index,
 };
 
 /// A function or constant body containing expressions, statements, blocks, and local variables.
@@ -53,14 +53,14 @@ impl Body {
 
     /// Adds a local variable and returns its ID.
     pub fn push_local(&mut self, local: LocalDecl) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
+        let id = LocalId(id_index(self.locals.len()));
         self.locals.push(local);
         id
     }
 
     /// Adds an expression and returns its ID.
     pub fn push_expr(&mut self, expr: Expr) -> ExprId {
-        let id = ExprId(self.exprs.len() as u32);
+        let id = ExprId(id_index(self.exprs.len()));
         self.exprs.push(expr);
         id
     }
@@ -72,7 +72,7 @@ impl Body {
 
     /// Adds a statement to a specific block and returns its ID.
     pub fn push_stmt_to_block(&mut self, block: BlockId, stmt: Stmt) -> StmtId {
-        let id = StmtId(self.stmts.len() as u32);
+        let id = StmtId(id_index(self.stmts.len()));
         self.stmts.push(stmt);
         self.blocks[block.0 as usize].stmts.push(id);
         id
@@ -80,7 +80,7 @@ impl Body {
 
     /// Adds a block and returns its ID.
     pub fn push_block(&mut self, span: Span) -> BlockId {
-        let id = BlockId(self.blocks.len() as u32);
+        let id = BlockId(id_index(self.blocks.len()));
         self.blocks.push(Block {
             stmts: Vec::new(),
             tail: None,
@@ -91,7 +91,7 @@ impl Body {
 
     /// Adds a pattern and returns its ID.
     pub fn push_pattern(&mut self, pattern: Pattern) -> PatternId {
-        let id = PatternId(self.patterns.len() as u32);
+        let id = PatternId(id_index(self.patterns.len()));
         self.patterns.push(pattern);
         id
     }
@@ -180,6 +180,17 @@ pub enum Stmt {
     },
     /// Throw statement.
     Throw(ExprId),
+    /// Try/catch/finally exception control flow.
+    TryCatch {
+        /// The protected block.
+        body: BlockId,
+        /// Optional local bound by the catch clause.
+        catch_binding: Option<LocalId>,
+        /// Optional catch block.
+        catch_body: Option<BlockId>,
+        /// Optional finally block.
+        finally_body: Option<BlockId>,
+    },
     /// Break statement.
     Break,
     /// Continue statement.

@@ -1,3 +1,8 @@
+#![expect(
+    clippy::too_many_lines,
+    reason = "integration tests keep complete CLI scenarios together"
+)]
+
 use std::{
     fs,
     path::{Path, PathBuf},

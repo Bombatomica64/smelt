@@ -15,7 +15,10 @@ pub enum Pipeline {
 
 /// Project metadata from the [project] section of Smelt.toml.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "configuration schema includes fields not consumed yet"
+)]
 pub struct Project {
     /// Project name.
     name: String,
@@ -27,7 +30,10 @@ pub struct Project {
 
 /// Top-level configuration for a Smelt project.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "configuration schema includes fields not consumed yet"
+)]
 pub struct Config {
     /// Project metadata.
     project: Project,
@@ -92,7 +98,10 @@ impl Config {
 
 /// Source file configuration from the [sources] section.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "configuration schema includes fields not consumed yet"
+)]
 pub struct Source {
     /// List of source file paths.
     entries: Vec<PathBuf>,
@@ -126,7 +135,10 @@ pub enum CloneStrategy {
 
 /// Runtime configuration from the [runtime] section.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "configuration schema includes fields not consumed yet"
+)]
 pub struct Runtime {
     /// Cloning strategy for generated code.
     #[serde(rename = "clone-strategy")]
@@ -135,7 +147,10 @@ pub struct Runtime {
 
 /// Strict mode configuration from the [strict] section.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "configuration schema includes fields not consumed yet"
+)]
 pub struct Strict {
     /// Enable strict mode for TypeScript.
     typescript: Option<bool>,

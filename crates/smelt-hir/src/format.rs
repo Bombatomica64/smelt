@@ -1,8 +1,10 @@
 //! Pretty-printing utilities for HIR.
 
+use std::fmt::Write as _;
+
 use crate::body::{Body, Pattern, Stmt};
 use crate::expr::{Expr, ExprKind, Literal};
-use crate::ids::{ExprId, ItemId, LocalId, ModuleId, PatternId, TypeId};
+use crate::ids::{ExprId, ItemId, LocalId, ModuleId, PatternId, TypeId, id_index};
 use crate::item::Item;
 use crate::krate::Crate;
 use crate::ty::Type;
@@ -14,14 +16,14 @@ pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
 
     for (path, module_id) in modules {
         let module = &krate.modules[module_id.0 as usize];
-        out.push_str(&format!("module {path} ({module_id:?})\n"));
+        writeln!(out, "module {path} ({module_id:?})").expect("writing to String cannot fail");
 
         let Some(body_id) = module.body else {
             out.push_str("  <no body>\n\n");
             continue;
         };
 
-        out.push_str(&format!("  body {body_id:?}\n"));
+        writeln!(out, "  body {body_id:?}").expect("writing to String cannot fail");
 
         if !module.items.is_empty() {
             out.push_str("  items\n");
@@ -39,7 +41,8 @@ pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
 
     out.push_str("interned types\n");
     for (idx, ty) in krate.types.all().iter().enumerate() {
-        out.push_str(&format!("  t{} = {}\n", idx, type_text(krate, ty)));
+        writeln!(out, "  t{} = {}", idx, type_text(krate, ty))
+            .expect("writing to String cannot fail");
     }
 
     out
@@ -50,39 +53,44 @@ fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
     if !body.locals.is_empty() {
         out.push_str("  locals\n");
         for (idx, local) in body.locals.iter().enumerate() {
-            let local_id = LocalId(idx as u32);
+            let local_id = LocalId(id_index(idx));
             let mutability = if local.mutable { "let" } else { "const" };
             let name = local
                 .name
                 .and_then(|sym| krate.names.get(sym).or_else(|| krate.symbols.get(sym)))
                 .unwrap_or("_");
-            out.push_str(&format!(
-                "    {} {} {}: {}\n",
+            writeln!(
+                out,
+                "    {} {} {}: {}",
                 local_ref(local_id),
                 mutability,
                 name,
                 type_ref(krate, local.ty)
-            ));
+            )
+            .expect("writing to String cannot fail");
         }
     }
 
     if !body.exprs.is_empty() {
         out.push_str("  exprs\n");
         for (idx, expr) in body.exprs.iter().enumerate() {
-            let expr_id = ExprId(idx as u32);
-            out.push_str(&format!(
-                "    {}: {} = {}\n",
+            let expr_id = ExprId(id_index(idx));
+            writeln!(
+                out,
+                "    {}: {} = {}",
                 expr_ref(expr_id),
                 type_ref(krate, expr.ty),
                 expr_text(krate, expr)
-            ));
+            )
+            .expect("writing to String cannot fail");
         }
     }
 
     if !body.stmts.is_empty() {
         out.push_str("  stmts\n");
         for (idx, stmt) in body.stmts.iter().enumerate() {
-            out.push_str(&format!("    s{}: {}\n", idx, stmt_text(krate, body, stmt)));
+            writeln!(out, "    s{}: {}", idx, stmt_text(krate, body, stmt))
+                .expect("writing to String cannot fail");
         }
     }
 }
@@ -107,6 +115,20 @@ fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
         Stmt::Expr(expr) => expr_ref(*expr),
         Stmt::Return(Some(expr)) => format!("return {}", expr_ref(*expr)),
         Stmt::Return(None) => "return".to_owned(),
+        Stmt::Break => "break".to_owned(),
+        Stmt::Continue => "continue".to_owned(),
+        Stmt::If { .. }
+        | Stmt::While { .. }
+        | Stmt::For { .. }
+        | Stmt::Match { .. }
+        | Stmt::Throw(_)
+        | Stmt::TryCatch { .. } => control_stmt_text(body, stmt),
+    }
+}
+
+/// Formats control-flow statements as text.
+fn control_stmt_text(body: &Body, stmt: &Stmt) -> String {
+    match stmt {
         Stmt::If {
             cond,
             then_block,
@@ -117,7 +139,10 @@ fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
                 .unwrap_or_default();
             format!("if {} then {:?}{}", expr_ref(*cond), then_block, else_text)
         }
-        Stmt::While { cond, body } => format!("while {} {:?}", expr_ref(*cond), body),
+        Stmt::While {
+            cond,
+            body: loop_body,
+        } => format!("while {} {:?}", expr_ref(*cond), loop_body),
         Stmt::For {
             pat,
             iter,
@@ -130,25 +155,67 @@ fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
                 loop_body
             )
         }
-        Stmt::Match {
-            scrutinee,
-            arms,
-            default,
-        } => {
-            let arms = arms
-                .iter()
-                .map(|arm| format!("{} => {:?}", literal_text(&arm.label), arm.body))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let default = default
-                .map(|block| format!(" default {block:?}"))
-                .unwrap_or_default();
-            format!("match {} {{{}}}{}", expr_ref(*scrutinee), arms, default)
-        }
+        Stmt::Match { .. } => match_stmt_text(stmt),
         Stmt::Throw(expr) => format!("throw {}", expr_ref(*expr)),
-        Stmt::Break => "break".to_owned(),
-        Stmt::Continue => "continue".to_owned(),
+        Stmt::TryCatch { .. } => try_catch_stmt_text(stmt),
+        Stmt::Let { .. }
+        | Stmt::Assign { .. }
+        | Stmt::Expr(_)
+        | Stmt::Return(_)
+        | Stmt::Break
+        | Stmt::Continue => "invalid statement".to_owned(),
     }
+}
+
+/// Formats a match statement as text.
+fn match_stmt_text(stmt: &Stmt) -> String {
+    let Stmt::Match {
+        scrutinee,
+        arms,
+        default,
+    } = stmt
+    else {
+        return "invalid match".to_owned();
+    };
+    let arm_text = arms
+        .iter()
+        .map(|arm| format!("{} => {:?}", literal_text(&arm.label), arm.body))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let default_text = default
+        .map(|block| format!(" default {block:?}"))
+        .unwrap_or_default();
+    format!(
+        "match {} {{{}}}{}",
+        expr_ref(*scrutinee),
+        arm_text,
+        default_text
+    )
+}
+
+/// Formats a try/catch/finally statement as text.
+fn try_catch_stmt_text(stmt: &Stmt) -> String {
+    let Stmt::TryCatch {
+        body,
+        catch_binding,
+        catch_body,
+        finally_body,
+    } = stmt
+    else {
+        return "invalid try/catch".to_owned();
+    };
+    let catch = catch_body
+        .map(|block| {
+            let binding = catch_binding
+                .map(|local| format!(" {}", local_ref(local)))
+                .unwrap_or_default();
+            format!(" catch{binding} {block:?}")
+        })
+        .unwrap_or_default();
+    let finally = finally_body
+        .map(|block| format!(" finally {block:?}"))
+        .unwrap_or_default();
+    format!("try {body:?}{catch}{finally}")
 }
 
 /// Formats an expression as text.
@@ -157,30 +224,12 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Literal(literal) => literal_text(literal),
         ExprKind::Local(local) => local_ref(*local),
         ExprKind::Item(item) => item_ref(krate, *item),
-        ExprKind::Call { callee, args } => {
-            let args = args
-                .iter()
-                .map(|arg| expr_ref(*arg))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("call {}({})", expr_ref(*callee), args)
-        }
-        ExprKind::Method {
-            receiver,
-            method,
-            args,
-        } => {
-            let method = krate.symbols.get(*method).unwrap_or("<unknown>");
-            let args = args
-                .iter()
-                .map(|arg| expr_ref(*arg))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{}.{}({})", expr_ref(*receiver), method, args)
+        ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. } => {
+            call_like_expr_text(krate, expr)
         }
         ExprKind::Field { receiver, field } => {
-            let field = krate.symbols.get(*field).unwrap_or("<unknown>");
-            format!("{}.{}", expr_ref(*receiver), field)
+            let field_name = krate.symbols.get(*field).unwrap_or("<unknown>");
+            format!("{}.{}", expr_ref(*receiver), field_name)
         }
         ExprKind::Index { receiver, index } => {
             format!("{}[{}]", expr_ref(*receiver), expr_ref(*index))
@@ -195,25 +244,53 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::ListLit(items) => collection_text("[", "]", items),
         ExprKind::SetLit(items) => collection_text("set{", "}", items),
-        ExprKind::DictLit(items) => {
-            let items = items
-                .iter()
-                .map(|(key, value)| format!("{}: {}", expr_ref(*key), expr_ref(*value)))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("{{{items}}}")
-        }
+        ExprKind::DictLit(items) => dict_lit_text(items),
         ExprKind::TupleLit(items) => collection_text("(", ")", items),
-        ExprKind::New { class, args } => {
-            let class = krate.symbols.get(*class).unwrap_or("<unknown>");
-            let args = args
-                .iter()
-                .map(|arg| expr_ref(*arg))
-                .collect::<Vec<_>>()
-                .join(", ");
-            format!("new {class}({args})")
-        }
     }
+}
+
+/// Formats call-like expressions as text.
+fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
+    match &expr.kind {
+        ExprKind::Call { callee, args } => {
+            let arg_text = expr_list_text(args);
+            format!("call {}({arg_text})", expr_ref(*callee))
+        }
+        ExprKind::Method {
+            receiver,
+            method,
+            args,
+        } => {
+            let method_name = krate.symbols.get(*method).unwrap_or("<unknown>");
+            let arg_text = expr_list_text(args);
+            format!("{}.{}({arg_text})", expr_ref(*receiver), method_name)
+        }
+        ExprKind::New { class, args } => {
+            let class_name = krate.symbols.get(*class).unwrap_or("<unknown>");
+            let arg_text = expr_list_text(args);
+            format!("new {class_name}({arg_text})")
+        }
+        _ => "invalid call".to_owned(),
+    }
+}
+
+/// Formats a comma-separated expression ID list.
+fn expr_list_text(items: &[ExprId]) -> String {
+    items
+        .iter()
+        .map(|arg| expr_ref(*arg))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Formats a dictionary literal as text.
+fn dict_lit_text(items: &[(ExprId, ExprId)]) -> String {
+    let item_text = items
+        .iter()
+        .map(|(key, value)| format!("{}: {}", expr_ref(*key), expr_ref(*value)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{{{item_text}}}")
 }
 
 /// Formats a collection literal as text.

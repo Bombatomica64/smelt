@@ -1,4 +1,8 @@
 #![expect(clippy::print_stdout, reason = "example binary")]
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "example file IDs are small indexes from command-line arguments"
+)]
 //! Print the HIR for one or more Python source files.
 //!
 //! Usage:

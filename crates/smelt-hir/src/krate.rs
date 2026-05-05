@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::body::Body;
-use crate::ids::{BodyId, ItemId, ModuleId, Span, Symbol};
+use crate::ids::{BodyId, ItemId, ModuleId, Span, Symbol, id_index};
 use crate::item::Item;
 use crate::symbol::{OriginalNameTable, SymbolInterner};
 use crate::ty::TypeInterner;
@@ -37,21 +37,21 @@ impl Crate {
 
     /// Adds a module to the crate and returns its ID.
     pub fn push_module(&mut self, module: Module) -> ModuleId {
-        let id = ModuleId(self.modules.len() as u32);
+        let id = ModuleId(id_index(self.modules.len()));
         self.modules.push(Module { id, ..module });
         id
     }
 
     /// Adds an item to the crate and returns its ID.
     pub fn push_item(&mut self, item: Item) -> ItemId {
-        let id = ItemId(self.items.len() as u32);
+        let id = ItemId(id_index(self.items.len()));
         self.items.push(item);
         id
     }
 
     /// Adds a body to the crate and returns its ID.
     pub fn push_body(&mut self, body: Body) -> BodyId {
-        let id = BodyId(self.bodies.len() as u32);
+        let id = BodyId(id_index(self.bodies.len()));
         self.bodies.push(Body { id, ..body });
         id
     }

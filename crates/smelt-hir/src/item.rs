@@ -43,7 +43,10 @@ pub enum ClassKind {
     /// PEP 681 `dataclass_transform`).  The frontend synthesizes an explicit
     /// `__init__` into HIR so MIR sees no difference from a plain class.
     /// `frozen` mirrors the `frozen=True` parameter.
-    DataclassLike { frozen: bool },
+    DataclassLike {
+        /// Whether the dataclass is frozen.
+        frozen: bool,
+    },
 }
 
 /// A function item.
@@ -71,9 +74,17 @@ pub enum FunctionOwner {
     /// Function is a module-level function.
     Module,
     /// Function is a method of a class.
-    ClassMethod { class: Symbol, method: Symbol },
+    ClassMethod {
+        /// Owning class.
+        class: Symbol,
+        /// Method name.
+        method: Symbol,
+    },
     /// Function is a constructor of a class.
-    Constructor { class: Symbol },
+    Constructor {
+        /// Owning class.
+        class: Symbol,
+    },
 }
 
 /// A parameter of a function.

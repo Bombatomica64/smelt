@@ -1,4 +1,20 @@
-#![expect(clippy::print_stdout)]
+#![expect(clippy::print_stdout, reason = "example prints parsed AST output")]
+#![expect(
+    clippy::too_many_lines,
+    reason = "example CLI keeps all parsing modes in one small main function"
+)]
+#![expect(
+    clippy::str_to_string,
+    reason = "example code keeps simple string conversion close to existing style"
+)]
+#![expect(
+    clippy::map_err_ignore,
+    reason = "example maps parser diagnostics to a compact CLI error"
+)]
+#![expect(
+    clippy::unwrap_in_result,
+    reason = "example unwraps parser program only after checking parser errors"
+)]
 //! Spike: parse a TypeScript file with oxc and inspect the AST.
 //!
 //! Usage:

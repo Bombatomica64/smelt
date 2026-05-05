@@ -46,6 +46,15 @@ pub struct Symbol(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TypeId(pub u32);
 
+/// Converts a collection length into a compact HIR ID index.
+///
+/// HIR IDs are stored as `u32`; this helper centralizes the overflow check so
+/// callers do not silently truncate large collections.
+#[must_use]
+pub fn id_index(len: usize) -> u32 {
+    u32::try_from(len).expect("HIR ID space exhausted")
+}
+
 /// Source location information.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Span {
@@ -60,7 +69,7 @@ pub struct Span {
 impl Span {
     /// Creates a new span with the given file and byte range.
     #[must_use]
-    pub fn new(file: FileId, start: u32, end: u32) -> Self {
+    pub const fn new(file: FileId, start: u32, end: u32) -> Self {
         Self { file, start, end }
     }
 }

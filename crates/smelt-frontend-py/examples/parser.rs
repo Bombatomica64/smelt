@@ -1,4 +1,8 @@
 #![expect(clippy::print_stdout, reason = "example binary")]
+#![expect(
+    clippy::str_to_string,
+    reason = "example code keeps simple string conversion close to existing style"
+)]
 //! Parse a Python file with ruff and inspect the raw AST.
 //!
 //! Usage:

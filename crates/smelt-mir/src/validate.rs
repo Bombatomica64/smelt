@@ -4,12 +4,15 @@ use smelt_hir::TypeId;
 
 use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
 
+/// A validation error discovered while checking MIR.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationError {
+    /// Human-readable description of the problem.
     pub message: String,
 }
 
 #[must_use]
+/// Validates MIR and returns any structural errors.
 pub fn validate(mir: &Mir) -> Vec<ValidationError> {
     let mut errors = Vec::new();
     for function in &mir.functions {

@@ -3,6 +3,35 @@
 //! This module handles parsing arguments, loading configuration, and dispatching
 //! to the appropriate frontend and codegen pipelines.
 
+#![expect(
+    clippy::type_complexity,
+    reason = "CLI command helpers currently use boxed dynamic errors directly"
+)]
+#![expect(
+    clippy::unnecessary_wraps,
+    reason = "command handlers share a Result-returning shape for dispatch"
+)]
+#![expect(
+    clippy::cast_possible_truncation,
+    reason = "CLI file IDs are small indexes from manifest or command-line entries"
+)]
+#![expect(
+    clippy::str_to_string,
+    reason = "CLI string conversion style will be normalized separately"
+)]
+#![expect(
+    clippy::match_like_matches_macro,
+    reason = "command matching is kept explicit for future variants"
+)]
+#![expect(
+    clippy::or_fun_call,
+    reason = "manifest default construction is not performance-sensitive"
+)]
+#![expect(
+    clippy::missing_const_for_fn,
+    reason = "configuration accessors use non-const Option helpers on current MSRV"
+)]
+
 mod cli_parser;
 mod config;
 mod config_parser;
@@ -40,11 +69,12 @@ type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
 
 /// Check and validate source files without emitting any output.
 fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    for pipeline in config.pipelines() {
-        match pipeline {
-            Pipeline::TypeScript => todo!("oxclint"),
-            Pipeline::Python => todo!("ty"),
-        }
+    let pipelines = config.pipelines();
+    if pipelines.contains(&Pipeline::TypeScript) {
+        return Err("project-wide TypeScript check is not implemented yet".into());
+    }
+    if pipelines.contains(&Pipeline::Python) {
+        return Err("project-wide Python check is not implemented yet".into());
     }
     Ok(())
 }
@@ -228,7 +258,7 @@ fn build_rust_crate(
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
-    if let Command::DumpSchema = args.command {
+    if matches!(args.command, Command::DumpSchema) {
         let schema = schemars::schema_for!(Config);
         println!("{}", serde_json::to_string_pretty(&schema)?);
         return Ok(());
@@ -251,7 +281,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             build_rust_crate(&config, &manifest_path)?;
         }
-        Command::New { name, python } => todo!("new {name} python={python}"),
+        Command::New { name, python } => {
+            return Err(format!(
+                "`smelt new` is not implemented yet: name={name}, python={python}"
+            )
+            .into());
+        }
         Command::DumpHir { file, debug } => {
             let (krate, modules) = lower_single_file(&file)?;
             print_hir(&krate, &modules, debug);
@@ -271,7 +306,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        Command::Clean => todo!("clean"),
+        Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
         Command::DumpSchema => unreachable!(),
     }
     Ok(())

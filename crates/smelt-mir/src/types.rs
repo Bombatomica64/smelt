@@ -55,7 +55,10 @@ impl Mir {
     /// Adds a function to the MIR and returns its ID.
     pub fn push_function(&mut self, function: MirFunction) -> FuncId {
         let id = FuncId(self.functions.len() as u32);
-        debug_assert_eq!(function.id, id);
+        debug_assert_eq!(
+            function.id, id,
+            "MIR function IDs must be insertion ordered"
+        );
         self.functions.push(function);
         id
     }
@@ -220,112 +223,204 @@ pub enum LocalKind {
     UserBinding(Symbol),
 }
 
+/// A basic block in MIR.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BasicBlock {
+    /// The block identifier.
     pub id: BlockId,
+    /// Phi nodes at the top of the block.
     pub phis: Vec<Phi>,
+    /// Statements executed in order.
     pub statements: Vec<Statement>,
+    /// The block terminator, if present.
     pub terminator: Option<Terminator>,
+    /// Source span associated with the block.
     pub span: Span,
 }
 
+/// A phi node.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Phi {
+    /// Destination local for the phi.
     pub dest: LocalId,
+    /// Type of the phi result.
     pub ty: TypeId,
+    /// Incoming values by predecessor block.
     pub incoming: Vec<(BlockId, Operand)>,
 }
 
+/// A memory location used by MIR operations.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Place {
+    /// A local variable.
     Local(LocalId),
-    Field { base: LocalId, field: Symbol },
-    Index { base: LocalId, index: Box<Operand> },
+    /// A field on a local variable.
+    Field {
+        /// The base local.
+        base: LocalId,
+        /// The field name.
+        field: Symbol,
+    },
+    /// An indexed lookup on a local variable.
+    Index {
+        /// The base local.
+        base: LocalId,
+        /// The index expression.
+        index: Box<Operand>,
+    },
 }
 
+/// An operand in MIR.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Operand {
+    /// Copy from a place.
     Copy(Place),
+    /// Move from a place.
     Move(Place),
+    /// Constant literal.
     Const(Constant),
 }
 
+/// A literal constant value.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Constant {
+    /// Boolean constant.
     Bool(bool),
+    /// Integer constant.
     Int(i64),
+    /// Floating-point constant.
     Float(f64),
+    /// String constant.
     String(String),
+    /// `None`.
     None,
 }
 
+/// An MIR rvalue.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Rvalue {
+    /// Use an existing operand directly.
     Use(Operand),
+    /// Construct a list.
     List(Vec<Operand>),
+    /// Construct a dictionary.
     Dict(Vec<(Operand, Operand)>),
+    /// Construct a tuple.
     Tuple(Vec<Operand>),
+    /// Apply a binary operator.
     Binary {
+        /// The operator.
         op: smelt_hir::BinOp,
+        /// Left-hand operand.
         lhs: Operand,
+        /// Right-hand operand.
         rhs: Operand,
     },
+    /// Apply a unary operator.
     Unary {
+        /// The operator.
         op: smelt_hir::UnaryOp,
+        /// The operand.
         operand: Operand,
     },
+    /// Construct a class instance.
     Struct {
+        /// The class being constructed.
         class: Symbol,
+        /// Field initializers.
         fields: Vec<(Symbol, Operand)>,
     },
+    /// Compute the length of a value.
     Len(Operand),
 }
 
+/// A MIR statement.
+/// A MIR statement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Statement {
-    Assign { dest: LocalId, value: Rvalue },
-    AssignPlace { place: Place, value: Rvalue },
+    /// Assign to a local.
+    Assign {
+        /// The destination local.
+        dest: LocalId,
+        /// The assigned value.
+        value: Rvalue,
+    },
+    /// Assign to a place.
+    AssignPlace {
+        /// The destination place.
+        place: Place,
+        /// The assigned value.
+        value: Rvalue,
+    },
+    /// Mark a local as live.
     StorageLive(LocalId),
+    /// Mark a local as dead.
     StorageDead(LocalId),
 }
 
+/// A MIR terminator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Terminator {
+    /// Jump to another block.
     Goto(BlockId),
+    /// Call a callee and continue in the target block.
     Call {
+        /// The callee to invoke.
         callee: Callee,
+        /// Call arguments.
         args: Vec<Operand>,
+        /// Destination for the result.
         dest: LocalId,
+        /// Successor block after the call.
         target: BlockId,
     },
+    /// Branch on a boolean condition.
     Switch {
+        /// The condition value.
         cond: Operand,
+        /// Block taken when the condition is true.
         then_block: BlockId,
+        /// Block taken when the condition is false.
         else_block: BlockId,
     },
+    /// Branch on constant labels.
     Match {
+        /// The value being matched.
         scrutinee: Operand,
+        /// Match arms.
         arms: Vec<MatchArm>,
+        /// Default block when no arm matches.
         default: Option<BlockId>,
     },
+    /// Return from the function.
     Return(Operand),
+    /// Abort control flow.
     Unreachable,
 }
 
+/// A single match arm.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchArm {
+    /// The matched label.
     pub label: Constant,
+    /// The target block.
     pub target: BlockId,
 }
 
+/// A callable target.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Callee {
+    /// A statically known function.
     Static(FuncId),
+    /// An indirect call through a runtime value.
     Indirect(Operand),
+    /// A builtin function.
     Builtin(BuiltinFn),
 }
 
+/// Builtin functions recognized by MIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BuiltinFn {
+    /// Print to the console.
     ConsoleLog,
 }
