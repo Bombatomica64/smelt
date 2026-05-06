@@ -142,6 +142,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, lhs, errors);
             validate_operand_exists(function, rhs, errors);
         }
+        Rvalue::StringContains { haystack, needle } => {
+            validate_operand_exists(function, haystack, errors);
+            validate_operand_exists(function, needle, errors);
+        }
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Struct { fields, .. } => {
             for (_, value) in fields {
@@ -338,6 +342,10 @@ fn validate_rvalue(
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand(function, definitions, lhs, errors);
             validate_operand(function, definitions, rhs, errors);
+        }
+        Rvalue::StringContains { haystack, needle } => {
+            validate_operand(function, definitions, haystack, errors);
+            validate_operand(function, definitions, needle, errors);
         }
         Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
         Rvalue::Struct { fields, .. } => {

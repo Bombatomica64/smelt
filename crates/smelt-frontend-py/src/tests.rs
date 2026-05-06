@@ -281,6 +281,27 @@ upper: str = word.upper()
 }
 
 #[test]
+fn string_contains_comparison_lowers() {
+    let source = r#"
+word: str = "Smelt"
+has: bool = "mel" in word
+missing: bool = "xyz" not in word
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id =
+        to_hir(source, FileId(0), &mut ctx).expect("string contains comparisons should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    let contains_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::StringContains { .. }))
+        .count();
+    assert_eq!(contains_count, 2);
+}
+
+#[test]
 fn tuple_destructuring_assignment_lowers_to_pattern() {
     let source = r#"
 left, right = (1, "two")

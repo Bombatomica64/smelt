@@ -1714,6 +1714,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "chained comparisons (e.g. a < b < c) are not supported",
             ));
         }
+        if matches!(c.ops[0], CmpOp::In | CmpOp::NotIn) {
+            return self.string_contains_compare(c, body);
+        }
         let op = match c.ops[0] {
             CmpOp::Eq => BinOp::Eq,
             CmpOp::NotEq => BinOp::NotEq,
@@ -1736,6 +1739,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ty,
             span,
         }))
+    }
+
+    /// Lower Python string containment comparisons.
+    fn string_contains_compare(
+        &mut self,
+        c: &ruff_python_ast::ExprCompare,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(c.range);
+        let needle = self.expression(&c.left, body)?;
+        let haystack = self.expression(&c.comparators[0], body)?;
+        let needle_ty = body.exprs[needle.0 as usize].ty;
+        let haystack_ty = body.exprs[haystack.0 as usize].ty;
+        if self.ctx.krate.types.get(needle_ty) != Some(&Type::String)
+            || self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "string containment requires str operands",
+            ));
+        }
+        let bool_ty = self.intern_type(Type::Bool);
+        let contains = body.push_expr(HirExpr {
+            kind: ExprKind::StringContains { haystack, needle },
+            ty: bool_ty,
+            span,
+        });
+        if c.ops[0] == CmpOp::NotIn {
+            Ok(body.push_expr(HirExpr {
+                kind: ExprKind::UnaryOp {
+                    op: UnaryOp::Not,
+                    operand: contains,
+                },
+                ty: bool_ty,
+                span,
+            }))
+        } else {
+            Ok(contains)
+        }
     }
 
     /// Lower a unary expression.

@@ -342,6 +342,13 @@ pub enum Rvalue {
         /// String operand to transform.
         operand: Operand,
     },
+    /// Test whether one string contains another string.
+    StringContains {
+        /// String value to search in.
+        haystack: Operand,
+        /// Substring to search for.
+        needle: Operand,
+    },
     /// Await a future and produce its output.
     Await(Operand),
     /// Run a runtime-backed async operation.

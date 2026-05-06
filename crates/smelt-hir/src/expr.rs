@@ -66,6 +66,13 @@ pub enum ExprKind {
         /// The string value being transformed.
         operand: ExprId,
     },
+    /// Test whether one string contains another string.
+    StringContains {
+        /// The string value being searched.
+        haystack: ExprId,
+        /// The substring to search for.
+        needle: ExprId,
+    },
     /// A binary operation.
     BinOp {
         /// The operator.

@@ -204,6 +204,8 @@ runtime errors.
   - [ ] TypeScript string methods: `split`, `toLowerCase`, and `toUpperCase`.
     - [x] TypeScript `toLowerCase` and `toUpperCase`.
     - [x] Python `str.lower()` and `str.upper()`.
+    - [x] TypeScript string `includes`.
+    - [x] Python string `in` / `not in`.
   - [ ] TypeScript `Math.*`, `Object.*`, `JSON.*`, `fetch`, and async timers.
   - [ ] Python builtins and common stdlib functions that map directly to Rust or external crates.
 

@@ -157,6 +157,10 @@ fn rewrite_rvalue(
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
         }
+        Rvalue::StringContains { haystack, needle } => {
+            rewrite_operand_except(haystack, aliases, dest)
+                | rewrite_operand_except(needle, aliases, dest)
+        }
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
             rewrite_operand_except(value, aliases, dest) | changed

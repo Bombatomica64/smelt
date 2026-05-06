@@ -267,6 +267,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_{op_name} {}", expr_ref(*operand))
         }
+        ExprKind::StringContains { haystack, needle } => {
+            format!(
+                "string_contains {}, {}",
+                expr_ref(*haystack),
+                expr_ref(*needle)
+            )
+        }
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
         }

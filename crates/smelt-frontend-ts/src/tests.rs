@@ -115,6 +115,29 @@ const upper = word.toUpperCase();
 }
 
 #[test]
+fn lowers_string_includes_method() {
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(
+        r#"
+const word = "Smelt";
+const has = word.includes("mel");
+"#,
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("string includes should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    assert!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringContains { .. }))
+    );
+    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+}
+
+#[test]
 fn rejects_unknown_identifier() {
     let mut ctx = HirCtx::new();
     let errors = to_hir("console.log(x);", FileId(0), &mut ctx).expect_err("unknown x");

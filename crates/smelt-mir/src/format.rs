@@ -171,6 +171,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("string_{op_name} {}", operand_text(operand))
         }
+        Rvalue::StringContains { haystack, needle } => {
+            format!(
+                "string_contains {}, {}",
+                operand_text(haystack),
+                operand_text(needle)
+            )
+        }
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {
             let op = match op {

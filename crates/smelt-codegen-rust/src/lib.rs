@@ -1079,6 +1079,9 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
+            Rvalue::StringContains { haystack, needle } => {
+                self.string_contains_text(haystack, needle)
+            }
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
         }
@@ -1206,6 +1209,28 @@ impl<'mir> FunctionEmitter<'mir> {
             smelt_hir::StringCaseOp::Upper => "to_uppercase",
         };
         Ok(format!("{receiver}.{method}()"))
+    }
+
+    /// Converts a string containment operation to Rust text.
+    fn string_contains_text(
+        &self,
+        haystack: &Operand,
+        needle: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(needle)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string contains operands must be strings"));
+        }
+        Ok(format!(
+            "{}.contains(&{})",
+            self.operand_text(haystack)?,
+            self.operand_text(needle)?
+        ))
     }
 
     /// Converts a function call to its Rust text representation.
@@ -1851,6 +1876,18 @@ const upper = word.toUpperCase();
 
         assert!(source.contains(".to_lowercase();"));
         assert!(source.contains(".to_uppercase();"));
+    }
+
+    #[test]
+    fn emits_string_includes_method() {
+        let source = source_for(
+            r#"
+const word = "Smelt";
+const has = word.includes("mel");
+"#,
+        );
+
+        assert!(source.contains(".contains(&\"mel\".to_owned());"));
     }
 
     #[test]

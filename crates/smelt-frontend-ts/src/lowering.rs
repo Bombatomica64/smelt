@@ -1648,6 +1648,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_case_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.string_contains_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Expression::StaticMemberExpression(member) = &call.callee
                     && let Expression::Identifier(object) = &member.object
                     && object.name == "console"
@@ -2041,6 +2044,44 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.span(call.span.start, call.span.end),
             "string case methods require a string receiver and no arguments",
         ))
+    }
+
+    /// Lower direct TypeScript string containment.
+    fn string_contains_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "includes" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string includes requires exactly one argument",
+            ));
+        }
+        let haystack = self.expression(&member.object, body)?;
+        let needle = self.argument(&call.arguments[0], body)?;
+        let haystack_ty = body.exprs[haystack.0 as usize].ty;
+        let needle_ty = body.exprs[needle.0 as usize].ty;
+        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
+            || self.ctx.krate.types.get(needle_ty) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string includes requires string receiver and argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringContains { haystack, needle },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower array entries passed to a `Promise.*` combinator.

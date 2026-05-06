@@ -828,6 +828,16 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringContains { haystack, needle } => {
+                let haystack = self.lower_expr(*haystack)?;
+                let needle = self.lower_expr(*needle)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringContains { haystack, needle },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Method { .. } => {
                 if let ExprKind::Method {
                     receiver,
