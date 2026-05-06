@@ -8,20 +8,8 @@
     reason = "CLI command helpers currently use boxed dynamic errors directly"
 )]
 #![expect(
-    clippy::unnecessary_wraps,
-    reason = "command handlers share a Result-returning shape for dispatch"
-)]
-#![expect(
-    clippy::cast_possible_truncation,
-    reason = "CLI file IDs are small indexes from manifest or command-line entries"
-)]
-#![expect(
     clippy::str_to_string,
     reason = "CLI string conversion style will be normalized separately"
-)]
-#![expect(
-    clippy::match_like_matches_macro,
-    reason = "command matching is kept explicit for future variants"
 )]
 #![expect(
     clippy::or_fun_call,
@@ -32,9 +20,9 @@
     reason = "configuration accessors use non-const Option helpers on current MSRV"
 )]
 
-mod cli_parser;
-mod config;
-mod config_parser;
+pub mod cli_parser;
+pub mod config;
+pub mod config_parser;
 pub mod stubs;
 
 use clap::Parser;
@@ -44,6 +32,7 @@ use smelt_hir::{FileId, ModuleId, format_compact};
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::{self, Write as _},
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
 };
@@ -51,7 +40,9 @@ use std::{
 /// Source language inferred from a file path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SourceLang {
+    /// TypeScript source file.
     TypeScript,
+    /// Python source file.
     Python,
 }
 
@@ -101,14 +92,16 @@ fn lower_typescript_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std:
 
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
-        let module =
-            smelt_frontend_ts::to_hir_with_path(&source, FileId(idx as u32), file, &mut ctx)
-                .map_err(|errors| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("{}:\n{errors:#?}", Path::new(file).display()),
-                    )
-                })?;
+        let file_id = u32::try_from(idx).map_err(|error| {
+            io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+        })?;
+        let module = smelt_frontend_ts::to_hir_with_path(&source, FileId(file_id), file, &mut ctx)
+            .map_err(|errors| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}:\n{errors:#?}", Path::new(file).display()),
+                )
+            })?;
         modules.push((file.clone(), module));
     }
 
@@ -122,14 +115,16 @@ fn lower_python_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::err
 
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
-        let module =
-            smelt_frontend_py::to_hir_with_path(&source, FileId(idx as u32), file, &mut ctx)
-                .map_err(|errors| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!("{}:\n{errors:#?}", Path::new(file).display()),
-                    )
-                })?;
+        let file_id = u32::try_from(idx).map_err(|error| {
+            io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+        })?;
+        let module = smelt_frontend_py::to_hir_with_path(&source, FileId(file_id), file, &mut ctx)
+            .map_err(|errors| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}:\n{errors:#?}", Path::new(file).display()),
+                )
+            })?;
         modules.push((file.clone(), module));
     }
 
@@ -158,14 +153,14 @@ fn lower_manifest_entries(
         .collect::<Result<Vec<_>, _>>()?;
 
     let files = order_manifest_sources(&sources)
-        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .into_iter()
-        .map(|idx| sources[idx].path.clone())
+        .filter_map(|idx| sources.get(idx).map(|source| source.path.clone()))
         .collect::<Vec<_>>();
 
     if files.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
             "manifest has no source entries to lower",
         )
         .into());
@@ -184,7 +179,11 @@ fn lower_ordered_manifest_files(
     for (idx, file) in files.iter().enumerate() {
         let (next_krate, module) = lower_manifest_file(krate, file, idx)?;
         krate = next_krate;
-        krate.modules[module.0 as usize].name = manifest_module_name(file);
+        if let Ok(module_idx) = usize::try_from(module.0)
+            && let Some(module_value) = krate.modules.get_mut(module_idx)
+        {
+            module_value.name = manifest_module_name(file);
+        }
         modules.push((file.display().to_string(), module));
     }
 
@@ -204,7 +203,9 @@ fn lower_manifest_file(
             let mut ctx = smelt_frontend_ts::HirCtx { krate };
             let module = smelt_frontend_ts::to_hir_with_path(
                 &source,
-                FileId(idx as u32),
+                FileId(u32::try_from(idx).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+                })?),
                 &file_string,
                 &mut ctx,
             )
@@ -215,7 +216,9 @@ fn lower_manifest_file(
             let mut ctx = smelt_frontend_py::HirCtx { krate };
             let module = smelt_frontend_py::to_hir_with_path(
                 &source,
-                FileId(idx as u32),
+                FileId(u32::try_from(idx).map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+                })?),
                 &file_string,
                 &mut ctx,
             )
@@ -226,9 +229,9 @@ fn lower_manifest_file(
 }
 
 /// Format frontend lowering errors with the source path.
-fn lowering_error(file: &Path, errors: &[impl std::fmt::Debug]) -> std::io::Error {
-    std::io::Error::new(
-        std::io::ErrorKind::InvalidData,
+fn lowering_error(file: &Path, errors: &[impl std::fmt::Debug]) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
         format!("{}:\n{errors:#?}", file.display()),
     )
 }
@@ -302,13 +305,17 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
     if !visit.temporary.insert(idx) {
         return Err(format!(
             "cyclic manifest import involving {}",
-            visit.sources[idx].path.display()
+            visit.sources
+                .get(idx)
+                .map_or_else(|| "<unknown>".to_owned(), |source| source.path.display().to_string())
         ));
     }
 
-    for import in &visit.sources[idx].imports {
-        if let Some(dep) =
-            resolve_import_to_manifest_source(&visit.sources[idx], import, visit.index)
+    let Some(source) = visit.sources.get(idx) else {
+        return Ok(());
+    };
+    for import in &source.imports {
+        if let Some(dep) = resolve_import_to_manifest_source(source, import, visit.index)
             && dep != idx
         {
             visit_manifest_source(dep, visit)?;
@@ -369,7 +376,9 @@ fn normalize_path_key(path: &Path) -> PathBuf {
             std::path::Component::ParentDir => {
                 normalized.pop();
             }
-            other => normalized.push(other.as_os_str()),
+            std::path::Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            std::path::Component::RootDir => normalized.push(component.as_os_str()),
+            std::path::Component::Normal(normal) => normalized.push(normal),
         }
     }
     normalized
@@ -410,12 +419,12 @@ fn scan_python_imports(source: &str) -> Vec<String> {
                 imports.push(module.trim().to_owned());
             }
         } else if let Some(rest) = trimmed.strip_prefix("import ") {
-            let module = rest
+            let first_module = rest
                 .split(',')
                 .next()
                 .and_then(|part| part.split_whitespace().next());
-            if let Some(module) = module {
-                imports.push(module.to_owned());
+            if let Some(module_name) = first_module {
+                imports.push(module_name.to_owned());
             }
         }
     }
@@ -424,12 +433,12 @@ fn scan_python_imports(source: &str) -> Vec<String> {
 
 /// Extract the first quoted module specifier from an import tail.
 fn quoted_module_specifier(input: &str) -> Option<String> {
-    let input = input.trim().trim_end_matches(';').trim();
-    let quote = input.chars().next()?;
+    let trimmed = input.trim().trim_end_matches(';').trim();
+    let quote = trimmed.chars().next()?;
     if quote != '\'' && quote != '"' {
         return None;
     }
-    let rest = &input[quote.len_utf8()..];
+    let rest = &trimmed[quote.len_utf8()..];
     let end = rest.find(quote)?;
     Some(rest[..end].to_owned())
 }
@@ -440,12 +449,13 @@ fn quoted_module_specifier(input: &str) -> Option<String> {
 fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
     let source = fs::read_to_string(file)?;
     let module = smelt_frontend_py::parse_module(&source, FileId(0)).map_err(|errors| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
+        io::Error::new(
+            io::ErrorKind::InvalidData,
             format!("{}:\n{errors:#?}", Path::new(file).display()),
         )
     })?;
-    println!("{module:#?}");
+    let mut stdout = io::stdout().lock();
+    writeln!(stdout, "{module:#?}")?;
     Ok(())
 }
 
@@ -468,17 +478,19 @@ fn manifest_module_name(path: &Path) -> String {
 
 /// Print the HIR in compact or debug format.
 fn print_hir(krate: &smelt_hir::Crate, modules: &[(String, ModuleId)], debug: bool) {
+    let mut stdout = io::stdout().lock();
     if debug {
-        println!("{krate:#?}");
+        let _ignored = writeln!(stdout, "{krate:#?}");
     } else {
-        print!("{}", format_compact(krate, modules));
+        let _ignored = write!(stdout, "{}", format_compact(krate, modules));
     }
 }
 
 /// Print the optimized MIR in compact format.
 fn print_mir(krate: &smelt_hir::Crate) -> Result<(), Box<dyn std::error::Error>> {
     let mir = lower_to_optimized_mir(krate)?;
-    print!("{}", smelt_mir::format_compact(&mir));
+    let mut stdout = io::stdout().lock();
+    write!(stdout, "{}", smelt_mir::format_compact(&mir))?;
     Ok(())
 }
 
@@ -487,16 +499,16 @@ fn lower_to_optimized_mir(
     krate: &smelt_hir::Crate,
 ) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
     let mut mir = smelt_mir::lower_hir(krate).map_err(|errors| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
+        io::Error::new(
+            io::ErrorKind::InvalidData,
             format!("MIR lowering failed:\n{errors:#?}"),
         )
     })?;
     smelt_mir::opt::optimize(&mut mir);
     let validation_errors = smelt_mir::validate(&mir);
     if !validation_errors.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
             format!("MIR validation failed:\n{validation_errors:#?}"),
         )
         .into());
@@ -530,7 +542,7 @@ fn build_rust_crate(
             .current_dir(&output_dir)
             .output()?;
         if !output.status.success() {
-            return Err(std::io::Error::other(format!(
+            return Err(io::Error::other(format!(
                 "generated crate failed to build\nstdout:\n{}\nstderr:\n{}",
                 String::from_utf8_lossy(&output.stdout),
                 String::from_utf8_lossy(&output.stderr)
@@ -555,12 +567,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if matches!(args.command, Command::DumpSchema) {
         let schema = schemars::schema_for!(Config);
-        println!("{}", serde_json::to_string_pretty(&schema)?);
+        let mut stdout = io::stdout().lock();
+        writeln!(stdout, "{}", serde_json::to_string_pretty(&schema)?)?;
         return Ok(());
     }
 
-    let manifest_path = args.manifest_path.unwrap_or("Smelt.toml".to_string());
-    let manifest_path = PathBuf::from(manifest_path);
+    let manifest_path_string = args.manifest_path.unwrap_or("Smelt.toml".to_string());
+    let manifest_path = PathBuf::from(manifest_path_string);
     let config = config_parser::parse(
         manifest_path
             .to_str()
@@ -602,7 +615,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
-        Command::DumpSchema => unreachable!(),
+        Command::DumpSchema => return Ok(()),
     }
     Ok(())
 }

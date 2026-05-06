@@ -11,6 +11,10 @@ use crate::{
 };
 
 /// Formats a MIR module into a human-readable compact string representation.
+///
+/// # Panics
+///
+/// Panics if a local index does not fit in `u32`.
 #[must_use]
 pub fn format_compact(mir: &Mir) -> String {
     let mut out = String::new();
@@ -54,9 +58,10 @@ pub fn format_compact(mir: &Mir) -> String {
         if !function.locals.is_empty() {
             out.push_str("  locals\n");
             for (idx, local) in function.locals.iter().enumerate() {
+                let local_id = index_to_u32(idx, "MIR local index");
                 out.push_str(&format!(
                     "    {} {}: {}\n",
-                    local_ref(LocalId(idx as u32)),
+                    local_ref(LocalId(local_id)),
                     local_kind_text(mir, local.kind),
                     type_ref(mir, local.ty)
                 ));
@@ -128,7 +133,9 @@ fn rvalue_text(value: &Rvalue) -> String {
             "{{{}}}",
             entries
                 .iter()
-                .map(|(key, value)| format!("{}: {}", operand_text(key), operand_text(value)))
+                .map(|(key, entry_value)| {
+                    format!("{}: {}", operand_text(key), operand_text(entry_value))
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
@@ -149,27 +156,29 @@ fn rvalue_text(value: &Rvalue) -> String {
             )
         }
         Rvalue::Unary { op, operand } => {
-            let op = match op {
+            let op_text = match op {
                 smelt_hir::UnaryOp::Not => "!",
                 smelt_hir::UnaryOp::Neg => "-",
             };
-            format!("{op}{}", operand_text(operand))
+            format!("{op_text}{}", operand_text(operand))
         }
         Rvalue::Struct { class, fields } => {
-            let fields = fields
+            let field_list = fields
                 .iter()
-                .map(|(field, value)| format!("field{}: {}", field.0, operand_text(value)))
+                .map(|(field, field_value)| {
+                    format!("field{}: {}", field.0, operand_text(field_value))
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("struct{} {{{fields}}}", class.0)
+            format!("struct{} {{{field_list}}}", class.0)
         }
         Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
         Rvalue::StringCase { op, operand } => {
-            let op_name = match op {
+            let op_text = match op {
                 smelt_hir::StringCaseOp::Lower => "lower",
                 smelt_hir::StringCaseOp::Upper => "upper",
             };
-            format!("string_{op_name} {}", operand_text(operand))
+            format!("string_{op_text} {}", operand_text(operand))
         }
         Rvalue::StringContains { haystack, needle } => {
             format!(
@@ -178,9 +187,19 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(needle)
             )
         }
+        Rvalue::StringSplit {
+            haystack,
+            separator,
+        } => {
+            format!(
+                "string_split {}, {}",
+                operand_text(haystack),
+                operand_text(separator)
+            )
+        }
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {
-            let op = match op {
+            let op_text = match op {
                 smelt_hir::AsyncOp::All => "async_all",
                 smelt_hir::AsyncOp::Race => "async_race",
                 smelt_hir::AsyncOp::AllSettled => "async_all_settled",
@@ -188,8 +207,8 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",
             };
-            let args = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
-            format!("{op}({args})")
+            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!("{op_text}({arg_list})")
         }
     }
 }
@@ -204,12 +223,12 @@ fn terminator_text(terminator: &Terminator) -> String {
             dest,
             target,
         } => {
-            let args = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
             format!(
                 "{} = call {}({}) -> bb{}",
                 local_ref(*dest),
                 callee_text(callee),
-                args,
+                arg_list,
                 target.0
             )
         }
@@ -228,21 +247,26 @@ fn terminator_text(terminator: &Terminator) -> String {
             arms,
             default,
         } => {
-            let arms = arms
+            let arm_list = arms
                 .iter()
                 .map(|arm| format!("{} => bb{}", constant_text(&arm.label), arm.target.0))
                 .collect::<Vec<_>>()
                 .join(", ");
-            let default = default
+            let default_suffix = default
                 .map(|target| {
-                    if arms.is_empty() {
+                    if arm_list.is_empty() {
                         format!("_ => bb{}", target.0)
                     } else {
                         format!(", _ => bb{}", target.0)
                     }
                 })
                 .unwrap_or_default();
-            format!("match {} {{{}{}}}", operand_text(scrutinee), arms, default)
+            format!(
+                "match {} {{{}{}}}",
+                operand_text(scrutinee),
+                arm_list,
+                default_suffix
+            )
         }
         Terminator::Return(operand) => format!("return {}", operand_text(operand)),
         Terminator::Throw(operand) => format!("throw {}", operand_text(operand)),
@@ -316,12 +340,12 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
             format!("Dict<{}, {}>", type_ref(mir, *key), type_ref(mir, *value))
         }
         Type::Tuple(items) => {
-            let items = items
+            let item_list = items
                 .iter()
                 .map(|item| type_ref(mir, *item))
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("({items})")
+            format!("({item_list})")
         }
         Type::Optional(item) => format!("Optional<{}>", type_ref(mir, *item)),
         Type::Union(items) => items
@@ -330,16 +354,16 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
             .collect::<Vec<_>>()
             .join(" | "),
         Type::Class { name, args } => {
-            let name = mir.symbols.get(*name).unwrap_or("<unknown>");
+            let class_name = mir.symbols.get(*name).unwrap_or("<unknown>");
             if args.is_empty() {
-                name.to_owned()
+                class_name.to_owned()
             } else {
-                let args = args
+                let type_args = args
                     .iter()
                     .map(|arg| type_ref(mir, *arg))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{name}<{args}>")
+                format!("{class_name}<{type_args}>")
             }
         }
         Type::Function(function) => {
@@ -356,5 +380,17 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
             )
         }
         Type::Future(item) => format!("Future<{}>", type_ref(mir, *item)),
+    }
+}
+
+/// Convert an index into a `u32` identifier.
+///
+/// # Panics
+///
+/// Panics if the index does not fit in `u32`.
+fn index_to_u32(index: usize, label: &str) -> u32 {
+    match u32::try_from(index) {
+        Ok(value) => value,
+        Err(error) => panic!("{label} does not fit in u32: {error}"),
     }
 }

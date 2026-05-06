@@ -21,8 +21,10 @@ pub fn validate(mir: &Mir) -> Vec<ValidationError> {
     errors
 }
 
+/// Validate one MIR function and append any discovered errors.
 fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<ValidationError>) {
-    if function.blocks.get(function.entry.0 as usize).is_none() {
+    let entry_idx = block_index(function.entry);
+    if function.blocks.get(entry_idx).is_none() {
         errors.push(error(format!(
             "function {:?} has an unknown entry block {:?}",
             function.id, function.entry
@@ -30,7 +32,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
     }
 
     for (block_idx, block) in function.blocks.iter().enumerate() {
-        if block.id.0 as usize != block_idx {
+        if block_index(block.id) != block_idx {
             errors.push(error(format!(
                 "function {:?} block index {block_idx} has mismatched id {:?}",
                 function.id, block.id
@@ -101,8 +103,8 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     for arm in arms {
                         validate_block_exists(function, arm.target, errors);
                     }
-                    if let Some(default) = default {
-                        validate_block_exists(function, *default, errors);
+                    if let Some(default_target) = default {
+                        validate_block_exists(function, *default_target, errors);
                     }
                 }
                 Terminator::Return(operand) | Terminator::Throw(operand) => {
@@ -120,6 +122,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
     validate_definite_assignment(function, errors);
 }
 
+/// Validate that IDs referenced by an rvalue point to existing MIR entities.
 fn validate_rvalue_exists(
     function: &MirFunction,
     value: &Rvalue,
@@ -133,9 +136,9 @@ fn validate_rvalue_exists(
             }
         }
         Rvalue::Dict(entries) => {
-            for (key, value) in entries {
+            for (key, entry_value) in entries {
                 validate_operand_exists(function, key, errors);
-                validate_operand_exists(function, value, errors);
+                validate_operand_exists(function, entry_value, errors);
             }
         }
         Rvalue::Binary { lhs, rhs, .. } => {
@@ -146,10 +149,17 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, needle, errors);
         }
+        Rvalue::StringSplit {
+            haystack,
+            separator,
+        } => {
+            validate_operand_exists(function, haystack, errors);
+            validate_operand_exists(function, separator, errors);
+        }
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Struct { fields, .. } => {
-            for (_, value) in fields {
-                validate_operand_exists(function, value, errors);
+            for (_, field_value) in fields {
+                validate_operand_exists(function, field_value, errors);
             }
         }
         Rvalue::Len(operand) | Rvalue::StringCase { operand, .. } | Rvalue::Await(operand) => {
@@ -163,6 +173,7 @@ fn validate_rvalue_exists(
     }
 }
 
+/// Validate that IDs referenced by an operand point to existing MIR entities.
 fn validate_operand_exists(
     function: &MirFunction,
     operand: &Operand,
@@ -176,6 +187,7 @@ fn validate_operand_exists(
     }
 }
 
+/// Validate that a place references valid locals and projected fields.
 fn validate_place_exists(function: &MirFunction, place: &Place, errors: &mut Vec<ValidationError>) {
     match place {
         Place::Local(local) => {
@@ -189,6 +201,7 @@ fn validate_place_exists(function: &MirFunction, place: &Place, errors: &mut Vec
     }
 }
 
+/// Validate that a callee target exists and references valid receiver places.
 fn validate_callee_exists(
     mir: &Mir,
     function: &MirFunction,
@@ -197,7 +210,7 @@ fn validate_callee_exists(
 ) {
     match callee {
         Callee::Static(func) => {
-            if mir.functions.get(func.0 as usize).is_none() {
+            if mir.functions.get(function_index(*func)).is_none() {
                 errors.push(error(format!("call references unknown function {func:?}")));
             }
         }
@@ -208,8 +221,10 @@ fn validate_callee_exists(
     }
 }
 
+/// Perform forward dataflow to ensure locals are assigned before use.
 fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<ValidationError>) {
-    if function.blocks.get(function.entry.0 as usize).is_none() {
+    let entry_idx = block_index(function.entry);
+    if function.blocks.get(entry_idx).is_none() {
         return;
     }
 
@@ -218,14 +233,22 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
     let mut queue = VecDeque::new();
     let mut entry_defs = HashSet::new();
     entry_defs.extend(function.params.iter().copied());
-    in_sets[function.entry.0 as usize] = Some(entry_defs);
+    if let Some(slot) = in_sets.get_mut(entry_idx) {
+        *slot = Some(entry_defs);
+    } else {
+        return;
+    }
     queue.push_back(function.entry);
 
     while let Some(block_id) = queue.pop_front() {
-        let Some(block) = function.blocks.get(block_id.0 as usize) else {
+        let block_idx = block_index(block_id);
+        let Some(block) = function.blocks.get(block_idx) else {
             continue;
         };
-        let mut definitions = in_sets[block_id.0 as usize].clone().unwrap_or_default();
+        let Some(definitions_slot) = in_sets.get(block_idx) else {
+            continue;
+        };
+        let mut definitions = definitions_slot.clone().unwrap_or_default();
         let before_phi = definitions.clone();
 
         for phi in &block.phis {
@@ -280,20 +303,19 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
             }
 
             for successor in successors(terminator) {
-                let idx = successor.0 as usize;
-                if idx >= block_count {
+                let Some(existing) = in_sets.get_mut(block_index(successor)) else {
                     continue;
-                }
-                let changed = if let Some(existing) = &mut in_sets[idx] {
-                    let intersection = existing
+                };
+                let changed = if let Some(existing_defs) = existing {
+                    let intersection = existing_defs
                         .intersection(&definitions)
                         .copied()
                         .collect::<HashSet<_>>();
-                    let changed = *existing != intersection;
-                    *existing = intersection;
+                    let changed = *existing_defs != intersection;
+                    *existing_defs = intersection;
                     changed
                 } else {
-                    in_sets[idx] = Some(definitions.clone());
+                    *existing = Some(definitions.clone());
                     true
                 };
                 if changed {
@@ -304,6 +326,7 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
     }
 }
 
+/// Return control-flow successors for a block terminator.
 fn successors(terminator: &Terminator) -> Vec<crate::BlockId> {
     match terminator {
         Terminator::Goto(target) => vec![*target],
@@ -320,6 +343,7 @@ fn successors(terminator: &Terminator) -> Vec<crate::BlockId> {
     }
 }
 
+/// Validate type constraints for one rvalue.
 fn validate_rvalue(
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
@@ -334,9 +358,9 @@ fn validate_rvalue(
             }
         }
         Rvalue::Dict(entries) => {
-            for (key, value) in entries {
+            for (key, entry_value) in entries {
                 validate_operand(function, definitions, key, errors);
-                validate_operand(function, definitions, value, errors);
+                validate_operand(function, definitions, entry_value, errors);
             }
         }
         Rvalue::Binary { lhs, rhs, .. } => {
@@ -347,10 +371,17 @@ fn validate_rvalue(
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, needle, errors);
         }
+        Rvalue::StringSplit {
+            haystack,
+            separator,
+        } => {
+            validate_operand(function, definitions, haystack, errors);
+            validate_operand(function, definitions, separator, errors);
+        }
         Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
         Rvalue::Struct { fields, .. } => {
-            for (_, value) in fields {
-                validate_operand(function, definitions, value, errors);
+            for (_, field_value) in fields {
+                validate_operand(function, definitions, field_value, errors);
             }
         }
         Rvalue::Len(operand) | Rvalue::StringCase { operand, .. } | Rvalue::Await(operand) => {
@@ -364,6 +395,7 @@ fn validate_rvalue(
     }
 }
 
+/// Validate type constraints for one operand.
 fn validate_operand(
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
@@ -378,6 +410,7 @@ fn validate_operand(
     }
 }
 
+/// Validate type constraints for one place projection chain.
 fn validate_place(
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
@@ -403,6 +436,7 @@ fn validate_place(
     }
 }
 
+/// Validate type constraints for one callee.
 fn validate_callee(
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
@@ -417,12 +451,13 @@ fn validate_callee(
     }
 }
 
+/// Ensure a local ID points to an existing local declaration.
 fn validate_local_exists(
     function: &MirFunction,
     local: LocalId,
     errors: &mut Vec<ValidationError>,
 ) {
-    if function.locals.get(local.0 as usize).is_none() {
+    if function.locals.get(local_index(local)).is_none() {
         errors.push(error(format!(
             "function {:?} references unknown local {:?}",
             function.id, local
@@ -430,12 +465,13 @@ fn validate_local_exists(
     }
 }
 
+/// Ensure a block ID points to an existing basic block.
 fn validate_block_exists(
     function: &MirFunction,
     block: crate::BlockId,
     errors: &mut Vec<ValidationError>,
 ) {
-    if function.blocks.get(block.0 as usize).is_none() {
+    if function.blocks.get(block_index(block)).is_none() {
         errors.push(error(format!(
             "function {:?} references unknown block {:?}",
             function.id, block
@@ -443,12 +479,41 @@ fn validate_block_exists(
     }
 }
 
+/// Ensure a type ID points to an existing MIR type entry.
 fn validate_type(mir: &Mir, ty: TypeId, errors: &mut Vec<ValidationError>) {
     if mir.types.get(ty).is_none() {
         errors.push(error(format!("MIR references unknown type {ty:?}")));
     }
 }
 
+/// Convert a local identifier into a vector index.
+fn local_index(local: LocalId) -> usize {
+    u32_to_usize(local.0, "MIR local id")
+}
+
+/// Convert a block identifier into a vector index.
+fn block_index(block: crate::BlockId) -> usize {
+    u32_to_usize(block.0, "MIR block id")
+}
+
+/// Convert a function identifier into a vector index.
+fn function_index(function: crate::FuncId) -> usize {
+    u32_to_usize(function.0, "MIR function id")
+}
+
+/// Convert a `u32` identifier into a vector index.
+///
+/// # Panics
+///
+/// Panics if the value does not fit in `usize`.
+fn u32_to_usize(value: u32, label: &str) -> usize {
+    match usize::try_from(value) {
+        Ok(index) => index,
+        Err(error) => panic!("{label} does not fit in usize: {error}"),
+    }
+}
+
+/// Build a validation error with no source span.
 fn error(message: String) -> ValidationError {
     ValidationError { message }
 }

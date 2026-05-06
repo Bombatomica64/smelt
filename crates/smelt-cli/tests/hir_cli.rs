@@ -1,55 +1,58 @@
-#![expect(
-    clippy::too_many_lines,
-    reason = "integration tests keep complete CLI scenarios together"
-)]
+//! Integration tests for the `smelt` CLI HIR/MIR/build workflows.
 
 use std::{
-    fs,
+    error::Error,
+    fs, io,
     path::{Path, PathBuf},
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-fn workspace_root() -> &'static Path {
+type TestResult<T = ()> = Result<T, Box<dyn Error>>;
+
+/// Returns the workspace root for the integration tests.
+fn workspace_root() -> Result<&'static Path, io::Error> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(Path::parent)
-        .expect("workspace root")
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "workspace root"))
 }
 
-fn smelt(args: &[&str]) -> String {
+/// Runs the `smelt` binary from the workspace root and returns stdout.
+fn smelt(args: &[&str]) -> TestResult<String> {
     let output = Command::new(env!("CARGO_BIN_EXE_smelt"))
-        .current_dir(workspace_root())
+        .current_dir(workspace_root()?)
         .args(args)
-        .output()
-        .expect("run smelt");
+        .output()?;
 
-    assert!(
-        output.status.success(),
-        "smelt failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "smelt failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
 
-    String::from_utf8(output.stdout).expect("stdout utf8")
+    Ok(String::from_utf8(output.stdout)?)
 }
 
+/// Temporary project directory used by the integration tests.
 struct TempProject {
     path: PathBuf,
 }
 
 impl TempProject {
-    fn new() -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        Self {
+    /// Creates a unique temporary project path.
+    fn new() -> Result<Self, std::time::SystemTimeError> {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+        Ok(Self {
             path: std::env::temp_dir()
                 .join(format!("smelt-cli-test-{}-{nonce}", std::process::id())),
-        }
+        })
     }
 
+    /// Returns the temporary project path.
     fn path(&self) -> &Path {
         &self.path
     }
@@ -57,69 +60,203 @@ impl TempProject {
 
 impl Drop for TempProject {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.path);
+        drop(fs::remove_dir_all(&self.path));
     }
 }
 
-fn cargo_run_manifest(manifest: &Path) -> String {
+/// Runs `cargo run --manifest-path` for a generated crate and returns stdout.
+fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
     let output = Command::new("cargo")
         .arg("run")
         .arg("--quiet")
         .arg("--manifest-path")
         .arg(manifest)
-        .output()
-        .expect("run generated crate");
+        .output()?;
 
-    assert!(
-        output.status.success(),
-        "generated crate failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "generated crate failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
 
-    String::from_utf8(output.stdout).expect("generated stdout utf8")
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// Converts a path to UTF-8 for CLI arguments.
+fn utf8_path(path: &Path) -> Result<String, io::Error> {
+    path.to_str().map(ToOwned::to_owned).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("path is not valid UTF-8: {}", path.display()),
+        )
+    })
+}
+
+/// Returns the absolute path to an end-to-end example fixture.
+fn example_dir(name: &str) -> TestResult<PathBuf> {
+    Ok(workspace_root()?
+        .join("examples/typescript/end-to-end")
+        .join(name))
+}
+
+/// Fails the test when `condition` is false.
+fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
+    if condition {
+        Ok(())
+    } else {
+        Err(io::Error::other(message.into()).into())
+    }
+}
+
+/// Fails the test when `actual` and `expected` differ.
+fn ensure_eq<T>(actual: &T, expected: &T, message: impl Into<String>) -> TestResult
+where
+    T: PartialEq + std::fmt::Debug,
+{
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(io::Error::other(message.into()).into())
+    }
+}
+
+/// Verifies the compiled output for a single end-to-end example fixture.
+fn verify_end_to_end_example(name: &str) -> TestResult {
+    let example = example_dir(name)?;
+    let input = example.join("input.ts");
+    let expected_mir = fs::read_to_string(example.join("expected.mir"))?;
+
+    let workspace_root = workspace_root()?;
+    let input_path = input.strip_prefix(workspace_root)?;
+    let actual_mir = smelt(&["dump-mir", &utf8_path(input_path)?])?;
+    ensure_eq(
+        &actual_mir,
+        &expected_mir,
+        format!("MIR mismatch for {name}"),
+    )?;
+
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        fs::read_to_string(&input)?,
+    )?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "example-app"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "example_app"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let expected_rs = fs::read_to_string(example.join("expected.rs"))?;
+    let actual_rs = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
+    ensure_eq(
+        &actual_rs,
+        &expected_rs,
+        format!("Rust mismatch for {name}"),
+    )?;
+
+    let expected_stdout = fs::read_to_string(example.join("expected.stdout"))?;
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &expected_stdout,
+        format!("runtime stdout mismatch for {name}"),
+    )?;
+
+    Ok(())
 }
 
 #[test]
-fn dump_hir_prints_compact_hir_for_single_file() {
-    let stdout = smelt(&["dump-hir", "examples/typescript/hir/01_number.ts"]);
+fn dump_hir_prints_compact_hir_for_single_file() -> TestResult {
+    let stdout = smelt(&["dump-hir", "examples/typescript/hir/01_number.ts"])?;
 
-    assert!(stdout.contains("module examples/typescript/hir/01_number.ts (ModuleId(0))"));
-    assert!(stdout.contains("%0 let count: Float"));
-    assert!(stdout.contains("#3: None = call #2(#1)"));
-    assert!(stdout.contains("interned types\n  t0 = Float\n  t1 = None\n"));
+    ensure(
+        stdout.contains("module examples/typescript/hir/01_number.ts (ModuleId(0))"),
+        "missing module header",
+    )?;
+    ensure(stdout.contains("%0 let count: Float"), "missing count line")?;
+    ensure(
+        stdout.contains("#3: None = call #2(#1)"),
+        "missing call line",
+    )?;
+    ensure(
+        stdout.contains("interned types\n  t0 = Float\n  t1 = None\n"),
+        "missing interned types section",
+    )?;
+
+    Ok(())
 }
 
 #[test]
-fn build_hir_reads_entries_relative_to_manifest() {
+fn build_hir_reads_entries_relative_to_manifest() -> TestResult {
     let stdout = smelt(&[
         "--manifest-path",
         "examples/typescript/hir/Smelt.toml",
         "build",
         "--hir",
-    ]);
+    ])?;
 
-    assert!(stdout.contains("module examples/typescript/hir/01_number.ts (ModuleId(0))"));
-    assert!(stdout.contains("s0: let %0: Float = #0"));
-    assert!(stdout.contains("s1: #3"));
+    ensure(
+        stdout.contains("module examples/typescript/hir/01_number.ts (ModuleId(0))"),
+        "missing module header",
+    )?;
+    ensure(stdout.contains("s0: let %0: Float = #0"), "missing s0")?;
+    ensure(stdout.contains("s1: #3"), "missing s1")?;
+
+    Ok(())
 }
 
 #[test]
-fn dump_mir_prints_optimized_mir_for_single_file() {
-    let stdout = smelt(&["dump-mir", "examples/typescript/hir/05_alias.ts"]);
+fn dump_mir_prints_optimized_mir_for_single_file() -> TestResult {
+    let stdout = smelt(&["dump-mir", "examples/typescript/hir/05_alias.ts"])?;
 
-    assert!(stdout.contains("fn main (FuncId(0)) -> None"));
-    assert!(stdout.contains("%0 user source_value: Float"));
-    assert!(stdout.contains("%1 user copied_value: Float"));
-    assert!(stdout.contains("%2 = call @console_log(copy %0) -> bb1"));
-    assert!(stdout.contains("return none"));
+    ensure(
+        stdout.contains("fn main (FuncId(0)) -> None"),
+        "missing fn header",
+    )?;
+    ensure(
+        stdout.contains("%0 user source_value: Float"),
+        "missing source value",
+    )?;
+    ensure(
+        stdout.contains("%1 user copied_value: Float"),
+        "missing copied value",
+    )?;
+    ensure(
+        stdout.contains("%2 = call @console_log(copy %0) -> bb1"),
+        "missing log call",
+    )?;
+    ensure(stdout.contains("return none"), "missing return none")?;
+
+    Ok(())
 }
 
 #[test]
-fn build_emits_compilable_rust_crate() {
-    let project = TempProject::new();
+fn build_emits_compilable_rust_crate() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -137,32 +274,28 @@ build = true
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/main.ts"),
         "const message = \"hello smelt\";\nconsole.log(message);\n",
-    )
-    .expect("write source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "build",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    let generated =
-        fs::read_to_string(project_path.join("dist/src/main.rs")).expect("generated main");
-    assert!(generated.contains("fn main()"));
-    assert!(generated.contains("println!"));
+    let generated = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
+    ensure(generated.contains("fn main()"), "missing fn main")?;
+    ensure(generated.contains("println!"), "missing println")?;
+
+    Ok(())
 }
 
 #[test]
-fn check_emits_typescript_declaration_stubs_for_linked_modules() {
-    let project = TempProject::new();
+fn check_emits_typescript_declaration_stubs_for_linked_modules() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -180,45 +313,49 @@ build = false
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/math.ts"),
         "export function add(a: number, b: number): number { return a + b; }\n",
-    )
-    .expect("write helper source");
+    )?;
     fs::write(
         project_path.join("src/main.ts"),
         "import { add } from './math';\nconst result = add(2, 3);\nconsole.log(result);\n",
-    )
-    .expect("write main source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "check",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "check"])?;
 
-    let declaration = fs::read_to_string(project_path.join("src/math.d.ts"))
-        .expect("generated TypeScript declaration");
-    let entry_declaration = fs::read_to_string(project_path.join("src/main.d.ts"))
-        .expect("generated TypeScript entry declaration");
-    let python_stub =
-        fs::read_to_string(project_path.join("src/math.pyi")).expect("generated Python stub");
-    let entry_python_stub =
-        fs::read_to_string(project_path.join("src/main.pyi")).expect("generated Python entry stub");
-    assert!(declaration.contains("export declare function add(a: number, b: number): number;"));
-    assert!(entry_declaration.contains("Generated by smelt"));
-    assert!(python_stub.contains("def add(a: float, b: float) -> float: ..."));
-    assert!(entry_python_stub.contains("Generated by smelt"));
+    let declaration = fs::read_to_string(project_path.join("src/math.d.ts"))?;
+    let entry_declaration = fs::read_to_string(project_path.join("src/main.d.ts"))?;
+    let python_stub = fs::read_to_string(project_path.join("src/math.pyi"))?;
+    let entry_python_stub = fs::read_to_string(project_path.join("src/main.pyi"))?;
+    ensure(
+        declaration.contains("export declare function add(a: number, b: number): number;"),
+        "missing TypeScript declaration",
+    )?;
+    ensure(
+        entry_declaration.contains("Generated by smelt"),
+        "missing entry declaration",
+    )?;
+    ensure(
+        python_stub.contains("def add(a: float, b: float) -> float: ..."),
+        "missing Python stub",
+    )?;
+    ensure(
+        entry_python_stub.contains("Generated by smelt"),
+        "missing entry Python stub",
+    )?;
+
+    Ok(())
 }
 
 #[test]
-fn check_emits_python_stubs_for_linked_modules() {
-    let project = TempProject::new();
+fn check_emits_python_stubs_for_linked_modules() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -236,48 +373,50 @@ build = false
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/math.py"),
         "def add(a: int, b: int) -> int:\n    return a + b\n",
-    )
-    .expect("write helper source");
+    )?;
     fs::write(
         project_path.join("src/main.py"),
         "from math import add\nresult: int = add(2, 3)\nprint(result)\n",
-    )
-    .expect("write main source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "check",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "check"])?;
 
-    let stub =
-        fs::read_to_string(project_path.join("src/math.pyi")).expect("generated Python stub");
-    let entry_stub =
-        fs::read_to_string(project_path.join("src/main.pyi")).expect("generated Python entry stub");
-    let typescript_declaration = fs::read_to_string(project_path.join("src/math.d.ts"))
-        .expect("generated TypeScript declaration");
-    let entry_typescript_declaration = fs::read_to_string(project_path.join("src/main.d.ts"))
-        .expect("generated TypeScript entry declaration");
-    assert!(stub.contains("def add(a: int, b: int) -> int: ..."));
-    assert!(entry_stub.contains("Generated by smelt"));
-    assert!(
+    let stub = fs::read_to_string(project_path.join("src/math.pyi"))?;
+    let entry_stub = fs::read_to_string(project_path.join("src/main.pyi"))?;
+    let typescript_declaration = fs::read_to_string(project_path.join("src/math.d.ts"))?;
+    let entry_typescript_declaration = fs::read_to_string(project_path.join("src/main.d.ts"))?;
+    ensure(
+        stub.contains("def add(a: int, b: int) -> int: ..."),
+        "missing Python stub",
+    )?;
+    ensure(
+        entry_stub.contains("Generated by smelt"),
+        "missing entry stub",
+    )?;
+    ensure(
         typescript_declaration
-            .contains("export declare function add(a: number, b: number): number;")
-    );
-    assert!(entry_typescript_declaration.contains("Generated by smelt"));
+            .contains("export declare function add(a: number, b: number): number;"),
+        "missing TypeScript declaration",
+    )?;
+    ensure(
+        entry_typescript_declaration.contains("Generated by smelt"),
+        "missing entry TypeScript declaration",
+    )?;
+
+    Ok(())
 }
 
 #[test]
-fn build_runs_python_entry_importing_typescript_function() {
-    let project = TempProject::new();
+fn build_runs_python_entry_importing_typescript_function() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -295,39 +434,47 @@ build = true
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/math.ts"),
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
-    )
-    .expect("write TypeScript source");
+    )?;
     fs::write(
         project_path.join("src/main.py"),
         "from math import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
-    )
-    .expect("write Python source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "build",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    assert!(project_path.join("src/math.d.ts").exists());
-    assert!(project_path.join("src/math.pyi").exists());
-    assert!(project_path.join("src/main.d.ts").exists());
-    assert!(project_path.join("src/main.pyi").exists());
-    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"));
-    assert_eq!(actual_stdout, "5\n");
+    ensure(
+        project_path.join("src/math.d.ts").exists(),
+        "missing src/math.d.ts",
+    )?;
+    ensure(
+        project_path.join("src/math.pyi").exists(),
+        "missing src/math.pyi",
+    )?;
+    ensure(
+        project_path.join("src/main.d.ts").exists(),
+        "missing src/main.d.ts",
+    )?;
+    ensure(
+        project_path.join("src/main.pyi").exists(),
+        "missing src/main.pyi",
+    )?;
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
 }
 
 #[test]
-fn build_orders_manifest_entries_by_import_dependencies() {
-    let project = TempProject::new();
+fn build_orders_manifest_entries_by_import_dependencies() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -345,35 +492,31 @@ build = true
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/math.ts"),
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
-    )
-    .expect("write TypeScript source");
+    )?;
     fs::write(
         project_path.join("src/main.py"),
         "from math import add\nresult: float = add(2.0, 3.0)\nprint(result)\n",
-    )
-    .expect("write Python source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "build",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"));
-    assert_eq!(actual_stdout, "5\n");
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
 }
 
 #[test]
-fn build_resolves_typescript_index_module_imports() {
-    let project = TempProject::new();
+fn build_resolves_typescript_index_module_imports() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src/lib")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src/lib"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -391,35 +534,31 @@ build = true
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/lib/index.ts"),
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
-    )
-    .expect("write TypeScript helper source");
+    )?;
     fs::write(
         project_path.join("src/main.ts"),
         "import { add } from './lib';\nconst result = add(4, 6);\nconsole.log(result);\n",
-    )
-    .expect("write TypeScript entry source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "build",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"));
-    assert_eq!(actual_stdout, "10\n");
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
 }
 
 #[test]
-fn build_resolves_python_package_init_imports() {
-    let project = TempProject::new();
+fn build_resolves_python_package_init_imports() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src/lib")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src/lib"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -437,35 +576,31 @@ build = true
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/lib/__init__.py"),
         "def add(a: int, b: int) -> int:\n    return a + b\n",
-    )
-    .expect("write Python package source");
+    )?;
     fs::write(
         project_path.join("src/main.py"),
         "from lib import add\nresult: int = add(7, 8)\nprint(result)\n",
-    )
-    .expect("write Python entry source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "build",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"));
-    assert_eq!(actual_stdout, "15\n");
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"15\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
 }
 
 #[test]
-fn build_runs_typescript_entry_importing_python_function() {
-    let project = TempProject::new();
+fn build_runs_typescript_entry_importing_python_function() -> TestResult {
+    let project = TempProject::new()?;
     let project_path = project.path();
-    fs::create_dir_all(project_path.join("src")).expect("create temp project");
+    fs::create_dir_all(project_path.join("src"))?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -483,32 +618,28 @@ build = true
 [runtime]
 clone-strategy = "aggressive"
 "#,
-    )
-    .expect("write manifest");
+    )?;
     fs::write(
         project_path.join("src/math.py"),
         "def add(a: float, b: float) -> float:\n    return a + b\n",
-    )
-    .expect("write Python source");
+    )?;
     fs::write(
         project_path.join("src/main.ts"),
         "import { add } from './math';\nconst result = add(9, 4);\nconsole.log(result);\n",
-    )
-    .expect("write TypeScript source");
+    )?;
 
     let manifest = project_path.join("Smelt.toml");
-    smelt(&[
-        "--manifest-path",
-        manifest.to_str().expect("manifest path utf8"),
-        "build",
-    ]);
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
-    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"));
-    assert_eq!(actual_stdout, "13\n");
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"13\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
 }
 
 #[test]
-fn end_to_end_examples_match_expected_outputs() {
+fn end_to_end_examples_match_expected_outputs() -> TestResult {
     for name in [
         "01_number",
         "02_string",
@@ -537,68 +668,8 @@ fn end_to_end_examples_match_expected_outputs() {
         "25_private_protected_metadata",
         "26_interface_inheritance_optional_computed",
     ] {
-        let example = workspace_root()
-            .join("examples/typescript/end-to-end")
-            .join(name);
-        let input = example.join("input.ts");
-        let expected_mir = fs::read_to_string(example.join("expected.mir")).expect("expected MIR");
-
-        let actual_mir = smelt(&[
-            "dump-mir",
-            input
-                .strip_prefix(workspace_root())
-                .expect("relative input")
-                .to_str()
-                .expect("input path utf8"),
-        ]);
-        assert_eq!(actual_mir, expected_mir, "MIR mismatch for {name}");
-
-        let project = TempProject::new();
-        let project_path = project.path();
-        fs::create_dir_all(project_path.join("src")).expect("create temp project");
-        fs::write(
-            project_path.join("src/main.ts"),
-            fs::read_to_string(&input).expect("input source"),
-        )
-        .expect("write temp source");
-        fs::write(
-            project_path.join("Smelt.toml"),
-            r#"[project]
-name = "example-app"
-version = "0.1.0"
-
-[sources]
-entries = ["src/main.ts"]
-
-[output]
-target = "./dist"
-crate-name = "example_app"
-build = false
-
-[runtime]
-clone-strategy = "aggressive"
-"#,
-        )
-        .expect("write manifest");
-
-        let manifest = project_path.join("Smelt.toml");
-        smelt(&[
-            "--manifest-path",
-            manifest.to_str().expect("manifest path utf8"),
-            "build",
-        ]);
-
-        let expected_rs = fs::read_to_string(example.join("expected.rs")).expect("expected Rust");
-        let actual_rs =
-            fs::read_to_string(project_path.join("dist/src/main.rs")).expect("actual Rust");
-        assert_eq!(actual_rs, expected_rs, "Rust mismatch for {name}");
-
-        let expected_stdout =
-            fs::read_to_string(example.join("expected.stdout")).expect("expected stdout");
-        let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"));
-        assert_eq!(
-            actual_stdout, expected_stdout,
-            "runtime stdout mismatch for {name}"
-        );
+        verify_end_to_end_example(name)?;
     }
+
+    Ok(())
 }

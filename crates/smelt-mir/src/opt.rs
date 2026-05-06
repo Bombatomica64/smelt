@@ -161,6 +161,13 @@ fn rewrite_rvalue(
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(needle, aliases, dest)
         }
+        Rvalue::StringSplit {
+            haystack,
+            separator,
+        } => {
+            rewrite_operand_except(haystack, aliases, dest)
+                | rewrite_operand_except(separator, aliases, dest)
+        }
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
             rewrite_operand_except(value, aliases, dest) | changed

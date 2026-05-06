@@ -206,6 +206,8 @@ runtime errors.
     - [x] Python `str.lower()` and `str.upper()`.
     - [x] TypeScript string `includes`.
     - [x] Python string `in` / `not in`.
+    - [x] TypeScript string `split`.
+    - [x] Python `str.split(separator)`.
   - [ ] TypeScript `Math.*`, `Object.*`, `JSON.*`, `fetch`, and async timers.
   - [ ] Python builtins and common stdlib functions that map directly to Rust or external crates.
 

@@ -24,14 +24,6 @@
     reason = "MIR/HIR IDs are compact u32 indexes and overflow checks will be centralized separately"
 )]
 #![expect(
-    clippy::branches_sharing_code,
-    reason = "codegen branches keep target-specific cases explicit"
-)]
-#![expect(
-    clippy::ifs_same_cond,
-    reason = "codegen mutability checks are kept parallel while class handling evolves"
-)]
-#![expect(
     clippy::too_many_arguments,
     reason = "structured codegen emitters pass explicit control-flow context"
 )]
@@ -50,10 +42,6 @@
 #![expect(
     clippy::unused_self,
     reason = "helper methods stay on the emitter for future shared state"
-)]
-#![expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "type lookup helpers use borrowed IDs consistently with other helpers"
 )]
 #![expect(
     clippy::needless_pass_by_value,
@@ -119,6 +107,16 @@ impl EmitError {
             message: message.into(),
         }
     }
+}
+
+/// Converts a compact MIR identifier into a `usize` for indexing.
+fn id_index(index: u32, context: &'static str) -> Result<usize, EmitError> {
+    usize::try_from(index).map_err(|_| EmitError::new(context))
+}
+
+/// Converts a `usize` into a compact MIR identifier.
+fn compact_index(index: usize, context: &'static str) -> Result<u32, EmitError> {
+    u32::try_from(index).map_err(|_| EmitError::new(context))
 }
 
 /// Emits a complete Rust crate from the given MIR.
@@ -192,13 +190,17 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         );
         out.push_str(&format!("\nimpl {name} {{\n"));
         if let Some(constructor) = class.constructor
-            && let Some(function) = mir.functions.get(constructor.0 as usize)
+            && let Some(function) =
+                mir.functions.get(id_index(constructor.0, "constructor index does not fit usize")?)
         {
             let mut emitter = FunctionEmitter::new(mir, function)?;
             emitter.emit_method(&mut out)?;
         }
         for method in &class.methods {
-            if let Some(function) = mir.functions.get(method.0 as usize) {
+            if let Some(function) = mir
+                .functions
+                .get(id_index(method.0, "method index does not fit usize")?)
+            {
                 let mut emitter = FunctionEmitter::new(mir, function)?;
                 emitter.emit_method(&mut out)?;
             }
@@ -266,16 +268,16 @@ impl<'mir> FunctionEmitter<'mir> {
     fn new(mir: &'mir Mir, function: &'mir MirFunction) -> Result<Self, EmitError> {
         let mut used = HashMap::<String, usize>::new();
         let mut names = HashMap::new();
-        let none_ty = mir
+        let none_ty_index = mir
             .types
             .all()
             .iter()
             .position(|ty| *ty == Type::None)
-            .map(|idx| TypeId(idx as u32))
             .ok_or_else(|| EmitError::new("type table does not contain None"))?;
+        let none_ty = TypeId(compact_index(none_ty_index, "type index does not fit u32")?);
 
         for (idx, local) in function.locals.iter().enumerate() {
-            let local_id = LocalId(idx as u32);
+            let local_id = LocalId(compact_index(idx, "local index does not fit u32")?);
             let base = if matches!(function.origin, HirOrigin::ClassMethod { .. }) && idx == 0 {
                 "self".to_owned()
             } else {
@@ -320,7 +322,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 out.push_str("fn main() {\n");
             }
         } else {
-            let params = self
+            let fn_params = self
                 .function
                 .params
                 .iter()
@@ -335,7 +337,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 .collect::<Result<Vec<_>, EmitError>>()?
                 .join(", ");
             out.push_str(&format!(
-                "{}fn {}({params}) -> {} {{\n",
+                "{}fn {}({fn_params}) -> {} {{\n",
                 if self.function.is_async { "async " } else { "" },
                 sanitize_ident(name),
                 self.return_type_text(self.function.return_ty)?
@@ -351,7 +353,7 @@ impl<'mir> FunctionEmitter<'mir> {
     fn emit_method(&mut self, out: &mut String) -> Result<(), EmitError> {
         match self.function.origin {
             HirOrigin::ClassConstructor { .. } => {
-                let params = self
+                let method_params = self
                     .function
                     .params
                     .iter()
@@ -366,7 +368,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
                 out.push_str(&format!(
-                    "    fn new({params}) -> {} {{\n",
+                    "    fn new({method_params}) -> {} {{\n",
                     if self.function.can_throw {
                         "Result<Self, Box<dyn std::error::Error>>"
                     } else {
@@ -376,7 +378,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             HirOrigin::ClassMethod { method, .. } => {
                 let name = sanitize_ident(self.symbol_name(method)?);
-                let params = self
+                let method_params = self
                     .function
                     .params
                     .iter()
@@ -391,18 +393,18 @@ impl<'mir> FunctionEmitter<'mir> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                let receiver = if method_mutates_this(self.function) {
+                let receiver_text = if method_mutates_this(self.function) {
                     "&mut self"
                 } else {
                     "&self"
                 };
-                let params = if params.is_empty() {
-                    receiver.to_owned()
+                let rendered_params = if method_params.is_empty() {
+                    receiver_text.to_owned()
                 } else {
-                    format!("{receiver}, {params}")
+                    format!("{receiver_text}, {method_params}")
                 };
                 out.push_str(&format!(
-                    "    {}fn {name}({params}) -> {} {{\n",
+                    "    {}fn {name}({rendered_params}) -> {} {{\n",
                     if self.function.is_async { "async " } else { "" },
                     self.return_type_text(self.function.return_ty)?
                 ));
@@ -483,7 +485,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Statement::Assign { dest, value } => {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
-                let value = self.rvalue_text_for_dest(value, local.ty)?;
+                let rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
                 let mutability = if self.mutable_locals.contains(dest)
                     || matches!(self.mir.types.get(local.ty), Some(Type::Class { .. }))
                 {
@@ -492,7 +494,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     ""
                 };
                 out.push_str(&format!(
-                    "    let {mutability}{name}: {} = {value};\n",
+                    "    let {mutability}{name}: {} = {rendered_value};\n",
                     self.type_text(local.ty)?
                 ));
                 Ok(())
@@ -511,7 +513,7 @@ impl<'mir> FunctionEmitter<'mir> {
         value: &Rvalue,
         out: &mut String,
     ) -> Result<(), EmitError> {
-        let value = self.rvalue_text(value)?;
+        let rendered_value = self.rvalue_text(value)?;
         match place {
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
@@ -519,7 +521,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     && self.mir.types.get(*key) == Some(&Type::String)
                 {
                     out.push_str(&format!(
-                        "    {}.insert({:?}.to_owned(), {value});\n",
+                        "    {}.insert({:?}.to_owned(), {rendered_value});\n",
                         self.local_name(*base)?,
                         self.symbol_name(*field)?
                     ));
@@ -530,7 +532,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Dict(_, _)) = self.mir.types.get(base_ty) {
                     out.push_str(&format!(
-                        "    {}.insert({}, {value});\n",
+                        "    {}.insert({}, {rendered_value});\n",
                         self.local_name(*base)?,
                         self.operand_text(index)?
                     ));
@@ -540,8 +542,8 @@ impl<'mir> FunctionEmitter<'mir> {
             Place::Local(_) => {}
         }
 
-        let place = self.assignment_place_text(place)?;
-        out.push_str(&format!("    {place} = {value};\n"));
+        let assignment = self.assignment_place_text(place)?;
+        out.push_str(&format!("    {assignment} = {rendered_value};\n"));
         Ok(())
     }
 
@@ -560,7 +562,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 dest,
                 target,
             } => {
-                let value = self.call_text(callee, args)?;
+                let call_text = self.call_text(callee, args)?;
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
                 let mutability = if self.mutable_locals.contains(dest)
@@ -571,10 +573,10 @@ impl<'mir> FunctionEmitter<'mir> {
                     ""
                 };
                 if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
-                    out.push_str(&format!("    let {mutability}{name} = {value};\n"));
+                    out.push_str(&format!("    let {mutability}{name} = {call_text};\n"));
                 } else {
                     out.push_str(&format!(
-                        "    let {mutability}{name}: {} = {value};\n",
+                        "    let {mutability}{name}: {} = {call_text};\n",
                         self.type_text(local.ty)?
                     ));
                 }
@@ -839,8 +841,8 @@ impl<'mir> FunctionEmitter<'mir> {
         default: Option<smelt_mir::BlockId>,
         out: &mut String,
     ) -> Result<(), EmitError> {
-        let scrutinee = self.match_scrutinee_text(scrutinee)?;
-        out.push_str(&format!("    match {scrutinee} {{\n"));
+        let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        out.push_str(&format!("    match {scrutinee_text} {{\n"));
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
@@ -849,9 +851,9 @@ impl<'mir> FunctionEmitter<'mir> {
             self.emit_block_as_match_arm(self.block(arm.target)?, out)?;
             out.push_str("        }\n");
         }
-        if let Some(default) = default {
+        if let Some(default_block) = default {
             out.push_str("        _ => {\n");
-            self.emit_block_as_match_arm(self.block(default)?, out)?;
+            self.emit_block_as_match_arm(self.block(default_block)?, out)?;
             out.push_str("        }\n");
         } else {
             out.push_str("        _ => unreachable!(),\n");
@@ -888,8 +890,11 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut join = None;
         for target in arms.iter().map(|arm| arm.target).chain(default) {
             let block = self.block(target)?;
-            if let Some(Terminator::Goto(target)) = block.terminator {
-                if join.replace(target).is_some_and(|seen| seen != target) {
+            if let Some(Terminator::Goto(join_target)) = block.terminator {
+                if join
+                    .replace(join_target)
+                    .is_some_and(|seen| seen != join_target)
+                {
                     return Err(EmitError::new(
                         "match codegen requires all non-terminating arms to share one join block",
                     ));
@@ -990,37 +995,37 @@ impl<'mir> FunctionEmitter<'mir> {
         match value {
             Rvalue::Use(operand) => self.operand_text(operand),
             Rvalue::List(items) => {
-                let items = items
+                let items_text = items
                     .iter()
                     .map(|item| self.operand_text(item))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                Ok(format!("vec![{items}]"))
+                Ok(format!("vec![{items_text}]"))
             }
             Rvalue::Dict(entries) => {
-                let entries = entries
+                let entries_text = entries
                     .iter()
-                    .map(|(key, value)| {
+                    .map(|(key, entry_value)| {
                         Ok(format!(
                             "({}, {})",
                             self.operand_text(key)?,
-                            self.operand_text(value)?
+                            self.operand_text(entry_value)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                Ok(format!("::std::collections::HashMap::from([{entries}])"))
+                Ok(format!("::std::collections::HashMap::from([{entries_text}])"))
             }
             Rvalue::Tuple(items) => {
-                let items = items
+                let items_text = items
                     .iter()
                     .map(|item| self.operand_text(item))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                if items.contains(',') {
-                    Ok(format!("({items})"))
+                if items_text.contains(',') {
+                    Ok(format!("({items_text})"))
                 } else {
-                    Ok(format!("({items},)"))
+                    Ok(format!("({items_text},)"))
                 }
             }
             Rvalue::Binary { op, lhs, rhs } => {
@@ -1049,11 +1054,11 @@ impl<'mir> FunctionEmitter<'mir> {
                 ))
             }
             Rvalue::Unary { op, operand } => {
-                let op = match op {
+                let op_text = match op {
                     smelt_hir::UnaryOp::Not => "!",
                     smelt_hir::UnaryOp::Neg => "-",
                 };
-                Ok(format!("{op}{}", self.operand_text(operand)?))
+                Ok(format!("{op_text}{}", self.operand_text(operand)?))
             }
             Rvalue::Struct { class, fields } => {
                 let class_name = sanitize_ident(self.symbol_name(*class)?);
@@ -1066,11 +1071,11 @@ impl<'mir> FunctionEmitter<'mir> {
                 let mut parts = Vec::new();
                 for field in &mir_class.fields {
                     let name = sanitize_ident(self.symbol_name(field.name)?);
-                    if let Some((_, value)) = fields
+                    if let Some((_, field_value)) = fields
                         .iter()
                         .find(|(field_name, _)| *field_name == field.name)
                     {
-                        parts.push(format!("{name}: {}", self.operand_text(value)?));
+                        parts.push(format!("{name}: {}", self.operand_text(field_value)?));
                     } else {
                         parts.push(format!("{name}: {}", self.default_value(field.ty)?));
                     }
@@ -1082,6 +1087,10 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
+            Rvalue::StringSplit {
+                haystack,
+                separator,
+            } => self.string_split_text(haystack, separator),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
         }
@@ -1091,23 +1100,23 @@ impl<'mir> FunctionEmitter<'mir> {
     fn async_op_text(&self, op: smelt_hir::AsyncOp, args: &[Operand]) -> Result<String, EmitError> {
         match op {
             smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => {
-                let args = args
+                let rendered_args = args
                     .iter()
                     .map(|arg| self.await_operand_text(arg))
                     .collect::<Result<Vec<_>, _>>()?;
-                let body = match args.as_slice() {
+                let body = match rendered_args.as_slice() {
                     [] => "()".to_owned(),
                     [single] => format!("({single}.await,)"),
-                    _ => format!("tokio::join!({})", args.join(", ")),
+                    _ => format!("tokio::join!({})", rendered_args.join(", ")),
                 };
                 Ok(format!("Box::pin(async move {{ {body} }})"))
             }
             smelt_hir::AsyncOp::Race => {
-                let args = args
+                let rendered_args = args
                     .iter()
                     .map(|arg| self.await_operand_text(arg))
                     .collect::<Result<Vec<_>, _>>()?;
-                let body = match args.as_slice() {
+                let body = match rendered_args.as_slice() {
                     [] => {
                         return Err(EmitError::new(
                             "async race requires at least one future operand",
@@ -1115,7 +1124,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                     [single] => format!("{single}.await"),
                     _ => {
-                        let arms = args
+                        let arms = rendered_args
                             .iter()
                             .map(|arg| format!("value = {arg} => value"))
                             .collect::<Vec<_>>()
@@ -1140,9 +1149,9 @@ impl<'mir> FunctionEmitter<'mir> {
                         "async task creation requires a future operand",
                     ));
                 };
-                let future = self.await_operand_text(future)?;
+                let future_text = self.await_operand_text(future)?;
                 Ok(format!(
-                    "Box::pin(async move {{ tokio::spawn(async move {{ {future}.await }}).await.expect(\"async task panicked\") }})"
+                    "Box::pin(async move {{ tokio::spawn(async move {{ {future_text}.await }}).await.expect(\"async task panicked\") }})"
                 ))
             }
             smelt_hir::AsyncOp::WaitFor => {
@@ -1151,9 +1160,9 @@ impl<'mir> FunctionEmitter<'mir> {
                         "async wait_for requires a future and timeout operand",
                     ));
                 };
-                let future = self.await_operand_text(future)?;
+                let future_text = self.await_operand_text(future)?;
                 Ok(format!(
-                    "Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), {future}).await.expect(\"async timeout\") }})",
+                    "Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), {future_text}).await.expect(\"async timeout\") }})",
                     self.operand_text(timeout)?
                 ))
             }
@@ -1179,14 +1188,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 ));
             }
         };
-        let receiver = self.len_operand_text(operand)?;
+        let receiver_text = self.len_operand_text(operand)?;
         let len_expr = if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::String)
         ) {
-            format!("{receiver}.chars().count()")
+            format!("{receiver_text}.chars().count()")
         } else {
-            format!("{receiver}.len()")
+            format!("{receiver_text}.len()")
         };
         Ok(format!("{len_expr} as {cast}"))
     }
@@ -1203,12 +1212,12 @@ impl<'mir> FunctionEmitter<'mir> {
         ) {
             return Err(EmitError::new("string case operand must be a string"));
         }
-        let receiver = self.len_operand_text(operand)?;
-        let method = match op {
+        let receiver_text = self.len_operand_text(operand)?;
+        let method_name = match op {
             smelt_hir::StringCaseOp::Lower => "to_lowercase",
             smelt_hir::StringCaseOp::Upper => "to_uppercase",
         };
-        Ok(format!("{receiver}.{method}()"))
+        Ok(format!("{receiver_text}.{method_name}()"))
     }
 
     /// Converts a string containment operation to Rust text.
@@ -1233,6 +1242,28 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a string split operation to Rust text.
+    fn string_split_text(
+        &self,
+        haystack: &Operand,
+        separator: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(separator)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string split operands must be strings"));
+        }
+        Ok(format!(
+            "{}.split(&{}).map(str::to_owned).collect::<Vec<_>>()",
+            self.operand_text(haystack)?,
+            self.operand_text(separator)?
+        ))
+    }
+
     /// Converts a function call to its Rust text representation.
     fn call_text(&self, callee: &Callee, args: &[Operand]) -> Result<String, EmitError> {
         match callee {
@@ -1249,29 +1280,29 @@ impl<'mir> FunctionEmitter<'mir> {
                         .map(|(format, _)| *format)
                         .collect::<Vec<_>>()
                         .join(" ");
-                    let args = rendered_args
+                    let arg_values = rendered_args
                         .into_iter()
                         .map(|(_, value)| value)
                         .collect::<Vec<_>>()
                         .join(", ");
-                    Ok(format!("{{ println!(\"{format}\", {args}); }}"))
+                    Ok(format!("{{ println!(\"{format}\", {arg_values}); }}"))
                 }
             }
             Callee::Static(func) => {
                 let function = self
                     .mir
                     .functions
-                    .get(func.0 as usize)
+                    .get(id_index(func.0, "function index does not fit usize")?)
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
                 if let HirOrigin::ClassConstructor { class, .. } = function.origin {
                     let class_name = sanitize_ident(self.symbol_name(class)?);
-                    let args = args
+                    let arg_values = args
                         .iter()
                         .map(|arg| self.operand_text(arg))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     return Ok(format!(
-                        "{class_name}::new({args}){}",
+                        "{class_name}::new({arg_values}){}",
                         self.throwing_call_suffix(function)
                     ));
                 }
@@ -1279,38 +1310,38 @@ impl<'mir> FunctionEmitter<'mir> {
                     let Some((receiver, rest)) = args.split_first() else {
                         return Err(EmitError::new("method call is missing a receiver"));
                     };
-                    let receiver = match receiver {
+                    let receiver_text = match receiver {
                         Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
                         Operand::Const(_) => {
                             return Err(EmitError::new("method receiver cannot be a constant"));
                         }
                     };
-                    let args = rest
+                    let arg_values = rest
                         .iter()
                         .map(|arg| self.operand_text(arg))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    let method = sanitize_ident(self.symbol_name(method)?);
-                    return if args.is_empty() {
+                    let method_name = sanitize_ident(self.symbol_name(method)?);
+                    return if arg_values.is_empty() {
                         Ok(format!(
-                            "{receiver}.{method}(){}",
+                            "{receiver_text}.{method_name}(){}",
                             self.throwing_call_suffix(function)
                         ))
                     } else {
                         Ok(format!(
-                            "{receiver}.{method}({args}){}",
+                            "{receiver_text}.{method_name}({arg_values}){}",
                             self.throwing_call_suffix(function)
                         ))
                     };
                 }
                 let name = self.symbol_name(function.name)?;
-                let args = args
+                let arg_values = args
                     .iter()
                     .map(|arg| self.operand_text(arg))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 Ok(format!(
-                    "{}({args}){}",
+                    "{}({arg_values}){}",
                     sanitize_ident(name),
                     self.throwing_call_suffix(function)
                 ))
@@ -1399,9 +1430,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty)
                     && self.mir.types.get(*key) == Some(&Type::String)
                 {
-                    let field = self.symbol_name(*field)?;
+                    let field_name = self.symbol_name(*field)?;
                     return Ok(format!(
-                        "{}.get({field:?}).cloned().expect(\"missing field\")",
+                        "{}.get({field_name:?}).cloned().expect(\"missing field\")",
                         self.local_name(*base)?
                     ));
                 }
@@ -1466,20 +1497,22 @@ impl<'mir> FunctionEmitter<'mir> {
     fn place_ty(&self, place: &Place) -> Result<TypeId, EmitError> {
         match place {
             Place::Local(local) => Ok(self.local_decl(*local)?.ty),
-            Place::Field { base, .. } => {
+            Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::Class { name, .. }) => {
-                        let Place::Field { field, .. } = place else {
-                            unreachable!()
-                        };
                         self.mir
                             .classes
                             .iter()
                             .find(|class| class.name == *name)
-                            .and_then(|class| class.fields.iter().find(|item| item.name == *field))
-                            .map(|field| field.ty)
+                            .and_then(|class| {
+                                class
+                                    .fields
+                                    .iter()
+                                    .find(|class_field| class_field.name == *field)
+                            })
+                            .map(|class_field| class_field.ty)
                             .ok_or_else(|| EmitError::new("class field type lookup failed"))
                     }
                     _ => Err(EmitError::new(
@@ -1502,23 +1535,24 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Finds the type ID for a given type.
     fn type_id(&self, needle: Type) -> Result<TypeId, EmitError> {
-        self.mir
+        let index = self
+            .mir
             .types
             .all()
             .iter()
             .position(|ty| *ty == needle)
-            .map(|idx| TypeId(idx as u32))
-            .ok_or_else(|| EmitError::new("type table does not contain literal operand type"))
+            .ok_or_else(|| EmitError::new("type table does not contain literal operand type"))?;
+        Ok(TypeId(compact_index(index, "type index does not fit u32")?))
     }
 
     /// Converts a type ID to its Rust text representation.
     fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        let ty = self
+        let resolved_ty = self
             .mir
             .types
             .get(ty)
             .ok_or_else(|| EmitError::new("MIR references an unknown type"))?;
-        match ty {
+        match resolved_ty {
             Type::Bool => Ok("bool".to_owned()),
             Type::Int => Ok("i64".to_owned()),
             Type::Float => Ok("f64".to_owned()),
@@ -1535,12 +1569,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.type_text(*value)?
             )),
             Type::Tuple(items) => {
-                let items = items
+                let items_text = items
                     .iter()
                     .map(|item| self.type_text(*item))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                Ok(format!("({items})"))
+                Ok(format!("({items_text})"))
             }
             Type::Optional(item) => Ok(format!("Option<{}>", self.type_text(*item)?)),
             Type::Union(_) => Err(EmitError::new("union type codegen is not implemented yet")),
@@ -1595,7 +1629,7 @@ impl<'mir> FunctionEmitter<'mir> {
     fn block(&self, block: smelt_mir::BlockId) -> Result<&BasicBlock, EmitError> {
         self.function
             .blocks
-            .get(block.0 as usize)
+            .get(id_index(block.0, "block index does not fit usize")?)
             .ok_or_else(|| EmitError::new("terminator references an unknown block"))
     }
 
@@ -1603,7 +1637,7 @@ impl<'mir> FunctionEmitter<'mir> {
     fn local_decl(&self, local: LocalId) -> Result<&smelt_mir::LocalDecl, EmitError> {
         self.function
             .locals
-            .get(local.0 as usize)
+            .get(id_index(local.0, "local index does not fit usize")?)
             .ok_or_else(|| EmitError::new("MIR references an unknown local"))
     }
 
@@ -1681,7 +1715,10 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
             args,
             ..
         }) = &block.terminator
-            && let Some(callee) = mir.functions.get(func.0 as usize)
+            && let Ok(function_index) = id_index(func.0, "function index does not fit usize")
+            && let Some(callee) = mir
+                .functions
+                .get(function_index)
             && method_mutates_this(callee)
             && let Some(Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) =
                 args.first()
@@ -1738,7 +1775,7 @@ fn unique_name(base: String, used: &mut HashMap<String, usize>) -> String {
     } else {
         format!("{base}_{count}")
     };
-    *count += 1;
+    *count = count.saturating_add(1);
     name
 }
 
@@ -1809,10 +1846,16 @@ mod tests {
     /// Converts TypeScript source to generated Rust source.
     fn source_for(ts: &str) -> String {
         let mut ctx = HirCtx::new();
-        to_hir(ts, FileId(0), &mut ctx).expect("HIR");
-        let mut mir = smelt_mir::lower_hir(&ctx.krate).expect("MIR");
+        assert!(to_hir(ts, FileId(0), &mut ctx).is_ok(), "HIR");
+        let mut mir = match smelt_mir::lower_hir(&ctx.krate) {
+            Ok(mir) => mir,
+            Err(_) => panic!("MIR lowering failed"),
+        };
         smelt_mir::opt::optimize(&mut mir);
-        emit_source(&mir).expect("Rust source")
+        match emit_source(&mir) {
+            Ok(source) => source,
+            Err(err) => panic!("Rust source: {err}"),
+        }
     }
 
     #[test]
@@ -1888,6 +1931,20 @@ const has = word.includes("mel");
         );
 
         assert!(source.contains(".contains(&\"mel\".to_owned());"));
+    }
+
+    #[test]
+    fn emits_string_split_method() {
+        let source = source_for(
+            r#"
+const word = "a,b,c";
+const parts = word.split(",");
+"#,
+        );
+
+        assert!(
+            source.contains(".split(&\",\".to_owned()).map(str::to_owned).collect::<Vec<_>>();")
+        );
     }
 
     #[test]

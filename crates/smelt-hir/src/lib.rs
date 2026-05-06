@@ -4,14 +4,23 @@
 //! frontend lowering. It includes types for expressions, statements, items (functions,
 //! classes, interfaces), control flow, and type information.
 
+/// HIR body structures and control-flow nodes.
 mod body;
+/// HIR expression nodes and operators.
 mod expr;
+/// Compact HIR formatting utilities.
 mod format;
-mod ids;
+/// Typed ID newtypes and source span primitives.
+pub mod ids;
+/// HIR top-level items (functions, classes, interfaces).
 mod item;
+/// Crate/module metadata and imports.
 mod krate;
+/// Symbol interning and original-name tracking.
 mod symbol;
+/// HIR type system and type interning.
 mod ty;
+/// HIR validation passes.
 mod validate;
 
 pub use body::{

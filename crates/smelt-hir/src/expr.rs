@@ -73,6 +73,13 @@ pub enum ExprKind {
         /// The substring to search for.
         needle: ExprId,
     },
+    /// Split a string into a list of strings.
+    StringSplit {
+        /// The string value being split.
+        haystack: ExprId,
+        /// The separator string.
+        separator: ExprId,
+    },
     /// A binary operation.
     BinOp {
         /// The operator.

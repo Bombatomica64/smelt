@@ -14,6 +14,7 @@ pub struct Args {
     #[arg(long, global = true)]
     pub manifest_path: Option<String>,
 
+    /// Command to execute.
     #[command(subcommand)]
     pub command: Command,
 }
@@ -49,14 +50,21 @@ pub enum Command {
         #[arg(long)]
         debug: bool,
 
+        /// Input source file path.
         file: String,
     },
 
     /// Print the MIR for a single source file (debug)
-    DumpMir { file: String },
+    DumpMir {
+        /// Input source file path.
+        file: String,
+    },
 
     /// Print the raw parser AST for a single source file (Python only for now)
-    DumpAst { file: String },
+    DumpAst {
+        /// Input source file path.
+        file: String,
+    },
 
     /// Remove the output target directory
     Clean,

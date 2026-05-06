@@ -76,7 +76,11 @@ pub fn to_hir_with_path(
             .into_iter()
             .map(|error| {
                 SmeltError::parse(
-                    Span::new(file_id, 0, source.len() as u32),
+                    Span::new(
+                        file_id,
+                        0,
+                        u32::try_from(source.len()).unwrap_or(u32::MAX),
+                    ),
                     error.to_string(),
                 )
             })
@@ -143,7 +147,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut classes = HashMap::new();
         let mut interfaces = HashMap::new();
         for (idx, item) in ctx.krate.items.iter().enumerate() {
-            let item_id = smelt_hir::ItemId(idx as u32);
+            let item_id =
+                smelt_hir::ItemId(u32::try_from(idx).unwrap_or(u32::MAX));
             let Some(name) = item_name(&ctx.krate, item) else {
                 continue;
             };
@@ -176,49 +181,50 @@ impl<'ctx> ModuleBuilder<'ctx> {
         );
 
         for statement in &program.body {
-            match statement {
-                Statement::ImportDeclaration(import) => {
-                    self.import_declaration(import, &mut module);
+            if let Statement::ImportDeclaration(import) = statement {
+                self.import_declaration(import, &mut module);
+                continue;
+            }
+            if let Statement::FunctionDeclaration(function) = statement {
+                match self.function_declaration(function) {
+                    Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
                 }
-                Statement::FunctionDeclaration(function) => {
+                continue;
+            }
+            if let Statement::ClassDeclaration(class) = statement {
+                match self.class_declaration(class) {
+                    Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
+            if let Statement::TSInterfaceDeclaration(interface) = statement {
+                match self.interface_declaration(interface) {
+                    Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
+            if let Statement::ExportNamedDeclaration(export) = statement
+                && let Some(decl) = &export.declaration
+            {
+                if let Declaration::FunctionDeclaration(function) = decl {
                     match self.function_declaration(function) {
                         Ok(item) => module.items.push(item),
                         Err(error) => errors.push(error),
                     }
-                }
-                Statement::ClassDeclaration(class) => match self.class_declaration(class) {
-                    Ok(item) => module.items.push(item),
-                    Err(error) => errors.push(error),
-                },
-                Statement::TSInterfaceDeclaration(interface) => {
+                } else if let Declaration::ClassDeclaration(class) = decl {
+                    match self.class_declaration(class) {
+                        Ok(item) => module.items.push(item),
+                        Err(error) => errors.push(error),
+                    }
+                } else if let Declaration::TSInterfaceDeclaration(interface) = decl {
                     match self.interface_declaration(interface) {
                         Ok(item) => module.items.push(item),
                         Err(error) => errors.push(error),
                     }
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    let Some(decl) = &export.declaration else {
-                        continue;
-                    };
-                    match decl {
-                        Declaration::FunctionDeclaration(f) => match self.function_declaration(f) {
-                            Ok(item) => module.items.push(item),
-                            Err(e) => errors.push(e),
-                        },
-                        Declaration::ClassDeclaration(c) => match self.class_declaration(c) {
-                            Ok(item) => module.items.push(item),
-                            Err(e) => errors.push(e),
-                        },
-                        Declaration::TSInterfaceDeclaration(i) => {
-                            match self.interface_declaration(i) {
-                                Ok(item) => module.items.push(item),
-                                Err(e) => errors.push(e),
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
             }
         }
 
@@ -263,17 +269,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         for specifier in specifiers {
             let (imported, local) = match specifier {
-                ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
-                    let imported = module_export_name(&specifier.imported);
-                    let local = specifier.local.name.as_str().to_owned();
+                ImportDeclarationSpecifier::ImportSpecifier(specifier_data) => {
+                    let imported = module_export_name(&specifier_data.imported);
+                    let local = specifier_data.local.name.as_str().to_owned();
                     (imported, local)
                 }
-                ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => (
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier_data) => (
                     "default".to_owned(),
-                    specifier.local.name.as_str().to_owned(),
+                    specifier_data.local.name.as_str().to_owned(),
                 ),
-                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
-                    ("*".to_owned(), specifier.local.name.as_str().to_owned())
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => {
+                    ("*".to_owned(), specifier_data.local.name.as_str().to_owned())
                 }
             };
             let name = self.intern_source_name(&imported);
@@ -462,53 +468,50 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut methods = Vec::new();
 
         for element in &class.body.body {
-            match element {
-                ClassElement::PropertyDefinition(property) => {
-                    if property.computed && !is_static_property_key(&property.key) {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "dynamic computed property names are not lowered yet",
-                        ));
-                    }
-                    if property.r#static {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "static fields are not lowered yet",
-                        ));
-                    }
-                    if property.value.is_some() {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "field initializers are not lowered yet",
-                        ));
-                    }
-                    if property.optional {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "optional class fields are not lowered yet",
-                        ));
-                    }
-                    let name = self.property_key_symbol(&property.key)?;
-                    let ty = property
-                        .type_annotation
-                        .as_ref()
-                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                        .transpose()?
-                        .ok_or_else(|| {
-                            SmeltError::unsupported(
-                                self.span(property.span.start, property.span.end),
-                                "class fields require explicit type annotations",
-                            )
-                        })?;
-                    fields.push(Field {
-                        name,
-                        ty,
-                        visibility: visibility(property.accessibility),
-                        optional: false,
-                        span: self.span(property.span.start, property.span.end),
-                    });
+            if let ClassElement::PropertyDefinition(property) = element {
+                if property.computed && !is_static_property_key(&property.key) {
+                    return Err(SmeltError::unsupported(
+                        self.span(property.span.start, property.span.end),
+                        "dynamic computed property names are not lowered yet",
+                    ));
                 }
-                _ => {}
+                if property.r#static {
+                    return Err(SmeltError::unsupported(
+                        self.span(property.span.start, property.span.end),
+                        "static fields are not lowered yet",
+                    ));
+                }
+                if property.value.is_some() {
+                    return Err(SmeltError::unsupported(
+                        self.span(property.span.start, property.span.end),
+                        "field initializers are not lowered yet",
+                    ));
+                }
+                if property.optional {
+                    return Err(SmeltError::unsupported(
+                        self.span(property.span.start, property.span.end),
+                        "optional class fields are not lowered yet",
+                    ));
+                }
+                let name = self.property_key_symbol(&property.key)?;
+                let ty = property
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "class fields require explicit type annotations",
+                        )
+                    })?;
+                fields.push(Field {
+                    name,
+                    ty,
+                    visibility: visibility(property.accessibility),
+                    optional: false,
+                    span: self.span(property.span.start, property.span.end),
+                });
             }
         }
         self.class_fields
@@ -786,7 +789,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for heritage in &interface.extends {
             let parent_name = self.interface_heritage_symbol(heritage)?;
             let parent = self.find_interface(parent_name).ok_or_else(|| {
-                let name = self
+                let parent_name_text = self
                     .ctx
                     .krate
                     .symbols
@@ -794,7 +797,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .unwrap_or("<unknown>");
                 SmeltError::unsupported(
                     self.span(heritage.span.start, heritage.span.end),
-                    format!("extended interface `{name}` is not declared"),
+                    format!("extended interface `{parent_name_text}` is not declared"),
                 )
             })?;
             fields.extend(parent.fields.clone());
@@ -821,14 +824,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                                 "interface fields require explicit type annotations",
                             )
                         })?;
-                    let ty = if prop.optional {
+                    let field_ty = if prop.optional {
                         self.ctx.krate.types.intern(Type::Optional(ty))
                     } else {
                         ty
                     };
                     fields.push(Field {
                         name: self.property_key_symbol(&prop.key)?,
-                        ty,
+                        ty: field_ty,
                         visibility: Visibility::Public,
                         optional: prop.optional,
                         span: self.span(prop.span.start, prop.span.end),
@@ -893,7 +896,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         span: self.span(method.span.start, method.span.end),
                     });
                 }
-                _ => {
+                TSSignature::TSCallSignatureDeclaration(_)
+                | TSSignature::TSConstructSignatureDeclaration(_)
+                | TSSignature::TSIndexSignature(_) => {
                     return Err(SmeltError::unsupported(
                         self.span(sig.span().start, sig.span().end),
                         "interface call, construct, and index signatures are not lowered yet",
@@ -1003,18 +1008,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 for case in &switch_stmt.cases {
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     let mut saw_break = false;
-                    for statement in &case.consequent {
-                        if matches!(statement, Statement::ContinueStatement(_)) {
+                    for case_statement in &case.consequent {
+                        if matches!(case_statement, Statement::ContinueStatement(_)) {
                             return Err(SmeltError::unsupported(
-                                self.statement_span(statement),
+                                self.statement_span(case_statement),
                                 "switch continue lowering is not implemented yet",
                             ));
                         }
-                        if matches!(statement, Statement::BreakStatement(_)) {
+                        if matches!(case_statement, Statement::BreakStatement(_)) {
                             saw_break = true;
                             break;
                         }
-                        self.statement_in_block(statement, body, case_block)?;
+                        self.statement_in_block(case_statement, body, case_block)?;
                     }
                     if !saw_break && !case.consequent.iter().any(statement_terminates) {
                         return Err(SmeltError::unsupported(
@@ -1124,13 +1129,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<smelt_hir::BlockId, SmeltError> {
         let span = self.statement_span(statement);
         let block = body.push_block(span);
-        match statement {
-            Statement::BlockStatement(block_stmt) => {
-                for statement in &block_stmt.body {
-                    self.statement_in_block(statement, body, block)?;
-                }
+        if let Statement::BlockStatement(block_stmt) = statement {
+            for nested_statement in &block_stmt.body {
+                self.statement_in_block(nested_statement, body, block)?;
             }
-            _ => self.statement_in_block(statement, body, block)?,
+        } else {
+            self.statement_in_block(statement, body, block)?;
         }
         Ok(block)
     }
@@ -1198,12 +1202,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
-            let value = match &declarator.init {
-                Some(init) => Some(self.expression_with_hint(init, body, annotated_ty)?),
-                None => None,
-            };
+            let value = declarator
+                .init
+                .as_ref()
+                .map(|init| self.expression_with_hint(init, body, annotated_ty))
+                .transpose()?;
             let ty = annotated_ty
-                .or_else(|| value.map(|expr_id| body.exprs[expr_id.0 as usize].ty))
+                .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
                 .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
             let name = binding.name.as_str();
             let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
@@ -1260,7 +1265,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(update) = &for_stmt.update {
             let (target, value) = match update {
                 Expression::AssignmentExpression(assign) => self.assignment_parts(assign, body)?,
-                Expression::UpdateExpression(update) => self.update_parts(update, body)?,
+                Expression::UpdateExpression(update_expr) => self.update_parts(update_expr, body)?,
                 _ => {
                     return Err(SmeltError::unsupported(
                         self.expression_span(update),
@@ -1298,7 +1303,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "for...of currently supports exactly one loop binding",
             ));
         }
-        let declarator = &decl.declarations[0];
+        let Some(declarator) = decl.declarations.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(decl.span.start, decl.span.end),
+                "for...of currently supports exactly one loop binding",
+            ));
+        };
         let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
             return Err(SmeltError::unsupported(
                 self.span(declarator.span.start, declarator.span.end),
@@ -1423,7 +1433,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let ty = if let Some(hint) = type_hint {
                     hint
                 } else if let Some(first) = items.first() {
-                    let item_ty = body.exprs[first.0 as usize].ty;
+                    let item_ty = Self::expr_ty(body, *first);
                     self.ctx.krate.types.intern(Type::List(item_ty))
                 } else {
                     return Err(SmeltError::unsupported(
@@ -1456,24 +1466,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let mut entries = Vec::new();
                 for property in &object.properties {
-                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                    let ObjectPropertyKind::ObjectProperty(object_property) = property else {
                         return Err(SmeltError::unsupported(
                             self.span(property.span().start, property.span().end),
                             "object spread properties are not lowered yet",
                         ));
                     };
-                    if property.computed || property.method {
+                    if object_property.computed || object_property.method {
                         return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
+                            self.span(object_property.span.start, object_property.span.end),
                             "computed object keys and object methods are not lowered yet",
                         ));
                     }
-                    let key_text = match &property.key {
+                    let key_text = match &object_property.key {
                         PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
                         PropertyKey::StringLiteral(lit) => lit.value.to_string(),
                         _ => {
                             return Err(SmeltError::unsupported(
-                                self.span(property.key.span().start, property.key.span().end),
+                                self.span(
+                                    object_property.key.span().start,
+                                    object_property.key.span().end,
+                                ),
                                 "object literal keys must be static string keys",
                             ));
                         }
@@ -1482,9 +1495,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let key = body.push_expr(Expr {
                         kind: ExprKind::Literal(Literal::String(key_text)),
                         ty: key_ty,
-                        span: self.span(property.key.span().start, property.key.span().end),
+                        span: self.span(
+                            object_property.key.span().start,
+                            object_property.key.span().end,
+                        ),
                     });
-                    let value = self.expression(&property.value, body)?;
+                    let value = self.expression(&object_property.value, body)?;
                     entries.push((key, value));
                 }
                 Ok(body.push_expr(Expr {
@@ -1511,7 +1527,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     BinaryOperator::LessEqualThan => BinOp::Lte,
                     BinaryOperator::GreaterThan => BinOp::Gt,
                     BinaryOperator::GreaterEqualThan => BinOp::Gte,
-                    _ => {
+                    BinaryOperator::Remainder
+                    | BinaryOperator::Exponential
+                    | BinaryOperator::ShiftLeft
+                    | BinaryOperator::ShiftRight
+                    | BinaryOperator::ShiftRightZeroFill
+                    | BinaryOperator::BitwiseOR
+                    | BinaryOperator::BitwiseXOR
+                    | BinaryOperator::BitwiseAnd
+                    | BinaryOperator::In
+                    | BinaryOperator::Instanceof => {
                         return Err(SmeltError::unsupported(
                             self.span(binary.span.start, binary.span.end),
                             format!("binary operator is not lowered yet: {:?}", binary.operator),
@@ -1520,11 +1545,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 };
                 let lhs = self.expression(&binary.left, body)?;
                 let rhs = self.expression(&binary.right, body)?;
-                let ty = match op {
-                    BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                        self.ctx.krate.types.intern(Type::Bool)
-                    }
-                    _ => body.exprs[lhs.0 as usize].ty,
+                let ty = if matches!(
+                    op,
+                    BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
+                ) {
+                    self.ctx.krate.types.intern(Type::Bool)
+                } else {
+                    Self::expr_ty(body, lhs)
                 };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::BinOp { op, lhs, rhs },
@@ -1564,9 +1591,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                 };
                 let operand = self.expression(&unary.argument, body)?;
-                let ty = match op {
-                    UnaryOp::Not => self.ctx.krate.types.intern(Type::Bool),
-                    UnaryOp::Neg => body.exprs[operand.0 as usize].ty,
+                let ty = if matches!(op, UnaryOp::Not) {
+                    self.ctx.krate.types.intern(Type::Bool)
+                } else {
+                    Self::expr_ty(body, operand)
                 };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::UnaryOp { op, operand },
@@ -1583,7 +1611,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let awaited = self.expression(&await_expr.argument, body)?;
                 let ty = self
-                    .future_inner_type(body.exprs[awaited.0 as usize].ty)
+                    .future_inner_type(Self::expr_ty(body, awaited))
                     .ok_or_else(|| {
                         SmeltError::unsupported(
                             self.span(await_expr.span.start, await_expr.span.end),
@@ -1606,7 +1634,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let receiver = self.expression(&member.object, body)?;
                 let field = self.intern_source_name(member.property.name.as_str());
                 if member.property.name == "length"
-                    && self.supports_stdlib_length(body.exprs[receiver.0 as usize].ty)
+                    && self.supports_stdlib_length(Self::expr_ty(body, receiver))
                 {
                     let ty = self.ctx.krate.types.intern(Type::Float);
                     return Ok(body.push_expr(Expr {
@@ -1615,7 +1643,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         span: self.span(member.span.start, member.span.end),
                     }));
                 }
-                let ty = self.class_field_type(body.exprs[receiver.0 as usize].ty, field)?;
+                let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Field { receiver, field },
                     ty,
@@ -1631,7 +1659,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let receiver = self.expression(&member.object, body)?;
                 let index = self.expression(&member.expression, body)?;
-                let ty = self.index_type(body.exprs[receiver.0 as usize].ty)?;
+                let ty = self.index_type(Self::expr_ty(body, receiver))?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Index { receiver, index },
                     ty,
@@ -1649,6 +1677,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.string_contains_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.string_split_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Expression::StaticMemberExpression(member) = &call.callee
@@ -1678,7 +1709,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let receiver = self.expression(&member.object, body)?;
                     let method = self.intern_source_name(member.property.name.as_str());
                     let (return_ty, _) =
-                        self.resolve_method(body.exprs[receiver.0 as usize].ty, method)?;
+                        self.resolve_method(Self::expr_ty(body, receiver), method)?;
                     let mut args = Vec::new();
                     for arg in &call.arguments {
                         args.push(self.argument(arg, body)?);
@@ -1700,19 +1731,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             format!("unresolved function `{}`", callee_ident.name),
                         ));
                     };
-                    let (params, return_ty, is_async) = match &self.ctx.krate.items[item.0 as usize]
+                    let (params, return_ty, is_async) = if let Item::Function(function) =
+                        self.item_ref(item)
                     {
-                        Item::Function(function) => (
+                        (
                             function.params.iter().map(|param| param.ty).collect(),
                             function.return_ty,
                             function.is_async,
-                        ),
-                        _ => {
-                            return Err(SmeltError::unsupported(
-                                self.span(callee_ident.span.start, callee_ident.span.end),
-                                "callee item is not a function",
-                            ));
-                        }
+                        )
+                    } else {
+                        return Err(SmeltError::unsupported(
+                            self.span(callee_ident.span.start, callee_ident.span.end),
+                            "callee item is not a function",
+                        ));
                     };
                     let mut args = Vec::new();
                     for arg in &call.arguments {
@@ -1754,8 +1785,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         format!("unresolved class `{}`", callee.name),
                     ));
                 };
-                let Item::Class(class) = &self.ctx.krate.items[item.0 as usize] else {
-                    unreachable!();
+                let Item::Class(class) = self.item_ref(item) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "new expressions require a class item",
+                    ));
                 };
                 let class_name = class.name;
                 let args = new_expr
@@ -1780,12 +1814,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let str_ty = self.ctx.krate.types.intern(Type::String);
                 let span = self.span(tpl.span.start, tpl.span.end);
 
-                // Build the first segment from quasi[0]
-                let first_str = tpl.quasis[0]
+                // Build the first segment from the first quasi.
+                let Some(first_quasi) = tpl.quasis.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(tpl.span.start, tpl.span.end),
+                        "template literals must contain at least one quasi",
+                    ));
+                };
+                let first_str = first_quasi
                     .value
                     .cooked
                     .as_ref()
-                    .map_or_else(|| tpl.quasis[0].value.raw.as_str(), |c| c.as_str())
+                    .map_or_else(|| first_quasi.value.raw.as_str(), |c| c.as_str())
                     .to_owned();
                 let mut acc = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::String(first_str)),
@@ -1806,7 +1846,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         span,
                     });
                     // Concatenate the next quasi string (skip empty ones to keep HIR tidy)
-                    if let Some(quasi) = tpl.quasis.get(i + 1) {
+                        if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
                         let s = quasi
                             .value
                             .cooked
@@ -1935,9 +1975,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "Promise combinators require exactly one array argument",
             ));
         }
-        let Argument::ArrayExpression(array) = &call.arguments[0] else {
+        let Some(first_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
-                self.span(call.arguments[0].span().start, call.arguments[0].span().end),
+                self.span(call.span.start, call.span.end),
+                "Promise combinators require exactly one array argument",
+            ));
+        };
+        let Argument::ArrayExpression(array) = first_argument else {
+            return Err(SmeltError::unsupported(
+                self.span(first_argument.span().start, first_argument.span().end),
                 "Promise combinators require an array literal argument",
             ));
         };
@@ -1947,7 +1993,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let outputs = args
                     .iter()
                     .map(|arg| {
-                        self.future_inner_type(body.exprs[arg.0 as usize].ty)
+                        self.future_inner_type(Self::expr_ty(body, *arg))
                             .ok_or_else(|| {
                                 SmeltError::unsupported(
                                     self.span(array.span.start, array.span.end),
@@ -1965,7 +2011,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "Promise.race requires at least one promise",
                     ));
                 };
-                self.future_inner_type(body.exprs[first.0 as usize].ty)
+                self.future_inner_type(Self::expr_ty(body, *first))
                     .ok_or_else(|| {
                         SmeltError::unsupported(
                             self.span(array.span.start, array.span.end),
@@ -1973,7 +2019,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         )
                     })?
             }
-            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor => unreachable!(),
+            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("Promise.{op:?} is not lowered yet"),
+                ));
+            }
         };
         let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
         Ok(Some(body.push_expr(Expr {
@@ -2001,7 +2052,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "setTimeout lowering supports the Smelt timer shim shape setTimeout(milliseconds)",
             ));
         }
-        let duration = self.argument(&call.arguments[0], body)?;
+        let Some(duration_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "setTimeout lowering supports the Smelt timer shim shape setTimeout(milliseconds)",
+            ));
+        };
+        let duration = self.argument(duration_argument, body)?;
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
         Ok(Some(body.push_expr(Expr {
@@ -2030,7 +2087,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         if call.arguments.is_empty() {
             let operand = self.expression(&member.object, body)?;
-            let operand_ty = body.exprs[operand.0 as usize].ty;
+            let operand_ty = Self::expr_ty(body, operand);
             if self.ctx.krate.types.get(operand_ty) == Some(&Type::String) {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 return Ok(Some(body.push_expr(Expr {
@@ -2065,9 +2122,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         }
         let haystack = self.expression(&member.object, body)?;
-        let needle = self.argument(&call.arguments[0], body)?;
-        let haystack_ty = body.exprs[haystack.0 as usize].ty;
-        let needle_ty = body.exprs[needle.0 as usize].ty;
+        let Some(needle_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string includes requires exactly one argument",
+            ));
+        };
+        let needle = self.argument(needle_argument, body)?;
+        let haystack_ty = Self::expr_ty(body, haystack);
+        let needle_ty = Self::expr_ty(body, needle);
         if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
             || self.ctx.krate.types.get(needle_ty) != Some(&Type::String)
         {
@@ -2079,6 +2142,54 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::StringContains { haystack, needle },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript string splitting.
+    fn string_split_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "split" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string split requires exactly one separator argument",
+            ));
+        }
+        let haystack = self.expression(&member.object, body)?;
+        let Some(separator_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string split requires exactly one separator argument",
+            ));
+        };
+        let separator = self.argument(separator_argument, body)?;
+        let haystack_ty = Self::expr_ty(body, haystack);
+        let separator_ty = Self::expr_ty(body, separator);
+        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
+            || self.ctx.krate.types.get(separator_ty) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string split requires string receiver and separator",
+            ));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let ty = self.ctx.krate.types.intern(Type::List(string_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringSplit {
+                haystack,
+                separator,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -2199,7 +2310,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
                 self.ctx.krate.types.intern(Type::Bool)
             }
-            _ => body.exprs[lhs.0 as usize].ty,
+            _ => Self::expr_ty(body, lhs),
         };
         Ok(body.push_expr(Expr {
             kind: ExprKind::BinOp { op, lhs, rhs },
@@ -2253,7 +2364,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let operand = self.expression(&unary.argument, body)?;
         let ty = match op {
             UnaryOp::Not => self.ctx.krate.types.intern(Type::Bool),
-            UnaryOp::Neg => body.exprs[operand.0 as usize].ty,
+            UnaryOp::Neg => Self::expr_ty(body, operand),
         };
         Ok(body.push_expr(Expr {
             kind: ExprKind::UnaryOp { op, operand },
@@ -2282,12 +2393,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             items.push(self.array_element(element, body)?);
         }
-        let ty = if let Some(hint) = type_hint {
-            hint
-        } else if let Some(first) = items.first() {
-            let item_ty = body.exprs[first.0 as usize].ty;
-            self.ctx.krate.types.intern(Type::List(item_ty))
-        } else {
+                let ty = if let Some(hint) = type_hint {
+                    hint
+                } else if let Some(first) = items.first() {
+                    let item_ty = Self::expr_ty(body, *first);
+                    self.ctx.krate.types.intern(Type::List(item_ty))
+                } else {
             return Err(SmeltError::unsupported(
                 self.span(array.span.start, array.span.end),
                 "empty arrays require an explicit type annotation",
@@ -2325,24 +2436,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let mut entries = Vec::new();
         for property in &object.properties {
-            let ObjectPropertyKind::ObjectProperty(property) = property else {
+            let ObjectPropertyKind::ObjectProperty(object_property) = property else {
                 return Err(SmeltError::unsupported(
                     self.span(property.span().start, property.span().end),
                     "object spread properties are not lowered yet",
                 ));
             };
-            if property.computed || property.method {
+            if object_property.computed || object_property.method {
                 return Err(SmeltError::unsupported(
-                    self.span(property.span.start, property.span.end),
+                    self.span(object_property.span.start, object_property.span.end),
                     "computed object keys and object methods are not lowered yet",
                 ));
             }
-            let key_text = match &property.key {
+            let key_text = match &object_property.key {
                 PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
                 PropertyKey::StringLiteral(lit) => lit.value.to_string(),
                 _ => {
                     return Err(SmeltError::unsupported(
-                        self.span(property.key.span().start, property.key.span().end),
+                        self.span(
+                            object_property.key.span().start,
+                            object_property.key.span().end,
+                        ),
                         "object literal keys must be static string keys",
                     ));
                 }
@@ -2351,9 +2465,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let key = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(key_text)),
                 ty: key_ty,
-                span: self.span(property.key.span().start, property.key.span().end),
+                span: self.span(
+                    object_property.key.span().start,
+                    object_property.key.span().end,
+                ),
             });
-            let value = self.expression(&property.value, body)?;
+            let value = self.expression(&object_property.value, body)?;
             entries.push((key, value));
         }
         Ok(body.push_expr(Expr {
@@ -2378,7 +2495,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let receiver = self.expression(&member.object, body)?;
         let field = self.intern_source_name(member.property.name.as_str());
         if member.property.name == "length"
-            && self.supports_stdlib_length(body.exprs[receiver.0 as usize].ty)
+            && self.supports_stdlib_length(Self::expr_ty(body, receiver))
         {
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(body.push_expr(Expr {
@@ -2387,7 +2504,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        let ty = self.class_field_type(body.exprs[receiver.0 as usize].ty, field)?;
+        let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
             ty,
@@ -2409,7 +2526,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
-        let ty = self.index_type(body.exprs[receiver.0 as usize].ty)?;
+        let ty = self.index_type(Self::expr_ty(body, receiver))?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty,
@@ -2454,18 +2571,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     format!("unresolved function `{}`", callee_ident.name),
                 ));
             };
-            let (params, return_ty, is_async) = match &self.ctx.krate.items[item.0 as usize] {
-                Item::Function(function) => (
+            let (params, return_ty, is_async) = if let Item::Function(function) =
+                self.item_ref(item)
+            {
+                (
                     function.params.iter().map(|param| param.ty).collect(),
                     function.return_ty,
                     function.is_async,
-                ),
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.span(callee_ident.span.start, callee_ident.span.end),
-                        "callee item is not a function",
-                    ));
-                }
+                )
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(callee_ident.span.start, callee_ident.span.end),
+                    "callee item is not a function",
+                ));
             };
             let args = call
                 .arguments
@@ -2494,7 +2612,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Expression::StaticMemberExpression(member) = &call.callee {
             let receiver = self.expression(&member.object, body)?;
             let method = self.intern_source_name(member.property.name.as_str());
-            let (return_ty, _) = self.resolve_method(body.exprs[receiver.0 as usize].ty, method)?;
+            let (return_ty, _) = self.resolve_method(Self::expr_ty(body, receiver), method)?;
             let args = call
                 .arguments
                 .iter()
@@ -2535,9 +2653,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     AssignmentOperator::Subtraction => BinOp::Sub,
                     AssignmentOperator::Multiplication => BinOp::Mul,
                     AssignmentOperator::Division => BinOp::Div,
-                    _ => unreachable!(),
+                    other => {
+                        return Err(SmeltError::unsupported(
+                            self.span(assign.span.start, assign.span.end),
+                            format!("assignment operator is not lowered yet: {other:?}"),
+                        ));
+                    }
                 };
-                let ty = body.exprs[target.0 as usize].ty;
+                let ty = Self::expr_ty(body, target);
                 body.push_expr(Expr {
                     kind: ExprKind::BinOp {
                         op,
@@ -2548,13 +2671,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span: self.span(assign.span.start, assign.span.end),
                 })
             }
-            _ => {
+            other => {
                 return Err(SmeltError::unsupported(
                     self.span(assign.span.start, assign.span.end),
-                    format!(
-                        "assignment operator is not lowered yet: {:?}",
-                        assign.operator
-                    ),
+                    format!("assignment operator is not lowered yet: {other:?}"),
                 ));
             }
         };
@@ -2568,7 +2688,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         body: &mut Body,
     ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
         let target = self.simple_assignment_target_expr(&update.argument, body)?;
-        let one_ty = body.exprs[target.0 as usize].ty;
+        let one_ty = Self::expr_ty(body, target);
         let one = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Float(1.0)),
             ty: one_ty,
@@ -2672,17 +2792,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     }
                 }
                 if lowered.len() == 1 && !nullish.is_empty() {
-                    Ok(self.ctx.krate.types.intern(Type::Optional(lowered[0])))
+                    let single = lowered.remove(0);
+                    Ok(self.ctx.krate.types.intern(Type::Optional(single)))
                 } else if lowered.len() == 1 {
-                    Ok(lowered[0])
+                    let single = lowered.remove(0);
+                    Ok(single)
                 } else {
                     lowered.extend(nullish);
                     Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
                 }
             }
             TSType::TSArrayType(array) => {
-                let item = self.ts_type_to_hir(&array.element_type)?;
-                Ok(self.ctx.krate.types.intern(Type::List(item)))
+                let element_ty = self.ts_type_to_hir(&array.element_type)?;
+                Ok(self.ctx.krate.types.intern(Type::List(element_ty)))
             }
             TSType::TSTupleType(tuple) => {
                 let mut items = Vec::new();
@@ -2705,8 +2827,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "this class type is not resolvable yet",
                     ));
                 };
-                let Item::Class(class) = &self.ctx.krate.items[class_item.0 as usize] else {
-                    unreachable!();
+                let Item::Class(class) = self.item_ref(class_item) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(this_ty.span.start, this_ty.span.end),
+                        "this class type is not resolvable yet",
+                    ));
                 };
                 Ok(self.ctx.krate.types.intern(Type::Class {
                     name: class.name,
@@ -2733,13 +2858,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             | TSTupleElement::TSUndefinedKeyword(_)
             | TSTupleElement::TSVoidKeyword(_) => Ok(self.ctx.krate.types.intern(Type::None)),
             TSTupleElement::TSArrayType(array) => {
-                let item = self.ts_type_to_hir(&array.element_type)?;
-                Ok(self.ctx.krate.types.intern(Type::List(item)))
+                let element_ty = self.ts_type_to_hir(&array.element_type)?;
+                Ok(self.ctx.krate.types.intern(Type::List(element_ty)))
             }
             TSTupleElement::TSTupleType(tuple) => {
                 let mut items = Vec::new();
-                for item in &tuple.element_types {
-                    items.push(self.tuple_element_type_to_hir(item)?);
+                for tuple_item in &tuple.element_types {
+                    items.push(self.tuple_element_type_to_hir(tuple_item)?);
                 }
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
             }
@@ -2779,27 +2904,31 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .as_ref()
             .map(|args| args.params.iter().collect::<Vec<_>>())
             .unwrap_or_default();
-        match name_text {
-            "Array" if args.len() == 1 => {
-                let item = self.ts_type_to_hir(args[0])?;
-                Ok(self.ctx.krate.types.intern(Type::List(item)))
+        match (name_text, args.as_slice()) {
+            ("Array", [item]) => {
+                let lowered_item = self.ts_type_to_hir(item)?;
+                Ok(self.ctx.krate.types.intern(Type::List(lowered_item)))
             }
-            "Record" if args.len() == 2 => {
-                let key = self.ts_type_to_hir(args[0])?;
-                if self.ctx.krate.types.get(key) != Some(&Type::String) {
+            ("Record", [key, value]) => {
+                let lowered_key = self.ts_type_to_hir(key)?;
+                if self.ctx.krate.types.get(lowered_key) != Some(&Type::String) {
                     return Err(SmeltError::unsupported(
                         self.span(reference.span.start, reference.span.end),
                         "only Record<string, T> is lowered for now",
                     ));
                 }
-                let value = self.ts_type_to_hir(args[1])?;
-                Ok(self.ctx.krate.types.intern(Type::Dict(key, value)))
+                let lowered_value = self.ts_type_to_hir(value)?;
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Dict(lowered_key, lowered_value)))
             }
-            "Promise" if args.len() == 1 => {
-                let item = self.ts_type_to_hir(args[0])?;
-                Ok(self.ctx.krate.types.intern(Type::Future(item)))
+            ("Promise", [item]) => {
+                let lowered_item = self.ts_type_to_hir(item)?;
+                Ok(self.ctx.krate.types.intern(Type::Future(lowered_item)))
             }
-            _ if args.is_empty() => {
+            (_, []) => {
                 let symbol = self.intern_type_name(name_text);
                 Ok(self.ctx.krate.types.intern(Type::Class {
                     name: symbol,
@@ -2860,9 +2989,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Look up a class by its symbol.
     fn class_by_symbol(&self, name: smelt_hir::Symbol) -> Option<&Class> {
-        self.ctx.krate.items.iter().find_map(|item| match item {
-            Item::Class(class) if class.name == name => Some(class),
-            _ => None,
+        self.ctx.krate.items.iter().find_map(|item| {
+            if let Item::Class(class) = item {
+                if class.name == name {
+                    return Some(class);
+                }
+            }
+            None
         })
     }
 
@@ -2885,7 +3018,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         };
         for item in &class.methods {
-            if let Item::Function(function) = &self.ctx.krate.items[item.0 as usize]
+            if let Item::Function(function) = self.item_ref(*item)
                 && function.name == method
             {
                 return Ok((function.return_ty, *item));
@@ -2958,7 +3091,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 format!("unresolved identifier `{name}`"),
             ));
         };
-        let ty = body.locals[local.0 as usize].ty;
+        let ty = Self::local_ty(body, local);
         Ok(body.push_expr(Expr {
             kind: ExprKind::Local(local),
             ty,
@@ -3018,6 +3151,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Resolve a class `implements` clause entry to an interface symbol.
     fn implements_symbol(
         &mut self,
         item: &oxc::ast::ast::TSClassImplements<'_>,
@@ -3059,14 +3193,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Find a previously lowered interface by symbol.
     fn find_interface(&self, name: smelt_hir::Symbol) -> Option<&Interface> {
-        self.ctx.krate.items.iter().find_map(|item| match item {
-            Item::Interface(interface) if interface.name == name => Some(interface),
-            _ => None,
+        self.ctx.krate.items.iter().find_map(|item| {
+            if let Item::Interface(interface) = item {
+                if interface.name == name {
+                    return Some(interface);
+                }
+            }
+            None
         })
     }
 
+    /// Validate that a lowered class satisfies all declared interfaces.
     fn validate_implements(&self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
-        let Item::Class(class) = &self.ctx.krate.items[class_item.0 as usize] else {
+        let Item::Class(class) = self.item_ref(class_item) else {
             return Ok(());
         };
         for interface_name in &class.implements {
@@ -3075,11 +3214,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .krate
                 .items
                 .iter()
-                .find_map(|item| match item {
-                    Item::Interface(interface) if interface.name == *interface_name => {
-                        Some(interface)
+                .find_map(|item| {
+                    if let Item::Interface(interface) = item
+                        && interface.name == *interface_name
+                    {
+                        return Some(interface);
                     }
-                    _ => None,
+                    None
                 })
                 .ok_or_else(|| {
                     let name = self
@@ -3127,14 +3268,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
             }
             for required in &interface.methods {
-                let Some(actual_item) = class.methods.iter().find(|item| {
-                    matches!(&self.ctx.krate.items[item.0 as usize], Item::Function(function) if function.name == required.name)
+                let Some(actual_item) = class.methods.iter().find(|method_item| {
+                    matches!(self.item_ref(**method_item), Item::Function(function) if function.name == required.name)
                 }) else {
                     let name = self.ctx.krate.symbols.get(required.name).unwrap_or("<unknown>");
                     return Err(SmeltError::unsupported(required.span, format!("class is missing implemented interface method `{name}`")));
                 };
-                let Item::Function(actual) = &self.ctx.krate.items[actual_item.0 as usize] else {
-                    unreachable!();
+                let Item::Function(actual) = self.item_ref(*actual_item) else {
+                    return Err(SmeltError::unsupported(
+                        required.span,
+                        "implemented interface method has an unexpected item kind",
+                    ));
                 };
                 let actual_params = actual
                     .params
@@ -3163,6 +3307,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         Ok(())
     }
+
+    /// Look up the type of an existing expression.
+    fn expr_ty(body: &Body, expr: smelt_hir::ExprId) -> smelt_hir::TypeId {
+        let index = usize::try_from(expr.0).expect("expr id should fit into usize");
+        body.exprs
+            .get(index)
+            .expect("expr id should point to an existing expression")
+            .ty
+    }
+
+    /// Look up the type of an existing local.
+    fn local_ty(body: &Body, local: smelt_hir::LocalId) -> smelt_hir::TypeId {
+        let index = usize::try_from(local.0).expect("local id should fit into usize");
+        body.locals
+            .get(index)
+            .expect("local id should point to an existing local")
+            .ty
+    }
+
+    /// Look up a lowered item by id.
+    fn item_ref(&self, item: smelt_hir::ItemId) -> &Item {
+        let index = usize::try_from(item.0).expect("item id should fit into usize");
+        self.ctx
+            .krate
+            .items
+            .get(index)
+            .expect("item id should point to an existing item")
+    }
 }
 
 /// Return an item's original source name when available.
@@ -3172,7 +3344,7 @@ fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
         Item::Class(class) => class.name,
         Item::Interface(interface) => interface.name,
         Item::TypeAlias(alias) => alias.name,
-        Item::Const(item) => item.name,
+        Item::Const(const_item) => const_item.name,
     };
     krate
         .names
@@ -3216,6 +3388,34 @@ fn statement_terminates(statement: &Statement<'_>) -> bool {
         Statement::IfStatement(if_stmt) => if_stmt.alternate.as_ref().is_some_and(|alternate| {
             statement_terminates(&if_stmt.consequent) && statement_terminates(alternate)
         }),
-        _ => false,
+        Statement::BreakStatement(_)
+        | Statement::ContinueStatement(_)
+        | Statement::DebuggerStatement(_)
+        | Statement::DoWhileStatement(_)
+        | Statement::EmptyStatement(_)
+        | Statement::ExpressionStatement(_)
+        | Statement::ForInStatement(_)
+        | Statement::ForOfStatement(_)
+        | Statement::ForStatement(_)
+        | Statement::LabeledStatement(_)
+        | Statement::SwitchStatement(_)
+        | Statement::TryStatement(_)
+        | Statement::WhileStatement(_)
+        | Statement::WithStatement(_)
+        | Statement::VariableDeclaration(_)
+        | Statement::FunctionDeclaration(_)
+        | Statement::ClassDeclaration(_)
+        | Statement::TSTypeAliasDeclaration(_)
+        | Statement::TSInterfaceDeclaration(_)
+        | Statement::TSEnumDeclaration(_)
+        | Statement::TSModuleDeclaration(_)
+        | Statement::TSGlobalDeclaration(_)
+        | Statement::TSImportEqualsDeclaration(_)
+        | Statement::ImportDeclaration(_)
+        | Statement::ExportAllDeclaration(_)
+        | Statement::ExportDefaultDeclaration(_)
+        | Statement::ExportNamedDeclaration(_)
+        | Statement::TSExportAssignment(_)
+        | Statement::TSNamespaceExportDeclaration(_) => false,
     }
 }

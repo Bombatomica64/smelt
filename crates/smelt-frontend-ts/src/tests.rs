@@ -1,58 +1,177 @@
 //! Tests for TypeScript frontend lowering.
 
 use super::*;
-use smelt_hir::{ExprKind, FileId, Item, Stmt, StringCaseOp, Type};
+use smelt_hir::{ExprKind, FileId, Function, Item, ModuleId, Stmt, StringCaseOp, Type};
 
-#[test]
-fn converts_top_level_let_and_console_log() {
-    let mut ctx = HirCtx::new();
-    let module_id = to_hir(
-        "let x = 6;
-console.log(x);
-",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect("valid HIR");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+/// Fail the current test with a formatted message when `cond` is false.
+macro_rules! ensure {
+    ($cond:expr $(,)?) => {{
+        if !$cond {
+            return Err(format!("assertion failed: {}", stringify!($cond)));
+        }
+    }};
+    ($cond:expr, $($arg:tt)+) => {{
+        if !$cond {
+            return Err(format!($($arg)+));
+        }
+    }};
+}
 
-    assert_eq!(body.locals.len(), 1);
-    assert_eq!(body.stmts.len(), 2);
-    assert_eq!(body.exprs.len(), 4);
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+/// Fail the current test with a formatted message when the values differ.
+macro_rules! ensure_eq {
+    ($left:expr, $right:expr $(,)?) => {{
+        let left = &$left;
+        let right = &$right;
+        if left != right {
+            return Err(format!(
+                "assertion failed: left != right\n  left: {left:?}\n right: {right:?}"
+            ));
+        }
+    }};
+}
+
+/// Lower TypeScript source and fail the test with a readable message on error.
+fn lower_ok(source: &str, ctx: &mut HirCtx) -> Result<ModuleId, String> {
+    to_hir(source, FileId(0), ctx)
+        .map_err(|errors| format!("unexpected lowering failure: {errors:?}"))
+}
+
+/// Lower TypeScript source and return the diagnostics when lowering fails.
+fn lowering_errors(source: &str, ctx: &mut HirCtx) -> Result<Vec<SmeltError>, String> {
+    match to_hir(source, FileId(0), ctx) {
+        Ok(module_id) => Err(format!(
+            "expected lowering failure, got module {module_id:?}"
+        )),
+        Err(errors) => Ok(errors),
+    }
+}
+
+/// Get the lowered module for a module ID.
+fn module(ctx: &HirCtx, module_id: ModuleId) -> Result<&smelt_hir::Module, String> {
+    let module_index = usize::try_from(module_id.0)
+        .map_err(|err| format!("module id {module_id:?} does not fit in usize: {err}"))?;
+    ctx.krate
+        .modules
+        .get(module_index)
+        .ok_or_else(|| format!("missing module {module_id:?} in lowered crate"))
+}
+
+/// Get the module body for a lowered module.
+fn module_body<'a>(
+    ctx: &'a HirCtx,
+    module: &'a smelt_hir::Module,
+) -> Result<&'a smelt_hir::Body, String> {
+    let body_id = module
+        .body
+        .ok_or_else(|| format!("module {} has no body", module.name))?;
+    let body_index = usize::try_from(body_id.0)
+        .map_err(|err| format!("body id {body_id:?} does not fit in usize: {err}"))?;
+    ctx.krate
+        .bodies
+        .get(body_index)
+        .ok_or_else(|| format!("missing body {body_id:?} in lowered crate"))
+}
+
+/// Get a function item at the provided module item index.
+fn function_item<'a>(
+    ctx: &'a HirCtx,
+    module: &'a smelt_hir::Module,
+    index: usize,
+) -> Result<&'a Function, String> {
+    let item_id = *module
+        .items
+        .get(index)
+        .ok_or_else(|| format!("missing module item at index {index}"))?;
+    let item_index = usize::try_from(item_id.0)
+        .map_err(|err| format!("item id {item_id:?} does not fit in usize: {err}"))?;
+    let item = ctx
+        .krate
+        .items
+        .get(item_index)
+        .ok_or_else(|| format!("missing item {item_id:?} in lowered crate"))?;
+    let Item::Function(function) = item else {
+        return Err(format!(
+            "expected function item at index {index}, got {item:?}"
+        ));
+    };
+    Ok(function)
+}
+
+/// Get the body owned by a function.
+fn function_body<'a>(
+    ctx: &'a HirCtx,
+    function: &'a Function,
+) -> Result<&'a smelt_hir::Body, String> {
+    let body_id = function
+        .body
+        .ok_or_else(|| format!("function {:?} has no body", function.name))?;
+    let body_index = usize::try_from(body_id.0)
+        .map_err(|err| format!("body id {body_id:?} does not fit in usize: {err}"))?;
+    ctx.krate
+        .bodies
+        .get(body_index)
+        .ok_or_else(|| format!("missing body {body_id:?} in lowered crate"))
+}
+
+/// Assert that the first lowering error is an unsupported TS diagnostic containing `needle`.
+fn assert_unsupported_ts(errors: &[SmeltError], needle: &str) -> Result<(), String> {
+    let error = errors
+        .first()
+        .ok_or_else(|| "expected at least one lowering error".to_owned())?;
+    ensure_eq!(error.code, "smelt::unsupported-ts");
+    ensure!(error.span.end >= error.span.start);
+    ensure!(error.message.contains(needle));
+    Ok(())
 }
 
 #[test]
-fn lowers_stdlib_length_properties() {
+fn converts_top_level_let_and_console_log() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
+        "let x = 6;
+console.log(x);
+",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure_eq!(body.locals.len(), 1);
+    ensure_eq!(body.stmts.len(), 2);
+    ensure_eq!(body.exprs.len(), 4);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_stdlib_length_properties() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
         r#"
 const values: number[] = [1, 2, 3];
 const count = values.length;
 const word = "smelt";
 const letters = word.length;
 "#,
-        FileId(0),
         &mut ctx,
-    )
-    .expect("stdlib length properties should lower");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
 
     let len_count = body
         .exprs
         .iter()
         .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
         .count();
-    assert_eq!(len_count, 2);
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_eq!(len_count, 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn lowers_string_index_and_for_of() {
+fn lowers_string_index_and_for_of() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         r#"
 const word = "abc";
 const first = word[0];
@@ -61,144 +180,157 @@ for (let ch: string of word) {
   joined = joined + ch;
 }
 "#,
-        FileId(0),
         &mut ctx,
-    )
-    .expect("string index and for...of should lower");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
 
-    assert!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Index { .. }))
-    );
-    assert!(
-        body.stmts
-            .iter()
-            .any(|stmt| matches!(stmt, Stmt::For { .. }))
-    );
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::Index { .. })));
+    ensure!(body
+        .stmts
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::For { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn lowers_string_case_methods() {
+fn lowers_string_case_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         r#"
 const word = "Smelt";
 const lower = word.toLowerCase();
 const upper = word.toUpperCase();
 "#,
-        FileId(0),
         &mut ctx,
-    )
-    .expect("string case methods should lower");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
 
-    assert!(body.exprs.iter().any(|expr| matches!(
+    ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::StringCase {
             op: StringCaseOp::Lower,
             ..
         }
     )));
-    assert!(body.exprs.iter().any(|expr| matches!(
+    ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::StringCase {
             op: StringCaseOp::Upper,
             ..
         }
     )));
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn lowers_string_includes_method() {
+fn lowers_string_includes_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         r#"
 const word = "Smelt";
 const has = word.includes("mel");
 "#,
-        FileId(0),
         &mut ctx,
-    )
-    .expect("string includes should lower");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
 
-    assert!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::StringContains { .. }))
-    );
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::StringContains { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn rejects_unknown_identifier() {
+fn lowers_string_split_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir("console.log(x);", FileId(0), &mut ctx).expect_err("unknown x");
-    assert_eq!(errors[0].code, "smelt::unsupported-ts");
-    assert!(errors[0].message.contains("unresolved identifier"));
+    let module_id = lower_ok(
+        r#"
+const word = "a,b,c";
+const parts = word.split(",");
+"#,
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::StringSplit { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn formats_compact_hir() {
+fn rejects_unknown_identifier() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let errors = lowering_errors("console.log(x);", &mut ctx)?;
+    assert_unsupported_ts(&errors, "unresolved identifier")
+}
+
+#[test]
+fn formats_compact_hir() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
         "let count = 42;
 console.log(count);
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("valid HIR");
+    )?;
 
     let output = smelt_hir::format_compact(&ctx.krate, &[("sample.ts".to_owned(), module_id)]);
 
-    assert_eq!(
+    ensure_eq!(
         output,
         "module sample.ts (ModuleId(0))\n  body BodyId(0)\n  locals\n    %0 let count: Float\n  exprs\n    #0: Float = 42.0\n    #1: Float = %0\n    #2: None = @0(console_log)\n    #3: None = call #2(#1)\n  stmts\n    s0: let %0: Float = #0\n    s1: #3\n\ninterned types\n  t0 = Float\n  t1 = None\n"
     );
+    Ok(())
 }
 
 #[test]
-fn normalizes_camel_case() {
-    assert_eq!(camel_to_snake("myFunction"), "my_function");
-    assert_eq!(camel_to_snake("URLParser"), "url_parser");
-    assert_eq!(camel_to_snake("IPAddr"), "ip_addr");
-    assert_eq!(camel_to_snake("_internal"), "_internal");
+fn normalizes_camel_case() -> Result<(), String> {
+    ensure_eq!(camel_to_snake("myFunction"), "my_function");
+    ensure_eq!(camel_to_snake("URLParser"), "url_parser");
+    ensure_eq!(camel_to_snake("IPAddr"), "ip_addr");
+    ensure_eq!(camel_to_snake("_internal"), "_internal");
+    Ok(())
 }
 
 #[test]
-fn lowers_function_declaration_and_direct_call() {
+fn lowers_function_declaration_and_direct_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         "function add(a: number, b: number): number {
   return a + b;
 }
 const result = add(2, 3);
 console.log(result);
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("valid HIR");
-    let module = &ctx.krate.modules[module_id.0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
 
-    assert_eq!(module.items.len(), 1);
-    assert_eq!(ctx.krate.items.len(), 2);
-    assert_eq!(ctx.krate.bodies.len(), 2);
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_eq!(module.items.len(), 1);
+    ensure_eq!(ctx.krate.items.len(), 2);
+    ensure_eq!(ctx.krate.bodies.len(), 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn lowers_if_else_while_and_for_of_to_hir() {
+fn lowers_if_else_while_and_for_of_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         "let count = 0;
 if (count < 10) {
   console.log(count);
@@ -212,35 +344,31 @@ for (let item: number of count) {
   continue;
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("valid HIR");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
 
-    assert!(
-        body.stmts
-            .iter()
-            .any(|stmt| matches!(stmt, Stmt::If { .. }))
-    );
-    assert!(
-        body.stmts
-            .iter()
-            .any(|stmt| matches!(stmt, Stmt::While { .. }))
-    );
-    assert!(
-        body.stmts
-            .iter()
-            .any(|stmt| matches!(stmt, Stmt::For { .. }))
-    );
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(body
+        .stmts
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::If { .. })));
+    ensure!(body
+        .stmts
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::While { .. })));
+    ensure!(body
+        .stmts
+        .iter()
+        .any(|stmt| matches!(stmt, Stmt::For { .. })));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn lowers_try_catch_finally_to_hir() {
+fn lowers_try_catch_finally_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         "try {
   throw 'x';
 } catch (error) {
@@ -249,12 +377,10 @@ fn lowers_try_catch_finally_to_hir() {
   console.log('done');
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("valid HIR");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
 
     let Some(Stmt::TryCatch {
         body: try_body,
@@ -266,59 +392,67 @@ fn lowers_try_catch_finally_to_hir() {
         .iter()
         .find(|stmt| matches!(stmt, Stmt::TryCatch { .. }))
     else {
-        panic!("expected try/catch/finally to lower to HIR");
+        return Err("expected try/catch/finally to lower to HIR".to_owned());
     };
-    assert!(
-        body.blocks[try_body.0 as usize]
-            .stmts
-            .iter()
-            .any(|stmt| matches!(body.stmts[stmt.0 as usize], Stmt::Throw(_)))
-    );
-    assert!(!body.blocks[catch_body.0 as usize].stmts.is_empty());
-    assert!(!body.blocks[finally_body.0 as usize].stmts.is_empty());
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    let try_block = body
+        .blocks
+        .get(
+            usize::try_from(try_body.0)
+                .map_err(|err| format!("try block id {try_body:?} does not fit in usize: {err}"))?,
+        )
+        .ok_or_else(|| format!("missing try block {try_body:?}"))?;
+    let catch_block =
+        body.blocks
+            .get(usize::try_from(catch_body.0).map_err(|err| {
+                format!("catch block id {catch_body:?} does not fit in usize: {err}")
+            })?)
+            .ok_or_else(|| format!("missing catch block {catch_body:?}"))?;
+    let finally_block = body
+        .blocks
+        .get(usize::try_from(finally_body.0).map_err(|err| {
+            format!("finally block id {finally_body:?} does not fit in usize: {err}")
+        })?)
+        .ok_or_else(|| format!("missing finally block {finally_body:?}"))?;
+    ensure!(try_block.stmts.iter().any(|stmt| usize::try_from(stmt.0)
+        .is_ok_and(|stmt_index| matches!(body.stmts.get(stmt_index), Some(Stmt::Throw(_))))));
+    ensure!(!catch_block.stmts.is_empty());
+    ensure!(!finally_block.stmts.is_empty());
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn rejects_missing_implemented_interface_field() {
+fn rejects_missing_implemented_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "interface Named { name: string; }
 class User implements Named {
   constructor() {}
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("missing field");
-    assert_eq!(errors[0].code, "smelt::unsupported-ts");
-    assert!(errors[0].span.end >= errors[0].span.start);
-    assert!(errors[0].message.contains("field `name`"));
+    )?;
+    assert_unsupported_ts(&errors, "field `name`")
 }
 
 #[test]
-fn rejects_implemented_method_signature_mismatch() {
+fn rejects_implemented_method_signature_mismatch() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "interface Named { label(prefix: string): string; }
 class User implements Named {
   label(prefix: number): string { return \"x\"; }
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("mismatch");
-    assert_eq!(errors[0].code, "smelt::unsupported-ts");
-    assert!(errors[0].span.end >= errors[0].span.start);
-    assert!(errors[0].message.contains("mismatched signature"));
+    )?;
+    assert_unsupported_ts(&errors, "mismatched signature")
 }
 
 #[test]
-fn lowers_interface_inheritance_into_shape_requirements() {
+fn lowers_interface_inheritance_into_shape_requirements() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    to_hir(
+    lower_ok(
         "interface Entity { id: string; }
 interface Named extends Entity { name: string; }
 class User implements Named {
@@ -330,16 +464,15 @@ class User implements Named {
   }
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("interface inheritance should flatten into implements checks");
+    )?;
+    Ok(())
 }
 
 #[test]
-fn rejects_missing_inherited_interface_field() {
+fn rejects_missing_inherited_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "interface Entity { id: string; }
 interface Named extends Entity { name: string; }
 class User implements Named {
@@ -349,18 +482,15 @@ class User implements Named {
   }
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("missing inherited field should be rejected");
-    assert_eq!(errors[0].code, "smelt::unsupported-ts");
-    assert!(errors[0].message.contains("field `id`"));
+    )?;
+    assert_unsupported_ts(&errors, "field `id`")
 }
 
 #[test]
-fn lowers_literal_computed_property_names() {
+fn lowers_literal_computed_property_names() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    to_hir(
+    lower_ok(
         "interface Entity { [\"id\"]: string; }
 class User implements Entity {
   [\"id\"]: string;
@@ -369,49 +499,44 @@ class User implements Entity {
   }
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("literal computed property names should lower as static fields");
+    )?;
+    Ok(())
 }
 
 #[test]
-fn rejects_dynamic_computed_property_names() {
+fn rejects_dynamic_computed_property_names() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "const key = \"id\";
 class User {
   [key]: string;
   constructor() {}
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("dynamic computed property names should be rejected");
-    assert_eq!(errors[0].code, "smelt::unsupported-ts");
-    assert!(errors[0].message.contains("dynamic computed property"));
+    )?;
+    assert_unsupported_ts(&errors, "dynamic computed property")
 }
 
 #[test]
-fn optional_interface_fields_may_be_absent() {
+fn optional_interface_fields_may_be_absent() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    to_hir(
+    lower_ok(
         "interface Named { name?: string; }
 class User implements Named {
   constructor() {}
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("optional interface field may be absent on implementing class");
+    )?;
+    Ok(())
 }
 
 #[test]
-fn required_fields_satisfy_optional_interface_fields() {
+fn required_fields_satisfy_optional_interface_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    to_hir(
+    lower_ok(
         "interface Named { name?: string; }
 class User implements Named {
   name: string;
@@ -420,33 +545,29 @@ class User implements Named {
   }
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("required class field should satisfy optional interface field");
+    )?;
+    Ok(())
 }
 
 #[test]
-fn rejects_optional_class_fields() {
+fn rejects_optional_class_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "class User {
   name?: string;
   constructor() {}
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("optional class fields require construction semantics");
-    assert_eq!(errors[0].code, "smelt::unsupported-ts");
-    assert!(errors[0].message.contains("optional class fields"));
+    )?;
+    assert_unsupported_ts(&errors, "optional class fields")
 }
 
 #[test]
-fn rejects_generic_classes_and_interfaces() {
-    let mut ctx = HirCtx::new();
-    let class_errors = to_hir(
+fn rejects_generic_classes_and_interfaces() -> Result<(), String> {
+    let mut class_ctx = HirCtx::new();
+    let class_errors = lowering_errors(
         "class Box<T> {
   value: T;
   constructor(value: T) {
@@ -454,104 +575,83 @@ fn rejects_generic_classes_and_interfaces() {
   }
 }
 ",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect_err("generic classes are deferred");
-    assert_eq!(class_errors[0].code, "smelt::unsupported-ts");
-    assert!(class_errors[0].message.contains("generic classes"));
+        &mut class_ctx,
+    )?;
+    assert_unsupported_ts(&class_errors, "generic classes")?;
 
-    let mut ctx = HirCtx::new();
-    let interface_errors = to_hir(
+    let mut interface_ctx = HirCtx::new();
+    let interface_errors = lowering_errors(
         "interface Box<T> {
   value: T;
 }
 ",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect_err("generic interfaces are deferred");
-    assert_eq!(interface_errors[0].code, "smelt::unsupported-ts");
-    assert!(interface_errors[0].message.contains("generic interfaces"));
+        &mut interface_ctx,
+    )?;
+    assert_unsupported_ts(&interface_errors, "generic interfaces")
 }
 
 #[test]
-fn rejects_static_members() {
-    let mut ctx = HirCtx::new();
-    let field_errors = to_hir(
+fn rejects_static_members() -> Result<(), String> {
+    let mut field_ctx = HirCtx::new();
+    let field_errors = lowering_errors(
         "class User {
   static role: string;
   constructor() {}
 }
 ",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect_err("static fields are unsupported");
-    assert_eq!(field_errors[0].code, "smelt::unsupported-ts");
-    assert!(field_errors[0].message.contains("static fields"));
+        &mut field_ctx,
+    )?;
+    assert_unsupported_ts(&field_errors, "static fields")?;
 
-    let mut ctx = HirCtx::new();
-    let method_errors = to_hir(
+    let mut method_ctx = HirCtx::new();
+    let method_errors = lowering_errors(
         "class User {
   static role(): string { return \"admin\"; }
 }
 ",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect_err("static methods are unsupported");
-    assert_eq!(method_errors[0].code, "smelt::unsupported-ts");
-    assert!(method_errors[0].message.contains("static methods"));
+        &mut method_ctx,
+    )?;
+    assert_unsupported_ts(&method_errors, "static methods")
 }
 
 #[test]
-fn rejects_getters_setters_decorators_and_abstract_classes() {
-    let mut ctx = HirCtx::new();
-    let getter_errors = to_hir(
+fn rejects_getters_setters_decorators_and_abstract_classes() -> Result<(), String> {
+    let mut getter_ctx = HirCtx::new();
+    let getter_errors = lowering_errors(
         "class User {
   get name(): string { return \"Ada\"; }
 }
 ",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect_err("getters are unsupported");
-    assert_eq!(getter_errors[0].code, "smelt::unsupported-ts");
-    assert!(getter_errors[0].message.contains("getters and setters"));
+        &mut getter_ctx,
+    )?;
+    assert_unsupported_ts(&getter_errors, "getters and setters")?;
 
-    let mut ctx = HirCtx::new();
-    let decorator_errors = to_hir(
+    let mut decorator_ctx = HirCtx::new();
+    let decorator_errors = lowering_errors(
         "@sealed
 class User {
   constructor() {}
 }
 ",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect_err("decorators are unsupported");
-    assert_eq!(decorator_errors[0].code, "smelt::unsupported-ts");
-    assert!(decorator_errors[0].message.contains("decorators"));
+        &mut decorator_ctx,
+    )?;
+    assert_unsupported_ts(&decorator_errors, "decorators")?;
 
-    let mut ctx = HirCtx::new();
-    let abstract_errors = to_hir(
+    let mut abstract_ctx = HirCtx::new();
+    let abstract_errors = lowering_errors(
         "abstract class User {
   abstract name(): string;
 }
 ",
-        FileId(0),
-        &mut ctx,
-    )
-    .expect_err("abstract classes are unsupported");
-    assert_eq!(abstract_errors[0].code, "smelt::unsupported-ts");
-    assert!(abstract_errors[0].message.contains("abstract classes"));
+        &mut abstract_ctx,
+    )?;
+    assert_unsupported_ts(&abstract_errors, "abstract classes")
 }
 
 #[test]
-fn lowers_literal_switch_to_hir_match() {
+fn lowers_literal_switch_to_hir_match() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         "function label(status: \"pending\" | \"approved\" | \"rejected\"): string {
   switch (status) {
     case \"pending\":
@@ -565,65 +665,58 @@ fn lowers_literal_switch_to_hir_match() {
 const result = label(\"approved\");
 console.log(result);
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("valid HIR");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let Item::Function(function) = &ctx.krate.items[module.items[0].0 as usize] else {
-        panic!("expected function item");
-    };
-    let body = &ctx.krate.bodies[function.body.expect("function body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
 
     let Some(Stmt::Match { arms, default, .. }) = body
         .stmts
         .iter()
         .find(|stmt| matches!(stmt, Stmt::Match { .. }))
     else {
-        panic!("expected switch to lower to HIR match");
+        return Err("expected switch to lower to HIR match".to_owned());
     };
-    assert_eq!(arms.len(), 3);
-    assert!(default.is_none());
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure_eq!(arms.len(), 3);
+    ensure!(default.is_none());
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn rejects_coercive_equality() {
+fn rejects_coercive_equality() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "function same(a: number, b: number): boolean {
   return a == b;
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("coercive equality is unsupported");
+    )?;
 
-    assert!(errors[0].message.contains("coercive equality"));
+    assert_unsupported_ts(&errors, "coercive equality")
 }
 
 #[test]
-fn rejects_untyped_for_of_binding() {
+fn rejects_untyped_for_of_binding() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "let values = 1;
 for (let item of values) {
   continue;
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("for-of binding must be typed");
+    )?;
 
-    assert!(errors[0].message.contains("explicit type annotations"));
+    assert_unsupported_ts(&errors, "explicit type annotations")
 }
 
 #[test]
-fn lowers_async_functions_and_await_to_hir() {
+fn lowers_async_functions_and_await_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         "async function load(value: number): Promise<number> {
   return value;
 }
@@ -632,44 +725,38 @@ async function main(): Promise<number> {
   return await load(1);
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("async functions should lower to HIR");
-    let module = &ctx.krate.modules[module_id.0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
 
-    assert_eq!(module.items.len(), 2);
-    let Item::Function(load) = &ctx.krate.items[module.items[0].0 as usize] else {
-        panic!("expected function item");
-    };
-    assert!(load.is_async);
-    assert!(matches!(
+    ensure_eq!(module.items.len(), 2);
+    let load = function_item(&ctx, module, 0)?;
+    ensure!(load.is_async);
+    ensure!(matches!(
         ctx.krate.types.get(load.return_ty),
         Some(Type::Future(_))
     ));
 
-    let Item::Function(main) = &ctx.krate.items[module.items[1].0 as usize] else {
-        panic!("expected function item");
-    };
-    let body = &ctx.krate.bodies[main.body.expect("main body").0 as usize];
-    assert!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Await(_)))
-    );
+    let main = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, main)?;
+    ensure!(body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::Await(_))));
     let machine = body
         .async_state_machine
         .as_ref()
-        .expect("async body should have state-machine metadata");
-    assert_eq!(machine.states.len(), 2);
-    assert_eq!(machine.suspensions.len(), 1);
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+        .ok_or_else(|| "async body should have state-machine metadata".to_owned())?;
+    ensure_eq!(machine.states.len(), 2);
+    ensure_eq!(machine.suspensions.len(), 1);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn lowers_promise_all_to_async_runtime_op() {
+fn lowers_promise_all_to_async_runtime_op() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let module_id = to_hir(
+    let module_id = lower_ok(
         "async function lift(value: number): Promise<number> {
   return value;
 }
@@ -678,17 +765,13 @@ async function main(): Promise<[number, number]> {
   return await Promise.all([lift(1), lift(2)]);
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("Promise.all should lower to HIR");
-    let module = &ctx.krate.modules[module_id.0 as usize];
-    let Item::Function(main) = &ctx.krate.items[module.items[1].0 as usize] else {
-        panic!("expected function item");
-    };
-    let body = &ctx.krate.bodies[main.body.expect("main body").0 as usize];
+    )?;
+    let module = module(&ctx, module_id)?;
+    let main = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, main)?;
 
-    assert!(body.exprs.iter().any(|expr| {
+    ensure!(body.exprs.iter().any(|expr| {
         matches!(
             expr.kind,
             ExprKind::AsyncOp {
@@ -697,12 +780,13 @@ async function main(): Promise<[number, number]> {
             }
         )
     }));
+    Ok(())
 }
 
 #[test]
-fn lowers_promise_race_all_settled_and_timer_shim() {
+fn lowers_promise_race_all_settled_and_timer_shim() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    to_hir(
+    lower_ok(
         "async function lift(value: number): Promise<number> {
   await setTimeout(0);
   return value;
@@ -716,48 +800,48 @@ async function settled(): Promise<[number, number]> {
   return await Promise.allSettled([lift(1), lift(2)]);
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("Promise race/allSettled and timer shim should lower");
+    )?;
+    Ok(())
 }
 
 #[test]
-fn rejects_await_outside_async_function() {
+fn rejects_await_outside_async_function() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "function read(): number {
   return await 1;
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("await outside async should fail");
+    )?;
 
-    assert!(errors[0].message.contains("await"));
+    let error = errors
+        .first()
+        .ok_or_else(|| "expected at least one lowering error".to_owned())?;
+    ensure_eq!(error.code, "smelt::parse-error");
+    ensure!(error.message.contains("await"));
+    Ok(())
 }
 
 #[test]
-fn rejects_async_functions_without_promise_return_type() {
+fn rejects_async_functions_without_promise_return_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "async function load(): number {
   return 1;
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("async functions should require Promise<T> return types");
+    )?;
 
-    assert!(errors[0].message.contains("Promise<T>"));
+    assert_unsupported_ts(&errors, "Promise<T>")
 }
 
 #[test]
-fn rejects_switch_fallthrough_until_it_is_modeled() {
+fn rejects_switch_fallthrough_until_it_is_modeled() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
+    let errors = lowering_errors(
         "function label(status: \"pending\" | \"approved\"): string {
   switch (status) {
     case \"pending\":
@@ -767,38 +851,35 @@ fn rejects_switch_fallthrough_until_it_is_modeled() {
   }
 }
 ",
-        FileId(0),
         &mut ctx,
-    )
-    .expect_err("switch fallthrough is unsupported");
+    )?;
 
-    assert!(
+    ensure!(
         errors
             .iter()
             .any(|error| error.message.contains("switch fallthrough")),
         "expected switch fallthrough error, got {errors:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn lowers_template_literal_to_string_concat() {
+fn lowers_template_literal_to_string_concat() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let _module_id = to_hir(
+    let _module_id = lower_ok(
         "const name: string = \"world\";\nconst msg: string = `Hello ${name}!`;",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("template literal should lower");
-    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]
-fn accepts_import_and_export_declarations() {
+fn accepts_import_and_export_declarations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let _module_id = to_hir(
+    let _module_id = lower_ok(
         "import { foo } from './foo';\nexport function bar(): number { return 1; }",
-        FileId(0),
         &mut ctx,
-    )
-    .expect("import and export should not crash");
+    )?;
+    Ok(())
 }

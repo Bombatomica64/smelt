@@ -23,10 +23,6 @@
     reason = "Python type-name matching is kept compact for readability"
 )]
 #![expect(
-    clippy::unnecessary_raw_string_hashes,
-    reason = "multiline Python fixtures use raw strings consistently"
-)]
-#![expect(
     clippy::needless_raw_string_hashes,
     reason = "multiline Python fixtures use raw strings consistently"
 )]

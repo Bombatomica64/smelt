@@ -1,3 +1,7 @@
+//! Example binary that lowers source files and prints HIR output.
+//!
+//! Used for local debugging of frontend lowering behavior.
+
 #![expect(clippy::print_stdout, reason = "example prints compact HIR output")]
 #![expect(
     clippy::cast_possible_truncation,

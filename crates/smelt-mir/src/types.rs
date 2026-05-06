@@ -47,14 +47,22 @@ impl Mir {
     }
 
     /// Returns the next available function ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of functions does not fit in `u32`.
     #[must_use]
     pub fn next_function_id(&self) -> FuncId {
-        FuncId(self.functions.len() as u32)
+        FuncId(len_to_u32(self.functions.len(), "MIR function count"))
     }
 
     /// Adds a function to the MIR and returns its ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of functions does not fit in `u32`.
     pub fn push_function(&mut self, function: MirFunction) -> FuncId {
-        let id = FuncId(self.functions.len() as u32);
+        let id = FuncId(len_to_u32(self.functions.len(), "MIR function count"));
         debug_assert_eq!(
             function.id, id,
             "MIR function IDs must be insertion ordered"
@@ -161,15 +169,23 @@ impl MirFunction {
     }
 
     /// Adds a local variable to the function and returns its ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of locals does not fit in `u32`.
     pub(crate) fn push_local(&mut self, local: LocalDecl) -> LocalId {
-        let id = LocalId(self.locals.len() as u32);
+        let id = LocalId(len_to_u32(self.locals.len(), "MIR local count"));
         self.locals.push(local);
         id
     }
 
     /// Adds a basic block to the function and returns its ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of basic blocks does not fit in `u32`.
     pub(crate) fn push_block(&mut self, span: Span) -> BlockId {
-        let id = BlockId(self.blocks.len() as u32);
+        let id = BlockId(len_to_u32(self.blocks.len(), "MIR block count"));
         self.blocks.push(BasicBlock {
             id,
             phis: Vec::new(),
@@ -178,6 +194,18 @@ impl MirFunction {
             span,
         });
         id
+    }
+}
+
+/// Convert a length into a `u32` identifier.
+///
+/// # Panics
+///
+/// Panics if the value does not fit in `u32`.
+fn len_to_u32(len: usize, label: &str) -> u32 {
+    match u32::try_from(len) {
+        Ok(value) => value,
+        Err(error) => panic!("{label} does not fit in u32: {error}"),
     }
 }
 
@@ -348,6 +376,13 @@ pub enum Rvalue {
         haystack: Operand,
         /// Substring to search for.
         needle: Operand,
+    },
+    /// Split a string into a list of strings.
+    StringSplit {
+        /// String value to split.
+        haystack: Operand,
+        /// Separator string.
+        separator: Operand,
     },
     /// Await a future and produce its output.
     Await(Operand),

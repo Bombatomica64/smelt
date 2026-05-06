@@ -13,10 +13,6 @@
     reason = "lowering context construction mirrors the MIR function shape for now"
 )]
 #![expect(
-    clippy::cast_possible_truncation,
-    reason = "MIR IDs are compact u32 indexes and overflow checks will be centralized separately"
-)]
-#![expect(
     clippy::format_push_string,
     reason = "debug formatters favor straightforward string assembly until the formatter module is rewritten"
 )]
@@ -37,24 +33,12 @@
     reason = "const qualification will be applied once constructors are stabilized"
 )]
 #![expect(
-    clippy::assertions_on_result_states,
-    reason = "test assertions are intentionally direct in the MIR smoke suite"
-)]
-#![expect(
-    clippy::assert_without_message,
-    reason = "debug assertions in ID plumbing are self-describing from the compared values"
-)]
-#![expect(
     clippy::map_unwrap_or,
     reason = "existing option pipelines are being preserved until the lowering refactor"
 )]
 #![expect(
     clippy::redundant_clone,
     reason = "clone sites in lowering will be reviewed alongside ownership cleanup"
-)]
-#![expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "validator helper signatures currently prefer uniform borrowed operands"
 )]
 #![expect(
     clippy::needless_pass_by_value,
@@ -73,10 +57,15 @@
     reason = "MIR lowering uses related HIR/MIR block names that differ only by role"
 )]
 
+/// Compact MIR formatting utilities.
 mod format;
+/// HIR-to-MIR lowering pipeline.
 mod lower;
+/// MIR optimization passes.
 pub mod opt;
+/// MIR core data types.
 mod types;
+/// MIR validation and diagnostics.
 mod validate;
 
 pub use format::format_compact;
@@ -87,20 +76,42 @@ pub use validate::{ValidationError, validate};
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::convert::TryFrom;
     use smelt_frontend_ts::{HirCtx, to_hir};
     use smelt_hir::FileId;
+
+    fn ok_or_panic<T, E: std::fmt::Debug>(result: Result<T, E>, context: &str) -> T {
+        result.unwrap_or_else(|error| {
+            std::panic::resume_unwind(Box::new(format!("{context}: {error:?}")))
+        })
+    }
+
+    fn block_mut(function: &mut MirFunction, block: BlockId) -> &mut BasicBlock {
+        let index = usize::try_from(block.0).ok().unwrap_or_else(|| {
+            std::panic::resume_unwind(Box::new(format!(
+                "block id {block:?} does not fit in usize"
+            )))
+        });
+        function.blocks.get_mut(index).unwrap_or_else(|| {
+            std::panic::resume_unwind(Box::new(format!(
+                "block index {index} is out of bounds"
+            )))
+        })
+    }
 
     #[test]
     fn lowers_top_level_let_and_console_log_to_mir() {
         let mut ctx = HirCtx::new();
-        to_hir(
-            "let count = 42;\nconsole.log(count);\n",
-            FileId(0),
-            &mut ctx,
-        )
-        .expect("HIR");
+        ok_or_panic(
+            to_hir(
+                "let count = 42;\nconsole.log(count);\n",
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
 
-        let mut mir = lower_hir(&ctx.krate).expect("MIR");
+        let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
         opt::optimize(&mut mir);
 
         assert!(validate(&mir).is_empty());
@@ -115,14 +126,16 @@ mod tests {
     #[test]
     fn copy_propagation_rewrites_alias_uses() {
         let mut ctx = HirCtx::new();
-        to_hir(
-            "const sourceValue = 7;\nlet copiedValue = sourceValue;\nconsole.log(copiedValue);\n",
-            FileId(0),
-            &mut ctx,
-        )
-        .expect("HIR");
+        ok_or_panic(
+            to_hir(
+                "const sourceValue = 7;\nlet copiedValue = sourceValue;\nconsole.log(copiedValue);\n",
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
 
-        let mut mir = lower_hir(&ctx.krate).expect("MIR");
+        let mut mir = ok_or_panic(lower_hir(&ctx.krate), "MIR");
         opt::optimize(&mut mir);
         let output = format_compact(&mir);
 
@@ -132,56 +145,62 @@ mod tests {
     #[test]
     fn while_and_for_of_lower_to_cfg() {
         let mut ctx = HirCtx::new();
-        to_hir(
-            "let count = 0;
+        ok_or_panic(
+            to_hir(
+                "let count = 0;
 while (count < 10) {
   break;
 }
 ",
-            FileId(0),
-            &mut ctx,
-        )
-        .expect("HIR");
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
 
-        let mir = lower_hir(&ctx.krate).expect("while lowers");
-        assert!(validate(&mir).is_empty());
-        let output = format_compact(&mir);
-        assert!(output.contains("switch copy %1 ? bb1 : bb2"));
-        assert!(output.contains("goto bb2"));
+        let while_mir = ok_or_panic(lower_hir(&ctx.krate), "while lowers");
+        assert!(validate(&while_mir).is_empty());
+        let while_output = format_compact(&while_mir);
+        assert!(while_output.contains("switch copy %1 ? bb1 : bb2"));
+        assert!(while_output.contains("goto bb2"));
 
-        let mut ctx = HirCtx::new();
-        to_hir(
-            "let values = 1;
+        let mut for_ctx = HirCtx::new();
+        ok_or_panic(
+            to_hir(
+                "let values = 1;
 for (let item: number of values) {
   continue;
 }
 ",
-            FileId(0),
-            &mut ctx,
-        )
-        .expect("HIR");
+                FileId(0),
+                &mut for_ctx,
+            ),
+            "HIR",
+        );
 
-        let mir = lower_hir(&ctx.krate).expect("for lowers");
-        assert!(validate(&mir).is_empty());
-        let output = format_compact(&mir);
-        assert!(output.contains("len copy %0"));
+        let for_mir = ok_or_panic(lower_hir(&for_ctx.krate), "for lowers");
+        assert!(validate(&for_mir).is_empty());
+        let for_output = format_compact(&for_mir);
+        assert!(for_output.contains("len copy %0"));
     }
 
     #[test]
     fn throw_lowers_to_terminating_mir() {
         let mut ctx = HirCtx::new();
-        to_hir(
-            "function fail(): void {
+        ok_or_panic(
+            to_hir(
+                "function fail(): void {
   throw \"boom\";
 }
 fail();
 ",
-            FileId(0),
-            &mut ctx,
-        )
-        .expect("HIR");
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
 
-        let mir = lower_hir(&ctx.krate).expect("throw lowers");
+        let mir = ok_or_panic(lower_hir(&ctx.krate), "throw lowers");
         assert!(validate(&mir).is_empty());
         let output = format_compact(&mir);
 
@@ -193,8 +212,9 @@ fail();
     #[test]
     fn async_await_lowers_to_mir_await_rvalue() {
         let mut ctx = HirCtx::new();
-        to_hir(
-            "async function lift(value: number): Promise<number> {
+        ok_or_panic(
+            to_hir(
+                "async function lift(value: number): Promise<number> {
   return value;
 }
 
@@ -202,12 +222,13 @@ async function run(): Promise<number> {
   return await lift(5);
 }
 ",
-            FileId(0),
-            &mut ctx,
-        )
-        .expect("HIR");
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
 
-        let mir = lower_hir(&ctx.krate).expect("async lowers");
+        let mir = ok_or_panic(lower_hir(&ctx.krate), "async lowers");
         assert!(validate(&mir).is_empty());
         let output = format_compact(&mir);
 
@@ -220,19 +241,21 @@ async function run(): Promise<number> {
     #[test]
     fn try_catch_lowers_caught_throw_to_cfg() {
         let mut ctx = HirCtx::new();
-        to_hir(
-            "try {
+        ok_or_panic(
+            to_hir(
+                "try {
   throw \"boom\";
 } catch (err: string) {
   console.log(err);
 }
 ",
-            FileId(0),
-            &mut ctx,
-        )
-        .expect("HIR");
+                FileId(0),
+                &mut ctx,
+            ),
+            "HIR",
+        );
 
-        let mir = lower_hir(&ctx.krate).expect("try/catch lowers");
+        let mir = ok_or_panic(lower_hir(&ctx.krate), "try/catch lowers");
         assert!(validate(&mir).is_empty());
         let output = format_compact(&mir);
 
@@ -270,20 +293,21 @@ async function run(): Promise<number> {
         let then_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
         let else_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
         let join_block = function.push_block(smelt_hir::Span::new(FileId(0), 0, 0));
-        function.blocks[0].terminator = Some(Terminator::Switch {
+        let entry = function.entry;
+        block_mut(&mut function, entry).terminator = Some(Terminator::Switch {
             cond: Operand::Copy(Place::Local(cond)),
             then_block,
             else_block,
         });
-        function.blocks[then_block.0 as usize]
+        block_mut(&mut function, then_block)
             .statements
             .push(Statement::Assign {
                 dest: branch_only,
                 value: Rvalue::Use(Operand::Const(Constant::Bool(true))),
             });
-        function.blocks[then_block.0 as usize].terminator = Some(Terminator::Goto(join_block));
-        function.blocks[else_block.0 as usize].terminator = Some(Terminator::Goto(join_block));
-        function.blocks[join_block.0 as usize].terminator =
+        block_mut(&mut function, then_block).terminator = Some(Terminator::Goto(join_block));
+        block_mut(&mut function, else_block).terminator = Some(Terminator::Goto(join_block));
+        block_mut(&mut function, join_block).terminator =
             Some(Terminator::Return(Operand::Copy(Place::Local(branch_only))));
         mir.push_function(function);
 

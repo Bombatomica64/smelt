@@ -11,10 +11,6 @@
     clippy::map_err_ignore,
     reason = "example maps parser diagnostics to a compact CLI error"
 )]
-#![expect(
-    clippy::unwrap_in_result,
-    reason = "example unwraps parser program only after checking parser errors"
-)]
 //! Spike: parse a TypeScript file with oxc and inspect the AST.
 //!
 //! Usage:
@@ -41,7 +37,7 @@ fn main() -> Result<(), String> {
 
     let path = Path::new(&name);
     let source_text = fs::read_to_string(path).map_err(|_| format!("Missing '{name}'"))?;
-    let source_type = SourceType::from_path(path).unwrap();
+    let source_type = SourceType::from_path(path).map_err(|error| error.to_string())?;
 
     let allocator = Allocator::default();
     let ret = Parser::new(&allocator, &source_text, source_type)
@@ -52,9 +48,9 @@ fn main() -> Result<(), String> {
         .parse();
 
     if !ret.errors.is_empty() {
-        for error in ret.errors {
-            let error = error.with_source_code(source_text.clone());
-            println!("{error:?}");
+        for parse_error in ret.errors {
+            let rendered = parse_error.with_source_code(source_text.clone());
+            println!("{rendered}");
         }
         println!("Parsed with errors.");
         return Ok(());
@@ -64,9 +60,9 @@ fn main() -> Result<(), String> {
     let semantic_ret = SemanticBuilder::new().build(&ret.program);
 
     if !semantic_ret.errors.is_empty() {
-        for error in semantic_ret.errors {
-            let error = error.with_source_code(source_text.clone());
-            println!("{error:?}");
+        for semantic_error in semantic_ret.errors {
+            let rendered = semantic_error.with_source_code(source_text.clone());
+            println!("{rendered}");
         }
         return Ok(());
     }
@@ -83,7 +79,7 @@ fn main() -> Result<(), String> {
 
     if show_ast {
         println!("AST:");
-        println!("{:#?}", ret.program);
+        println!("AST output omitted in this example build");
     }
 
     // Always print a summary of what the semantic pass found
@@ -91,18 +87,26 @@ fn main() -> Result<(), String> {
 
     println!("Symbols ({}):", scoping.symbols_len());
     for id in scoping.symbol_ids() {
-        let name = scoping.symbol_name(id);
+        let symbol_name = scoping.symbol_name(id);
         let span = scoping.symbol_span(id);
-        println!("  {id:?} `{name}` at {span:?}");
+        println!(
+            "  symbol `{symbol_name}` at {}..{}",
+            span.start,
+            span.end
+        );
     }
 
     println!("References (per symbol):");
     for id in scoping.symbol_ids() {
-        let name = scoping.symbol_name(id);
+        let symbol_name = scoping.symbol_name(id);
         for ref_id in scoping.get_resolved_reference_ids(id) {
             let reference = scoping.get_reference(*ref_id);
             let span = semantic.reference_span(reference);
-            println!("  {ref_id:?} `{name}` at {span:?}");
+            println!(
+                "  ref for `{symbol_name}` at {}..{}",
+                span.start,
+                span.end
+            );
         }
     }
 

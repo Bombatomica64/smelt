@@ -5,6 +5,7 @@
 )]
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 
 use ruff_python_ast::{
     BoolOp, CmpOp, ElifElseClause, Expr, ModModule, Number, Operator, Pattern as RuffPattern,
@@ -26,9 +27,13 @@ use crate::helpers::{
 };
 use crate::{HirCtx, SmeltError};
 
+/// Stateful Python-module lowering context.
 pub(crate) struct ModuleBuilder<'ctx> {
+    /// Source file ID for spans created while lowering.
     file_id: FileId,
+    /// Source path used for module metadata and diagnostics.
     path: String,
+    /// Shared HIR context being populated.
     ctx: &'ctx mut HirCtx,
     /// In-scope locals while lowering a body.
     locals: HashMap<String, smelt_hir::LocalId>,
@@ -39,6 +44,7 @@ pub(crate) struct ModuleBuilder<'ctx> {
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
+    /// Build a lowering context for one Python source module.
     pub(crate) fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
         let items = visible_items(ctx);
         Self {
@@ -55,6 +61,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Module — two-pass lowering
     // -----------------------------------------------------------------------
 
+    /// Lower a parsed Python module into HIR.
     pub(crate) fn module(&mut self, module: &ModModule) -> Result<ModuleId, Vec<SmeltError>> {
         let source = SourceFile {
             path: self.path.clone(),
@@ -68,18 +75,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // Pass 1 — collect top-level function/class declarations so later
         // statements can reference them in calls.
         for stmt in &module.body {
-            match stmt {
-                Stmt::FunctionDef(func) => match self.function_def(func) {
+            if let Stmt::FunctionDef(func) = stmt {
+                match self.function_def(func) {
                     Ok(item_id) => hir_module.items.push(item_id),
                     Err(err) => errors.push(err),
-                },
-                Stmt::ClassDef(class) => match self.class_def(class, &mut hir_module) {
+                }
+            } else if let Stmt::ClassDef(class) = stmt {
+                match self.class_def(class, &mut hir_module) {
                     Ok(_) => {}
                     Err(err) => errors.push(err),
-                },
-                Stmt::Import(import) => self.import_stmt(import, &mut hir_module),
-                Stmt::ImportFrom(import) => self.import_from_stmt(import, &mut hir_module),
-                _ => {}
+                }
+            } else if let Stmt::Import(import) = stmt {
+                self.import_stmt(import, &mut hir_module);
+            } else if let Stmt::ImportFrom(import) = stmt {
+                self.import_from_stmt(import, &mut hir_module);
             }
         }
 
@@ -158,6 +167,47 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Read the type attached to an expression id.
+    fn expr_ty(body: &Body, expr_id: smelt_hir::ExprId) -> TypeId {
+        let index = usize::try_from(expr_id.0)
+            .unwrap_or_else(|_| std::panic::panic_any("expr id must fit in usize"));
+        body.exprs
+            .get(index)
+            .unwrap_or_else(|| std::panic::panic_any("invalid expression id"))
+            .ty
+    }
+
+    /// Read the span attached to an expression id.
+    fn expr_span(body: &Body, expr_id: smelt_hir::ExprId) -> Span {
+        let index = usize::try_from(expr_id.0)
+            .unwrap_or_else(|_| std::panic::panic_any("expr id must fit in usize"));
+        body.exprs
+            .get(index)
+            .unwrap_or_else(|| std::panic::panic_any("invalid expression id"))
+            .span
+    }
+
+    /// Read the type attached to a local id.
+    fn local_ty(body: &Body, local_id: smelt_hir::LocalId) -> TypeId {
+        let index = usize::try_from(local_id.0)
+            .unwrap_or_else(|_| std::panic::panic_any("local id must fit in usize"));
+        body.locals
+            .get(index)
+            .unwrap_or_else(|| std::panic::panic_any("invalid local id"))
+            .ty
+    }
+
+    /// Read a crate item by id.
+    fn item_ref(&self, item_id: ItemId) -> &Item {
+        let index = usize::try_from(item_id.0)
+            .unwrap_or_else(|_| std::panic::panic_any("item id must fit in usize"));
+        self.ctx
+            .krate
+            .items
+            .get(index)
+            .unwrap_or_else(|| std::panic::panic_any("invalid item id"))
+    }
+
     /// Lower a Python class definition to HIR, adding all methods and
     /// synthesising a constructor for dataclasses.
     fn class_def(
@@ -216,7 +266,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             match positional.len() {
                 0 => None,
                 1 => {
-                    let base_expr = positional[0];
+                    let [base_expr] = positional.as_slice() else {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            format!(
+                                "class '{class_name_str}': complex base class expression not supported"
+                            ),
+                        ));
+                    };
                     if is_django_model_base(base_expr) {
                         return Err(SmeltError::django_unsupported(span, class_name_str));
                     }
@@ -294,12 +351,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         ));
                     }
                 }
-                other => {
+                Stmt::ClassDef(_)
+                | Stmt::Return(_)
+                | Stmt::Delete(_)
+                | Stmt::TypeAlias(_)
+                | Stmt::Assign(_)
+                | Stmt::AugAssign(_)
+                | Stmt::For(_)
+                | Stmt::While(_)
+                | Stmt::If(_)
+                | Stmt::With(_)
+                | Stmt::Match(_)
+                | Stmt::Raise(_)
+                | Stmt::Try(_)
+                | Stmt::Assert(_)
+                | Stmt::Import(_)
+                | Stmt::ImportFrom(_)
+                | Stmt::Global(_)
+                | Stmt::Nonlocal(_)
+                | Stmt::Break(_)
+                | Stmt::Continue(_)
+                | Stmt::IpyEscapeCommand(_) => {
                     return Err(SmeltError::unsupported(
-                        self.span(other.range()),
+                        self.span(body_stmt.range()),
                         format!(
                             "class '{class_name_str}': unsupported class body statement '{}'",
-                            stmt_kind_name(other)
+                            stmt_kind_name(body_stmt)
                         ),
                     ));
                 }
@@ -472,6 +549,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let none_ty = self.intern_type(Type::None);
         let mut fn_body = Body::new(None, span);
         let mut params: Vec<Param> = Vec::new();
+        let mut field_locals: Vec<smelt_hir::LocalId> = Vec::new();
 
         // `self` local
         let self_sym = self.intern_name("self");
@@ -492,6 +570,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span: field.span,
             });
             fn_body.params.push(local);
+            field_locals.push(local);
             let field_name_str = self
                 .ctx
                 .krate
@@ -510,8 +589,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         // Body: `self.field = param` for each field.
         let root_block = fn_body.root;
-        for (i, field) in fields.iter().enumerate() {
-            let param_local = fn_body.params[i];
+        for (field, param_local) in fields.iter().zip(field_locals.iter().copied()) {
             let param_ty = field.ty;
 
             let self_expr = fn_body.push_expr(HirExpr {
@@ -560,6 +638,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Function definition
     // -----------------------------------------------------------------------
 
+    /// Lower a Python function definition into an HIR function item.
     fn function_def(&mut self, func: &StmtFunctionDef) -> Result<ItemId, SmeltError> {
         let name_str = func.name.as_str();
         let name = self.intern_name(name_str);
@@ -670,27 +749,38 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Lower a Python type annotation expression to a HIR [`TypeId`].
     fn annotation_to_hir(&mut self, annotation: &Expr) -> Result<TypeId, SmeltError> {
-        match annotation {
-            Expr::Name(name) => self.name_annotation(name.id.as_str(), name.range),
-            Expr::NoneLiteral(_) => Ok(self.intern_type(Type::None)),
+        if let Expr::Name(name) = annotation {
+            self.name_annotation(name.id.as_str(), name.range)
+        } else if let Expr::NoneLiteral(_) = annotation {
+            Ok(self.intern_type(Type::None))
+        } else if let Expr::Attribute(attr) = annotation {
             // `typing.Optional[T]`, `typing.Union[T, U]` etc.
-            Expr::Attribute(attr) => self.name_annotation(attr.attr.as_str(), attr.range),
-            Expr::Subscript(sub) => self.subscript_annotation(sub),
+            self.name_annotation(attr.attr.as_str(), attr.range)
+        } else if let Expr::Subscript(sub) = annotation {
+            self.subscript_annotation(sub)
+        } else if let Expr::BinOp(b) = annotation {
             // PEP 604: `T | U`
-            Expr::BinOp(b) if b.op == Operator::BitOr => self.bitor_annotation(annotation),
-            // Bare tuple in annotation position (e.g. inside Callable)
-            Expr::Tuple(t) => {
-                let items = t
-                    .elts
-                    .iter()
-                    .map(|e| self.annotation_to_hir(e))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(self.intern_type(Type::Tuple(items)))
+            if b.op == Operator::BitOr {
+                self.bitor_annotation(annotation)
+            } else {
+                Err(SmeltError::unsupported(
+                    self.span(annotation.range()),
+                    "unsupported type annotation form",
+                ))
             }
-            _ => Err(SmeltError::unsupported(
+        } else if let Expr::Tuple(t) = annotation {
+            // Bare tuple in annotation position (e.g. inside Callable)
+            let items = t
+                .elts
+                .iter()
+                .map(|e| self.annotation_to_hir(e))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(self.intern_type(Type::Tuple(items)))
+        } else {
+            Err(SmeltError::unsupported(
                 self.span(annotation.range()),
                 "unsupported type annotation form",
-            )),
+            ))
         }
     }
 
@@ -754,13 +844,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             "tuple" | "Tuple" => {
                 // `tuple[()]` is the empty tuple; otherwise lower each element.
-                let items = match sub.slice.as_ref() {
-                    Expr::Tuple(t) => t
-                        .elts
+                let items = if let Expr::Tuple(t) = sub.slice.as_ref() {
+                    t.elts
                         .iter()
                         .map(|e| self.annotation_to_hir(e))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    single => vec![self.annotation_to_hir(single)?],
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    vec![self.annotation_to_hir(&sub.slice)?]
                 };
                 Ok(self.intern_type(Type::Tuple(items)))
             }
@@ -769,31 +859,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Ok(self.intern_type(Type::Optional(inner)))
             }
             "Union" => {
-                let types = match sub.slice.as_ref() {
-                    Expr::Tuple(t) => t
-                        .elts
+                let types = if let Expr::Tuple(t) = sub.slice.as_ref() {
+                    t.elts
                         .iter()
                         .map(|e| self.annotation_to_hir(e))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    single => return self.annotation_to_hir(single),
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    return self.annotation_to_hir(&sub.slice);
                 };
                 self.union_from_types(types, span)
             }
             "Callable" => {
                 // `Callable[[P1, P2], R]`
                 let (param_list_expr, return_expr) = two_type_args(&sub.slice, span)?;
-                let params = match param_list_expr {
-                    Expr::List(l) => l
-                        .elts
+                let params = if let Expr::List(l) = param_list_expr {
+                    l.elts
                         .iter()
                         .map(|e| self.annotation_to_hir(e))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    _ => {
-                        return Err(SmeltError::unsupported(
-                            span,
-                            "Callable first argument must be a list of param types, e.g. [int, str]",
-                        ));
-                    }
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "Callable first argument must be a list of param types, e.g. [int, str]",
+                    ));
                 };
                 let return_ty = self.annotation_to_hir(return_expr)?;
                 Ok(self.intern_type(Type::Function(FunctionType {
@@ -809,13 +897,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             _ => {
                 // Generic class: `Foo[T, U]`
                 let sym = self.intern_name(type_name);
-                let args = match sub.slice.as_ref() {
-                    Expr::Tuple(t) => t
-                        .elts
+                let args = if let Expr::Tuple(t) = sub.slice.as_ref() {
+                    t.elts
                         .iter()
                         .map(|e| self.annotation_to_hir(e))
-                        .collect::<Result<Vec<_>, _>>()?,
-                    single => vec![self.annotation_to_hir(single)?],
+                        .collect::<Result<Vec<_>, _>>()?
+                } else {
+                    vec![self.annotation_to_hir(&sub.slice)?]
                 };
                 Ok(self.intern_type(Type::Class { name: sym, args }))
             }
@@ -838,7 +926,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn union_from_types(
         &mut self,
         mut types: Vec<TypeId>,
-        _span: Span,
+        span: Span,
     ) -> Result<TypeId, SmeltError> {
         let none_ty = self.intern_type(Type::None);
         let has_none = types.iter().any(|&t| t == none_ty);
@@ -846,8 +934,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         match (types.len(), has_none) {
             (0, _) => Ok(none_ty),
-            (1, true) => Ok(self.intern_type(Type::Optional(types[0]))),
-            (1, false) => Ok(types[0]),
+            (1, true) => {
+                let [inner] = types.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "internal error: union normalization expected one non-None type",
+                    ));
+                };
+                Ok(self.intern_type(Type::Optional(*inner)))
+            }
+            (1, false) => {
+                let [inner] = types.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "internal error: union normalization expected one non-None type",
+                    ));
+                };
+                Ok(*inner)
+            }
             (_, true) => {
                 types.push(none_ty);
                 Ok(self.intern_type(Type::Union(types)))
@@ -860,10 +964,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Statement lowering
     // -----------------------------------------------------------------------
 
+    /// Lower one statement into the body's root block.
     fn statement(&mut self, stmt: &Stmt, body: &mut Body) -> Result<(), SmeltError> {
         self.statement_in_block(stmt, body, body.root)
     }
 
+    /// Lower one statement into a specific target block.
     fn statement_in_block(
         &mut self,
         stmt: &Stmt,
@@ -882,11 +988,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "multiple assignment targets are not supported",
                     ));
                 }
-                if Self::is_destructuring_target(&s.targets[0]) {
+                let [target_expr] = s.targets.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(s.range),
+                        "multiple assignment targets are not supported",
+                    ));
+                };
+                if Self::is_destructuring_target(target_expr) {
                     let value = self.expression(&s.value, body)?;
-                    let value_ty = body.exprs[value.0 as usize].ty;
+                    let value_ty = Self::expr_ty(body, value);
                     let pat =
-                        self.binding_pattern_from_target(&s.targets[0], body, Some(value_ty))?;
+                        self.binding_pattern_from_target(target_expr, body, Some(value_ty))?;
                     body.push_stmt_to_block(
                         block,
                         HirStmt::Let {
@@ -897,7 +1009,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     );
                     return Ok(());
                 }
-                let target = self.expression(&s.targets[0], body)?;
+                let target = self.expression(target_expr, body)?;
                 let value = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Assign { target, value });
                 Ok(())
@@ -994,9 +1106,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "nested class definitions are not yet supported",
             )),
 
-            other => Err(SmeltError::unsupported(
-                self.span(other.range()),
-                format!("unsupported statement: {}", stmt_kind_name(other)),
+            Stmt::Delete(_)
+            | Stmt::TypeAlias(_)
+            | Stmt::With(_)
+            | Stmt::Try(_)
+            | Stmt::Assert(_)
+            | Stmt::Global(_)
+            | Stmt::Nonlocal(_)
+            | Stmt::IpyEscapeCommand(_) => Err(SmeltError::unsupported(
+                self.span(stmt.range()),
+                format!("unsupported statement: {}", stmt_kind_name(stmt)),
             )),
         }
     }
@@ -1091,8 +1210,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .collect::<Result<Vec<_>, _>>()?;
                 Ok(body.push_pattern(HirPattern::Tuple(patterns)))
             }
-            other => Err(SmeltError::unsupported(
-                self.span(other.range()),
+            Expr::BoolOp(_)
+            | Expr::Named(_)
+            | Expr::BinOp(_)
+            | Expr::UnaryOp(_)
+            | Expr::Lambda(_)
+            | Expr::If(_)
+            | Expr::Dict(_)
+            | Expr::Set(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_)
+            | Expr::Generator(_)
+            | Expr::Await(_)
+            | Expr::Yield(_)
+            | Expr::YieldFrom(_)
+            | Expr::Compare(_)
+            | Expr::Call(_)
+            | Expr::FString(_)
+            | Expr::TString(_)
+            | Expr::StringLiteral(_)
+            | Expr::BytesLiteral(_)
+            | Expr::NumberLiteral(_)
+            | Expr::BooleanLiteral(_)
+            | Expr::NoneLiteral(_)
+            | Expr::EllipsisLiteral(_)
+            | Expr::Attribute(_)
+            | Expr::Subscript(_)
+            | Expr::Starred(_)
+            | Expr::Slice(_)
+            | Expr::IpyEscapeCommand(_) => Err(SmeltError::unsupported(
+                self.span(target.range()),
                 "destructuring targets may only contain names, tuples, or lists",
             )),
         }
@@ -1110,10 +1258,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Operator::Sub => BinOp::Sub,
             Operator::Mult => BinOp::Mul,
             Operator::Div => BinOp::Div,
-            other => {
+            Operator::MatMult
+            | Operator::Mod
+            | Operator::Pow
+            | Operator::LShift
+            | Operator::RShift
+            | Operator::BitOr
+            | Operator::BitXor
+            | Operator::BitAnd
+            | Operator::FloorDiv => {
+                let op = aug.op;
                 return Err(SmeltError::unsupported(
                     self.span(aug.range),
-                    format!("augmented assignment operator '{other}' is not supported"),
+                    format!("augmented assignment operator '{op:?}' is not supported"),
                 ));
             }
         };
@@ -1122,7 +1279,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let rhs = self.expression(&aug.value, body)?;
 
         // Determine the result type from the target expression's type.
-        let lhs_ty = body.exprs[target.0 as usize].ty;
+        let lhs_ty = Self::expr_ty(body, target);
         let compound = body.push_expr(HirExpr {
             kind: ExprKind::BinOp {
                 op,
@@ -1184,7 +1341,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // `elif` — recurse for the tail.
             let cond = self.expression(test, body)?;
             let then_block = self.block_from_stmts(&first.body, body)?;
-            let else_block = self.elif_else_chain(&clauses[1..], body)?;
+            let else_block = self.elif_else_chain(clauses.get(1..).unwrap_or(&[]), body)?;
             body.push_stmt_to_block(
                 block,
                 HirStmt::If {
@@ -1224,7 +1381,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
 
         let iter = self.expression(&for_stmt.iter, body)?;
-        let iter_ty = body.exprs[iter.0 as usize].ty;
+        let iter_ty = Self::expr_ty(body, iter);
         let item_ty = self
             .iter_item_type(iter_ty)
             .unwrap_or_else(|| self.intern_type(Type::None));
@@ -1301,9 +1458,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     default_block = Some(self.block_from_stmts(&case.body, body)?);
                 }
 
-                other => {
+                RuffPattern::MatchSequence(_)
+                | RuffPattern::MatchMapping(_)
+                | RuffPattern::MatchClass(_)
+                | RuffPattern::MatchStar(_)
+                | RuffPattern::MatchAs(_)
+                | RuffPattern::MatchOr(_) => {
                     return Err(SmeltError::unsupported(
-                        self.span(other.range()),
+                        self.span(case.range),
                         "only literal and wildcard match patterns are supported",
                     ));
                 }
@@ -1341,12 +1503,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Expr::UnaryOp(u) if u.op == RuffUnaryOp::USub => {
                 if let Expr::NumberLiteral(n) = u.operand.as_ref() {
                     match &n.value {
-                        Number::Int(i) => i.as_i64().map(|v| Literal::Int(-v)).ok_or_else(|| {
-                            SmeltError::unsupported(
-                                self.span(n.range),
-                                "integer literal out of i64 range",
-                            )
-                        }),
+                        Number::Int(i) => i
+                            .as_i64()
+                            .and_then(|v| v.checked_neg())
+                            .map(Literal::Int)
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(n.range),
+                                    "integer literal out of i64 range",
+                                )
+                            }),
                         Number::Float(f) => Ok(Literal::Float(-f)),
                         Number::Complex { .. } => Err(SmeltError::unsupported(
                             self.span(u.range),
@@ -1360,7 +1526,38 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ))
                 }
             }
-            _ => Err(SmeltError::unsupported(
+            Expr::UnaryOp(_) => Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                "only literal values are supported in match patterns",
+            )),
+            Expr::BoolOp(_)
+            | Expr::Named(_)
+            | Expr::BinOp(_)
+            | Expr::Lambda(_)
+            | Expr::If(_)
+            | Expr::Dict(_)
+            | Expr::Set(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_)
+            | Expr::Generator(_)
+            | Expr::Await(_)
+            | Expr::Yield(_)
+            | Expr::YieldFrom(_)
+            | Expr::Compare(_)
+            | Expr::Call(_)
+            | Expr::FString(_)
+            | Expr::TString(_)
+            | Expr::BytesLiteral(_)
+            | Expr::EllipsisLiteral(_)
+            | Expr::Attribute(_)
+            | Expr::Subscript(_)
+            | Expr::Starred(_)
+            | Expr::Name(_)
+            | Expr::List(_)
+            | Expr::Tuple(_)
+            | Expr::Slice(_)
+            | Expr::IpyEscapeCommand(_) => Err(SmeltError::unsupported(
                 self.span(expr.range()),
                 "only literal values are supported in match patterns",
             )),
@@ -1387,6 +1584,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Expression lowering
     // -----------------------------------------------------------------------
 
+    /// Lower an expression without a type hint.
     fn expression(
         &mut self,
         expr: &Expr,
@@ -1395,6 +1593,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.expression_with_hint(expr, body, None)
     }
 
+    /// Lower an expression with an optional expected type hint.
     fn expression_with_hint(
         &mut self,
         expr: &Expr,
@@ -1485,7 +1684,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ));
                 }
                 let awaited = self.expression(&await_expr.value, body)?;
-                let awaited_ty = body.exprs[awaited.0 as usize].ty;
+                let awaited_ty = Self::expr_ty(body, awaited);
                 let ty = self.future_inner_type(awaited_ty).ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(await_expr.range),
@@ -1502,7 +1701,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // --- Attribute access: `obj.field` ---
             Expr::Attribute(attr) => {
                 let receiver = self.expression(&attr.value, body)?;
-                let receiver_ty = body.exprs[receiver.0 as usize].ty;
+                let receiver_ty = Self::expr_ty(body, receiver);
                 let field_ty = self.field_type(receiver_ty)?;
                 let field = self.intern_name(attr.attr.as_str());
                 Ok(body.push_expr(HirExpr {
@@ -1515,7 +1714,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // --- Subscript: `obj[index]` ---
             Expr::Subscript(sub) => {
                 let receiver = self.expression(&sub.value, body)?;
-                let receiver_ty = body.exprs[receiver.0 as usize].ty;
+                let receiver_ty = Self::expr_ty(body, receiver);
                 let index_ty = self.index_type(receiver_ty)?;
                 let index = self.expression(&sub.slice, body)?;
                 Ok(body.push_expr(HirExpr {
@@ -1533,19 +1732,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .map(|e| self.expression(e, body))
                     .collect::<Result<_, _>>()?;
                 // Infer element type from hint or first element.
-                let ty = match type_hint {
-                    Some(h) => h,
-                    None => match elts.first().copied() {
-                        Some(first_id) => {
-                            let elem_ty = body.exprs[first_id.0 as usize].ty;
-                            self.intern_type(Type::List(elem_ty))
-                        }
-                        None => {
-                            let none = self.intern_type(Type::None);
-                            self.intern_type(Type::List(none))
-                        }
-                    },
-                };
+                let ty = type_hint.unwrap_or_else(|| match elts.first().copied() {
+                    Some(first_id) => {
+                        let elem_ty = Self::expr_ty(body, first_id);
+                        self.intern_type(Type::List(elem_ty))
+                    }
+                    None => {
+                        let none = self.intern_type(Type::None);
+                        self.intern_type(Type::List(none))
+                    }
+                });
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::ListLit(elts),
                     ty,
@@ -1559,10 +1755,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .iter()
                     .map(|e| self.expression(e, body))
                     .collect::<Result<_, _>>()?;
-                let elem_types: Vec<TypeId> = elts
-                    .iter()
-                    .map(|&id| body.exprs[id.0 as usize].ty)
-                    .collect();
+                let elem_types: Vec<TypeId> =
+                    elts.iter().map(|&id| Self::expr_ty(body, id)).collect();
                 let ty = self.intern_type(Type::Tuple(elem_types));
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::TupleLit(elts),
@@ -1577,19 +1771,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .iter()
                     .map(|e| self.expression(e, body))
                     .collect::<Result<_, _>>()?;
-                let ty = match type_hint {
-                    Some(h) => h,
-                    None => match elts.first().copied() {
-                        Some(first_id) => {
-                            let elem_ty = body.exprs[first_id.0 as usize].ty;
-                            self.intern_type(Type::Set(elem_ty))
-                        }
-                        None => {
-                            let none = self.intern_type(Type::None);
-                            self.intern_type(Type::Set(none))
-                        }
-                    },
-                };
+                let ty = type_hint.unwrap_or_else(|| match elts.first().copied() {
+                    Some(first_id) => {
+                        let elem_ty = Self::expr_ty(body, first_id);
+                        self.intern_type(Type::Set(elem_ty))
+                    }
+                    None => {
+                        let none = self.intern_type(Type::None);
+                        self.intern_type(Type::Set(none))
+                    }
+                });
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::SetLit(elts),
                     ty,
@@ -1610,20 +1801,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let val = self.expression(&item.value, body)?;
                     entries.push((key, val));
                 }
-                let ty = match type_hint {
-                    Some(h) => h,
-                    None => match entries.first().copied() {
-                        Some((k_id, v_id)) => {
-                            let k_ty = body.exprs[k_id.0 as usize].ty;
-                            let v_ty = body.exprs[v_id.0 as usize].ty;
-                            self.intern_type(Type::Dict(k_ty, v_ty))
-                        }
-                        None => {
-                            let none = self.intern_type(Type::None);
-                            self.intern_type(Type::Dict(none, none))
-                        }
-                    },
-                };
+                let ty = type_hint.unwrap_or_else(|| match entries.first().copied() {
+                    Some((k_id, v_id)) => {
+                        let k_ty = Self::expr_ty(body, k_id);
+                        let v_ty = Self::expr_ty(body, v_id);
+                        self.intern_type(Type::Dict(k_ty, v_ty))
+                    }
+                    None => {
+                        let none = self.intern_type(Type::None);
+                        self.intern_type(Type::Dict(none, none))
+                    }
+                });
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::DictLit(entries),
                     ty,
@@ -1631,9 +1819,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }))
             }
 
-            other => Err(SmeltError::unsupported(
-                self.span(other.range()),
-                format!("unsupported expression: {}", expr_kind_name(other)),
+            Expr::Named(_)
+            | Expr::Lambda(_)
+            | Expr::If(_)
+            | Expr::ListComp(_)
+            | Expr::SetComp(_)
+            | Expr::DictComp(_)
+            | Expr::Generator(_)
+            | Expr::Yield(_)
+            | Expr::YieldFrom(_)
+            | Expr::FString(_)
+            | Expr::TString(_)
+            | Expr::BytesLiteral(_)
+            | Expr::EllipsisLiteral(_)
+            | Expr::Starred(_)
+            | Expr::Slice(_)
+            | Expr::IpyEscapeCommand(_) => Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                format!("unsupported expression: {}", expr_kind_name(expr)),
             )),
         }
     }
@@ -1650,10 +1853,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Operator::Sub => (BinOp::Sub, false),
             Operator::Mult => (BinOp::Mul, false),
             Operator::Div => (BinOp::Div, false),
-            other => {
+            Operator::MatMult
+            | Operator::Mod
+            | Operator::Pow
+            | Operator::LShift
+            | Operator::RShift
+            | Operator::BitOr
+            | Operator::BitXor
+            | Operator::BitAnd
+            | Operator::FloorDiv => {
                 return Err(SmeltError::unsupported(
                     span,
-                    format!("binary operator '{other}' is not supported"),
+                    format!("binary operator '{}' is not supported", b.op),
                 ));
             }
         };
@@ -1662,7 +1873,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = if result_is_bool {
             self.intern_type(Type::Bool)
         } else {
-            body.exprs[lhs.0 as usize].ty
+            Self::expr_ty(body, lhs)
         };
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::BinOp { op, lhs, rhs },
@@ -1684,13 +1895,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let bool_ty = self.intern_type(Type::Bool);
 
         // Left-fold: ((a op b) op c)
-        let mut acc = self.expression(&b.values[0], body)?;
-        for value in &b.values[1..] {
+        let values: &[Expr] = b.values.as_ref();
+        let Some((first, rest)) = values.split_first() else {
+            return Err(SmeltError::unsupported(
+                self.span(b.range),
+                "boolean operations require at least one value",
+            ));
+        };
+        let mut acc = self.expression(first, body)?;
+        for value in rest {
             let rhs = self.expression(value, body)?;
             let span = Span::new(
                 self.file_id,
-                body.exprs[acc.0 as usize].span.start,
-                body.exprs[rhs.0 as usize].span.end,
+                Self::expr_span(body, acc).start,
+                Self::expr_span(body, rhs).end,
             );
             acc = body.push_expr(HirExpr {
                 kind: ExprKind::BinOp { op, lhs: acc, rhs },
@@ -1714,28 +1932,42 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "chained comparisons (e.g. a < b < c) are not supported",
             ));
         }
-        if matches!(c.ops[0], CmpOp::In | CmpOp::NotIn) {
-            return self.string_contains_compare(c, body);
-        }
-        let op = match c.ops[0] {
+        let [op] = c.ops.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "chained comparisons (e.g. a < b < c) are not supported",
+            ));
+        };
+        let bin_op = match op {
             CmpOp::Eq => BinOp::Eq,
             CmpOp::NotEq => BinOp::NotEq,
             CmpOp::Lt => BinOp::Lt,
             CmpOp::LtE => BinOp::Lte,
             CmpOp::Gt => BinOp::Gt,
             CmpOp::GtE => BinOp::Gte,
-            other => {
+            CmpOp::In | CmpOp::NotIn => return self.string_contains_compare(c, body, *op),
+            CmpOp::Is | CmpOp::IsNot => {
                 return Err(SmeltError::unsupported(
                     span,
-                    format!("comparison operator '{other}' is not supported"),
+                    format!("comparison operator '{op}' is not supported"),
                 ));
             }
         };
         let lhs = self.expression(&c.left, body)?;
-        let rhs = self.expression(&c.comparators[0], body)?;
+        let [rhs_expr] = c.comparators.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "chained comparisons (e.g. a < b < c) are not supported",
+            ));
+        };
+        let rhs = self.expression(rhs_expr, body)?;
         let ty = self.intern_type(Type::Bool);
         Ok(body.push_expr(HirExpr {
-            kind: ExprKind::BinOp { op, lhs, rhs },
+            kind: ExprKind::BinOp {
+                op: bin_op,
+                lhs,
+                rhs,
+            },
             ty,
             span,
         }))
@@ -1746,12 +1978,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         c: &ruff_python_ast::ExprCompare,
         body: &mut Body,
+        op: CmpOp,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(c.range);
         let needle = self.expression(&c.left, body)?;
-        let haystack = self.expression(&c.comparators[0], body)?;
-        let needle_ty = body.exprs[needle.0 as usize].ty;
-        let haystack_ty = body.exprs[haystack.0 as usize].ty;
+        let [haystack_expr] = c.comparators.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "string containment requires a single comparison target",
+            ));
+        };
+        let haystack = self.expression(haystack_expr, body)?;
+        let needle_ty = Self::expr_ty(body, needle);
+        let haystack_ty = Self::expr_ty(body, haystack);
         if self.ctx.krate.types.get(needle_ty) != Some(&Type::String)
             || self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
         {
@@ -1766,7 +2005,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ty: bool_ty,
             span,
         });
-        if c.ops[0] == CmpOp::NotIn {
+        if op == CmpOp::NotIn {
             Ok(body.push_expr(HirExpr {
                 kind: ExprKind::UnaryOp {
                     op: UnaryOp::Not,
@@ -1790,10 +2029,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let (op, result_is_bool) = match u.op {
             RuffUnaryOp::Not => (UnaryOp::Not, true),
             RuffUnaryOp::USub => (UnaryOp::Neg, false),
-            other => {
+            RuffUnaryOp::Invert | RuffUnaryOp::UAdd => {
                 return Err(SmeltError::unsupported(
                     span,
-                    format!("unary operator '{other}' is not supported"),
+                    format!("unary operator '{}' is not supported", u.op),
                 ));
             }
         };
@@ -1801,7 +2040,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = if result_is_bool {
             self.intern_type(Type::Bool)
         } else {
-            body.exprs[operand.0 as usize].ty
+            Self::expr_ty(body, operand)
         };
         Ok(body.push_expr(HirExpr {
             kind: ExprKind::UnaryOp { op, operand },
@@ -1822,6 +2061,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Ok(expr);
         }
         if let Some(expr) = self.string_case_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.string_split_call_expression(call, body)? {
             return Ok(expr);
         }
 
@@ -1854,8 +2096,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "len() requires exactly one argument",
                     ));
                 }
-                let operand = self.expression(&call.arguments.args[0], body)?;
-                let operand_ty = body.exprs[operand.0 as usize].ty;
+                let [operand_expr] = call.arguments.args.as_ref() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "len() requires exactly one argument",
+                    ));
+                };
+                let operand = self.expression(operand_expr, body)?;
+                let operand_ty = Self::expr_ty(body, operand);
                 if !self.supports_stdlib_len(operand_ty) {
                     return Err(SmeltError::unsupported(
                         span,
@@ -1875,7 +2123,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Expr::Name(name) = call.func.as_ref() {
             let name_str = name.id.as_str();
             if let Some(&item_id) = self.items.get(name_str) {
-                let item = &self.ctx.krate.items[item_id.0 as usize];
+                let item = self.item_ref(item_id);
                 match item {
                     Item::Class(c) => {
                         // Constructor call: `MyClass(args...)`
@@ -1918,7 +2166,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             span,
                         }));
                     }
-                    _ => {}
+                    Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {}
                 }
             }
         }
@@ -1951,7 +2199,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         }
         let operand = self.expression(&attr.value, body)?;
-        let operand_ty = body.exprs[operand.0 as usize].ty;
+        let operand_ty = Self::expr_ty(body, operand);
         if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
             return Err(SmeltError::unsupported(
                 span,
@@ -1961,6 +2209,55 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.intern_type(Type::String);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringCase { op, operand },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python string splitting.
+    fn string_split_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "split" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        if call.arguments.args.len() != 1 {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.split() requires exactly one separator argument",
+            ));
+        }
+        let haystack = self.expression(&attr.value, body)?;
+        let [separator_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.split() requires exactly one separator argument",
+            ));
+        };
+        let separator = self.expression(separator_expr, body)?;
+        let haystack_ty = Self::expr_ty(body, haystack);
+        let separator_ty = Self::expr_ty(body, separator);
+        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
+            || self.ctx.krate.types.get(separator_ty) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.split() requires str receiver and separator",
+            ));
+        }
+        let string_ty = self.intern_type(Type::String);
+        let ty = self.intern_type(Type::List(string_ty));
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringSplit {
+                haystack,
+                separator,
+            },
             ty,
             span,
         })))
@@ -2002,7 +2299,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let outputs = args
                     .iter()
                     .map(|arg| {
-                        self.future_inner_type(body.exprs[arg.0 as usize].ty)
+                        self.future_inner_type(Self::expr_ty(body, *arg))
                             .ok_or_else(|| {
                                 SmeltError::unsupported(
                                     span,
@@ -2029,7 +2326,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "asyncio.sleep requires exactly one duration argument",
                     ));
                 }
-                let duration = self.expression(&call.arguments.args[0], body)?;
+                let [duration_expr] = call.arguments.args.as_ref() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "asyncio.sleep requires exactly one duration argument",
+                    ));
+                };
+                let duration = self.expression(duration_expr, body)?;
                 let none_ty = self.intern_type(Type::None);
                 let ty = self.intern_type(Type::Future(none_ty));
                 Ok(Some(body.push_expr(HirExpr {
@@ -2048,9 +2351,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "asyncio.create_task requires exactly one awaitable argument",
                     ));
                 }
-                let future = self.expression(&call.arguments.args[0], body)?;
+                let [future_expr] = call.arguments.args.as_ref() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "asyncio.create_task requires exactly one awaitable argument",
+                    ));
+                };
+                let future = self.expression(future_expr, body)?;
                 let inner = self
-                    .future_inner_type(body.exprs[future.0 as usize].ty)
+                    .future_inner_type(Self::expr_ty(body, future))
                     .ok_or_else(|| {
                         SmeltError::unsupported(
                             span,
@@ -2074,10 +2383,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "asyncio.wait_for requires an awaitable and timeout",
                     ));
                 }
-                let future = self.expression(&call.arguments.args[0], body)?;
-                let timeout = self.expression(&call.arguments.args[1], body)?;
+                let [future_expr, timeout_expr, ..] = call.arguments.args.as_ref() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "asyncio.wait_for requires an awaitable and timeout",
+                    ));
+                };
+                let future = self.expression(future_expr, body)?;
+                let timeout = self.expression(timeout_expr, body)?;
                 let inner = self
-                    .future_inner_type(body.exprs[future.0 as usize].ty)
+                    .future_inner_type(Self::expr_ty(body, future))
                     .ok_or_else(|| {
                         SmeltError::unsupported(
                             span,
@@ -2127,7 +2442,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let span = self.span(range);
 
         if let Some(&local) = self.locals.get(name) {
-            let ty = body.locals[local.0 as usize].ty;
+            let ty = Self::local_ty(body, local);
             return Ok(body.push_expr(HirExpr {
                 kind: ExprKind::Local(local),
                 ty,
@@ -2136,7 +2451,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
 
         if let Some(&item_id) = self.items.get(name) {
-            let ty = match &self.ctx.krate.items[item_id.0 as usize] {
+            let ty = match self.item_ref(item_id) {
                 Item::Function(f) => f.return_ty,
                 Item::Class(c) => {
                     let sym = c.name;
@@ -2145,7 +2460,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         args: vec![],
                     })
                 }
-                _ => self.intern_type(Type::None),
+                Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
+                    self.intern_type(Type::None)
+                }
             };
             return Ok(body.push_expr(HirExpr {
                 kind: ExprKind::Item(item_id),
@@ -2269,10 +2586,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Interning helpers
     // -----------------------------------------------------------------------
 
+    /// Intern a source-level identifier name.
     fn intern_name(&mut self, name: &str) -> Symbol {
         self.ctx.krate.symbols.intern(name)
     }
 
+    /// Intern an HIR type and return its canonical ID.
     fn intern_type(&mut self, ty: Type) -> TypeId {
         self.ctx.krate.types.intern(ty)
     }
@@ -2281,6 +2600,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Span helpers
     // -----------------------------------------------------------------------
 
+    /// Convert a Ruff text range to an HIR span in the current file.
     fn span(&self, range: TextRange) -> Span {
         range_to_span(self.file_id, range)
     }

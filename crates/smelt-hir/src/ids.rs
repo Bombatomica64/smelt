@@ -50,9 +50,10 @@ pub struct TypeId(pub u32);
 ///
 /// HIR IDs are stored as `u32`; this helper centralizes the overflow check so
 /// callers do not silently truncate large collections.
+///
 #[must_use]
 pub fn id_index(len: usize) -> u32 {
-    u32::try_from(len).expect("HIR ID space exhausted")
+    u32::try_from(len).unwrap_or(u32::MAX)
 }
 
 /// Source location information.

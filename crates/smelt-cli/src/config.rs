@@ -40,26 +40,31 @@ pub struct Config {
 
 impl Config {
     /// Get the project name.
+    #[must_use]
     pub fn project_name(&self) -> &str {
         &self.project.name
     }
 
     /// Get the list of source file entries.
+    #[must_use]
     pub fn entries(&self) -> &[PathBuf] {
         &self.sources.entries
     }
 
     /// Get the output target directory path.
+    #[must_use]
     pub fn output_target(&self) -> &PathBuf {
         &self.output.target
     }
 
     /// Get the optional output crate name override.
+    #[must_use]
     pub fn output_crate_name(&self) -> Option<&str> {
         self.output.crate_name.as_deref()
     }
 
     /// Whether the generated output should be built automatically.
+    #[must_use]
     pub fn should_build_output(&self) -> bool {
         self.output.build.unwrap_or(false)
     }

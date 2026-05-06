@@ -10,6 +10,10 @@ use std::fs;
 use crate::config::Config;
 
 /// Parse a Smelt configuration file from TOML.
+///
+/// # Errors
+///
+/// Returns an error when the file cannot be read or when TOML deserialization fails.
 pub fn parse(path: &str) -> Result<Config, Box<dyn std::error::Error>> {
     fs::read_to_string(path)
         .map_err(Into::into)

@@ -10,6 +10,7 @@ use smelt_hir::{FileId, Span};
 
 use crate::SmeltError;
 
+/// Convert a Ruff text range into a `smelt_hir::Span` for the given file ID.
 pub(crate) fn range_to_span(file_id: FileId, range: TextRange) -> Span {
     Span::new(file_id, range.start().to_u32(), range.end().to_u32())
 }
