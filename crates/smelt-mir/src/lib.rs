@@ -191,6 +191,33 @@ fail();
     }
 
     #[test]
+    fn async_await_lowers_to_mir_await_rvalue() {
+        let mut ctx = HirCtx::new();
+        to_hir(
+            "async function lift(value: number): Promise<number> {
+  return value;
+}
+
+async function run(): Promise<number> {
+  return await lift(5);
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("HIR");
+
+        let mir = lower_hir(&ctx.krate).expect("async lowers");
+        assert!(validate(&mir).is_empty());
+        let output = format_compact(&mir);
+
+        assert!(output.contains("async fn lift (FuncId(0)) -> Float"));
+        assert!(output.contains("async fn run (FuncId(1)) -> Float"));
+        assert!(output.contains("%0 = call fn0(5.0) -> bb1"));
+        assert!(output.contains("%1 = await copy %0"));
+    }
+
+    #[test]
     fn try_catch_lowers_caught_throw_to_cfg() {
         let mut ctx = HirCtx::new();
         to_hir(

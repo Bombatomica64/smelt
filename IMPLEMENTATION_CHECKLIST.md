@@ -5,9 +5,9 @@
 - [x] Phase 0 baseline checked on current checkout.
 - [x] Phase 1 TypeScript sync expression support.
 - [x] Phase 2 mutation and loops.
-- [ ] Phase 3 classes, interfaces, constructors, methods.
-- [ ] Phase 4 imports and multi-file TypeScript.
-- [ ] Phase 5 async, await, and Promise lowering.
+- [x] Phase 3 classes, interfaces, constructors, methods.
+- [x] Phase 4 imports and multi-file TypeScript.
+- [x] Phase 5 async, await, and Promise lowering.
 - [ ] Phase 6 standard library mapping.
 - [ ] Phase 7 Express prep slice.
 
@@ -61,10 +61,124 @@ Current Phase 2 status: complete on the current checkout. The integration suite 
 `12` through `17`, including nested loop control flow, switch cases with explicit breaks, `for...of`,
 and mutating array assignments.
 
+## Phase 3: TypeScript Object Model
+
+- [x] Added HIR item model for classes, interfaces, visibility, class kind, and function ownership.
+- [x] Propagated class kind, base, fields, constructor, methods, interfaces, and visibility through MIR.
+- [x] TypeScript support for class declarations with fields.
+- [x] TypeScript support for constructor lowering and `new Class(...)`.
+- [x] TypeScript support for `this` as a method/constructor local.
+- [x] TypeScript support for field reads and writes on class values.
+- [x] TypeScript support for sync method declarations and method calls.
+- [x] TypeScript support for mutating methods.
+- [x] TypeScript support for interface field declarations.
+- [x] TypeScript support for interface method signatures.
+- [x] TypeScript validation for implemented interface fields and method signatures.
+- [x] TypeScript captures private/protected field visibility as metadata.
+- [x] Rust codegen emits class structs and impl blocks for constructors and methods.
+- [x] Fixtures `18` through `25`.
+- [x] Decide whether single inheritance is considered complete for Phase 3 or remains metadata-only.
+- [x] Add/confirm negative coverage for unsupported object-model features: optional fields, computed fields, generic classes/interfaces, static members, getters/setters, decorators, and abstract classes.
+- [x] Object-model v1 follow-up:
+  - [x] Defer TS/Py optional fields as `Option<T>` / `T | None` until explicit construction semantics are designed.
+    - [x] TS optional interface fields participate in shape checks.
+  - [x] Support TS interface inheritance by flattening inherited requirements before shape checks.
+  - [x] Support literal computed TS property names; reject dynamic computed names.
+  - [x] Defer static methods and static constants/class vars until associated/module item lowering is designed.
+  - [x] Defer abstract classes/methods beyond current frontend rejection until enforcement semantics are designed.
+  - [x] Defer getter/setter and `@property` sugar until method-sugar lowering is designed.
+  - [x] Decide single-inheritance lowering: metadata-only for now.
+  - [x] Defer generic classes/interfaces unless monomorphization becomes the active milestone.
+- [x] Re-run full verification after the remaining Phase 3 cleanup.
+
+Current Phase 3 status: complete for the current v1 scope. The completed slice covers the
+class/interface core path end-to-end, including generated Rust for constructors, methods, field
+access, and interface implementation checks. Single inheritance remains metadata-only, and the
+unsupported object-model features are covered by frontend rejection tests or explicitly deferred.
+
+## Phase 4: Module Linking And LSP Stubs
+
+- [x] Added path-aware TypeScript lowering while preserving the historical `main` module name.
+- [x] TypeScript import declarations are captured in HIR import metadata.
+- [x] TypeScript named/default/namespace imports create local aliases for already-lowered items.
+- [x] Added path-aware Python lowering while preserving the historical `main` module name.
+- [x] Python `import` and `from ... import ...` statements are captured in HIR import metadata.
+- [x] Python imported names create local aliases for already-lowered items.
+- [x] Manifest `check` lowers TypeScript and Python entries and emits LSP declaration stubs.
+- [x] Build/check paths emit both `.d.ts` and `.pyi` files for every lowered entry.
+- [x] Added CLI coverage for linked TypeScript modules and generated `.d.ts`/`.pyi` files.
+- [x] Added CLI coverage for linked Python modules and generated `.d.ts`/`.pyi` files.
+- [x] Manifest lowering shares one HIR crate across TypeScript and Python frontends in entry order.
+- [x] Added CLI coverage for a Python entry importing and running a TypeScript function.
+- [x] `just try-modules` builds and runs a Python entry that imports a TypeScript function.
+- [x] Add order-independent module graph resolution instead of relying on manifest order.
+  - [x] Scan TypeScript and Python import declarations before lowering.
+  - [x] Resolve import specifiers to manifest entries across `.ts` and `.py` files.
+  - [x] Lower manifest entries in dependency order.
+  - [x] Add CLI coverage for importers listed before dependencies.
+- [x] Add import path canonicalization for package roots, index modules, and Python package directories.
+  - [x] Resolve extensionless `.ts` / `.py` manifest imports.
+  - [x] Resolve TypeScript package-style `index.ts` imports.
+  - [x] Add CLI coverage for Python package directory `__init__.py` imports.
+- [x] Expand mixed-language linking beyond manifest-order item imports.
+
+Current Phase 4 status: complete for the current v1 scope. Manifest entries can reference items
+lowered from local dependencies across TypeScript and Python, even when manifest entries list
+importers before dependencies. Package-style TypeScript `index.ts`, Python package `__init__.py`,
+and both Python-to-TypeScript and TypeScript-to-Python function imports have CLI coverage.
+
+## Phase 5: Async Model
+
+- [x] Add async metadata to HIR functions and methods.
+- [x] Represent async bodies in HIR as an explicit state machine so frontends can lower `await`
+      without baking in a specific backend runtime too early.
+- [x] Lower TypeScript `async` functions into the HIR async state-machine model.
+- [x] Lower TypeScript `await` into state-machine suspension points.
+- [x] Map TypeScript `Promise<T>` to the HIR async result/future representation.
+- [x] Map common TypeScript promise combinators:
+  - [x] `Promise.all`.
+  - [x] `Promise.race`.
+  - [x] `Promise.allSettled`.
+- [x] Add TypeScript timer/platform shims only where needed by fixtures, keeping the core
+      `Promise`/`await` lowering independent of those APIs.
+- [x] Lower Python `async def` and `await` into the same HIR async state-machine model.
+- [x] Create a separate crate for Python `asyncio` transformations.
+  - [x] Keep the crate responsible only for recognizing and rewriting `asyncio` APIs.
+  - [x] Rewrite into Smelt runtime abstractions instead of directly depending on Tokio/Axum
+        concepts from the Python frontend.
+  - [x] Preserve the option to swap the runtime backend later, even if Tokio/Axum remains the
+        expected target.
+- [x] Add Python `asyncio` rewrite coverage for:
+  - [x] `asyncio.create_task`.
+  - [x] `asyncio.gather`.
+  - [x] `asyncio.sleep`.
+  - [x] `asyncio.wait_for`.
+  - [x] `asyncio.Queue`.
+  - [x] `asyncio.Lock`.
+- [x] Reject or explicitly mark unsupported lower-level event-loop APIs in the first async slice:
+      `get_event_loop`, `get_running_loop`, `call_soon`, custom futures, transports, and
+      protocols.
+- [x] Define cancellation semantics for HIR async tasks.
+- [x] Add MIR lowering for async state machines.
+- [x] Add Rust codegen for async state machines and runtime-backed task operations.
+  - [x] Emit basic Rust `async fn` and `.await` for TypeScript async/await.
+  - [x] Add runtime-backed task operations.
+- [x] Add fixtures covering TS async/await, TS promise joins, Python async/await, and rewritten
+      `asyncio` APIs.
+  - [x] Add TypeScript async/await HIR examples.
+
+Current Phase 5 status: complete on the current checkout. TypeScript and Python async syntax lower
+into shared HIR async state-machine metadata, MIR async functions, await rvalues, and runtime async
+ops. TypeScript promise joins, the minimal timer shim, and Python `asyncio` calls lower through
+runtime-neutral HIR/MIR operations; Rust codegen maps those operations to Tokio. Cancellation
+semantics for this slice follow Rust/Tokio drop semantics: dropping a future cancels pending work,
+`wait_for`/timeout drops the timed-out future, and spawned task wrappers surface task panics as
+runtime errors.
+
 ## Later Phases
 
-- [ ] Phase 3 object model.
-- [ ] Phase 4 module linking.
-- [ ] Phase 5 async model.
+- [ ] Finish remaining Phase 3 object model cleanup.
+- [ ] Finish remaining Phase 4 module linking cleanup.
+- [x] Phase 5 async model.
 - [ ] Phase 6 stdlib mapping.
 - [ ] Phase 7 Express recognizer and Axum codegen path.

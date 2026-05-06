@@ -335,6 +335,15 @@ pub enum Rvalue {
     },
     /// Compute the length of a value.
     Len(Operand),
+    /// Await a future and produce its output.
+    Await(Operand),
+    /// Run a runtime-backed async operation.
+    AsyncOp {
+        /// Operation to perform.
+        op: smelt_hir::AsyncOp,
+        /// Operation inputs.
+        args: Vec<Operand>,
+    },
 }
 
 /// A MIR statement.

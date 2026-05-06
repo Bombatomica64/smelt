@@ -1,7 +1,7 @@
 //! Unit tests for the Python frontend.
 
 use crate::{HirCtx, to_hir};
-use smelt_hir::{FileId, Language};
+use smelt_hir::{AsyncOp, ExprKind, FileId, Item, Language, Type};
 
 #[test]
 fn empty_module_lowers_to_empty_hir() {
@@ -32,13 +32,155 @@ def add(x: int, y: int) -> int:
     assert_eq!(module.items.len(), 1);
     let item = &ctx.krate.items[module.items[0].0 as usize];
     match item {
-        smelt_hir::Item::Function(f) => {
+        Item::Function(f) => {
             assert_eq!(ctx.krate.symbols.get(f.name).unwrap(), "add");
             assert_eq!(f.params.len(), 2);
             assert!(f.body.is_some());
         }
         _ => panic!("expected Function item"),
     }
+}
+
+#[test]
+fn async_function_and_await_lower() {
+    let source = r#"
+async def lift(value: int) -> int:
+    return value
+
+async def run() -> int:
+    return await lift(5)
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(source, FileId(0), &mut ctx).expect("async module should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+
+    assert_eq!(module.items.len(), 2);
+    let Item::Function(lift) = &ctx.krate.items[module.items[0].0 as usize] else {
+        panic!("expected function item");
+    };
+    assert!(lift.is_async);
+    assert!(matches!(
+        ctx.krate.types.get(lift.return_ty),
+        Some(Type::Future(_))
+    ));
+
+    let Item::Function(run) = &ctx.krate.items[module.items[1].0 as usize] else {
+        panic!("expected function item");
+    };
+    assert!(run.is_async);
+    let body = &ctx.krate.bodies[run.body.expect("run body").0 as usize];
+    assert!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Await(_)))
+    );
+    let state_machine = body
+        .async_state_machine
+        .as_ref()
+        .expect("async body should record suspension metadata");
+    assert_eq!(state_machine.suspensions.len(), 1);
+}
+
+#[test]
+fn await_outside_async_function_is_rejected() {
+    let source = r#"
+async def lift(value: int) -> int:
+    return value
+
+def run() -> int:
+    return await lift(5)
+"#;
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(source, FileId(0), &mut ctx).expect_err("await requires async def");
+
+    assert_eq!(errors[0].code, "smelt::unsupported-py");
+    assert!(errors[0].message.contains("inside async functions"));
+}
+
+#[test]
+fn asyncio_gather_and_sleep_lower_to_async_ops() {
+    let source = r#"
+import asyncio
+
+async def lift(value: int) -> int:
+    await asyncio.sleep(0)
+    return value
+
+async def run() -> tuple[int, int]:
+    return await asyncio.gather(lift(1), lift(2))
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(source, FileId(0), &mut ctx).expect("asyncio calls should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+
+    let Item::Function(lift) = &ctx.krate.items[module.items[0].0 as usize] else {
+        panic!("expected function item");
+    };
+    let lift_body = &ctx.krate.bodies[lift.body.expect("lift body").0 as usize];
+    assert!(lift_body.exprs.iter().any(|expr| {
+        matches!(
+            expr.kind,
+            ExprKind::AsyncOp {
+                op: AsyncOp::Sleep,
+                ..
+            }
+        )
+    }));
+
+    let Item::Function(run) = &ctx.krate.items[module.items[1].0 as usize] else {
+        panic!("expected function item");
+    };
+    let run_body = &ctx.krate.bodies[run.body.expect("run body").0 as usize];
+    assert!(run_body.exprs.iter().any(|expr| {
+        matches!(
+            expr.kind,
+            ExprKind::AsyncOp {
+                op: AsyncOp::All,
+                ..
+            }
+        )
+    }));
+}
+
+#[test]
+fn lower_level_asyncio_loop_apis_are_rejected() {
+    let source = r#"
+import asyncio
+
+def run() -> None:
+    asyncio.get_event_loop()
+"#;
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(source, FileId(0), &mut ctx).expect_err("loop API should be rejected");
+
+    assert_eq!(errors[0].code, "smelt::unsupported-py");
+    assert!(errors[0].message.contains("lower-level event-loop API"));
+}
+
+#[test]
+fn asyncio_task_wait_for_and_runtime_objects_are_classified() {
+    let source = r#"
+import asyncio
+
+async def lift(value: int) -> int:
+    return value
+
+async def run() -> int:
+    task: Awaitable[int] = asyncio.create_task(lift(1))
+    return await asyncio.wait_for(task, 10)
+"#;
+    let mut ctx = HirCtx::new();
+    to_hir(source, FileId(0), &mut ctx).expect("task and wait_for should lower");
+
+    let queue_source = r#"
+import asyncio
+
+def run() -> None:
+    asyncio.Queue()
+"#;
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(queue_source, FileId(0), &mut ctx).expect_err("Queue should be classified");
+    assert!(errors[0].message.contains("runtime object support"));
 }
 
 #[test]
@@ -104,7 +246,7 @@ class Point:
     let module = &ctx.krate.modules[module_id.0 as usize];
     let class_item_id = module.items.last().copied().expect("class item");
     match &ctx.krate.items[class_item_id.0 as usize] {
-        smelt_hir::Item::Class(c) => {
+        Item::Class(c) => {
             assert_eq!(ctx.krate.symbols.get(c.name).unwrap(), "Point");
             assert_eq!(c.fields.len(), 2);
             assert!(matches!(c.kind, smelt_hir::ClassKind::Plain));
@@ -129,7 +271,7 @@ class Point:
     let module = &ctx.krate.modules[module_id.0 as usize];
     let class_item_id = module.items.last().copied().expect("class item");
     match &ctx.krate.items[class_item_id.0 as usize] {
-        smelt_hir::Item::Class(c) => {
+        Item::Class(c) => {
             assert!(matches!(
                 c.kind,
                 smelt_hir::ClassKind::DataclassLike { frozen: false }
@@ -152,7 +294,7 @@ class Immutable:
     let module = &ctx.krate.modules[module_id.0 as usize];
     let class_item_id = module.items.last().copied().expect("class item");
     match &ctx.krate.items[class_item_id.0 as usize] {
-        smelt_hir::Item::Class(c) => {
+        Item::Class(c) => {
             assert!(matches!(
                 c.kind,
                 smelt_hir::ClassKind::DataclassLike { frozen: true }

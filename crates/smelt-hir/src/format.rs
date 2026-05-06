@@ -3,7 +3,7 @@
 use std::fmt::Write as _;
 
 use crate::body::{Body, Pattern, Stmt};
-use crate::expr::{Expr, ExprKind, Literal};
+use crate::expr::{AsyncOp, Expr, ExprKind, Literal};
 use crate::ids::{ExprId, ItemId, LocalId, ModuleId, PatternId, TypeId, id_index};
 use crate::item::Item;
 use crate::krate::Crate;
@@ -49,6 +49,10 @@ pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
 }
 
 /// Appends the locals/exprs/stmts sections of a body to the output string.
+#[expect(
+    clippy::too_many_lines,
+    reason = "compact HIR formatting keeps related output sections together"
+)]
 fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
     if !body.locals.is_empty() {
         out.push_str("  locals\n");
@@ -91,6 +95,27 @@ fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
         for (idx, stmt) in body.stmts.iter().enumerate() {
             writeln!(out, "    s{}: {}", idx, stmt_text(krate, body, stmt))
                 .expect("writing to String cannot fail");
+        }
+    }
+
+    if let Some(machine) = &body.async_state_machine {
+        out.push_str("  async state machine\n");
+        let states = machine
+            .states
+            .iter()
+            .map(|state| format!("state{}", state.id.0))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(out, "    states [{states}]").expect("writing to String cannot fail");
+        for suspension in &machine.suspensions {
+            writeln!(
+                out,
+                "    suspend {} on {} -> state{}",
+                expr_ref(suspension.await_expr),
+                expr_ref(suspension.future),
+                suspension.resume_state.0
+            )
+            .expect("writing to String cannot fail");
         }
     }
 }
@@ -246,7 +271,27 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::SetLit(items) => collection_text("set{", "}", items),
         ExprKind::DictLit(items) => dict_lit_text(items),
         ExprKind::TupleLit(items) => collection_text("(", ")", items),
+        ExprKind::Await(expr) => format!("await {}", expr_ref(*expr)),
+        ExprKind::AsyncOp { op, args } => async_op_text(*op, args),
     }
+}
+
+/// Formats a runtime-backed async operation.
+fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
+    let op = match op {
+        AsyncOp::All => "async_all",
+        AsyncOp::Race => "async_race",
+        AsyncOp::AllSettled => "async_all_settled",
+        AsyncOp::Sleep => "async_sleep",
+        AsyncOp::CreateTask => "async_create_task",
+        AsyncOp::WaitFor => "async_wait_for",
+    };
+    let args = args
+        .iter()
+        .map(|arg| expr_ref(*arg))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{op}({args})")
 }
 
 /// Formats call-like expressions as text.

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::expr::{Expr, Literal};
+use crate::expr::{Expr, ExprKind, Literal};
 use crate::ids::{
     BlockId, BodyId, ExprId, ItemId, LocalId, PatternId, Span, StmtId, Symbol, TypeId, id_index,
 };
@@ -26,6 +26,8 @@ pub struct Body {
     pub blocks: Vec<Block>,
     /// All patterns in this body.
     pub patterns: Vec<Pattern>,
+    /// Explicit async state-machine shape for async bodies.
+    pub async_state_machine: Option<AsyncStateMachine>,
     /// ID of the root block.
     pub root: BlockId,
 }
@@ -47,6 +49,7 @@ impl Body {
                 span,
             }],
             patterns: Vec::new(),
+            async_state_machine: None,
             root: BlockId(0),
         }
     }
@@ -95,6 +98,69 @@ impl Body {
         self.patterns.push(pattern);
         id
     }
+
+    /// Builds async state-machine metadata from this body's await expressions.
+    pub fn build_async_state_machine(&mut self) {
+        let suspensions = self
+            .exprs
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, expr)| {
+                if let ExprKind::Await(future) = expr.kind {
+                    Some(AsyncSuspensionPoint {
+                        await_expr: ExprId(id_index(idx)),
+                        future,
+                        resume_state: AsyncStateId(id_index(idx + 1)),
+                        span: expr.span,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let state_count = suspensions.len() + 1;
+        self.async_state_machine = Some(AsyncStateMachine {
+            states: (0..state_count)
+                .map(|idx| AsyncState {
+                    id: AsyncStateId(id_index(idx)),
+                })
+                .collect(),
+            suspensions,
+        });
+    }
+}
+
+/// Identifier for a state in an async body state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AsyncStateId(pub u32);
+
+/// Explicit state-machine metadata for an async body.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsyncStateMachine {
+    /// States in execution order.
+    pub states: Vec<AsyncState>,
+    /// Suspension points that transition between states.
+    pub suspensions: Vec<AsyncSuspensionPoint>,
+}
+
+/// One state in an async body.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsyncState {
+    /// State identifier.
+    pub id: AsyncStateId,
+}
+
+/// One await-derived suspension point in an async body.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsyncSuspensionPoint {
+    /// Await expression that causes suspension.
+    pub await_expr: ExprId,
+    /// Future expression being awaited.
+    pub future: ExprId,
+    /// State resumed after this await completes.
+    pub resume_state: AsyncStateId,
+    /// Source location of the await.
+    pub span: Span,
 }
 
 /// A local variable declaration.

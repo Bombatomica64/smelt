@@ -1118,6 +1118,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7c388c1b5e93756d0c740965c41e8822f866621d41acbdf6336a6a168f8840c"
 
 [[package]]
+name = "smelt-asyncio"
+version = "0.1.0"
+
+[[package]]
 name = "smelt-cli"
 version = "0.1.0"
 dependencies = [
@@ -1150,6 +1154,7 @@ dependencies = [
  "ruff_python_ast",
  "ruff_python_parser",
  "ruff_text_size",
+ "smelt-asyncio",
  "smelt-hir",
 ]
 

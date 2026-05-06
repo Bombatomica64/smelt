@@ -132,7 +132,10 @@ pub fn emit_crate(
     let output_dir = output_dir.as_ref();
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
-    fs::write(output_dir.join("Cargo.toml"), cargo_toml(options))?;
+    fs::write(
+        output_dir.join("Cargo.toml"),
+        cargo_toml(options, needs_tokio(mir)),
+    )?;
     fs::write(src_dir.join("main.rs"), emit_source(mir)?)?;
     Ok(())
 }
@@ -207,11 +210,41 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
 }
 
 /// Generates Cargo.toml content for the given emission options.
-fn cargo_toml(options: &EmitOptions) -> String {
+fn cargo_toml(options: &EmitOptions, needs_tokio: bool) -> String {
+    let deps = if needs_tokio {
+        "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\"] }\n"
+    } else {
+        ""
+    };
     format!(
-        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n",
+        "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}",
         options.crate_name
     )
+}
+
+/// Returns true when generated Rust uses Tokio APIs.
+fn needs_tokio(mir: &Mir) -> bool {
+    mir.functions.iter().any(|function| {
+        (function.is_async
+            && mir
+                .symbols
+                .get(function.name)
+                .is_some_and(|name| name == "main"))
+            || function.blocks.iter().any(|block| {
+                block.statements.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        Statement::Assign {
+                            value: Rvalue::AsyncOp { .. },
+                            ..
+                        } | Statement::AssignPlace {
+                            value: Rvalue::AsyncOp { .. },
+                            ..
+                        }
+                    )
+                })
+            })
+    })
 }
 
 /// Helper struct for emitting Rust code from a MirFunction.
@@ -274,7 +307,15 @@ impl<'mir> FunctionEmitter<'mir> {
         let name = self.symbol_name(self.function.name)?;
         if name == "main" && self.function.return_ty == self.none_ty {
             if self.function.can_throw {
-                out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
+                if self.function.is_async {
+                    out.push_str(
+                        "#[tokio::main]\nasync fn main() -> Result<(), Box<dyn std::error::Error>> {\n",
+                    );
+                } else {
+                    out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
+                }
+            } else if self.function.is_async {
+                out.push_str("#[tokio::main]\nasync fn main() {\n");
             } else {
                 out.push_str("fn main() {\n");
             }
@@ -294,7 +335,8 @@ impl<'mir> FunctionEmitter<'mir> {
                 .collect::<Result<Vec<_>, EmitError>>()?
                 .join(", ");
             out.push_str(&format!(
-                "fn {}({params}) -> {} {{\n",
+                "{}fn {}({params}) -> {} {{\n",
+                if self.function.is_async { "async " } else { "" },
                 sanitize_ident(name),
                 self.return_type_text(self.function.return_ty)?
             ));
@@ -360,7 +402,8 @@ impl<'mir> FunctionEmitter<'mir> {
                     format!("{receiver}, {params}")
                 };
                 out.push_str(&format!(
-                    "    fn {name}({params}) -> {} {{\n",
+                    "    {}fn {name}({params}) -> {} {{\n",
+                    if self.function.is_async { "async " } else { "" },
                     self.return_type_text(self.function.return_ty)?
                 ));
             }
@@ -527,10 +570,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 } else {
                     ""
                 };
-                out.push_str(&format!(
-                    "    let {mutability}{name}: {} = {value};\n",
-                    self.type_text(local.ty)?
-                ));
+                if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
+                    out.push_str(&format!("    let {mutability}{name} = {value};\n"));
+                } else {
+                    out.push_str(&format!(
+                        "    let {mutability}{name}: {} = {value};\n",
+                        self.type_text(local.ty)?
+                    ));
+                }
                 self.emit_block(self.block(*target)?, out)
             }
             Terminator::Switch {
@@ -1028,6 +1075,81 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::Len(operand) => {
                 Ok(format!("{} .len() as f64", self.len_operand_text(operand)?))
             }
+            Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
+            Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
+        }
+    }
+
+    /// Converts a runtime-backed async operation to Rust.
+    fn async_op_text(&self, op: smelt_hir::AsyncOp, args: &[Operand]) -> Result<String, EmitError> {
+        match op {
+            smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => {
+                let args = args
+                    .iter()
+                    .map(|arg| self.await_operand_text(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let body = match args.as_slice() {
+                    [] => "()".to_owned(),
+                    [single] => format!("({single}.await,)"),
+                    _ => format!("tokio::join!({})", args.join(", ")),
+                };
+                Ok(format!("Box::pin(async move {{ {body} }})"))
+            }
+            smelt_hir::AsyncOp::Race => {
+                let args = args
+                    .iter()
+                    .map(|arg| self.await_operand_text(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let body = match args.as_slice() {
+                    [] => {
+                        return Err(EmitError::new(
+                            "async race requires at least one future operand",
+                        ));
+                    }
+                    [single] => format!("{single}.await"),
+                    _ => {
+                        let arms = args
+                            .iter()
+                            .map(|arg| format!("value = {arg} => value"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("tokio::select! {{ {arms} }}")
+                    }
+                };
+                Ok(format!("Box::pin(async move {{ {body} }})"))
+            }
+            smelt_hir::AsyncOp::Sleep => {
+                let Some(duration) = args.first() else {
+                    return Err(EmitError::new("async sleep requires a duration operand"));
+                };
+                Ok(format!(
+                    "Box::pin(async move {{ tokio::time::sleep(::std::time::Duration::from_millis({} as u64)).await; }})",
+                    self.operand_text(duration)?
+                ))
+            }
+            smelt_hir::AsyncOp::CreateTask => {
+                let Some(future) = args.first() else {
+                    return Err(EmitError::new(
+                        "async task creation requires a future operand",
+                    ));
+                };
+                let future = self.await_operand_text(future)?;
+                Ok(format!(
+                    "Box::pin(async move {{ tokio::spawn(async move {{ {future}.await }}).await.expect(\"async task panicked\") }})"
+                ))
+            }
+            smelt_hir::AsyncOp::WaitFor => {
+                let [future, timeout, ..] = args else {
+                    return Err(EmitError::new(
+                        "async wait_for requires a future and timeout operand",
+                    ));
+                };
+                let future = self.await_operand_text(future)?;
+                Ok(format!(
+                    "Box::pin(async move {{ tokio::time::timeout(::std::time::Duration::from_millis({} as u64), {future}).await.expect(\"async timeout\") }})",
+                    self.operand_text(timeout)?
+                ))
+            }
         }
     }
 
@@ -1136,6 +1258,14 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Copy(place) => Ok(format!("{}.clone()", self.place_text(place)?)),
             Operand::Move(place) => self.place_text(place),
             Operand::Const(constant) => Ok(constant_text(constant)),
+        }
+    }
+
+    /// Converts an awaited future operand without cloning it.
+    fn await_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        match operand {
+            Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
+            Operand::Const(_) => Err(EmitError::new("await operand cannot be a constant")),
         }
     }
 
@@ -1638,6 +1768,47 @@ console.log(result);
         assert!(source.contains("fn add(arg_0: f64, arg_1: f64) -> f64 {"));
         assert!(source.contains("arg_0.clone() + arg_1.clone()"));
         assert!(source.contains("let _smelt_tmp_1: f64 = add(2.0, 3.0);"));
+    }
+
+    #[test]
+    fn emits_async_function_and_await() {
+        let source = source_for(
+            "async function lift(value: number): Promise<number> {
+  return value;
+}
+
+async function run(): Promise<number> {
+  return await lift(5);
+}
+",
+        );
+
+        assert!(source.contains("async fn lift(arg_0: f64) -> f64 {"));
+        assert!(source.contains("async fn run() -> f64 {"));
+        assert!(source.contains("let _smelt_tmp_0 = lift(5.0);"));
+        assert!(source.contains("let _smelt_tmp_1: f64 = _smelt_tmp_0.await;"));
+    }
+
+    #[test]
+    fn emits_promise_all_with_tokio_join() {
+        let source = source_for(
+            "async function lift(value: number): Promise<number> {
+  return value;
+}
+
+async function run(): Promise<[number, number]> {
+  return await Promise.all([lift(1), lift(2)]);
+}
+",
+        );
+
+        assert!(source.contains("async fn run() -> (f64, f64) {"));
+        assert!(source.contains("tokio::join!(_smelt_tmp_0, _smelt_tmp_1)"));
+        assert!(
+            source.contains(
+                "let _smelt_tmp_2: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = (f64, f64)>>> = Box::pin(async move { tokio::join!(_smelt_tmp_0, _smelt_tmp_1) });"
+            )
+        );
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Tests for TypeScript frontend lowering.
 
 use super::*;
-use smelt_hir::{FileId, Stmt};
+use smelt_hir::{ExprKind, FileId, Item, Stmt, Type};
 
 #[test]
 fn converts_top_level_let_and_console_log() {
@@ -202,6 +202,239 @@ class User implements Named {
 }
 
 #[test]
+fn lowers_interface_inheritance_into_shape_requirements() {
+    let mut ctx = HirCtx::new();
+    to_hir(
+        "interface Entity { id: string; }
+interface Named extends Entity { name: string; }
+class User implements Named {
+  id: string;
+  name: string;
+  constructor(id: string, name: string) {
+    this.id = id;
+    this.name = name;
+  }
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("interface inheritance should flatten into implements checks");
+}
+
+#[test]
+fn rejects_missing_inherited_interface_field() {
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(
+        "interface Entity { id: string; }
+interface Named extends Entity { name: string; }
+class User implements Named {
+  name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("missing inherited field should be rejected");
+    assert_eq!(errors[0].code, "smelt::unsupported-ts");
+    assert!(errors[0].message.contains("field `id`"));
+}
+
+#[test]
+fn lowers_literal_computed_property_names() {
+    let mut ctx = HirCtx::new();
+    to_hir(
+        "interface Entity { [\"id\"]: string; }
+class User implements Entity {
+  [\"id\"]: string;
+  constructor(id: string) {
+    this.id = id;
+  }
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("literal computed property names should lower as static fields");
+}
+
+#[test]
+fn rejects_dynamic_computed_property_names() {
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(
+        "const key = \"id\";
+class User {
+  [key]: string;
+  constructor() {}
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("dynamic computed property names should be rejected");
+    assert_eq!(errors[0].code, "smelt::unsupported-ts");
+    assert!(errors[0].message.contains("dynamic computed property"));
+}
+
+#[test]
+fn optional_interface_fields_may_be_absent() {
+    let mut ctx = HirCtx::new();
+    to_hir(
+        "interface Named { name?: string; }
+class User implements Named {
+  constructor() {}
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("optional interface field may be absent on implementing class");
+}
+
+#[test]
+fn required_fields_satisfy_optional_interface_fields() {
+    let mut ctx = HirCtx::new();
+    to_hir(
+        "interface Named { name?: string; }
+class User implements Named {
+  name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("required class field should satisfy optional interface field");
+}
+
+#[test]
+fn rejects_optional_class_fields() {
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(
+        "class User {
+  name?: string;
+  constructor() {}
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("optional class fields require construction semantics");
+    assert_eq!(errors[0].code, "smelt::unsupported-ts");
+    assert!(errors[0].message.contains("optional class fields"));
+}
+
+#[test]
+fn rejects_generic_classes_and_interfaces() {
+    let mut ctx = HirCtx::new();
+    let class_errors = to_hir(
+        "class Box<T> {
+  value: T;
+  constructor(value: T) {
+    this.value = value;
+  }
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("generic classes are deferred");
+    assert_eq!(class_errors[0].code, "smelt::unsupported-ts");
+    assert!(class_errors[0].message.contains("generic classes"));
+
+    let mut ctx = HirCtx::new();
+    let interface_errors = to_hir(
+        "interface Box<T> {
+  value: T;
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("generic interfaces are deferred");
+    assert_eq!(interface_errors[0].code, "smelt::unsupported-ts");
+    assert!(interface_errors[0].message.contains("generic interfaces"));
+}
+
+#[test]
+fn rejects_static_members() {
+    let mut ctx = HirCtx::new();
+    let field_errors = to_hir(
+        "class User {
+  static role: string;
+  constructor() {}
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("static fields are unsupported");
+    assert_eq!(field_errors[0].code, "smelt::unsupported-ts");
+    assert!(field_errors[0].message.contains("static fields"));
+
+    let mut ctx = HirCtx::new();
+    let method_errors = to_hir(
+        "class User {
+  static role(): string { return \"admin\"; }
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("static methods are unsupported");
+    assert_eq!(method_errors[0].code, "smelt::unsupported-ts");
+    assert!(method_errors[0].message.contains("static methods"));
+}
+
+#[test]
+fn rejects_getters_setters_decorators_and_abstract_classes() {
+    let mut ctx = HirCtx::new();
+    let getter_errors = to_hir(
+        "class User {
+  get name(): string { return \"Ada\"; }
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("getters are unsupported");
+    assert_eq!(getter_errors[0].code, "smelt::unsupported-ts");
+    assert!(getter_errors[0].message.contains("getters and setters"));
+
+    let mut ctx = HirCtx::new();
+    let decorator_errors = to_hir(
+        "@sealed
+class User {
+  constructor() {}
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("decorators are unsupported");
+    assert_eq!(decorator_errors[0].code, "smelt::unsupported-ts");
+    assert!(decorator_errors[0].message.contains("decorators"));
+
+    let mut ctx = HirCtx::new();
+    let abstract_errors = to_hir(
+        "abstract class User {
+  abstract name(): string;
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("abstract classes are unsupported");
+    assert_eq!(abstract_errors[0].code, "smelt::unsupported-ts");
+    assert!(abstract_errors[0].message.contains("abstract classes"));
+}
+
+#[test]
 fn lowers_literal_switch_to_hir_match() {
     let mut ctx = HirCtx::new();
     let module_id = to_hir(
@@ -223,7 +456,7 @@ console.log(result);
     )
     .expect("valid HIR");
     let module = &ctx.krate.modules[module_id.0 as usize];
-    let smelt_hir::Item::Function(function) = &ctx.krate.items[module.items[0].0 as usize] else {
+    let Item::Function(function) = &ctx.krate.items[module.items[0].0 as usize] else {
         panic!("expected function item");
     };
     let body = &ctx.krate.bodies[function.body.expect("function body").0 as usize];
@@ -274,19 +507,137 @@ for (let item of values) {
 }
 
 #[test]
-fn rejects_async_functions_until_async_lowering_exists() {
+fn lowers_async_functions_and_await_to_hir() {
     let mut ctx = HirCtx::new();
-    let errors = to_hir(
-        "async function load(): string {
-  return \"done\";
+    let module_id = to_hir(
+        "async function load(value: number): Promise<number> {
+  return value;
+}
+
+async function main(): Promise<number> {
+  return await load(1);
 }
 ",
         FileId(0),
         &mut ctx,
     )
-    .expect_err("async functions are unsupported");
+    .expect("async functions should lower to HIR");
+    let module = &ctx.krate.modules[module_id.0 as usize];
 
-    assert!(errors[0].message.contains("async functions"));
+    assert_eq!(module.items.len(), 2);
+    let Item::Function(load) = &ctx.krate.items[module.items[0].0 as usize] else {
+        panic!("expected function item");
+    };
+    assert!(load.is_async);
+    assert!(matches!(
+        ctx.krate.types.get(load.return_ty),
+        Some(Type::Future(_))
+    ));
+
+    let Item::Function(main) = &ctx.krate.items[module.items[1].0 as usize] else {
+        panic!("expected function item");
+    };
+    let body = &ctx.krate.bodies[main.body.expect("main body").0 as usize];
+    assert!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Await(_)))
+    );
+    let machine = body
+        .async_state_machine
+        .as_ref()
+        .expect("async body should have state-machine metadata");
+    assert_eq!(machine.states.len(), 2);
+    assert_eq!(machine.suspensions.len(), 1);
+    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+}
+
+#[test]
+fn lowers_promise_all_to_async_runtime_op() {
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(
+        "async function lift(value: number): Promise<number> {
+  return value;
+}
+
+async function main(): Promise<[number, number]> {
+  return await Promise.all([lift(1), lift(2)]);
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("Promise.all should lower to HIR");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let Item::Function(main) = &ctx.krate.items[module.items[1].0 as usize] else {
+        panic!("expected function item");
+    };
+    let body = &ctx.krate.bodies[main.body.expect("main body").0 as usize];
+
+    assert!(body.exprs.iter().any(|expr| {
+        matches!(
+            expr.kind,
+            ExprKind::AsyncOp {
+                op: smelt_hir::AsyncOp::All,
+                ..
+            }
+        )
+    }));
+}
+
+#[test]
+fn lowers_promise_race_all_settled_and_timer_shim() {
+    let mut ctx = HirCtx::new();
+    to_hir(
+        "async function lift(value: number): Promise<number> {
+  await setTimeout(0);
+  return value;
+}
+
+async function race(): Promise<number> {
+  return await Promise.race([lift(1), lift(2)]);
+}
+
+async function settled(): Promise<[number, number]> {
+  return await Promise.allSettled([lift(1), lift(2)]);
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("Promise race/allSettled and timer shim should lower");
+}
+
+#[test]
+fn rejects_await_outside_async_function() {
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(
+        "function read(): number {
+  return await 1;
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("await outside async should fail");
+
+    assert!(errors[0].message.contains("await"));
+}
+
+#[test]
+fn rejects_async_functions_without_promise_return_type() {
+    let mut ctx = HirCtx::new();
+    let errors = to_hir(
+        "async function load(): number {
+  return 1;
+}
+",
+        FileId(0),
+        &mut ctx,
+    )
+    .expect_err("async functions should require Promise<T> return types");
+
+    assert!(errors[0].message.contains("Promise<T>"));
 }
 
 #[test]

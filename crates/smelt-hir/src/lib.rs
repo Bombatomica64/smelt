@@ -14,8 +14,11 @@ mod symbol;
 mod ty;
 mod validate;
 
-pub use body::{Block, Body, LocalDecl, MatchArm, Pattern, Stmt};
-pub use expr::{BinOp, Expr, ExprKind, Literal, UnaryOp, bin_op_text};
+pub use body::{
+    AsyncState, AsyncStateId, AsyncStateMachine, AsyncSuspensionPoint, Block, Body, LocalDecl,
+    MatchArm, Pattern, Stmt,
+};
+pub use expr::{AsyncOp, BinOp, Expr, ExprKind, Literal, UnaryOp, bin_op_text};
 pub use format::format_compact;
 pub use ids::{
     BlockId, BodyId, ExprId, FileId, ItemId, LocalId, ModuleId, PatternId, Span, StmtId, Symbol,

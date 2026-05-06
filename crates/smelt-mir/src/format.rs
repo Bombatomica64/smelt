@@ -43,8 +43,9 @@ pub fn format_compact(mir: &Mir) -> String {
     }
     for function in &mir.functions {
         let name = mir.symbols.get(function.name).unwrap_or("<unknown>");
+        let async_prefix = if function.is_async { "async " } else { "" };
         out.push_str(&format!(
-            "fn {name} ({:?}) -> {}{}\n",
+            "{async_prefix}fn {name} ({:?}) -> {}{}\n",
             function.id,
             type_ref(mir, function.return_ty),
             if function.can_throw { " throws" } else { "" }
@@ -163,6 +164,19 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("struct{} {{{fields}}}", class.0)
         }
         Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
+        Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
+        Rvalue::AsyncOp { op, args } => {
+            let op = match op {
+                smelt_hir::AsyncOp::All => "async_all",
+                smelt_hir::AsyncOp::Race => "async_race",
+                smelt_hir::AsyncOp::AllSettled => "async_all_settled",
+                smelt_hir::AsyncOp::Sleep => "async_sleep",
+                smelt_hir::AsyncOp::CreateTask => "async_create_task",
+                smelt_hir::AsyncOp::WaitFor => "async_wait_for",
+            };
+            let args = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!("{op}({args})")
+        }
     }
 }
 

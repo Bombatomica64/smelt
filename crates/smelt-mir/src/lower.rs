@@ -106,6 +106,11 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             continue;
         };
         let body = &krate.bodies[body_id.0 as usize];
+        let return_ty = if function.is_async {
+            future_inner_type(krate, function.return_ty).unwrap_or(function.return_ty)
+        } else {
+            function.return_ty
+        };
         match LoweringCtx::new(
             krate,
             &item_functions,
@@ -113,8 +118,9 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             body_id,
             body,
             function.name,
-            function.return_ty,
+            return_ty,
             function.owner,
+            function.is_async,
         )
         .lower()
         {
@@ -141,6 +147,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             name,
             none,
             smelt_hir::FunctionOwner::Module,
+            false,
         )
         .lower()
         {
@@ -210,6 +217,7 @@ impl<'hir> LoweringCtx<'hir> {
         name: Symbol,
         return_ty: TypeId,
         owner: smelt_hir::FunctionOwner,
+        is_async: bool,
     ) -> Self {
         let span = body.blocks[body.root.0 as usize].span;
         let origin = match owner {
@@ -225,6 +233,7 @@ impl<'hir> LoweringCtx<'hir> {
             },
         };
         let mut function = MirFunction::new(function_id, name, origin, return_ty, span);
+        function.is_async = is_async;
         let mut locals = HashMap::new();
 
         for (idx, local) in body.locals.iter().enumerate() {
@@ -849,6 +858,27 @@ impl<'hir> LoweringCtx<'hir> {
                 self.current_block = target;
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::Await(future) => {
+                let future = self.lower_expr(*future)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Await(future),
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::AsyncOp { op, args } => {
+                let args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::AsyncOp { op: *op, args },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Block(_) | ExprKind::Lambda { .. } | ExprKind::SetLit(_) => {
                 return Err(self.error(
                     "expression kind is not implemented in MIR yet",
@@ -1028,6 +1058,14 @@ fn lower_literal(literal: &HirLiteral) -> Constant {
         HirLiteral::Float(value) => Constant::Float(*value),
         HirLiteral::String(value) => Constant::String(value.clone()),
         HirLiteral::None => Constant::None,
+    }
+}
+
+/// Returns the output type of a Future type.
+fn future_inner_type(krate: &smelt_hir::Crate, ty: TypeId) -> Option<TypeId> {
+    match krate.types.get(ty) {
+        Some(Type::Future(inner)) => Some(*inner),
+        _ => None,
     }
 }
 

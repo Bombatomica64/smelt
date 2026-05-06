@@ -6,9 +6,10 @@ use crate::{HirCtx, SmeltError, camel_to_snake};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ClassElement, Declaration,
-    Expression, ForStatementInit, ForStatementLeft, MethodDefinitionKind, ObjectPropertyKind,
-    Program, PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature,
-    TSTupleElement, TSType, TSTypeName,
+    Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
+    MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program, PropertyKey,
+    SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement, TSType,
+    TSTypeName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -16,10 +17,28 @@ use oxc::syntax::operator::{
     AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
 };
 use smelt_hir::{
-    BinOp, Body, Class, Expr, ExprKind, Field, FileId, Function, FunctionOwner, Interface, Item,
-    Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, Param, ParamSig, Pattern,
-    SourceFile, Span, Stmt, Type, UnaryOp, Visibility,
+    AsyncOp, BinOp, Body, Class, Expr, ExprKind, Field, FileId, Function, FunctionOwner, Import,
+    Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, Param,
+    ParamSig, Pattern, SourceFile, Span, Stmt, Type, UnaryOp, Visibility,
 };
+
+/// Check whether an actual class field type satisfies an interface field.
+fn field_type_satisfies(
+    krate: &smelt_hir::Crate,
+    actual: smelt_hir::TypeId,
+    required: &Field,
+) -> bool {
+    if actual == required.ty {
+        return true;
+    }
+    if !required.optional {
+        return false;
+    }
+    matches!(
+        krate.types.get(required.ty),
+        Some(Type::Optional(inner)) if *inner == actual
+    )
+}
 
 /// Parse TypeScript source code and lower it to HIR.
 ///
@@ -29,6 +48,20 @@ use smelt_hir::{
 pub fn to_hir(
     source: &str,
     file_id: FileId,
+    ctx: &mut HirCtx,
+) -> Result<ModuleId, Vec<SmeltError>> {
+    to_hir_with_path(source, file_id, "<memory>", ctx)
+}
+
+/// Parse TypeScript source code from `path` and lower it to HIR.
+///
+/// # Errors
+///
+/// Returns a vector of errors if parsing or lowering fails.
+pub fn to_hir_with_path(
+    source: &str,
+    file_id: FileId,
+    path: &str,
     ctx: &mut HirCtx,
 ) -> Result<ModuleId, Vec<SmeltError>> {
     let allocator = Allocator::default();
@@ -50,7 +83,7 @@ pub fn to_hir(
             .collect());
     }
 
-    let mut builder = ModuleBuilder::new(file_id, ctx);
+    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), ctx);
     builder.program(&parsed.program)
 }
 
@@ -60,11 +93,13 @@ pub fn to_hir(
 struct ModuleBuilder<'ctx> {
     /// File ID for error reporting.
     file_id: FileId,
+    /// Source path for module metadata.
+    path: String,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
     /// Local variable bindings in current scope.
     locals: HashMap<String, smelt_hir::LocalId>,
-    /// Declared items (functions, classes, interfaces).
+    /// Declared and imported items (functions, classes, interfaces).
     items: HashMap<String, smelt_hir::ItemId>,
     /// Class definitions by name.
     classes: HashMap<String, smelt_hir::ItemId>,
@@ -74,21 +109,56 @@ struct ModuleBuilder<'ctx> {
     class_fields: HashMap<String, Vec<Field>>,
     /// Currently processing class name, if any.
     current_class: Option<String>,
+    /// Whether the current lowered function body is async.
+    current_async: bool,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Create a new module builder.
-    fn new(file_id: FileId, ctx: &'ctx mut HirCtx) -> Self {
+    fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
+        let (items, classes, interfaces) = Self::visible_items(ctx);
         Self {
             file_id,
+            path,
             ctx,
             locals: HashMap::new(),
-            items: HashMap::new(),
-            classes: HashMap::new(),
-            interfaces: HashMap::new(),
+            items,
+            classes,
+            interfaces,
             class_fields: HashMap::new(),
             current_class: None,
+            current_async: false,
         }
+    }
+
+    /// Collect items already present in the shared crate for cross-module references.
+    fn visible_items(
+        ctx: &HirCtx,
+    ) -> (
+        HashMap<String, smelt_hir::ItemId>,
+        HashMap<String, smelt_hir::ItemId>,
+        HashMap<String, smelt_hir::ItemId>,
+    ) {
+        let mut items = HashMap::new();
+        let mut classes = HashMap::new();
+        let mut interfaces = HashMap::new();
+        for (idx, item) in ctx.krate.items.iter().enumerate() {
+            let item_id = smelt_hir::ItemId(idx as u32);
+            let Some(name) = item_name(&ctx.krate, item) else {
+                continue;
+            };
+            items.insert(name.to_owned(), item_id);
+            match item {
+                Item::Class(_) => {
+                    classes.insert(name.to_owned(), item_id);
+                }
+                Item::Interface(_) => {
+                    interfaces.insert(name.to_owned(), item_id);
+                }
+                Item::Function(_) | Item::TypeAlias(_) | Item::Const(_) => {}
+            }
+        }
+        (items, classes, interfaces)
     }
 
     /// Lower a TypeScript program to HIR module.
@@ -100,13 +170,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut module = Module::new(
             "main",
             SourceFile {
-                path: "<memory>".to_owned(),
+                path: self.path.clone(),
                 language: Language::TypeScript,
             },
         );
 
         for statement in &program.body {
             match statement {
+                Statement::ImportDeclaration(import) => {
+                    self.import_declaration(import, &mut module);
+                }
                 Statement::FunctionDeclaration(function) => {
                     match self.function_declaration(function) {
                         Ok(item) => module.items.push(item),
@@ -177,6 +250,57 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(self.ctx.krate.push_module(module))
     }
 
+    /// Lower an import declaration into module metadata and local item aliases.
+    fn import_declaration(
+        &mut self,
+        import: &oxc::ast::ast::ImportDeclaration<'_>,
+        module: &mut Module,
+    ) {
+        let source = import.source.value.as_str();
+        let span = self.span(import.span.start, import.span.end);
+        let Some(specifiers) = &import.specifiers else {
+            return;
+        };
+        for specifier in specifiers {
+            let (imported, local) = match specifier {
+                ImportDeclarationSpecifier::ImportSpecifier(specifier) => {
+                    let imported = module_export_name(&specifier.imported);
+                    let local = specifier.local.name.as_str().to_owned();
+                    (imported, local)
+                }
+                ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier) => (
+                    "default".to_owned(),
+                    specifier.local.name.as_str().to_owned(),
+                ),
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier) => {
+                    ("*".to_owned(), specifier.local.name.as_str().to_owned())
+                }
+            };
+            let name = self.intern_source_name(&imported);
+            let alias = (local != imported).then(|| self.intern_source_name(&local));
+            module.imports.push(Import {
+                module: source.to_owned(),
+                name,
+                alias,
+                span,
+            });
+            self.alias_imported_item(&imported, &local);
+        }
+    }
+
+    /// Add a local alias for an imported item when it is already known.
+    fn alias_imported_item(&mut self, imported: &str, local: &str) {
+        if let Some(item) = self.items.get(imported).copied() {
+            self.items.insert(local.to_owned(), item);
+        }
+        if let Some(item) = self.classes.get(imported).copied() {
+            self.classes.insert(local.to_owned(), item);
+        }
+        if let Some(item) = self.interfaces.get(imported).copied() {
+            self.interfaces.insert(local.to_owned(), item);
+        }
+    }
+
     /// Lower a function declaration to HIR.
     fn function_declaration(
         &mut self,
@@ -194,13 +318,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "declare functions are not lowered yet",
             ));
         };
-        if function.r#async {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "async functions are not lowered yet",
-            ));
-        }
-
         let name_text = id.name.as_str();
         let name = self.intern_source_name(name_text);
         let return_ty = function
@@ -214,8 +331,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "function declarations must have an explicit return type",
                 )
             })?;
+        if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "async functions must declare a Promise<T> return type",
+            ));
+        }
 
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_async = self.current_async;
+        self.current_async = function.r#async;
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
@@ -225,6 +351,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for param in &function.params.items {
             let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                 self.locals = saved_locals;
+                self.current_async = saved_async;
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
                     "destructured parameters are not lowered yet",
@@ -264,7 +391,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 errors.push(error);
             }
         }
+        if function.r#async {
+            body.build_async_state_machine();
+        }
         self.locals = saved_locals;
+        self.current_async = saved_async;
 
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -333,10 +464,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for element in &class.body.body {
             match element {
                 ClassElement::PropertyDefinition(property) => {
-                    if property.computed {
+                    if property.computed && !is_static_property_key(&property.key) {
                         return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
-                            "computed property names are not lowered yet",
+                            "dynamic computed property names are not lowered yet",
                         ));
                     }
                     if property.r#static {
@@ -393,10 +524,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             "method decorators are not lowered yet",
                         ));
                     }
-                    if method.computed {
+                    if method.computed && !is_static_property_key(&method.key) {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
-                            "computed method names are not lowered yet",
+                            "dynamic computed method names are not lowered yet",
                         ));
                     }
                     if method.r#static {
@@ -412,12 +543,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
                             "getters and setters are not lowered yet",
-                        ));
-                    }
-                    if method.value.r#async {
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "async methods are not lowered yet",
                         ));
                     }
                     let item = if method.kind == MethodDefinitionKind::Constructor {
@@ -529,9 +654,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     )
                 })?
         };
+        if method.value.r#async
+            && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(method.span.start, method.span.end),
+                "async methods must declare a Promise<T> return type",
+            ));
+        }
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_class = self.current_class.replace(class_text.to_owned());
+        let saved_async = self.current_async;
+        self.current_async = method.value.r#async;
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
@@ -559,6 +694,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                 self.locals = saved_locals;
                 self.current_class = saved_class;
+                self.current_async = saved_async;
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
                     "destructured parameters are not lowered yet",
@@ -598,8 +734,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 errors.push(error);
             }
         }
+        if method.value.r#async {
+            body.build_async_state_machine();
+        }
         self.locals = saved_locals;
         self.current_class = saved_class;
+        self.current_async = saved_async;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
@@ -609,7 +749,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             span: self.span(method.span.start, method.span.end),
             params,
             return_ty,
-            is_async: false,
+            is_async: method.value.r#async,
             body: Some(body_id),
             owner: if is_constructor {
                 FunctionOwner::Constructor { class: class_name }
@@ -638,29 +778,36 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "generic interfaces are not lowered yet",
             ));
         }
-        if !interface.extends.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(interface.span.start, interface.span.end),
-                "interface inheritance is not lowered yet",
-            ));
-        }
         let name_text = interface.id.name.as_str();
         let name = self.intern_type_name(name_text);
         let mut fields = Vec::new();
         let mut methods = Vec::new();
+
+        for heritage in &interface.extends {
+            let parent_name = self.interface_heritage_symbol(heritage)?;
+            let parent = self.find_interface(parent_name).ok_or_else(|| {
+                let name = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(parent_name)
+                    .unwrap_or("<unknown>");
+                SmeltError::unsupported(
+                    self.span(heritage.span.start, heritage.span.end),
+                    format!("extended interface `{name}` is not declared"),
+                )
+            })?;
+            fields.extend(parent.fields.clone());
+            methods.extend(parent.methods.clone());
+        }
+
         for sig in &interface.body.body {
             match sig {
                 TSSignature::TSPropertySignature(prop) => {
-                    if prop.computed {
+                    if prop.computed && !is_static_property_key(&prop.key) {
                         return Err(SmeltError::unsupported(
                             self.span(prop.span.start, prop.span.end),
-                            "computed interface property names are not lowered yet",
-                        ));
-                    }
-                    if prop.optional {
-                        return Err(SmeltError::unsupported(
-                            self.span(prop.span.start, prop.span.end),
-                            "optional interface fields are not lowered yet",
+                            "dynamic computed interface property names are not lowered yet",
                         ));
                     }
                     let ty = prop
@@ -674,23 +821,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
                                 "interface fields require explicit type annotations",
                             )
                         })?;
+                    let ty = if prop.optional {
+                        self.ctx.krate.types.intern(Type::Optional(ty))
+                    } else {
+                        ty
+                    };
                     fields.push(Field {
                         name: self.property_key_symbol(&prop.key)?,
                         ty,
                         visibility: Visibility::Public,
-                        optional: false,
+                        optional: prop.optional,
                         span: self.span(prop.span.start, prop.span.end),
                     });
                 }
                 TSSignature::TSMethodSignature(method) => {
-                    if method.computed
+                    if (method.computed && !is_static_property_key(&method.key))
                         || method.optional
                         || method.type_parameters.is_some()
                         || method.this_param.is_some()
                     {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
-                            "generic, optional, computed, and this-parameter interface methods are not lowered yet",
+                            "generic, optional, dynamic computed, and this-parameter interface methods are not lowered yet",
                         ));
                     }
                     let return_ty = method
@@ -734,7 +886,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         params,
                         return_ty,
                         visibility: Visibility::Public,
-                        is_async: false,
+                        is_async: matches!(
+                            self.ctx.krate.types.get(return_ty),
+                            Some(Type::Future(_))
+                        ),
                         span: self.span(method.span.start, method.span.end),
                     });
                 }
@@ -1419,6 +1574,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span: self.span(unary.span.start, unary.span.end),
                 }))
             }
+            Expression::AwaitExpression(await_expr) => {
+                if !self.current_async {
+                    return Err(SmeltError::unsupported(
+                        self.span(await_expr.span.start, await_expr.span.end),
+                        "await expressions are only lowered inside async functions",
+                    ));
+                }
+                let awaited = self.expression(&await_expr.argument, body)?;
+                let ty = self
+                    .future_inner_type(body.exprs[awaited.0 as usize].ty)
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(await_expr.span.start, await_expr.span.end),
+                            "await expressions require a Promise<T> operand",
+                        )
+                    })?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Await(awaited),
+                    ty,
+                    span: self.span(await_expr.span.start, await_expr.span.end),
+                }))
+            }
             Expression::StaticMemberExpression(member) => {
                 if member.optional {
                     return Err(SmeltError::unsupported(
@@ -1452,6 +1629,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }))
             }
             Expression::CallExpression(call) => {
+                if let Some(expr) = self.promise_static_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.timer_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Expression::StaticMemberExpression(member) = &call.callee
                     && let Expression::Identifier(object) = &member.object
                     && object.name == "console"
@@ -1702,6 +1885,138 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 format!("call argument kind is not lowered yet: {argument:?}"),
             )),
         }
+    }
+
+    /// Lower supported `Promise.*` calls into shared async runtime operations.
+    fn promise_static_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Promise" {
+            return Ok(None);
+        }
+        let op = match member.property.name.as_str() {
+            "all" => AsyncOp::All,
+            "race" => AsyncOp::Race,
+            "allSettled" => AsyncOp::AllSettled,
+            other => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("Promise.{other} is not lowered yet"),
+                ));
+            }
+        };
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Promise combinators require exactly one array argument",
+            ));
+        }
+        let Argument::ArrayExpression(array) = &call.arguments[0] else {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments[0].span().start, call.arguments[0].span().end),
+                "Promise combinators require an array literal argument",
+            ));
+        };
+        let args = self.promise_array_args(array, body)?;
+        let output_ty = match op {
+            AsyncOp::All | AsyncOp::AllSettled => {
+                let outputs = args
+                    .iter()
+                    .map(|arg| {
+                        self.future_inner_type(body.exprs[arg.0 as usize].ty)
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(array.span.start, array.span.end),
+                                    "Promise combinator entries must be Promise<T> values",
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.ctx.krate.types.intern(Type::Tuple(outputs))
+            }
+            AsyncOp::Race => {
+                let Some(first) = args.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "Promise.race requires at least one promise",
+                    ));
+                };
+                self.future_inner_type(body.exprs[first.0 as usize].ty)
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(array.span.start, array.span.end),
+                            "Promise.race entries must be Promise<T> values",
+                        )
+                    })?
+            }
+            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor => unreachable!(),
+        };
+        let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::AsyncOp { op, args },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower small TypeScript timer shims used by async fixtures.
+    fn timer_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "setTimeout" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "setTimeout lowering supports the Smelt timer shim shape setTimeout(milliseconds)",
+            ));
+        }
+        let duration = self.argument(&call.arguments[0], body)?;
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::AsyncOp {
+                op: AsyncOp::Sleep,
+                args: vec![duration],
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower array entries passed to a `Promise.*` combinator.
+    fn promise_array_args(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Vec<smelt_hir::ExprId>, SmeltError> {
+        array
+            .elements
+            .iter()
+            .map(|element| match element {
+                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => {
+                    Err(SmeltError::unsupported(
+                        self.span(element.span().start, element.span().end),
+                        "Promise combinator arrays cannot use spread or elision",
+                    ))
+                }
+                _ => self.array_element(element, body),
+            })
+            .collect()
     }
 
     /// Lower an array element.
@@ -2384,6 +2699,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let value = self.ts_type_to_hir(args[1])?;
                 Ok(self.ctx.krate.types.intern(Type::Dict(key, value)))
             }
+            "Promise" if args.len() == 1 => {
+                let item = self.ts_type_to_hir(args[0])?;
+                Ok(self.ctx.krate.types.intern(Type::Future(item)))
+            }
             _ if args.is_empty() => {
                 let symbol = self.intern_type_name(name_text);
                 Ok(self.ctx.krate.types.intern(Type::Class {
@@ -2495,6 +2814,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Return the inner item type for a `Promise<T>` / `Future<T>` value.
+    fn future_inner_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Future(inner)) => Some(*inner),
+            _ => None,
+        }
+    }
+
     /// Intern a source identifier name and convert from camelCase to snake_case.
     fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
@@ -2602,6 +2929,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(self.intern_type_name(name.name.as_str()))
     }
 
+    /// Convert an interface heritage clause to the referenced interface symbol.
+    fn interface_heritage_symbol(
+        &mut self,
+        item: &oxc::ast::ast::TSInterfaceHeritage<'_>,
+    ) -> Result<smelt_hir::Symbol, SmeltError> {
+        if item.type_arguments.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(item.span.start, item.span.end),
+                "generic interface inheritance is not lowered yet",
+            ));
+        }
+        let Expression::Identifier(name) = &item.expression else {
+            return Err(SmeltError::unsupported(
+                self.span(item.span.start, item.span.end),
+                "qualified interface inheritance is not lowered yet",
+            ));
+        };
+        Ok(self.intern_type_name(name.name.as_str()))
+    }
+
+    /// Find a previously lowered interface by symbol.
+    fn find_interface(&self, name: smelt_hir::Symbol) -> Option<&Interface> {
+        self.ctx.krate.items.iter().find_map(|item| match item {
+            Item::Interface(interface) if interface.name == name => Some(interface),
+            _ => None,
+        })
+    }
+
     fn validate_implements(&self, class_item: smelt_hir::ItemId) -> Result<(), SmeltError> {
         let Item::Class(class) = &self.ctx.krate.items[class_item.0 as usize] else {
             return Ok(());
@@ -2636,6 +2991,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .iter()
                     .find(|field| field.name == required.name)
                 else {
+                    if required.optional {
+                        continue;
+                    }
                     let name = self
                         .ctx
                         .krate
@@ -2647,7 +3005,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         format!("class is missing implemented interface field `{name}`"),
                     ));
                 };
-                if actual.ty != required.ty {
+                if !field_type_satisfies(&self.ctx.krate, actual.ty, required) {
                     let name = self
                         .ctx
                         .krate
@@ -2699,6 +3057,41 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 }
 
+/// Return an item's original source name when available.
+fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
+    let symbol = match item {
+        Item::Function(function) => function.name,
+        Item::Class(class) => class.name,
+        Item::Interface(interface) => interface.name,
+        Item::TypeAlias(alias) => alias.name,
+        Item::Const(item) => item.name,
+    };
+    krate
+        .names
+        .get(symbol)
+        .or_else(|| krate.symbols.get(symbol))
+}
+
+/// Return whether a property key can be resolved without runtime evaluation.
+fn is_static_property_key(key: &PropertyKey<'_>) -> bool {
+    matches!(
+        key,
+        PropertyKey::StaticIdentifier(_)
+            | PropertyKey::PrivateIdentifier(_)
+            | PropertyKey::StringLiteral(_)
+    )
+}
+
+/// Extract the source text represented by a module export name.
+fn module_export_name(name: &ModuleExportName<'_>) -> String {
+    match name {
+        ModuleExportName::IdentifierName(ident) => ident.name.as_str().to_owned(),
+        ModuleExportName::IdentifierReference(ident) => ident.name.as_str().to_owned(),
+        ModuleExportName::StringLiteral(literal) => literal.value.as_str().to_owned(),
+    }
+}
+
+/// Determine HIR visibility from TypeScript accessibility metadata.
 fn visibility(accessibility: Option<TSAccessibility>) -> Visibility {
     match accessibility {
         Some(TSAccessibility::Private) => Visibility::Private,
@@ -2707,6 +3100,7 @@ fn visibility(accessibility: Option<TSAccessibility>) -> Visibility {
     }
 }
 
+/// Return whether a statement always terminates control flow.
 fn statement_terminates(statement: &Statement<'_>) -> bool {
     match statement {
         Statement::ReturnStatement(_) | Statement::ThrowStatement(_) => true,

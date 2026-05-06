@@ -94,6 +94,32 @@ pub enum ExprKind {
         /// The constructor arguments.
         args: Vec<ExprId>,
     },
+    /// An await expression that suspends on a future.
+    Await(ExprId),
+    /// A runtime-backed async operation.
+    AsyncOp {
+        /// Operation to perform.
+        op: AsyncOp,
+        /// Input future/value expressions.
+        args: Vec<ExprId>,
+    },
+}
+
+/// Runtime-backed async operation represented in HIR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AsyncOp {
+    /// Wait for all futures and produce all outputs.
+    All,
+    /// Resolve when the first future completes.
+    Race,
+    /// Wait for all futures and keep settled outputs.
+    AllSettled,
+    /// Sleep for a duration in milliseconds.
+    Sleep,
+    /// Create a task from a future.
+    CreateTask,
+    /// Wait for a future with a timeout.
+    WaitFor,
 }
 
 /// A literal value.

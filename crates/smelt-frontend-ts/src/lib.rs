@@ -55,7 +55,7 @@ mod lowering;
 pub use context::HirCtx;
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
-pub use lowering::to_hir;
+pub use lowering::{to_hir, to_hir_with_path};
 
 #[cfg(test)]
 mod tests;

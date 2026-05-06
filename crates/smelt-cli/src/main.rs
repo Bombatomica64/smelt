@@ -35,12 +35,14 @@
 mod cli_parser;
 mod config;
 mod config_parser;
+pub mod stubs;
 
 use clap::Parser;
 use cli_parser::{Args, Command};
-use config::{Config, Pipeline};
+use config::Config;
 use smelt_hir::{FileId, ModuleId, format_compact};
 use std::{
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
@@ -67,16 +69,29 @@ impl SourceLang {
 /// Represents a lowered crate with its modules.
 type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
 
-/// Check and validate source files without emitting any output.
-fn check(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
-    let pipelines = config.pipelines();
-    if pipelines.contains(&Pipeline::TypeScript) {
-        return Err("project-wide TypeScript check is not implemented yet".into());
-    }
-    if pipelines.contains(&Pipeline::Python) {
-        return Err("project-wide Python check is not implemented yet".into());
-    }
-    Ok(())
+/// A manifest source entry prepared for module graph ordering.
+#[derive(Debug, Clone)]
+struct ManifestSource {
+    /// Original manifest entry resolved against the manifest directory.
+    path: PathBuf,
+    /// Source language inferred from the file extension.
+    lang: SourceLang,
+    /// Import specifiers found before lowering.
+    imports: Vec<String>,
+}
+
+/// Mutable state while visiting the manifest import graph.
+struct ManifestGraphVisit<'a> {
+    /// Manifest sources being ordered.
+    sources: &'a [ManifestSource],
+    /// Lookup from normalized path keys to source indexes.
+    index: &'a HashMap<PathBuf, usize>,
+    /// Dependency-first output order.
+    ordered: Vec<usize>,
+    /// Nodes currently on the DFS stack.
+    temporary: HashSet<usize>,
+    /// Nodes already visited.
+    permanent: HashSet<usize>,
 }
 
 /// Lower TypeScript source files to HIR.
@@ -87,12 +102,13 @@ fn lower_typescript_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std:
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
         let module =
-            smelt_frontend_ts::to_hir(&source, FileId(idx as u32), &mut ctx).map_err(|errors| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("{}:\n{errors:#?}", Path::new(file).display()),
-                )
-            })?;
+            smelt_frontend_ts::to_hir_with_path(&source, FileId(idx as u32), file, &mut ctx)
+                .map_err(|errors| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("{}:\n{errors:#?}", Path::new(file).display()),
+                    )
+                })?;
         modules.push((file.clone(), module));
     }
 
@@ -107,12 +123,13 @@ fn lower_python_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::err
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
         let module =
-            smelt_frontend_py::to_hir(&source, FileId(idx as u32), &mut ctx).map_err(|errors| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!("{}:\n{errors:#?}", Path::new(file).display()),
-                )
-            })?;
+            smelt_frontend_py::to_hir_with_path(&source, FileId(idx as u32), file, &mut ctx)
+                .map_err(|errors| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("{}:\n{errors:#?}", Path::new(file).display()),
+                    )
+                })?;
         modules.push((file.clone(), module));
     }
 
@@ -125,6 +142,296 @@ fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std::error::Err
         SourceLang::TypeScript => lower_typescript_files(&[file.to_string()]),
         SourceLang::Python => lower_python_files(&[file.to_string()]),
     }
+}
+
+/// Lower manifest entries in order, sharing one HIR crate across frontends.
+fn lower_manifest_entries(
+    config: &Config,
+    manifest_path: &Path,
+) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let sources = config
+        .entries()
+        .iter()
+        .map(|path| resolve_manifest_path(manifest_dir, path))
+        .map(read_manifest_source)
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let files = order_manifest_sources(&sources)
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?
+        .into_iter()
+        .map(|idx| sources[idx].path.clone())
+        .collect::<Vec<_>>();
+
+    if files.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "manifest has no source entries to lower",
+        )
+        .into());
+    }
+
+    lower_ordered_manifest_files(&files)
+}
+
+/// Lower already ordered manifest files into one shared HIR crate.
+fn lower_ordered_manifest_files(
+    files: &[PathBuf],
+) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+    let mut krate = smelt_hir::Crate::new();
+    let mut modules = Vec::new();
+
+    for (idx, file) in files.iter().enumerate() {
+        let (next_krate, module) = lower_manifest_file(krate, file, idx)?;
+        krate = next_krate;
+        krate.modules[module.0 as usize].name = manifest_module_name(file);
+        modules.push((file.display().to_string(), module));
+    }
+
+    Ok((krate, modules))
+}
+
+/// Lower one manifest file with the language-specific frontend.
+fn lower_manifest_file(
+    krate: smelt_hir::Crate,
+    file: &Path,
+    idx: usize,
+) -> Result<(smelt_hir::Crate, ModuleId), Box<dyn std::error::Error>> {
+    let file_string = file.display().to_string();
+    let source = fs::read_to_string(file)?;
+    match SourceLang::from_path(&file_string)? {
+        SourceLang::TypeScript => {
+            let mut ctx = smelt_frontend_ts::HirCtx { krate };
+            let module = smelt_frontend_ts::to_hir_with_path(
+                &source,
+                FileId(idx as u32),
+                &file_string,
+                &mut ctx,
+            )
+            .map_err(|errors| lowering_error(file, &errors))?;
+            Ok((ctx.krate, module))
+        }
+        SourceLang::Python => {
+            let mut ctx = smelt_frontend_py::HirCtx { krate };
+            let module = smelt_frontend_py::to_hir_with_path(
+                &source,
+                FileId(idx as u32),
+                &file_string,
+                &mut ctx,
+            )
+            .map_err(|errors| lowering_error(file, &errors))?;
+            Ok((ctx.krate, module))
+        }
+    }
+}
+
+/// Format frontend lowering errors with the source path.
+fn lowering_error(file: &Path, errors: &[impl std::fmt::Debug]) -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        format!("{}:\n{errors:#?}", file.display()),
+    )
+}
+
+/// Read a manifest entry and collect the imports needed for dependency sorting.
+fn read_manifest_source(path: PathBuf) -> Result<ManifestSource, Box<dyn std::error::Error>> {
+    let file_string = path.display().to_string();
+    let lang = SourceLang::from_path(&file_string)?;
+    let source = fs::read_to_string(&path)?;
+    Ok(ManifestSource {
+        path,
+        lang,
+        imports: scan_imports(&source, lang),
+    })
+}
+
+/// Return manifest source indexes in dependency-first order.
+fn order_manifest_sources(sources: &[ManifestSource]) -> Result<Vec<usize>, String> {
+    let index = manifest_source_index(sources);
+    let mut visit = ManifestGraphVisit {
+        sources,
+        index: &index,
+        ordered: Vec::new(),
+        temporary: HashSet::new(),
+        permanent: HashSet::new(),
+    };
+
+    for idx in 0..sources.len() {
+        visit_manifest_source(idx, &mut visit)?;
+    }
+
+    Ok(visit.ordered)
+}
+
+/// Build lookup keys that import specifiers can resolve against.
+fn manifest_source_index(sources: &[ManifestSource]) -> HashMap<PathBuf, usize> {
+    let mut index = HashMap::new();
+    for (idx, source) in sources.iter().enumerate() {
+        add_manifest_key(&mut index, &source.path, idx);
+        if source
+            .path
+            .file_name()
+            .is_some_and(|name| name == "__init__.py")
+            && let Some(package_root) = source.path.parent()
+        {
+            add_manifest_key(&mut index, package_root, idx);
+            if let Some(package_name) = package_root.file_name() {
+                index.insert(PathBuf::from(package_name), idx);
+            }
+        }
+        if let Some(stem) = source.path.file_stem() {
+            index.insert(PathBuf::from(stem), idx);
+        }
+    }
+    index
+}
+
+/// Add canonical and extensionless keys for one manifest path.
+fn add_manifest_key(index: &mut HashMap<PathBuf, usize>, path: &Path, idx: usize) {
+    index.insert(normalize_path_key(path), idx);
+    if let Some(without_extension) = path.with_extension("").to_str() {
+        index.insert(normalize_path_key(Path::new(without_extension)), idx);
+    }
+}
+
+/// Visit a manifest source and all known local dependencies.
+fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Result<(), String> {
+    if visit.permanent.contains(&idx) {
+        return Ok(());
+    }
+    if !visit.temporary.insert(idx) {
+        return Err(format!(
+            "cyclic manifest import involving {}",
+            visit.sources[idx].path.display()
+        ));
+    }
+
+    for import in &visit.sources[idx].imports {
+        if let Some(dep) =
+            resolve_import_to_manifest_source(&visit.sources[idx], import, visit.index)
+            && dep != idx
+        {
+            visit_manifest_source(dep, visit)?;
+        }
+    }
+
+    visit.temporary.remove(&idx);
+    visit.permanent.insert(idx);
+    visit.ordered.push(idx);
+    Ok(())
+}
+
+/// Resolve an import specifier to a known manifest source when it is local.
+fn resolve_import_to_manifest_source(
+    importer: &ManifestSource,
+    import: &str,
+    index: &HashMap<PathBuf, usize>,
+) -> Option<usize> {
+    let base = match importer.lang {
+        SourceLang::TypeScript if import.starts_with('.') => importer
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(import),
+        SourceLang::Python if import.starts_with('.') => importer
+            .path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(import.trim_start_matches('.').replace('.', "/")),
+        SourceLang::Python => PathBuf::from(import.replace('.', "/")),
+        SourceLang::TypeScript => PathBuf::from(import),
+    };
+
+    manifest_import_candidates(&base)
+        .into_iter()
+        .find_map(|candidate| index.get(&normalize_path_key(&candidate)).copied())
+}
+
+/// Build possible source paths for an import specifier.
+fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    candidates.push(base.to_path_buf());
+    if base.extension().is_none() {
+        candidates.push(base.with_extension("ts"));
+        candidates.push(base.with_extension("py"));
+        candidates.push(base.join("index.ts"));
+        candidates.push(base.join("__init__.py"));
+    }
+    candidates
+}
+
+/// Normalize a path key without requiring the path to already exist.
+fn normalize_path_key(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                normalized.pop();
+            }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+/// Scan TypeScript and Python source text for import module specifiers.
+fn scan_imports(source: &str, lang: SourceLang) -> Vec<String> {
+    match lang {
+        SourceLang::TypeScript => scan_typescript_imports(source),
+        SourceLang::Python => scan_python_imports(source),
+    }
+}
+
+/// Scan TypeScript `import ... from "module"` and side-effect import specifiers.
+fn scan_typescript_imports(source: &str) -> Vec<String> {
+    source
+        .lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("import ") {
+                return None;
+            }
+            let specifier = trimmed
+                .split_once(" from ")
+                .map_or(trimmed.strip_prefix("import "), |(_, right)| Some(right))?;
+            quoted_module_specifier(specifier)
+        })
+        .collect()
+}
+
+/// Scan Python `import module` and `from module import name` specifiers.
+fn scan_python_imports(source: &str) -> Vec<String> {
+    let mut imports = Vec::new();
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("from ") {
+            if let Some((module, _)) = rest.split_once(" import ") {
+                imports.push(module.trim().to_owned());
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("import ") {
+            let module = rest
+                .split(',')
+                .next()
+                .and_then(|part| part.split_whitespace().next());
+            if let Some(module) = module {
+                imports.push(module.to_owned());
+            }
+        }
+    }
+    imports
+}
+
+/// Extract the first quoted module specifier from an import tail.
+fn quoted_module_specifier(input: &str) -> Option<String> {
+    let input = input.trim().trim_end_matches(';').trim();
+    let quote = input.chars().next()?;
+    if quote != '\'' && quote != '"' {
+        return None;
+    }
+    let rest = &input[quote.len_utf8()..];
+    let end = rest.find(quote)?;
+    Some(rest[..end].to_owned())
 }
 
 /// Parse a Python file and dump the Ruff AST. Used for the M8 scaffold while
@@ -142,34 +449,6 @@ fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Lower TypeScript entries from a manifest config to HIR.
-fn lower_manifest_typescript(
-    config: &Config,
-    manifest_path: &Path,
-) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
-    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let files = config
-        .entries()
-        .iter()
-        .filter(|path| path.extension().is_some_and(|extension| extension == "ts"))
-        .map(|path| {
-            resolve_manifest_path(manifest_dir, path)
-                .display()
-                .to_string()
-        })
-        .collect::<Vec<_>>();
-
-    if files.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "manifest has no TypeScript source entries to lower to HIR",
-        )
-        .into());
-    }
-
-    lower_typescript_files(&files)
-}
-
 /// Resolve a path relative to the manifest directory, or return it if absolute.
 fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
@@ -177,6 +456,14 @@ fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
     } else {
         manifest_dir.join(path)
     }
+}
+
+/// Return the generated Rust function name for a manifest module body.
+fn manifest_module_name(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("main")
+        .to_string()
 }
 
 /// Print the HIR in compact or debug format.
@@ -222,7 +509,8 @@ fn build_rust_crate(
     config: &Config,
     manifest_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (krate, _) = lower_manifest_typescript(config, manifest_path)?;
+    let (krate, modules) = lower_manifest_entries(config, manifest_path)?;
+    stubs::emit_type_declarations(&krate, &modules)?;
     let mir = lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let output_dir = resolve_manifest_path(manifest_dir, config.output_target());
@@ -254,6 +542,13 @@ fn build_rust_crate(
     Ok(())
 }
 
+/// Check manifest entries and emit declaration stubs without generating Rust.
+fn check_manifest(config: &Config, manifest_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let (krate, modules) = lower_manifest_entries(config, manifest_path)?;
+    stubs::emit_type_declarations(&krate, &modules)?;
+    Ok(())
+}
+
 /// Main CLI entry point.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
@@ -272,10 +567,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .ok_or("manifest path contains invalid UTF-8")?,
     )?;
     match args.command {
-        Command::Check => check(&config)?,
+        Command::Check => check_manifest(&config, &manifest_path)?,
         Command::Build { hir, hir_debug } => {
             if hir || hir_debug {
-                let (krate, modules) = lower_manifest_typescript(&config, &manifest_path)?;
+                let (krate, modules) = lower_manifest_entries(&config, &manifest_path)?;
                 print_hir(&krate, &modules, hir_debug);
                 return Ok(());
             }

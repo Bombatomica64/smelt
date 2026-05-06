@@ -240,8 +240,21 @@ pub fn to_hir(
     file_id: FileId,
     ctx: &mut HirCtx,
 ) -> Result<ModuleId, Vec<SmeltError>> {
+    to_hir_with_path(source, file_id, "", ctx)
+}
+
+/// Parse `source` from `path` as a Python module and lower it to HIR.
+///
+/// # Errors
+/// Returns `Err` for parse errors or unsupported Python constructs.
+pub fn to_hir_with_path(
+    source: &str,
+    file_id: FileId,
+    path: &str,
+    ctx: &mut HirCtx,
+) -> Result<ModuleId, Vec<SmeltError>> {
     let module_ast = parse_module(source, file_id)?;
-    let mut builder = ModuleBuilder::new(file_id, ctx);
+    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), ctx);
     builder.module(&module_ast)
 }
 

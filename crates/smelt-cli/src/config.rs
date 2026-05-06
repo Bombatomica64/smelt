@@ -4,15 +4,6 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-/// The language pipeline for a build.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pipeline {
-    /// TypeScript frontend pipeline.
-    TypeScript,
-    /// Python frontend pipeline.
-    Python,
-}
-
 /// Project metadata from the [project] section of Smelt.toml.
 #[derive(Deserialize, Debug, JsonSchema)]
 #[expect(
@@ -71,28 +62,6 @@ impl Config {
     /// Whether the generated output should be built automatically.
     pub fn should_build_output(&self) -> bool {
         self.output.build.unwrap_or(false)
-    }
-
-    /// Determine which language pipelines are needed based on source entries.
-    pub fn pipelines(&self) -> Vec<Pipeline> {
-        let mut out = Vec::new();
-        let has_ts = self
-            .sources
-            .entries
-            .iter()
-            .any(|p| p.extension().is_some_and(|e| e == "ts"));
-        let has_py = self
-            .sources
-            .entries
-            .iter()
-            .any(|p| p.extension().is_some_and(|e| e == "py"));
-        if has_ts {
-            out.push(Pipeline::TypeScript);
-        }
-        if has_py {
-            out.push(Pipeline::Python);
-        }
-        out
     }
 }
 

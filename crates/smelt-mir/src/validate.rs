@@ -148,7 +148,14 @@ fn validate_rvalue_exists(
                 validate_operand_exists(function, value, errors);
             }
         }
-        Rvalue::Len(operand) => validate_operand_exists(function, operand, errors),
+        Rvalue::Len(operand) | Rvalue::Await(operand) => {
+            validate_operand_exists(function, operand, errors);
+        }
+        Rvalue::AsyncOp { args, .. } => {
+            for arg in args {
+                validate_operand_exists(function, arg, errors);
+            }
+        }
     }
 }
 
@@ -338,7 +345,14 @@ fn validate_rvalue(
                 validate_operand(function, definitions, value, errors);
             }
         }
-        Rvalue::Len(operand) => validate_operand(function, definitions, operand, errors),
+        Rvalue::Len(operand) | Rvalue::Await(operand) => {
+            validate_operand(function, definitions, operand, errors);
+        }
+        Rvalue::AsyncOp { args, .. } => {
+            for arg in args {
+                validate_operand(function, definitions, arg, errors);
+            }
+        }
     }
 }
 

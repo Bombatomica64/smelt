@@ -9,14 +9,14 @@ use std::collections::HashMap;
 use ruff_python_ast::{
     BoolOp, CmpOp, ElifElseClause, Expr, ModModule, Number, Operator, Pattern as RuffPattern,
     PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAugAssign, StmtClassDef, StmtFor,
-    StmtFunctionDef, StmtIf, StmtMatch, UnaryOp as RuffUnaryOp,
+    StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch, UnaryOp as RuffUnaryOp,
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    BinOp, Body, Class, ClassKind, Expr as HirExpr, ExprKind, Field, FileId, Function,
-    FunctionOwner, FunctionType, Item, ItemId, Language, Literal, LocalDecl, MatchArm, Module,
-    ModuleId, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, Symbol, Type,
-    TypeId, UnaryOp, Visibility,
+    AsyncOp, BinOp, Body, Class, ClassKind, Expr as HirExpr, ExprKind, Field, FileId, Function,
+    FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal, LocalDecl, MatchArm,
+    Module, ModuleId, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, Symbol,
+    Type, TypeId, UnaryOp, Visibility,
 };
 
 use crate::helpers::{
@@ -28,20 +28,26 @@ use crate::{HirCtx, SmeltError};
 
 pub(crate) struct ModuleBuilder<'ctx> {
     file_id: FileId,
+    path: String,
     ctx: &'ctx mut HirCtx,
     /// In-scope locals while lowering a body.
     locals: HashMap<String, smelt_hir::LocalId>,
     /// Module-level items (functions / classes) for call resolution.
     items: HashMap<String, ItemId>,
+    /// Whether the current lowered function body is async.
+    current_async: bool,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
-    pub(crate) fn new(file_id: FileId, ctx: &'ctx mut HirCtx) -> Self {
+    pub(crate) fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
+        let items = visible_items(ctx);
         Self {
             file_id,
+            path,
             ctx,
             locals: HashMap::new(),
-            items: HashMap::new(),
+            items,
+            current_async: false,
         }
     }
 
@@ -51,7 +57,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     pub(crate) fn module(&mut self, module: &ModModule) -> Result<ModuleId, Vec<SmeltError>> {
         let source = SourceFile {
-            path: String::new(),
+            path: self.path.clone(),
             language: Language::Python,
         };
         let mut hir_module = Module::new("main", source);
@@ -71,13 +77,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     Ok(_) => {}
                     Err(err) => errors.push(err),
                 },
+                Stmt::Import(import) => self.import_stmt(import, &mut hir_module),
+                Stmt::ImportFrom(import) => self.import_from_stmt(import, &mut hir_module),
                 _ => {}
             }
         }
 
         // Pass 2 — lower module-level statements into the module body.
         for stmt in &module.body {
-            if matches!(stmt, Stmt::FunctionDef(_) | Stmt::ClassDef(_)) {
+            if matches!(
+                stmt,
+                Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_)
+            ) {
                 continue; // already lowered in Pass 1
             }
             if let Err(err) = self.statement(stmt, &mut body) {
@@ -92,6 +103,59 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let body_id = self.ctx.krate.push_body(body);
         hir_module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(hir_module))
+    }
+
+    /// Lower a Python `import module [as alias]` statement to HIR metadata.
+    fn import_stmt(&mut self, stmt: &StmtImport, hir_module: &mut Module) {
+        let span = self.span(stmt.range);
+        for alias in &stmt.names {
+            let module_name = alias.name.as_str();
+            let local = alias
+                .asname
+                .as_ref()
+                .map_or(module_name, |identifier| identifier.as_str());
+            let name = self.intern_name(module_name);
+            let alias_symbol = (local != module_name).then(|| self.intern_name(local));
+            hir_module.imports.push(Import {
+                module: module_name.to_owned(),
+                name,
+                alias: alias_symbol,
+                span,
+            });
+            self.alias_imported_item(module_name, local);
+        }
+    }
+
+    /// Lower a Python `from module import name [as alias]` statement to HIR metadata.
+    fn import_from_stmt(&mut self, stmt: &StmtImportFrom, hir_module: &mut Module) {
+        let span = self.span(stmt.range);
+        let module = stmt
+            .module
+            .as_ref()
+            .map_or_else(String::new, |module| module.as_str().to_owned());
+        for alias in &stmt.names {
+            let imported = alias.name.as_str();
+            let local = alias
+                .asname
+                .as_ref()
+                .map_or(imported, |identifier| identifier.as_str());
+            let name = self.intern_name(imported);
+            let alias_symbol = (local != imported).then(|| self.intern_name(local));
+            hir_module.imports.push(Import {
+                module: module.clone(),
+                name,
+                alias: alias_symbol,
+                span,
+            });
+            self.alias_imported_item(imported, local);
+        }
+    }
+
+    /// Add a local alias for an imported item when it is already known.
+    fn alias_imported_item(&mut self, imported: &str, local: &str) {
+        if let Some(item) = self.items.get(imported).copied() {
+            self.items.insert(local.to_owned(), item);
+        }
     }
 
     /// Lower a Python class definition to HIR, adding all methods and
@@ -497,18 +561,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // -----------------------------------------------------------------------
 
     fn function_def(&mut self, func: &StmtFunctionDef) -> Result<ItemId, SmeltError> {
-        if func.is_async {
-            return Err(SmeltError::unsupported(
-                self.span(func.range),
-                "async functions are not yet supported",
-            ));
-        }
-
         let name_str = func.name.as_str();
         let name = self.intern_name(name_str);
 
         // Return type — required.
-        let return_ty = func
+        let annotated_return_ty = func
             .returns
             .as_deref()
             .ok_or_else(|| {
@@ -518,9 +575,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 )
             })
             .and_then(|ann| self.annotation_to_hir(ann))?;
+        let return_ty = if func.is_async {
+            self.future_type(annotated_return_ty)
+        } else {
+            annotated_return_ty
+        };
 
         // Save outer scope and start fresh for this function's body.
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_async = self.current_async;
+        self.current_async = func.is_async;
         let func_span = self.span(func.range);
         let mut fn_body = Body::new(None, func_span);
         let mut params: Vec<Param> = Vec::new();
@@ -562,6 +626,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         if func.parameters.vararg.is_some() || func.parameters.kwarg.is_some() {
             self.locals = saved_locals;
+            self.current_async = saved_async;
             return Err(SmeltError::unsupported(
                 self.span(func.range),
                 format!("function '{name_str}': *args and **kwargs are not yet supported"),
@@ -573,8 +638,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .body
             .iter()
             .find_map(|stmt| self.statement(stmt, &mut fn_body).err());
+        if func.is_async {
+            fn_body.build_async_state_machine();
+        }
 
         self.locals = saved_locals;
+        self.current_async = saved_async;
 
         if let Some(err) = body_error {
             return Err(err);
@@ -586,7 +655,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             span: func_span,
             params,
             return_ty,
-            is_async: false,
+            is_async: func.is_async,
             body: Some(body_id),
             owner: FunctionOwner::Module,
         });
@@ -1348,6 +1417,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // --- Calls ---
             Expr::Call(call) => self.call_expression(call, body),
 
+            // --- Await ---
+            Expr::Await(await_expr) => {
+                if !self.current_async {
+                    return Err(SmeltError::unsupported(
+                        self.span(await_expr.range),
+                        "await expressions are only supported inside async functions",
+                    ));
+                }
+                let awaited = self.expression(&await_expr.value, body)?;
+                let awaited_ty = body.exprs[awaited.0 as usize].ty;
+                let ty = self.future_inner_type(awaited_ty).ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(await_expr.range),
+                        "await expressions require an Awaitable[T] operand",
+                    )
+                })?;
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::Await(awaited),
+                    ty,
+                    span: self.span(await_expr.range),
+                }))
+            }
+
             // --- Attribute access: `obj.field` ---
             Expr::Attribute(attr) => {
                 let receiver = self.expression(&attr.value, body)?;
@@ -1625,6 +1717,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(call.range);
 
+        if let Some(expr) = self.asyncio_call_expression(call, body)? {
+            return Ok(expr);
+        }
+
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {
             if name.id.as_str() == "print" {
@@ -1707,6 +1803,149 @@ impl<'ctx> ModuleBuilder<'ctx> {
         ))
     }
 
+    /// Lower supported `asyncio.*` calls into shared async runtime operations.
+    fn asyncio_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return Ok(None);
+        };
+        if module.id.as_str() != "asyncio" {
+            return Ok(None);
+        }
+
+        let span = self.span(call.range);
+        match smelt_asyncio::classify_attr(attr.attr.as_str()) {
+            smelt_asyncio::AsyncioApi::Gather => {
+                let args = call
+                    .arguments
+                    .args
+                    .iter()
+                    .map(|arg| self.expression(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let outputs = args
+                    .iter()
+                    .map(|arg| {
+                        self.future_inner_type(body.exprs[arg.0 as usize].ty)
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    span,
+                                    "asyncio.gather arguments must be awaitable",
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let output_ty = self.intern_type(Type::Tuple(outputs));
+                let ty = self.intern_type(Type::Future(output_ty));
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::All,
+                        args,
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            smelt_asyncio::AsyncioApi::Sleep => {
+                if call.arguments.args.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "asyncio.sleep requires exactly one duration argument",
+                    ));
+                }
+                let duration = self.expression(&call.arguments.args[0], body)?;
+                let none_ty = self.intern_type(Type::None);
+                let ty = self.intern_type(Type::Future(none_ty));
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::Sleep,
+                        args: vec![duration],
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            smelt_asyncio::AsyncioApi::CreateTask => {
+                if call.arguments.args.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "asyncio.create_task requires exactly one awaitable argument",
+                    ));
+                }
+                let future = self.expression(&call.arguments.args[0], body)?;
+                let inner = self
+                    .future_inner_type(body.exprs[future.0 as usize].ty)
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            span,
+                            "asyncio.create_task argument must be awaitable",
+                        )
+                    })?;
+                let ty = self.intern_type(Type::Future(inner));
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::CreateTask,
+                        args: vec![future],
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            smelt_asyncio::AsyncioApi::WaitFor => {
+                if call.arguments.args.len() < 2 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "asyncio.wait_for requires an awaitable and timeout",
+                    ));
+                }
+                let future = self.expression(&call.arguments.args[0], body)?;
+                let timeout = self.expression(&call.arguments.args[1], body)?;
+                let inner = self
+                    .future_inner_type(body.exprs[future.0 as usize].ty)
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            span,
+                            "asyncio.wait_for first argument must be awaitable",
+                        )
+                    })?;
+                let ty = self.intern_type(Type::Future(inner));
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::WaitFor,
+                        args: vec![future, timeout],
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            smelt_asyncio::AsyncioApi::Queue | smelt_asyncio::AsyncioApi::Lock => {
+                Err(SmeltError::unsupported(
+                    span,
+                    format!(
+                        "asyncio.{} needs runtime object support and is not lowered in this slice",
+                        attr.attr
+                    ),
+                ))
+            }
+            smelt_asyncio::AsyncioApi::LowerLevelLoop => Err(SmeltError::unsupported(
+                span,
+                format!(
+                    "asyncio.{} is a lower-level event-loop API and is not supported",
+                    attr.attr
+                ),
+            )),
+            smelt_asyncio::AsyncioApi::Unknown => Err(SmeltError::unsupported(
+                span,
+                format!("asyncio.{} is not lowered yet", attr.attr),
+            )),
+        }
+    }
+
     /// Resolve a name to a local variable or module-level item.
     fn identifier_expression(
         &mut self,
@@ -1786,6 +2025,22 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Wrap a Python async return annotation in the shared HIR future type.
+    fn future_type(&mut self, inner: TypeId) -> TypeId {
+        match self.ctx.krate.types.get(inner) {
+            Some(Type::Future(_)) => inner,
+            _ => self.intern_type(Type::Future(inner)),
+        }
+    }
+
+    /// Extract the output type from a HIR future type.
+    fn future_inner_type(&self, ty: TypeId) -> Option<TypeId> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Future(inner)) => Some(*inner),
+            _ => None,
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Built-in items
     // -----------------------------------------------------------------------
@@ -1831,4 +2086,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn span(&self, range: TextRange) -> Span {
         range_to_span(self.file_id, range)
     }
+}
+
+/// Collect items already present in the shared crate for cross-module references.
+fn visible_items(ctx: &HirCtx) -> HashMap<String, ItemId> {
+    let mut items = HashMap::new();
+    for (idx, item) in ctx.krate.items.iter().enumerate() {
+        let Ok(item_idx) = u32::try_from(idx) else {
+            continue;
+        };
+        let item_id = ItemId(item_idx);
+        let Some(name) = item_name(&ctx.krate, item) else {
+            continue;
+        };
+        items.insert(name.to_owned(), item_id);
+    }
+    items
+}
+
+/// Return an item's source name when available.
+fn item_name<'a>(krate: &'a smelt_hir::Crate, hir_item: &Item) -> Option<&'a str> {
+    let symbol = match hir_item {
+        Item::Function(function) => function.name,
+        Item::Class(class) => class.name,
+        Item::Interface(interface) => interface.name,
+        Item::TypeAlias(alias) => alias.name,
+        Item::Const(const_item) => const_item.name,
+    };
+    krate.symbols.get(symbol)
 }

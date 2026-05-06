@@ -5,6 +5,7 @@ members = [
     "crates/smelt-hir",
     "crates/smelt-mir",
     "crates/smelt-codegen-rust",
+    "crates/smelt-asyncio",
     "crates/smelt-runtime",
     "crates/smelt-cli",
 ]
