@@ -175,6 +175,36 @@ semantics for this slice follow Rust/Tokio drop semantics: dropping a future can
 `wait_for`/timeout drops the timed-out future, and spawned task wrappers surface task panics as
 runtime errors.
 
+## Phase 6: Standard Library Mapping
+
+- [ ] Prefer direct semantic transpilation for stdlib operations whenever the Rust equivalent is
+      straightforward and preserves source-language behavior.
+  - [ ] Use a typed mapping registry instead of ad-hoc string matches:
+        `(language, receiver/function, receiver type, argument shape) -> lowering rule`.
+  - [ ] Keep rules able to lower to inline Rust/MIR operations before considering runtime helpers.
+- [ ] Keep `smelt-runtime` as a last-resort compatibility layer, not the default stdlib strategy.
+  - [ ] Runtime helpers must justify behavior that cannot stay readable or correct as inline Rust.
+  - [ ] Prefer external Rust crates with generated dependency injection over custom runtime shims.
+- [ ] Support native/C-backed integrations as explicit library mappings, not a general CPython
+      extension fallback.
+  - [ ] Only call native APIs with stable C ABI boundaries and clear ownership/error semantics.
+  - [ ] Do not treat arbitrary `PyObject*`/CPython-extension APIs as "direct C" without an explicit
+        hybrid backend decision.
+  - [ ] Make NumPy the first required Python native-library target because too much practical Python
+        depends on it.
+  - [ ] Design NumPy around array/tensor semantics first, then choose whether each operation maps to
+        Rust-native arrays/crates, C ABI calls, or a deliberately hybrid path.
+- [x] First direct-transpile stdlib slice:
+  - [x] TypeScript `Array.prototype.length`.
+  - [x] TypeScript `String.prototype.length`.
+  - [x] Python `len(...)` for list/dict/tuple/string values.
+- [ ] Follow-up direct mappings:
+  - [ ] TypeScript array methods: `map`, `filter`, `reduce`, `forEach`, `find`, `includes`, `push`,
+        and `slice`.
+  - [ ] TypeScript string methods: `split`, `toLowerCase`, and `toUpperCase`.
+  - [ ] TypeScript `Math.*`, `Object.*`, `JSON.*`, `fetch`, and async timers.
+  - [ ] Python builtins and common stdlib functions that map directly to Rust or external crates.
+
 ## Later Phases
 
 - [ ] Finish remaining Phase 3 object model cleanup.

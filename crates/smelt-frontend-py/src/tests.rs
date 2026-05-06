@@ -232,6 +232,27 @@ print(x)
 }
 
 #[test]
+fn len_call_lowers() {
+    let source = r#"
+values: list[int] = [1, 2, 3]
+count: int = len(values)
+word: str = "smelt"
+letters: int = len(word)
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(source, FileId(0), &mut ctx).expect("len() should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    let len_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
+        .count();
+    assert_eq!(len_count, 2);
+}
+
+#[test]
 fn plain_class_lowers() {
     let source = r#"
 class Point:

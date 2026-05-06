@@ -1605,6 +1605,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let receiver = self.expression(&member.object, body)?;
                 let field = self.intern_source_name(member.property.name.as_str());
+                if member.property.name == "length"
+                    && self.supports_stdlib_length(body.exprs[receiver.0 as usize].ty)
+                {
+                    let ty = self.ctx.krate.types.intern(Type::Float);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Len { operand: receiver },
+                        ty,
+                        span: self.span(member.span.start, member.span.end),
+                    }));
+                }
                 let ty = self.class_field_type(body.exprs[receiver.0 as usize].ty, field)?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Field { receiver, field },
@@ -2291,6 +2301,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let receiver = self.expression(&member.object, body)?;
         let field = self.intern_source_name(member.property.name.as_str());
+        if member.property.name == "length"
+            && self.supports_stdlib_length(body.exprs[receiver.0 as usize].ty)
+        {
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Len { operand: receiver },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         let ty = self.class_field_type(body.exprs[receiver.0 as usize].ty, field)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
@@ -2812,6 +2832,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "index access is only lowered for arrays and records for now",
             )),
         }
+    }
+
+    /// Returns true when TypeScript `.length` can lower directly to Rust `.len()`.
+    fn supports_stdlib_length(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::List(_) | Type::String | Type::Tuple(_))
+        )
     }
 
     /// Return the inner item type for a `Promise<T>` / `Future<T>` value.

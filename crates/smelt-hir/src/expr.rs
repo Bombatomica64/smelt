@@ -54,6 +54,11 @@ pub enum ExprKind {
         /// The index expression.
         index: ExprId,
     },
+    /// The length of a string or collection.
+    Len {
+        /// The value whose length is read.
+        operand: ExprId,
+    },
     /// A binary operation.
     BinOp {
         /// The operator.

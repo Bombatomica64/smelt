@@ -259,6 +259,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Index { receiver, index } => {
             format!("{}[{}]", expr_ref(*receiver), expr_ref(*index))
         }
+        ExprKind::Len { operand } => format!("len {}", expr_ref(*operand)),
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
         }

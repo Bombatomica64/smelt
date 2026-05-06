@@ -1743,6 +1743,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span,
                 }));
             }
+            if name.id.as_str() == "len" {
+                if call.arguments.args.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "len() requires exactly one argument",
+                    ));
+                }
+                let operand = self.expression(&call.arguments.args[0], body)?;
+                let operand_ty = body.exprs[operand.0 as usize].ty;
+                if !self.supports_stdlib_len(operand_ty) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "len() is only supported for list, dict, tuple, and str values",
+                    ));
+                }
+                let ty = self.intern_type(Type::Int);
+                return Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::Len { operand },
+                    ty,
+                    span,
+                }));
+            }
         }
 
         // Named function call OR class constructor call.
@@ -1801,6 +1823,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// Returns true when Python `len(...)` can lower directly to Rust `.len()`.
+    fn supports_stdlib_len(&self, ty: TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::String)
+        )
     }
 
     /// Lower supported `asyncio.*` calls into shared async runtime operations.

@@ -24,6 +24,32 @@ console.log(x);
 }
 
 #[test]
+fn lowers_stdlib_length_properties() {
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(
+        r#"
+const values: number[] = [1, 2, 3];
+const count = values.length;
+const word = "smelt";
+const letters = word.length;
+"#,
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("stdlib length properties should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    let len_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
+        .count();
+    assert_eq!(len_count, 2);
+    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+}
+
+#[test]
 fn rejects_unknown_identifier() {
     let mut ctx = HirCtx::new();
     let errors = to_hir("console.log(x);", FileId(0), &mut ctx).expect_err("unknown x");

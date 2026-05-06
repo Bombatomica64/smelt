@@ -5,7 +5,7 @@ fn main() {
     let xs: Vec<f64> = _smelt_tmp_3.clone();
     let mut sum: f64 = 0.0;
     let mut _smelt_tmp_4: f64 = 0.0;
-    let _smelt_tmp_5: f64 = _smelt_tmp_3 .len() as f64;
+    let _smelt_tmp_5: f64 = _smelt_tmp_3.len() as f64;
     while _smelt_tmp_4.clone() < _smelt_tmp_5.clone() {
     let x: f64 = xs.get(_smelt_tmp_4.clone() as usize).cloned().expect("index out of bounds").clone();
     let _smelt_tmp_7: f64 = sum.clone() + x.clone();

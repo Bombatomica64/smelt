@@ -483,7 +483,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Statement::Assign { dest, value } => {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
-                let value = self.rvalue_text(value)?;
+                let value = self.rvalue_text_for_dest(value, local.ty)?;
                 let mutability = if self.mutable_locals.contains(dest)
                     || matches!(self.mir.types.get(local.ty), Some(Type::Class { .. }))
                 {
@@ -982,6 +982,11 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Converts an rvalue to its Rust text representation.
     fn rvalue_text(&self, value: &Rvalue) -> Result<String, EmitError> {
+        self.rvalue_text_for_dest(value, self.none_ty)
+    }
+
+    /// Converts an rvalue to Rust text using the destination type when it affects emission.
+    fn rvalue_text_for_dest(&self, value: &Rvalue, dest_ty: TypeId) -> Result<String, EmitError> {
         match value {
             Rvalue::Use(operand) => self.operand_text(operand),
             Rvalue::List(items) => {
@@ -1072,9 +1077,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
             }
-            Rvalue::Len(operand) => {
-                Ok(format!("{} .len() as f64", self.len_operand_text(operand)?))
-            }
+            Rvalue::Len(operand) => self.len_text(operand, dest_ty),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
         }
@@ -1159,6 +1162,29 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
             Operand::Const(_) => Err(EmitError::new("len operand cannot be a constant")),
         }
+    }
+
+    /// Converts a length rvalue to Rust text for the destination numeric type.
+    fn len_text(&self, operand: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let cast = match self.mir.types.get(dest_ty) {
+            Some(Type::Int) => "i64",
+            Some(Type::Float) => "f64",
+            _ => {
+                return Err(EmitError::new(
+                    "len destination must be an integer or float type",
+                ));
+            }
+        };
+        let receiver = self.len_operand_text(operand)?;
+        let len_expr = if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) {
+            format!("{receiver}.chars().count()")
+        } else {
+            format!("{receiver}.len()")
+        };
+        Ok(format!("{len_expr} as {cast}"))
     }
 
     /// Converts a function call to its Rust text representation.
@@ -1752,6 +1778,21 @@ mod tests {
         let source = source_for("const message = \"hello smelt\";\nconsole.log(message);\n");
 
         assert!(source.contains("let message: String = \"hello smelt\".to_owned();"));
+    }
+
+    #[test]
+    fn emits_direct_length_lowering() {
+        let source = source_for(
+            r#"
+const values: number[] = [1, 2, 3];
+const count = values.length;
+const word = "smelt";
+const letters = word.length;
+"#,
+        );
+
+        assert!(source.contains(".len() as f64;"));
+        assert!(source.contains(".chars().count() as f64;"));
     }
 
     #[test]
