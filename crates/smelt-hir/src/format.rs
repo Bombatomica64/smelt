@@ -306,6 +306,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*needle)
             )
         }
+        ExprKind::ListContains { list, item } => {
+            format!("list_contains {}, {}", expr_ref(*list), expr_ref(*item))
+        }
         ExprKind::StringSplit {
             haystack,
             separator,
@@ -380,6 +383,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::Len { .. }
         | ExprKind::StringCase { .. }
         | ExprKind::StringContains { .. }
+        | ExprKind::ListContains { .. }
         | ExprKind::StringSplit { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. }

@@ -494,6 +494,30 @@ missing: bool = "xyz" not in word
 }
 
 #[test]
+fn list_contains_comparison_lowers() -> TestResult {
+    let source = r#"
+values: list[int] = [1, 2, 3]
+has: bool = 2 in values
+missing: bool = 4 not in values
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body_id = module
+        .body
+        .ok_or_else(|| "expected module body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+
+    let contains_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListContains { .. }))
+        .count();
+    ensure_eq(&contains_count, &2, "list contains count")?;
+    Ok(())
+}
+
+#[test]
 fn string_split_method_lowers() -> TestResult {
     let source = r#"
 word: str = "a,b,c"

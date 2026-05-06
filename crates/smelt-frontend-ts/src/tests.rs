@@ -254,6 +254,28 @@ const has = word.includes("mel");
 }
 
 #[test]
+fn lowers_array_includes_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        r#"
+const values: number[] = [1, 2, 3];
+const has = values.includes(2);
+"#,
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListContains { .. })),
+        "array includes did not lower to ListContains"
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_string_split_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -1942,7 +1942,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             CmpOp::LtE => BinOp::Lte,
             CmpOp::Gt => BinOp::Gt,
             CmpOp::GtE => BinOp::Gte,
-            CmpOp::In | CmpOp::NotIn => return self.string_contains_compare(c, body, *op),
+            CmpOp::In | CmpOp::NotIn => return self.contains_compare(c, body, *op),
             CmpOp::Is | CmpOp::IsNot => {
                 return Err(SmeltError::unsupported(
                     span,
@@ -1970,8 +1970,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
-    /// Lower Python string containment comparisons.
-    fn string_contains_compare(
+    /// Lower Python containment comparisons for strings and lists.
+    fn contains_compare(
         &mut self,
         c: &ruff_python_ast::ExprCompare,
         body: &mut Body,
@@ -1982,23 +1982,30 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let [haystack_expr] = c.comparators.as_ref() else {
             return Err(SmeltError::unsupported(
                 span,
-                "string containment requires a single comparison target",
+                "containment requires a single comparison target",
             ));
         };
         let haystack = self.expression(haystack_expr, body)?;
         let needle_ty = Self::expr_ty(body, needle);
         let haystack_ty = Self::expr_ty(body, haystack);
-        if self.ctx.krate.types.get(needle_ty) != Some(&Type::String)
-            || self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
-        {
-            return Err(SmeltError::unsupported(
-                span,
-                "string containment requires str operands",
-            ));
-        }
         let bool_ty = self.intern_type(Type::Bool);
+        let contains_kind = match self.ctx.krate.types.get(haystack_ty) {
+            Some(Type::String) if self.ctx.krate.types.get(needle_ty) == Some(&Type::String) => {
+                ExprKind::StringContains { haystack, needle }
+            }
+            Some(Type::List(item_ty)) if needle_ty == *item_ty => ExprKind::ListContains {
+                list: haystack,
+                item: needle,
+            },
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "containment requires str operands or a list item matching the list element type",
+                ));
+            }
+        };
         let contains = body.push_expr(HirExpr {
-            kind: ExprKind::StringContains { haystack, needle },
+            kind: contains_kind,
             ty: bool_ty,
             span,
         });

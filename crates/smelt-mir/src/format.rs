@@ -187,6 +187,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(needle)
             )
         }
+        Rvalue::ListContains { list, item } => {
+            format!(
+                "list_contains {}, {}",
+                operand_text(list),
+                operand_text(item)
+            )
+        }
         Rvalue::StringSplit {
             haystack,
             separator,

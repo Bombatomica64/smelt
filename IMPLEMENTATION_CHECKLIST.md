@@ -201,6 +201,7 @@ runtime errors.
 - [ ] Follow-up direct mappings:
   - [ ] TypeScript array methods: `map`, `filter`, `reduce`, `forEach`, `find`, `includes`, `push`,
         and `slice`.
+    - [x] TypeScript array `includes`.
   - [ ] TypeScript string methods: `split`, `toLowerCase`, and `toUpperCase`.
     - [x] TypeScript `toLowerCase` and `toUpperCase`.
     - [x] Python `str.lower()` and `str.upper()`.
@@ -210,6 +211,7 @@ runtime errors.
     - [x] Python `str.split(separator)`.
   - [ ] TypeScript `Math.*`, `Object.*`, `JSON.*`, `fetch`, and async timers.
   - [ ] Python builtins and common stdlib functions that map directly to Rust or external crates.
+    - [x] Python list `in` / `not in`.
 
 ## Phase 6/TypeScript Next Coverage
 

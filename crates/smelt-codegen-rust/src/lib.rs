@@ -1109,6 +1109,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
+            Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::StringSplit {
                 haystack,
                 separator,
@@ -1261,6 +1262,24 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.contains(&{})",
             self.operand_text(haystack)?,
             self.operand_text(needle)?
+        ))
+    }
+
+    /// Converts a list containment operation to Rust text.
+    fn list_contains_text(&self, list: &Operand, item: &Operand) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list contains receiver must be a list"));
+        };
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(
+                "list contains item must match the list element type",
+            ));
+        }
+        Ok(format!(
+            "{}.contains(&{})",
+            self.operand_text(list)?,
+            self.operand_text(item)?
         ))
     }
 
@@ -1950,6 +1969,18 @@ const has = word.includes("mel");
         );
 
         assert!(source.contains(".contains(&\"mel\".to_owned());"));
+    }
+
+    #[test]
+    fn emits_array_includes_method() {
+        let source = source_for(
+            r#"
+const values: number[] = [1, 2, 3];
+const has = values.includes(2);
+"#,
+        );
+
+        assert!(source.contains(".contains(&2.0);"));
     }
 
     #[test]

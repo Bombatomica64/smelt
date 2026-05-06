@@ -959,6 +959,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListContains { list, item } => {
+                let list_operand = self.lower_expr(*list)?;
+                let item_operand = self.lower_expr(*item)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListContains {
+                        list: list_operand,
+                        item: item_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringSplit {
                 haystack,
                 separator,
@@ -1177,6 +1190,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::Len { .. }
             | ExprKind::StringCase { .. }
             | ExprKind::StringContains { .. }
+            | ExprKind::ListContains { .. }
             | ExprKind::StringSplit { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }

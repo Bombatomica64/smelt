@@ -1674,6 +1674,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_case_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.list_contains_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_contains_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2139,6 +2142,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::StringContains { haystack, needle },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript array containment.
+    fn list_contains_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "includes" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 1 {
+            return Ok(None);
+        }
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let item_ty = *list_item_ty;
+        let Some(item_argument) = call.arguments.first() else {
+            return Ok(None);
+        };
+        let item = self.argument(item_argument, body)?;
+        if Self::expr_ty(body, item) != item_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array includes argument must match the array element type",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListContains { list, item },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

@@ -149,6 +149,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, needle, errors);
         }
+        Rvalue::ListContains { list, item } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, item, errors);
+        }
         Rvalue::StringSplit {
             haystack,
             separator,
@@ -370,6 +374,10 @@ fn validate_rvalue(
         Rvalue::StringContains { haystack, needle } => {
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, needle, errors);
+        }
+        Rvalue::ListContains { list, item } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, item, errors);
         }
         Rvalue::StringSplit {
             haystack,

@@ -377,6 +377,13 @@ pub enum Rvalue {
         /// Substring to search for.
         needle: Operand,
     },
+    /// Test whether a list contains an item.
+    ListContains {
+        /// List value to search in.
+        list: Operand,
+        /// Item to search for.
+        item: Operand,
+    },
     /// Split a string into a list of strings.
     StringSplit {
         /// String value to split.
