@@ -1,3 +1,7 @@
+//! TypeScript source checking helpers.
+//!
+//! This module shells out to the local TypeScript and Oxlint tools before Smelt lowering.
+
 use std::process::Command;
 
 /// Runs the TypeScript and Oxlint checks for a generated file.

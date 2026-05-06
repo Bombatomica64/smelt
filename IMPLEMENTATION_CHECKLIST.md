@@ -4,7 +4,7 @@
 
 - [x] Phase 0 baseline checked on current checkout.
 - [x] Phase 1 TypeScript sync expression support.
-- [ ] Phase 2 mutation and loops.
+- [x] Phase 2 mutation and loops.
 - [ ] Phase 3 classes, interfaces, constructors, methods.
 - [ ] Phase 4 imports and multi-file TypeScript.
 - [ ] Phase 5 async, await, and Promise lowering.
@@ -37,25 +37,29 @@
 
 - [x] Add shared assignment representation.
 - [x] Add MIR place assignment support.
-- [ ] Expand MIR places for field and index assignment.
+- [x] Expand MIR places for field and index assignment.
 - [x] TypeScript support for `x = expr`.
 - [x] TypeScript support for compound assignments.
 - [x] TypeScript support for statement-only increment/decrement.
 - [x] TypeScript support for `while`.
-- [ ] TypeScript support for `for...of`.
+- [x] TypeScript support for `for...of`.
 - [x] TypeScript support for C-style `for`.
-- [ ] TypeScript support for `break` and `continue` inside loops.
-- [ ] Switch with `break`, still rejecting fallthrough.
+- [x] TypeScript support for `break` and `continue` inside loops.
+- [x] Switch with `break`, still rejecting fallthrough.
 - [x] CFG lowering for `while`.
-- [ ] Loop context stack for `break` and `continue`.
+- [x] Loop context stack for `break` and `continue`.
 - [x] Rust codegen for structured `while`.
-- [ ] Fixtures `12` through `17`.
+- [x] Rust codegen for field and index assignment places.
+- [x] Fixtures `12` through `17`.
 - [x] Added fixtures `12_while_sum` and `14_c_for_loop`.
+- [x] Added fixtures `13_for_of_sum`, `15_break_continue`, `16_switch_break_no_fallthrough`, and `17_mutating_array`.
 - [x] `cargo fmt --check`.
 - [x] `cargo test -q`.
 - [x] Committed partial Phase 2 slice as `Add TypeScript mutation and while loop support`.
 
-Current Phase 2 limitation: nested `break`/`continue` inside branches still needs structured control-flow codegen before fixtures `15` and `16` can be claimed. Field/index assignment places exist in MIR, but Rust lvalue emission for those places is still pending.
+Current Phase 2 status: complete on the current checkout. The integration suite covers fixtures
+`12` through `17`, including nested loop control flow, switch cases with explicit breaks, `for...of`,
+and mutating array assignments.
 
 ## Later Phases
 
