@@ -1,7 +1,7 @@
 //! Unit tests for the Python frontend.
 
 use crate::{HirCtx, to_hir};
-use smelt_hir::{AsyncOp, ExprKind, FileId, Item, Language, Type};
+use smelt_hir::{AsyncOp, ExprKind, FileId, Item, Language, Pattern, Stmt, StringCaseOp, Type};
 
 #[test]
 fn empty_module_lowers_to_empty_hir() {
@@ -250,6 +250,72 @@ letters: int = len(word)
         .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
         .count();
     assert_eq!(len_count, 2);
+}
+
+#[test]
+fn string_case_methods_lower() {
+    let source = r#"
+word: str = "Smelt"
+lower: str = word.lower()
+upper: str = word.upper()
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(source, FileId(0), &mut ctx).expect("string case methods should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    assert!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringCase {
+            op: StringCaseOp::Lower,
+            ..
+        }
+    )));
+    assert!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringCase {
+            op: StringCaseOp::Upper,
+            ..
+        }
+    )));
+}
+
+#[test]
+fn tuple_destructuring_assignment_lowers_to_pattern() {
+    let source = r#"
+left, right = (1, "two")
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(source, FileId(0), &mut ctx).expect("destructuring should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    let Stmt::Let { pat, ty, value } = body.stmts.first().expect("let stmt") else {
+        panic!("expected destructuring let");
+    };
+    assert!(value.is_some());
+    assert!(matches!(body.patterns[pat.0 as usize], Pattern::Tuple(_)));
+    assert!(matches!(ctx.krate.types.get(*ty), Some(Type::Tuple(items)) if items.len() == 2));
+}
+
+#[test]
+fn for_tuple_destructuring_target_lowers_to_pattern() {
+    let source = r#"
+pairs: list[tuple[int, str]] = [(1, "one")]
+for key, label in pairs:
+    print(label)
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(source, FileId(0), &mut ctx).expect("for destructuring should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    let for_pat = body.stmts.iter().find_map(|stmt| match stmt {
+        Stmt::For { pat, .. } => Some(*pat),
+        _ => None,
+    });
+    let pat = for_pat.expect("for statement");
+    assert!(matches!(body.patterns[pat.0 as usize], Pattern::Tuple(_)));
 }
 
 #[test]

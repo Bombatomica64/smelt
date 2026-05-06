@@ -15,8 +15,8 @@ use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, ClassKind, Expr as HirExpr, ExprKind, Field, FileId, Function,
     FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal, LocalDecl, MatchArm,
-    Module, ModuleId, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, Symbol,
-    Type, TypeId, UnaryOp, Visibility,
+    Module, ModuleId, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt,
+    StringCaseOp, Symbol, Type, TypeId, UnaryOp, Visibility,
 };
 
 use crate::helpers::{
@@ -882,6 +882,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "multiple assignment targets are not supported",
                     ));
                 }
+                if Self::is_destructuring_target(&s.targets[0]) {
+                    let value = self.expression(&s.value, body)?;
+                    let value_ty = body.exprs[value.0 as usize].ty;
+                    let pat =
+                        self.binding_pattern_from_target(&s.targets[0], body, Some(value_ty))?;
+                    body.push_stmt_to_block(
+                        block,
+                        HirStmt::Let {
+                            pat,
+                            ty: value_ty,
+                            value: Some(value),
+                        },
+                    );
+                    return Ok(());
+                }
                 let target = self.expression(&s.targets[0], body)?;
                 let value = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Assign { target, value });
@@ -1022,6 +1037,67 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(())
     }
 
+    /// Return whether an assignment target needs pattern-based binding.
+    fn is_destructuring_target(target: &Expr) -> bool {
+        matches!(target, Expr::Tuple(_) | Expr::List(_))
+    }
+
+    /// Lower a Python binding target into a HIR pattern and declare its locals.
+    fn binding_pattern_from_target(
+        &mut self,
+        target: &Expr,
+        body: &mut Body,
+        type_hint: Option<TypeId>,
+    ) -> Result<smelt_hir::PatternId, SmeltError> {
+        match target {
+            Expr::Name(target_name) => {
+                let name_str = target_name.id.as_str();
+                let name_sym = self.intern_name(name_str);
+                let ty = type_hint.unwrap_or_else(|| self.intern_type(Type::None));
+                let local = body.push_local(LocalDecl {
+                    name: Some(name_sym),
+                    ty,
+                    mutable: true,
+                    span: self.span(target_name.range),
+                });
+                self.locals.insert(name_str.to_owned(), local);
+                Ok(body.push_pattern(HirPattern::Binding(local)))
+            }
+            Expr::Tuple(tuple) => {
+                let patterns = tuple
+                    .elts
+                    .iter()
+                    .enumerate()
+                    .map(|(index, element)| {
+                        let element_hint =
+                            type_hint.and_then(|hint| self.tuple_element_type(hint, index));
+                        self.binding_pattern_from_target(element, body, element_hint)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(body.push_pattern(HirPattern::Tuple(patterns)))
+            }
+            Expr::List(list) => {
+                let patterns = list
+                    .elts
+                    .iter()
+                    .enumerate()
+                    .map(|(index, element)| {
+                        let element_hint = type_hint.and_then(|hint| {
+                            self.tuple_element_type(hint, index)
+                                .or_else(|| self.list_element_type(hint))
+                        });
+                        self.binding_pattern_from_target(element, body, element_hint)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(body.push_pattern(HirPattern::Tuple(patterns)))
+            }
+            other => Err(SmeltError::unsupported(
+                self.span(other.range()),
+                "destructuring targets may only contain names, tuples, or lists",
+            )),
+        }
+    }
+
     /// `x op= value` → `Stmt::Assign { target, value: BinOp(target, op, rhs) }`.
     fn aug_assign(
         &mut self,
@@ -1127,7 +1203,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(Some(block))
     }
 
-    /// `for target in iter` — only simple name targets supported.
+    /// `for target in iter` — supports simple and tuple/list binding targets.
     fn for_statement(
         &mut self,
         for_stmt: &StmtFor,
@@ -1147,29 +1223,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         }
 
-        let Expr::Name(target_name) = for_stmt.target.as_ref() else {
-            return Err(SmeltError::unsupported(
-                self.span(for_stmt.target.range()),
-                "for loop target must be a simple name (destructuring not yet supported)",
-            ));
-        };
-
         let iter = self.expression(&for_stmt.iter, body)?;
-
-        // Declare the loop variable with the element type of the iterator.
-        // We use None type here; type inference will resolve it later.
-        let none_ty = self.intern_type(Type::None);
-        let name_str = target_name.id.as_str();
-        let name_sym = self.intern_name(name_str);
-        let local = body.push_local(LocalDecl {
-            name: Some(name_sym),
-            ty: none_ty,
-            mutable: true,
-            span: self.span(target_name.range),
-        });
-        self.locals.insert(name_str.to_owned(), local);
-
-        let pat = body.push_pattern(HirPattern::Binding(local));
+        let iter_ty = body.exprs[iter.0 as usize].ty;
+        let item_ty = self
+            .iter_item_type(iter_ty)
+            .unwrap_or_else(|| self.intern_type(Type::None));
+        let pat = self.binding_pattern_from_target(&for_stmt.target, body, Some(item_ty))?;
         let loop_block = self.block_from_stmts(&for_stmt.body, body)?;
 
         body.push_stmt_to_block(
@@ -1720,6 +1779,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.asyncio_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_case_call_expression(call, body)? {
+            return Ok(expr);
+        }
 
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {
@@ -1823,6 +1885,43 @@ impl<'ctx> ModuleBuilder<'ctx> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// Lower direct Python string case methods.
+    fn string_case_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match attr.attr.as_str() {
+            "lower" => StringCaseOp::Lower,
+            "upper" => StringCaseOp::Upper,
+            _ => return Ok(None),
+        };
+        let span = self.span(call.range);
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "string case methods do not take arguments",
+            ));
+        }
+        let operand = self.expression(&attr.value, body)?;
+        let operand_ty = body.exprs[operand.0 as usize].ty;
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                span,
+                "string case methods require a str receiver",
+            ));
+        }
+        let ty = self.intern_type(Type::String);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringCase { op, operand },
+            ty,
+            span,
+        })))
     }
 
     /// Returns true when Python `len(...)` can lower directly to Rust `.len()`.
@@ -2052,6 +2151,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Span::new(self.file_id, 0, 0),
                 "subscript access requires a list, set, dict, or tuple",
             )),
+        }
+    }
+
+    /// Infer one item type from a Python iterable type.
+    fn iter_item_type(&self, iter_ty: TypeId) -> Option<TypeId> {
+        match self.ctx.krate.types.get(iter_ty) {
+            Some(Type::List(elem) | Type::Set(elem)) => Some(*elem),
+            Some(Type::Dict(key, _)) => Some(*key),
+            Some(Type::Tuple(items)) => items.first().copied(),
+            Some(Type::String) => Some(iter_ty),
+            _ => None,
+        }
+    }
+
+    /// Return the indexed element type for fixed-size tuple hints.
+    fn tuple_element_type(&self, tuple_ty: TypeId, index: usize) -> Option<TypeId> {
+        match self.ctx.krate.types.get(tuple_ty) {
+            Some(Type::Tuple(items)) => items.get(index).copied(),
+            _ => None,
+        }
+    }
+
+    /// Return the repeated element type for list hints.
+    fn list_element_type(&self, list_ty: TypeId) -> Option<TypeId> {
+        match self.ctx.krate.types.get(list_ty) {
+            Some(Type::List(elem) | Type::Set(elem)) => Some(*elem),
+            _ => None,
         }
     }
 

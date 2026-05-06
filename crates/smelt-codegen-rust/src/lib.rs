@@ -1078,6 +1078,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
             }
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
+            Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
         }
@@ -1185,6 +1186,26 @@ impl<'mir> FunctionEmitter<'mir> {
             format!("{receiver}.len()")
         };
         Ok(format!("{len_expr} as {cast}"))
+    }
+
+    /// Converts a string case operation to its Rust text representation.
+    fn string_case_text(
+        &self,
+        op: smelt_hir::StringCaseOp,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string case operand must be a string"));
+        }
+        let receiver = self.len_operand_text(operand)?;
+        let method = match op {
+            smelt_hir::StringCaseOp::Lower => "to_lowercase",
+            smelt_hir::StringCaseOp::Upper => "to_uppercase",
+        };
+        Ok(format!("{receiver}.{method}()"))
     }
 
     /// Converts a function call to its Rust text representation.
@@ -1378,8 +1399,13 @@ impl<'mir> FunctionEmitter<'mir> {
                         self.local_name(*base)?,
                         self.operand_text(index)?
                     )),
+                    Some(Type::String) => Ok(format!(
+                        "{}.chars().nth({} as usize).map(|ch| ch.to_string()).expect(\"index out of bounds\")",
+                        self.local_name(*base)?,
+                        self.operand_text(index)?
+                    )),
                     _ => Err(EmitError::new(
-                        "index codegen is only implemented for lists and dicts",
+                        "index codegen is only implemented for lists, strings, and dicts",
                     )),
                 }
             }
@@ -1793,6 +1819,38 @@ const letters = word.length;
 
         assert!(source.contains(".len() as f64;"));
         assert!(source.contains(".chars().count() as f64;"));
+    }
+
+    #[test]
+    fn emits_string_index_and_for_of() {
+        let source = source_for(
+            r#"
+const word = "abc";
+const first = word[0];
+let joined = "";
+for (let ch: string of word) {
+  joined = joined + ch;
+}
+"#,
+        );
+
+        assert!(source.contains(".chars().nth(0.0 as usize).map(|ch| ch.to_string()).expect"));
+        assert!(source.contains(".chars().count() as f64"));
+        assert!(source.contains(".chars().nth(_smelt_tmp_"));
+    }
+
+    #[test]
+    fn emits_string_case_methods() {
+        let source = source_for(
+            r#"
+const word = "Smelt";
+const lower = word.toLowerCase();
+const upper = word.toUpperCase();
+"#,
+        );
+
+        assert!(source.contains(".to_lowercase();"));
+        assert!(source.contains(".to_uppercase();"));
     }
 
     #[test]

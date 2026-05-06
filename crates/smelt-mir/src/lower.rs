@@ -819,6 +819,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringCase { op, operand } => {
+                let operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut().statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringCase { op: *op, operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Method { .. } => {
                 if let ExprKind::Method {
                     receiver,

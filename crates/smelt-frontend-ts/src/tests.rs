@@ -1,7 +1,7 @@
 //! Tests for TypeScript frontend lowering.
 
 use super::*;
-use smelt_hir::{ExprKind, FileId, Item, Stmt, Type};
+use smelt_hir::{ExprKind, FileId, Item, Stmt, StringCaseOp, Type};
 
 #[test]
 fn converts_top_level_let_and_console_log() {
@@ -46,6 +46,71 @@ const letters = word.length;
         .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
         .count();
     assert_eq!(len_count, 2);
+    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+}
+
+#[test]
+fn lowers_string_index_and_for_of() {
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(
+        r#"
+const word = "abc";
+const first = word[0];
+let joined = "";
+for (let ch: string of word) {
+  joined = joined + ch;
+}
+"#,
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("string index and for...of should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    assert!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. }))
+    );
+    assert!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. }))
+    );
+    assert!(smelt_hir::validate(&ctx.krate).is_empty());
+}
+
+#[test]
+fn lowers_string_case_methods() {
+    let mut ctx = HirCtx::new();
+    let module_id = to_hir(
+        r#"
+const word = "Smelt";
+const lower = word.toLowerCase();
+const upper = word.toUpperCase();
+"#,
+        FileId(0),
+        &mut ctx,
+    )
+    .expect("string case methods should lower");
+    let module = &ctx.krate.modules[module_id.0 as usize];
+    let body = &ctx.krate.bodies[module.body.expect("module body").0 as usize];
+
+    assert!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringCase {
+            op: StringCaseOp::Lower,
+            ..
+        }
+    )));
+    assert!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringCase {
+            op: StringCaseOp::Upper,
+            ..
+        }
+    )));
     assert!(smelt_hir::validate(&ctx.krate).is_empty());
 }
 

@@ -202,8 +202,21 @@ runtime errors.
   - [ ] TypeScript array methods: `map`, `filter`, `reduce`, `forEach`, `find`, `includes`, `push`,
         and `slice`.
   - [ ] TypeScript string methods: `split`, `toLowerCase`, and `toUpperCase`.
+    - [x] TypeScript `toLowerCase` and `toUpperCase`.
+    - [x] Python `str.lower()` and `str.upper()`.
   - [ ] TypeScript `Math.*`, `Object.*`, `JSON.*`, `fetch`, and async timers.
   - [ ] Python builtins and common stdlib functions that map directly to Rust or external crates.
+
+## Phase 6/TypeScript Next Coverage
+
+- [ ] Closures with captures.
+- [ ] Generic functions/classes beyond trivial cases.
+- [ ] Union and discriminated-union modeling beyond nullish optionals.
+- [ ] Maps, Sets, and iterable support.
+  - [x] String index access and `for...of` over strings.
+- [ ] Type narrowing/control-flow type analysis.
+- [ ] Object spread/rest/destructuring.
+- [ ] Callback-heavy stdlib methods.
 
 ## Later Phases
 

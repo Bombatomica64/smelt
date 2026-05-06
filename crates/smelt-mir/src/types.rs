@@ -335,6 +335,13 @@ pub enum Rvalue {
     },
     /// Compute the length of a value.
     Len(Operand),
+    /// Change the case of a string value.
+    StringCase {
+        /// Operation to apply to the string.
+        op: smelt_hir::StringCaseOp,
+        /// String operand to transform.
+        operand: Operand,
+    },
     /// Await a future and produce its output.
     Await(Operand),
     /// Run a runtime-backed async operation.

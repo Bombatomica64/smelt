@@ -59,6 +59,13 @@ pub enum ExprKind {
         /// The value whose length is read.
         operand: ExprId,
     },
+    /// Change the case of a string value.
+    StringCase {
+        /// Operation to apply to the string.
+        op: StringCaseOp,
+        /// The string value being transformed.
+        operand: ExprId,
+    },
     /// A binary operation.
     BinOp {
         /// The operator.
@@ -108,6 +115,15 @@ pub enum ExprKind {
         /// Input future/value expressions.
         args: Vec<ExprId>,
     },
+}
+
+/// A directly lowered string case conversion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringCaseOp {
+    /// Convert a string to lower case.
+    Lower,
+    /// Convert a string to upper case.
+    Upper,
 }
 
 /// Runtime-backed async operation represented in HIR.

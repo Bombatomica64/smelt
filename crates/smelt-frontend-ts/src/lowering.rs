@@ -19,7 +19,7 @@ use oxc::syntax::operator::{
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, Expr, ExprKind, Field, FileId, Function, FunctionOwner, Import,
     Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, Param,
-    ParamSig, Pattern, SourceFile, Span, Stmt, Type, UnaryOp, Visibility,
+    ParamSig, Pattern, SourceFile, Span, Stmt, StringCaseOp, Type, UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1645,6 +1645,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.timer_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.string_case_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Expression::StaticMemberExpression(member) = &call.callee
                     && let Expression::Identifier(object) = &member.object
                     && object.name == "console"
@@ -2006,6 +2009,38 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower direct TypeScript string case methods.
+    fn string_case_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "toLowerCase" => StringCaseOp::Lower,
+            "toUpperCase" => StringCaseOp::Upper,
+            _ => return Ok(None),
+        };
+        if call.arguments.is_empty() {
+            let operand = self.expression(&member.object, body)?;
+            let operand_ty = body.exprs[operand.0 as usize].ty;
+            if self.ctx.krate.types.get(operand_ty) == Some(&Type::String) {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::StringCase { op, operand },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
+        }
+        Err(SmeltError::unsupported(
+            self.span(call.span.start, call.span.end),
+            "string case methods require a string receiver and no arguments",
+        ))
     }
 
     /// Lower array entries passed to a `Promise.*` combinator.
@@ -2823,13 +2858,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Get the element type of an indexable type.
-    fn index_type(&self, receiver_ty: smelt_hir::TypeId) -> Result<smelt_hir::TypeId, SmeltError> {
+    fn index_type(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::List(item)) => Ok(*item),
+            Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
-                "index access is only lowered for arrays and records for now",
+                "index access is only lowered for arrays, strings, and records for now",
             )),
         }
     }

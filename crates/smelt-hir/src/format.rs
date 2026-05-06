@@ -260,6 +260,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("{}[{}]", expr_ref(*receiver), expr_ref(*index))
         }
         ExprKind::Len { operand } => format!("len {}", expr_ref(*operand)),
+        ExprKind::StringCase { op, operand } => {
+            let op_name = match op {
+                crate::expr::StringCaseOp::Lower => "lower",
+                crate::expr::StringCaseOp::Upper => "upper",
+            };
+            format!("string_{op_name} {}", expr_ref(*operand))
+        }
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
         }

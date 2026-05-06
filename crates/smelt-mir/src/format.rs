@@ -164,6 +164,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("struct{} {{{fields}}}", class.0)
         }
         Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
+        Rvalue::StringCase { op, operand } => {
+            let op_name = match op {
+                smelt_hir::StringCaseOp::Lower => "lower",
+                smelt_hir::StringCaseOp::Upper => "upper",
+            };
+            format!("string_{op_name} {}", operand_text(operand))
+        }
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {
             let op = match op {
