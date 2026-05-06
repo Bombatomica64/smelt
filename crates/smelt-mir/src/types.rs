@@ -117,6 +117,8 @@ pub struct MirFunction {
     pub origin: HirOrigin,
     /// Whether this is an async function.
     pub is_async: bool,
+    /// Whether this function can return through an uncaught throw path.
+    pub can_throw: bool,
     /// Parameter local IDs.
     pub params: Vec<LocalId>,
     /// Return type of the function.
@@ -143,6 +145,7 @@ impl MirFunction {
             name,
             origin,
             is_async: false,
+            can_throw: false,
             params: Vec::new(),
             return_ty,
             locals: Vec::new(),
@@ -394,6 +397,8 @@ pub enum Terminator {
     },
     /// Return from the function.
     Return(Operand),
+    /// Raise an exception-like value and stop normal control flow.
+    Throw(Operand),
     /// Abort control flow.
     Unreachable,
 }

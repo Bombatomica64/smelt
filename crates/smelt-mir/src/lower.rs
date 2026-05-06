@@ -152,6 +152,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     }
 
     if errors.is_empty() {
+        propagate_throwing_functions(&mut mir);
         Ok(mir)
     } else {
         Err(errors)
@@ -176,6 +177,8 @@ struct LoweringCtx<'hir> {
     exprs: HashMap<ExprId, Operand>,
     /// Stack of loop targets for break/continue.
     loops: Vec<LoopTargets>,
+    /// Stack of lexical exception targets for throws inside try blocks.
+    exception_targets: Vec<ExceptionTarget>,
 }
 
 /// Target blocks for break and continue statements.
@@ -185,6 +188,15 @@ struct LoopTargets {
     break_target: BlockId,
     /// Target block for continue statements.
     continue_target: BlockId,
+}
+
+/// Target block and optional binding for a lexical catch clause.
+#[derive(Debug, Clone, Copy)]
+struct ExceptionTarget {
+    /// Target block for caught throw statements.
+    catch_block: BlockId,
+    /// Local receiving the thrown value when the catch has a binding.
+    exception_local: Option<LocalId>,
 }
 
 impl<'hir> LoweringCtx<'hir> {
@@ -243,6 +255,7 @@ impl<'hir> LoweringCtx<'hir> {
             locals,
             exprs: HashMap::new(),
             loops: Vec::new(),
+            exception_targets: Vec::new(),
         }
     }
 
@@ -345,10 +358,27 @@ impl<'hir> LoweringCtx<'hir> {
             } => self.lower_match(*scrutinee, arms, *default),
             HirStmt::While { cond, body } => self.lower_while(*cond, *body),
             HirStmt::For { pat, iter, body } => self.lower_for(*pat, *iter, *body),
-            HirStmt::Throw(_) => Err(self.error("throw lowering is not implemented yet", None)),
-            HirStmt::TryCatch { .. } => {
-                Err(self.error("try/catch lowering is not implemented yet", None))
+            HirStmt::Throw(expr) => {
+                let operand = self.lower_expr(*expr)?;
+                if let Some(target) = self.exception_targets.last().copied() {
+                    if let Some(exception_local) = target.exception_local {
+                        self.block_mut().statements.push(Statement::Assign {
+                            dest: exception_local,
+                            value: Rvalue::Use(operand),
+                        });
+                    }
+                    self.set_terminator(Terminator::Goto(target.catch_block));
+                } else {
+                    self.set_terminator(Terminator::Throw(operand));
+                }
+                Ok(())
             }
+            HirStmt::TryCatch {
+                body,
+                catch_binding,
+                catch_body,
+                finally_body,
+            } => self.lower_try_catch(*body, *catch_binding, *catch_body, *finally_body),
             HirStmt::Break => {
                 let Some(targets) = self.loops.last().copied() else {
                     return Err(self.error("break used outside a loop", None));
@@ -364,6 +394,73 @@ impl<'hir> LoweringCtx<'hir> {
                 Ok(())
             }
         }
+    }
+
+    /// Lowers try/catch/finally into explicit catch and cleanup blocks.
+    fn lower_try_catch(
+        &mut self,
+        body_hir: smelt_hir::BlockId,
+        catch_binding: Option<HirLocalId>,
+        catch_body_hir: Option<smelt_hir::BlockId>,
+        finally_body_hir: Option<smelt_hir::BlockId>,
+    ) -> Result<(), LowerError> {
+        let try_span = self.body.blocks[body_hir.0 as usize].span;
+        let try_block = self.function.push_block(try_span);
+        let after = self.function.push_block(self.block().span);
+        let finally_block = finally_body_hir.map(|block| {
+            self.function
+                .push_block(self.body.blocks[block.0 as usize].span)
+        });
+        let normal_exit = finally_block.unwrap_or(after);
+        let catch_block = catch_body_hir.map(|block| {
+            self.function
+                .push_block(self.body.blocks[block.0 as usize].span)
+        });
+
+        self.set_terminator(Terminator::Goto(try_block));
+
+        if let Some(catch_block) = catch_block {
+            let exception_local = catch_binding
+                .map(|local| {
+                    self.locals.get(&local).copied().ok_or_else(|| {
+                        self.error("catch binding references an unknown local", None)
+                    })
+                })
+                .transpose()?;
+            self.exception_targets.push(ExceptionTarget {
+                catch_block,
+                exception_local,
+            });
+        }
+
+        self.current_block = try_block;
+        self.lower_block_stmts(body_hir)?;
+        if self.block().terminator.is_none() {
+            self.set_terminator(Terminator::Goto(normal_exit));
+        }
+
+        if catch_block.is_some() {
+            self.exception_targets.pop();
+        }
+
+        if let (Some(catch_hir), Some(catch_block)) = (catch_body_hir, catch_block) {
+            self.current_block = catch_block;
+            self.lower_block_stmts(catch_hir)?;
+            if self.block().terminator.is_none() {
+                self.set_terminator(Terminator::Goto(normal_exit));
+            }
+        }
+
+        if let (Some(finally_hir), Some(finally_block)) = (finally_body_hir, finally_block) {
+            self.current_block = finally_block;
+            self.lower_block_stmts(finally_hir)?;
+            if self.block().terminator.is_none() {
+                self.set_terminator(Terminator::Goto(after));
+            }
+        }
+
+        self.current_block = after;
+        Ok(())
     }
 
     /// Lowers an if statement to MIR with switch terminator.
@@ -931,5 +1028,54 @@ fn lower_literal(literal: &HirLiteral) -> Constant {
         HirLiteral::Float(value) => Constant::Float(*value),
         HirLiteral::String(value) => Constant::String(value.clone()),
         HirLiteral::None => Constant::None,
+    }
+}
+
+/// Marks functions that can reach an uncaught throw directly or through static calls.
+fn propagate_throwing_functions(mir: &mut Mir) {
+    loop {
+        let throwing = mir
+            .functions
+            .iter()
+            .map(|function| function.can_throw)
+            .collect::<Vec<_>>();
+        let mut changed = false;
+
+        for function in &mut mir.functions {
+            if function.can_throw {
+                continue;
+            }
+            let can_throw = function.blocks.iter().any(|block| {
+                block
+                    .terminator
+                    .as_ref()
+                    .is_some_and(|terminator| terminator_can_throw(terminator, &throwing))
+            });
+            if can_throw {
+                function.can_throw = true;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            break;
+        }
+    }
+}
+
+/// Returns whether a terminator can leave through an uncaught exception path.
+fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
+    match terminator {
+        Terminator::Throw(_) => true,
+        Terminator::Call {
+            callee: Callee::Static(func),
+            ..
+        } => throwing.get(func.0 as usize).copied().unwrap_or(false),
+        Terminator::Goto(_)
+        | Terminator::Call { .. }
+        | Terminator::Switch { .. }
+        | Terminator::Match { .. }
+        | Terminator::Return(_)
+        | Terminator::Unreachable => false,
     }
 }

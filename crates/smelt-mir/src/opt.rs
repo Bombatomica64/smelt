@@ -56,6 +56,7 @@ pub fn optimize(mir: &mut Mir) {
 /// Propagates copies within a function. Returns true if the function was modified.
 fn propagate_function(function: &mut MirFunction) -> bool {
     let mut aliases = HashMap::new();
+    let mutated = mutated_locals(function);
 
     for block in &function.blocks {
         for stmt in &block.statements {
@@ -63,6 +64,8 @@ fn propagate_function(function: &mut MirFunction) -> bool {
                 dest,
                 value: Rvalue::Use(Operand::Copy(Place::Local(source))),
             } = stmt
+                && !mutated.contains(dest)
+                && !mutated.contains(source)
             {
                 aliases.insert(*dest, resolve_alias(&aliases, *source));
             }
@@ -98,6 +101,26 @@ fn propagate_function(function: &mut MirFunction) -> bool {
     }
 
     changed
+}
+
+/// Returns locals that are mutated after initialization.
+fn mutated_locals(function: &MirFunction) -> HashSet<LocalId> {
+    let mut locals = HashSet::new();
+    for block in &function.blocks {
+        for stmt in &block.statements {
+            if let Statement::AssignPlace { place, .. } = stmt {
+                match place {
+                    Place::Local(local) | Place::Field { base: local, .. } => {
+                        locals.insert(*local);
+                    }
+                    Place::Index { base, .. } => {
+                        locals.insert(*base);
+                    }
+                }
+            }
+        }
+    }
+    locals
 }
 
 /// Resolves a local to its canonical alias target.
@@ -146,7 +169,9 @@ fn rewrite_rvalue(
 fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, LocalId>) -> bool {
     match terminator {
         Terminator::Goto(_) | Terminator::Unreachable => false,
-        Terminator::Return(operand) => rewrite_operand(operand, aliases),
+        Terminator::Return(operand) | Terminator::Throw(operand) => {
+            rewrite_operand(operand, aliases)
+        }
         Terminator::Switch { cond, .. } => rewrite_operand(cond, aliases),
         Terminator::Match { scrutinee, .. } => rewrite_operand(scrutinee, aliases),
         Terminator::Call {

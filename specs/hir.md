@@ -247,8 +247,8 @@ pub struct PlacePath {
 - `Expr` — evaluates an expression for its side effects (e.g. a function call whose return value is discarded).
 - `Return` — exits the current function, optionally with a value.
 - `If` / `While` / `For` — control flow. `For` iterates over any typed iterable; its variable binding is a full `Pattern` so tuple destructuring works.
-- `Try` — a try/catch/finally block; exceptions are still present here. The exception-lowering pass in MIR rewrites this to `Result` branching.
-- `Throw` — raises an exception; lowered to `return Err(…)` in MIR.
+- `Try` — a try/catch/finally block; exceptions are still present here. MIR lowering first routes throws to lexical catches where possible, then leaves only uncaught throws for Rust `Result` codegen.
+- `Throw` — raises an exception. If a surrounding catch handles it, MIR lowers it to a catch edge; otherwise it becomes an uncaught throwing terminator and forces `Result` codegen for the function and its uncaught callers.
 - `Break` / `Continue` — loop control.
 
 **`PlacePath`** describes a write target as a root local plus a chain of field accesses and index operations, e.g. `self.points[i]` would be `root=self, segments=[Field("points"), Index(i)]`. This is the only place in HIR where you descend into a value to write part of it.

@@ -105,7 +105,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                         validate_block_exists(function, *default, errors);
                     }
                 }
-                Terminator::Return(operand) => {
+                Terminator::Return(operand) | Terminator::Throw(operand) => {
                     validate_operand_exists(function, operand, errors);
                 }
                 Terminator::Unreachable => {}
@@ -263,7 +263,7 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
                 Terminator::Match { scrutinee, .. } => {
                     validate_operand(function, &definitions, scrutinee, errors);
                 }
-                Terminator::Return(operand) => {
+                Terminator::Return(operand) | Terminator::Throw(operand) => {
                     validate_operand(function, &definitions, operand, errors);
                 }
             }
@@ -305,7 +305,7 @@ fn successors(terminator: &Terminator) -> Vec<crate::BlockId> {
         Terminator::Match { arms, default, .. } => {
             arms.iter().map(|arm| arm.target).chain(*default).collect()
         }
-        Terminator::Return(_) | Terminator::Unreachable => Vec::new(),
+        Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable => Vec::new(),
     }
 }
 

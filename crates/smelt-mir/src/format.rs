@@ -44,9 +44,10 @@ pub fn format_compact(mir: &Mir) -> String {
     for function in &mir.functions {
         let name = mir.symbols.get(function.name).unwrap_or("<unknown>");
         out.push_str(&format!(
-            "fn {name} ({:?}) -> {}\n",
+            "fn {name} ({:?}) -> {}{}\n",
             function.id,
-            type_ref(mir, function.return_ty)
+            type_ref(mir, function.return_ty),
+            if function.can_throw { " throws" } else { "" }
         ));
 
         if !function.locals.is_empty() {
@@ -216,6 +217,7 @@ fn terminator_text(terminator: &Terminator) -> String {
             format!("match {} {{{}{}}}", operand_text(scrutinee), arms, default)
         }
         Terminator::Return(operand) => format!("return {}", operand_text(operand)),
+        Terminator::Throw(operand) => format!("throw {}", operand_text(operand)),
         Terminator::Unreachable => "unreachable".to_owned(),
     }
 }

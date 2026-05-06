@@ -168,6 +168,53 @@ for (let item: number of values) {
     }
 
     #[test]
+    fn throw_lowers_to_terminating_mir() {
+        let mut ctx = HirCtx::new();
+        to_hir(
+            "function fail(): void {
+  throw \"boom\";
+}
+fail();
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("HIR");
+
+        let mir = lower_hir(&ctx.krate).expect("throw lowers");
+        assert!(validate(&mir).is_empty());
+        let output = format_compact(&mir);
+
+        assert!(output.contains("fn fail (FuncId(0)) -> None throws"));
+        assert!(output.contains("fn main (FuncId(1)) -> None throws"));
+        assert!(output.contains("throw \"boom\""));
+    }
+
+    #[test]
+    fn try_catch_lowers_caught_throw_to_cfg() {
+        let mut ctx = HirCtx::new();
+        to_hir(
+            "try {
+  throw \"boom\";
+} catch (err: string) {
+  console.log(err);
+}
+",
+            FileId(0),
+            &mut ctx,
+        )
+        .expect("HIR");
+
+        let mir = lower_hir(&ctx.krate).expect("try/catch lowers");
+        assert!(validate(&mir).is_empty());
+        let output = format_compact(&mir);
+
+        assert!(output.contains("fn main (FuncId(0)) -> None\n"));
+        assert!(output.contains("%0 = \"boom\""));
+        assert!(!output.contains("throw \"boom\""));
+    }
+
+    #[test]
     fn validation_is_cfg_aware_for_definite_assignment() {
         let mut types = smelt_hir::TypeInterner::default();
         let mut symbols = smelt_hir::SymbolInterner::default();

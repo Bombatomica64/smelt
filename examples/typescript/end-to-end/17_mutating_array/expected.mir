@@ -8,7 +8,7 @@ fn main (FuncId(0)) -> None
   bb0:
     %1 = [1.0, 2.0, 3.0]
     %0 = copy %1
-    %1[1.0] = 5.0
+    %0[1.0] = 5.0
     %2 = copy %0[0.0] + copy %0[1.0]
     %3 = copy %2 + copy %0[2.0]
     %4 = call @console_log(copy %3) -> bb1

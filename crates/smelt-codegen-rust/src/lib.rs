@@ -273,7 +273,11 @@ impl<'mir> FunctionEmitter<'mir> {
     fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
         if name == "main" && self.function.return_ty == self.none_ty {
-            out.push_str("fn main() {\n");
+            if self.function.can_throw {
+                out.push_str("fn main() -> Result<(), Box<dyn std::error::Error>> {\n");
+            } else {
+                out.push_str("fn main() {\n");
+            }
         } else {
             let params = self
                 .function
@@ -292,7 +296,7 @@ impl<'mir> FunctionEmitter<'mir> {
             out.push_str(&format!(
                 "fn {}({params}) -> {} {{\n",
                 sanitize_ident(name),
-                self.type_text(self.function.return_ty)?
+                self.return_type_text(self.function.return_ty)?
             ));
         }
 
@@ -319,7 +323,14 @@ impl<'mir> FunctionEmitter<'mir> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                out.push_str(&format!("    fn new({params}) -> Self {{\n"));
+                out.push_str(&format!(
+                    "    fn new({params}) -> {} {{\n",
+                    if self.function.can_throw {
+                        "Result<Self, Box<dyn std::error::Error>>"
+                    } else {
+                        "Self"
+                    }
+                ));
             }
             HirOrigin::ClassMethod { method, .. } => {
                 let name = sanitize_ident(self.symbol_name(method)?);
@@ -350,7 +361,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 };
                 out.push_str(&format!(
                     "    fn {name}({params}) -> {} {{\n",
-                    self.type_text(self.function.return_ty)?
+                    self.return_type_text(self.function.return_ty)?
                 ));
             }
             HirOrigin::Body(_) => return self.emit(out),
@@ -444,13 +455,51 @@ impl<'mir> FunctionEmitter<'mir> {
                 Ok(())
             }
             Statement::AssignPlace { place, value } => {
-                let place = self.assignment_place_text(place)?;
-                let value = self.rvalue_text(value)?;
-                out.push_str(&format!("    {place} = {value};\n"));
-                Ok(())
+                self.emit_assign_place_statement(place, value, out)
             }
             Statement::StorageLive(_) | Statement::StorageDead(_) => Ok(()),
         }
+    }
+
+    /// Emits an assignment to a local, field, or index place.
+    fn emit_assign_place_statement(
+        &self,
+        place: &Place,
+        value: &Rvalue,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let value = self.rvalue_text(value)?;
+        match place {
+            Place::Field { base, field } => {
+                let base_ty = self.local_decl(*base)?.ty;
+                if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty)
+                    && self.mir.types.get(*key) == Some(&Type::String)
+                {
+                    out.push_str(&format!(
+                        "    {}.insert({:?}.to_owned(), {value});\n",
+                        self.local_name(*base)?,
+                        self.symbol_name(*field)?
+                    ));
+                    return Ok(());
+                }
+            }
+            Place::Index { base, index } => {
+                let base_ty = self.local_decl(*base)?.ty;
+                if let Some(Type::Dict(_, _)) = self.mir.types.get(base_ty) {
+                    out.push_str(&format!(
+                        "    {}.insert({}, {value});\n",
+                        self.local_name(*base)?,
+                        self.operand_text(index)?
+                    ));
+                    return Ok(());
+                }
+            }
+            Place::Local(_) => {}
+        }
+
+        let place = self.assignment_place_text(place)?;
+        out.push_str(&format!("    {place} = {value};\n"));
+        Ok(())
     }
 
     /// Emits a block terminator.
@@ -495,13 +544,29 @@ impl<'mir> FunctionEmitter<'mir> {
                 default,
             } => self.emit_match(scrutinee, arms, *default, out),
             Terminator::Return(operand) => {
-                if self.function.return_ty == self.none_ty {
+                if self.function.can_throw {
+                    if self.function.return_ty == self.none_ty {
+                        out.push_str("    return Ok(());\n");
+                    } else {
+                        out.push_str(&format!(
+                            "    return Ok({});\n",
+                            self.operand_text(operand)?
+                        ));
+                    }
+                } else if self.function.return_ty == self.none_ty {
                     if !matches!(operand, Operand::Const(Constant::None)) {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
                 } else {
                     out.push_str(&format!("    return {};\n", self.operand_text(operand)?));
                 }
+                Ok(())
+            }
+            Terminator::Throw(operand) => {
+                out.push_str(&format!(
+                    "    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
+                    self.operand_text(operand)?
+                ));
                 Ok(())
             }
             Terminator::Unreachable => {
@@ -1011,7 +1076,10 @@ impl<'mir> FunctionEmitter<'mir> {
                         .map(|arg| self.operand_text(arg))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    return Ok(format!("{class_name}::new({args})"));
+                    return Ok(format!(
+                        "{class_name}::new({args}){}",
+                        self.throwing_call_suffix(function)
+                    ));
                 }
                 if let HirOrigin::ClassMethod { method, .. } = function.origin {
                     let Some((receiver, rest)) = args.split_first() else {
@@ -1030,9 +1098,15 @@ impl<'mir> FunctionEmitter<'mir> {
                         .join(", ");
                     let method = sanitize_ident(self.symbol_name(method)?);
                     return if args.is_empty() {
-                        Ok(format!("{receiver}.{method}()"))
+                        Ok(format!(
+                            "{receiver}.{method}(){}",
+                            self.throwing_call_suffix(function)
+                        ))
                     } else {
-                        Ok(format!("{receiver}.{method}({args})"))
+                        Ok(format!(
+                            "{receiver}.{method}({args}){}",
+                            self.throwing_call_suffix(function)
+                        ))
                     };
                 }
                 let name = self.symbol_name(function.name)?;
@@ -1041,10 +1115,19 @@ impl<'mir> FunctionEmitter<'mir> {
                     .map(|arg| self.operand_text(arg))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                Ok(format!("{}({args})", sanitize_ident(name)))
+                Ok(format!(
+                    "{}({args}){}",
+                    sanitize_ident(name),
+                    self.throwing_call_suffix(function)
+                ))
             }
             Callee::Indirect(_) => Err(EmitError::new("indirect calls are not implemented yet")),
         }
+    }
+
+    /// Returns the Rust suffix needed when calling a throwing function.
+    fn throwing_call_suffix(&self, callee: &MirFunction) -> &'static str {
+        if callee.can_throw { "?" } else { "" }
     }
 
     /// Converts an operand to its Rust text representation.
@@ -1265,6 +1348,16 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Converts a function return type to Rust, including uncaught exception wrapping.
+    fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+        let inner = self.type_text(ty)?;
+        if self.function.can_throw {
+            Ok(format!("Result<{inner}, Box<dyn std::error::Error>>"))
+        } else {
+            Ok(inner)
+        }
+    }
+
     /// Gets the default value for a given type.
     fn default_value(&self, ty: TypeId) -> Result<String, EmitError> {
         match self
@@ -1345,7 +1438,7 @@ fn constant_text(constant: &Constant) -> String {
 fn block_terminates(block: &BasicBlock) -> bool {
     matches!(
         block.terminator,
-        Some(Terminator::Return(_) | Terminator::Unreachable)
+        Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable)
     )
 }
 
@@ -1588,5 +1681,81 @@ console.log(result);
         assert!(source.contains("\"pending\" => {"));
         assert!(source.contains("return \"Waiting\".to_owned();"));
         assert!(source.contains("_ => unreachable!(),"));
+    }
+
+    #[test]
+    fn emits_uncaught_throw_as_result() {
+        let source = source_for(
+            "function fail(): void {
+  throw \"boom\";
+}
+fail();
+",
+        );
+
+        assert!(source.contains("fn fail() -> Result<(), Box<dyn std::error::Error>> {"));
+        assert!(source.contains("return Err(std::io::Error::new("));
+        assert!(source.contains("fn main() -> Result<(), Box<dyn std::error::Error>> {"));
+        assert!(source.contains("let _smelt_tmp_0: () = fail()?;"));
+        assert!(source.contains("return Ok(());"));
+    }
+
+    #[test]
+    fn emits_caught_throw_without_result_signature() {
+        let source = source_for(
+            "try {
+  throw \"boom\";
+} catch (err: string) {
+  console.log(err);
+}
+",
+        );
+
+        assert!(source.contains("fn main() {"));
+        assert!(!source.contains("Box<dyn std::error::Error>"));
+        assert!(source.contains("let err: String = \"boom\".to_owned();"));
+    }
+
+    #[test]
+    fn emits_record_field_assignment_as_insert() {
+        let source = source_for(
+            "let user: Record<string, string> = { name: \"Ada\" };
+user.name = \"Grace\";
+console.log(user.name);
+",
+        );
+
+        assert!(
+            source.contains("let mut user: ::std::collections::HashMap<String, String>"),
+            "{source}"
+        );
+        assert!(
+            source.contains("user.insert(\"name\".to_owned(), \"Grace\".to_owned());"),
+            "{source}"
+        );
+        assert!(
+            source.contains("user.get(\"name\").cloned().expect(\"missing field\")"),
+            "{source}"
+        );
+    }
+
+    #[test]
+    fn emits_record_index_assignment_as_insert() {
+        let source = source_for(
+            "let user: Record<string, string> = { name: \"Ada\" };
+let key = \"name\";
+user[key] = \"Grace\";
+console.log(user[key]);
+",
+        );
+
+        assert!(
+            source.contains("user.insert(key.clone(), \"Grace\".to_owned());"),
+            "{source}"
+        );
+        assert!(
+            source.contains("user.get(&key.clone()).cloned().expect(\"index out of bounds\")"),
+            "{source}"
+        );
     }
 }

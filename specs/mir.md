@@ -178,10 +178,13 @@ Passes run in order. Each lives in its own module under `smelt-mir::lower::*` wi
    - `Stmt::Assign { target: PlacePath }` becomes a functional update expression that produces a fresh value for the root binding.
 3. **ADT layout synthesis.** Emit MIR `Adt`s for classes, discriminated unions, `Optional`, collection helper shapes that need runtime structs, and per-language structural interfaces. This pass fixes field order so later `Place::Field { idx }` is numeric and stable.
 4. **Closure capture explicitness.** Walk lambda bodies, identify free locals, build a `ClosureLayout`, and create one free MIR function per lambda body. Captures are cloned into a synthesized capture struct in v1.0.
-5. **Exception lowering.** Lift the throw-type set of each function. Synthesize an error enum (`MyFnError`) with one variant per distinct throw type. Rewrite:
-   - `Stmt::Throw(e)` → `Return(Err(e))`
-   - `try/catch` → `SwitchInt` on the error enum's discriminant after the call.
-   - Function return type becomes `Result<T, MyFnError>`.
+5. **Exception lowering.** HIR keeps source-level exceptions, but MIR makes the remaining exceptional control flow explicit before codegen.
+   - A lexical `try/catch` installs a lowering-time exception target. A `Stmt::Throw(e)` inside that protected region becomes an assignment to the catch binding, when present, followed by `Goto(catch_block)`. If the catch fully handles the throw, no throwing Rust signature is needed.
+   - A `finally` block is a normal MIR block on the structured exits from the protected body and catch body. Uncaught throws still need a cleanup edge before they leave the function; until that edge exists, frontends/lowering should keep finally-only exception propagation conservative.
+   - A `Stmt::Throw(e)` with no active catch target becomes `Terminator::Throw(e)`.
+   - After all functions lower, MIR computes `MirFunction::can_throw`: a function can throw if it contains an uncaught `Terminator::Throw` or statically calls another `can_throw` function without catching it.
+   - Rust codegen emits `Result<T, Box<dyn std::error::Error>>` for every `can_throw` function, wraps ordinary returns in `Ok`, emits uncaught throws as `Err`, and appends `?` to calls into `can_throw` functions.
+   - Later typed exceptions can replace the boxed error with a synthesized enum (`MyFnError`) once throw-type inference is precise enough.
 6. **Generic monomorphization.** For each concrete instantiation observed in the call graph, emit a specialized `MirFunction` and `Adt`. Substitute `TypeVar` → `TypeId` in all owned types. Bounded generics over traits are deferred to v2.0.
 7. **Builtin resolution.** Convert language-neutral operations to MIR `BuiltinFn`s: collection construction, list/set insert, dict lookup/insert, string operations, optional/result helpers, and iterator creation. This happens before CFG construction so each builtin call has a known `Callee` and return type.
 8. **CFG construction.** Convert HIR's tree-shaped blocks into MIR basic blocks with explicit terminators. `if`, `while`, `for`, `match`, `try`, `await`, `break`, and `continue` become edges. Calls become `Terminator::Call`.
@@ -215,8 +218,9 @@ The reason MIR exists is to translate runtime-heavy idioms into things Rust expr
 
 | HIR construct                | MIR shape                                | Codegen emits                       |
 |------------------------------|------------------------------------------|-------------------------------------|
-| `Stmt::Try`                  | `SwitchInt` on `Result` discriminant     | `match` + `?`                       |
-| `Stmt::Throw(e)`             | `Return(Err(e))`                         | `return Err(e)`                     |
+| `Stmt::Try`                  | lexical catch/finally CFG edges          | plain blocks when fully caught      |
+| uncaught `Stmt::Throw(e)`    | `Terminator::Throw(e)`                   | `return Err(...)` in throwing fns   |
+| call to throwing function    | normal call with throwing callee metadata| `callee(args)?`                     |
 | `Expr::Comprehension`        | iterator loop + fresh accumulator locals | `.iter().map().collect()`           |
 | `Expr::Lambda`               | free fn + capture struct                 | `move \|args\| body`                |
 | `Expr::Method` (single-inh.) | static `Call` w/ self                    | `obj.method(args)`                  |
