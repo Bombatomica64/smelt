@@ -3,11 +3,19 @@
     clippy::cast_possible_truncation,
     reason = "example file IDs are small indexes from command-line arguments"
 )]
+#![expect(
+    clippy::as_conversions,
+    reason = "example file IDs are small indexes from command-line arguments"
+)]
+#![expect(
+    clippy::use_debug,
+    reason = "debug mode intentionally prints the raw HIR crate"
+)]
 //! Print the HIR for one or more Python source files.
 //!
 //! Usage:
 //! ```bash
-//! cargo run -p smelt-frontend-py --example print_hir -- [--debug] <file.py> [...]
+//! cargo run -p smelt-frontend-py --example py_print_hir -- [--debug] <file.py> [...]
 //! ```
 
 use std::{env, fs, path::Path};
@@ -24,7 +32,7 @@ fn main() -> Result<(), String> {
             "--debug" => debug = true,
             "--help" | "-h" => {
                 println!(
-                    "usage: cargo run -p smelt-frontend-py --example print_hir -- [--debug] <file.py> [...]"
+                    "usage: cargo run -p smelt-frontend-py --example py_print_hir -- [--debug] <file.py> [...]"
                 );
                 return Ok(());
             }
@@ -34,7 +42,7 @@ fn main() -> Result<(), String> {
 
     if paths.is_empty() {
         return Err(
-            "usage: cargo run -p smelt-frontend-py --example print_hir -- [--debug] <file.py> [...]"
+            "usage: cargo run -p smelt-frontend-py --example py_print_hir -- [--debug] <file.py> [...]"
                 .to_owned(),
         );
     }

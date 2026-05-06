@@ -15,7 +15,7 @@
 //!
 //! Usage:
 //! ```bash
-//! cargo run -p smelt-frontend-ts --example parser [file] [--ast] [--comments]
+//! cargo run -p smelt-frontend-ts --example ts_parser -- [file] [--ast] [--comments]
 //! ```
 
 use std::{fs, path::Path};
@@ -89,11 +89,7 @@ fn main() -> Result<(), String> {
     for id in scoping.symbol_ids() {
         let symbol_name = scoping.symbol_name(id);
         let span = scoping.symbol_span(id);
-        println!(
-            "  symbol `{symbol_name}` at {}..{}",
-            span.start,
-            span.end
-        );
+        println!("  symbol `{symbol_name}` at {}..{}", span.start, span.end);
     }
 
     println!("References (per symbol):");
@@ -102,11 +98,7 @@ fn main() -> Result<(), String> {
         for ref_id in scoping.get_resolved_reference_ids(id) {
             let reference = scoping.get_reference(*ref_id);
             let span = semantic.reference_span(reference);
-            println!(
-                "  ref for `{symbol_name}` at {}..{}",
-                span.start,
-                span.end
-            );
+            println!("  ref for `{symbol_name}` at {}..{}", span.start, span.end);
         }
     }
 

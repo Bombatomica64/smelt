@@ -19,6 +19,18 @@
     clippy::missing_const_for_fn,
     reason = "configuration accessors use non-const Option helpers on current MSRV"
 )]
+#![expect(
+    clippy::exhaustive_enums,
+    reason = "CLI command and config enums are internal to the binary crate"
+)]
+#![expect(
+    clippy::exhaustive_structs,
+    reason = "CLI parser structs are internal clap data models"
+)]
+#![expect(
+    clippy::use_debug,
+    reason = "dump commands intentionally expose debug forms for development inspection"
+)]
 
 pub mod cli_parser;
 pub mod config;
@@ -93,7 +105,10 @@ fn lower_typescript_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std:
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
         let file_id = u32::try_from(idx).map_err(|error| {
-            io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("too many source files: {error}"),
+            )
         })?;
         let module = smelt_frontend_ts::to_hir_with_path(&source, FileId(file_id), file, &mut ctx)
             .map_err(|errors| {
@@ -116,7 +131,10 @@ fn lower_python_files(files: &[String]) -> Result<LoweredCrate, Box<dyn std::err
     for (idx, file) in files.iter().enumerate() {
         let source = fs::read_to_string(file)?;
         let file_id = u32::try_from(idx).map_err(|error| {
-            io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("too many source files: {error}"),
+            )
         })?;
         let module = smelt_frontend_py::to_hir_with_path(&source, FileId(file_id), file, &mut ctx)
             .map_err(|errors| {
@@ -204,7 +222,10 @@ fn lower_manifest_file(
             let module = smelt_frontend_ts::to_hir_with_path(
                 &source,
                 FileId(u32::try_from(idx).map_err(|error| {
-                    io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("too many source files: {error}"),
+                    )
                 })?),
                 &file_string,
                 &mut ctx,
@@ -217,7 +238,10 @@ fn lower_manifest_file(
             let module = smelt_frontend_py::to_hir_with_path(
                 &source,
                 FileId(u32::try_from(idx).map_err(|error| {
-                    io::Error::new(io::ErrorKind::InvalidInput, format!("too many source files: {error}"))
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("too many source files: {error}"),
+                    )
                 })?),
                 &file_string,
                 &mut ctx,
@@ -305,9 +329,10 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
     if !visit.temporary.insert(idx) {
         return Err(format!(
             "cyclic manifest import involving {}",
-            visit.sources
-                .get(idx)
-                .map_or_else(|| "<unknown>".to_owned(), |source| source.path.display().to_string())
+            visit.sources.get(idx).map_or_else(
+                || "<unknown>".to_owned(),
+                |source| source.path.display().to_string()
+            )
         ));
     }
 
@@ -533,7 +558,7 @@ fn build_rust_crate(
     smelt_codegen_rust::emit_crate(
         &mir,
         &output_dir,
-        &smelt_codegen_rust::EmitOptions { crate_name },
+        &smelt_codegen_rust::EmitOptions::new(crate_name),
     )?;
 
     if config.should_build_output() {

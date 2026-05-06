@@ -23,14 +23,6 @@
     reason = "Python type-name matching is kept compact for readability"
 )]
 #![expect(
-    clippy::needless_raw_string_hashes,
-    reason = "multiline Python fixtures use raw strings consistently"
-)]
-#![expect(
-    clippy::ignored_unit_patterns,
-    reason = "parse handling mirrors the upstream API shape"
-)]
-#![expect(
     clippy::too_many_lines,
     reason = "Python lowering is still organized around large AST match functions"
 )]
@@ -55,20 +47,35 @@
     reason = "separate Python AST variants are kept visible in match statements"
 )]
 #![expect(
-    clippy::single_match,
-    reason = "AST lowering uses match structure ready for nearby variants"
-)]
-#![expect(
-    clippy::single_match_else,
-    reason = "AST fallback branches read more clearly as explicit nested matches"
-)]
-#![expect(
     clippy::missing_const_for_fn,
     reason = "utility const qualification will be handled after behavior cleanup"
 )]
 #![expect(
     clippy::type_complexity,
     reason = "Ruff AST type shapes will be wrapped by local aliases in a later cleanup"
+)]
+#![cfg_attr(
+    test,
+    expect(
+        clippy::needless_raw_string_hashes,
+        reason = "Python test fixtures use a consistent raw string form"
+    )
+)]
+#![expect(
+    clippy::exhaustive_structs,
+    reason = "frontend diagnostics and contexts are constructed directly by workspace callers"
+)]
+#![expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Ruff AST fallback arms intentionally group unsupported syntax for diagnostics"
+)]
+#![expect(
+    clippy::indexing_slicing,
+    reason = "range conversion indexes validated source offsets from Ruff spans"
+)]
+#![expect(
+    clippy::panic,
+    reason = "panic_any is currently used to bridge parser panic payloads into diagnostics"
 )]
 
 pub use ruff_python_ast as ast;

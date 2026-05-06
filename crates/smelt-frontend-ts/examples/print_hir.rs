@@ -7,6 +7,14 @@
     clippy::cast_possible_truncation,
     reason = "example file IDs are small indexes from command-line arguments"
 )]
+#![expect(
+    clippy::as_conversions,
+    reason = "example file IDs are small indexes from command-line arguments"
+)]
+#![expect(
+    clippy::use_debug,
+    reason = "debug mode intentionally prints the raw HIR crate"
+)]
 
 use std::{env, fs, path::Path};
 
@@ -22,7 +30,7 @@ fn main() -> Result<(), String> {
             "--debug" => debug = true,
             "--help" | "-h" => {
                 println!(
-                    "usage: cargo run -p smelt-frontend-ts --example print_hir -- [--debug] <file.ts> [...]"
+                    "usage: cargo run -p smelt-frontend-ts --example ts_print_hir -- [--debug] <file.ts> [...]"
                 );
                 return Ok(());
             }
@@ -32,7 +40,7 @@ fn main() -> Result<(), String> {
 
     if paths.is_empty() {
         return Err(
-            "usage: cargo run -p smelt-frontend-ts --example print_hir -- [--debug] <file.ts> [...]"
+            "usage: cargo run -p smelt-frontend-ts --example ts_print_hir -- [--debug] <file.ts> [...]"
                 .to_owned(),
         );
     }

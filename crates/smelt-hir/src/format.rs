@@ -70,7 +70,10 @@ pub fn format_compact(krate: &Crate, modules: &[(String, ModuleId)]) -> String {
 
     out.push_str("interned types\n");
     for (idx, ty) in krate.types.all().iter().enumerate() {
-        push_fmt(&mut out, format_args!("  t{} = {}\n", idx, type_text(krate, ty)));
+        push_fmt(
+            &mut out,
+            format_args!("  t{} = {}\n", idx, type_text(krate, ty)),
+        );
     }
 
     out
@@ -87,13 +90,16 @@ fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
                 .name
                 .and_then(|sym| krate.names.get(sym).or_else(|| krate.symbols.get(sym)))
                 .unwrap_or("_");
-            push_fmt(out, format_args!(
-                "    {} {} {}: {}\n",
-                local_ref(local_id),
-                mutability,
-                name,
-                type_ref(krate, local.ty)
-            ));
+            push_fmt(
+                out,
+                format_args!(
+                    "    {} {} {}: {}\n",
+                    local_ref(local_id),
+                    mutability,
+                    name,
+                    type_ref(krate, local.ty)
+                ),
+            );
         }
     }
 
@@ -101,19 +107,25 @@ fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
         out.push_str("  exprs\n");
         for (idx, expr) in body.exprs.iter().enumerate() {
             let expr_id = ExprId(id_index(idx));
-            push_fmt(out, format_args!(
-                "    {}: {} = {}\n",
-                expr_ref(expr_id),
-                type_ref(krate, expr.ty),
-                expr_text(krate, expr)
-            ));
+            push_fmt(
+                out,
+                format_args!(
+                    "    {}: {} = {}\n",
+                    expr_ref(expr_id),
+                    type_ref(krate, expr.ty),
+                    expr_text(krate, expr)
+                ),
+            );
         }
     }
 
     if !body.stmts.is_empty() {
         out.push_str("  stmts\n");
         for (idx, stmt) in body.stmts.iter().enumerate() {
-            push_fmt(out, format_args!("    s{}: {}\n", idx, stmt_text(krate, body, stmt)));
+            push_fmt(
+                out,
+                format_args!("    s{}: {}\n", idx, stmt_text(krate, body, stmt)),
+            );
         }
     }
 
@@ -127,12 +139,15 @@ fn format_body_sections(krate: &Crate, body: &Body, out: &mut String) {
             .join(", ");
         push_fmt(out, format_args!("    states [{states}]\n"));
         for suspension in &machine.suspensions {
-            push_fmt(out, format_args!(
-                "    suspend {} on {} -> state{}\n",
-                expr_ref(suspension.await_expr),
-                expr_ref(suspension.future),
-                suspension.resume_state.0
-            ));
+            push_fmt(
+                out,
+                format_args!(
+                    "    suspend {} on {} -> state{}\n",
+                    expr_ref(suspension.await_expr),
+                    expr_ref(suspension.future),
+                    suspension.resume_state.0
+                ),
+            );
         }
     }
 }

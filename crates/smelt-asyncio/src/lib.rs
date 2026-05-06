@@ -4,6 +4,11 @@
 //! It classifies Python `asyncio` attribute calls so the Python frontend can
 //! rewrite supported APIs into Smelt's runtime-neutral async operations.
 
+#![expect(
+    clippy::exhaustive_enums,
+    reason = "asyncio classifications are matched directly by the Python frontend"
+)]
+
 /// Classification for an `asyncio.<name>` call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AsyncioApi {

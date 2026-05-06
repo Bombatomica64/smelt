@@ -17,22 +17,6 @@
     reason = "Oxc AST types are verbose and will be wrapped by local aliases in a later cleanup"
 )]
 #![expect(
-    clippy::many_single_char_names,
-    reason = "short names appear in generated TypeScript AST pattern matches"
-)]
-#![expect(
-    clippy::cast_possible_truncation,
-    reason = "HIR IDs are compact u32 indexes and overflow checks are being centralized incrementally"
-)]
-#![expect(
-    clippy::single_match,
-    reason = "declaration lowering keeps match structure ready for nearby variants"
-)]
-#![expect(
-    clippy::doc_markdown,
-    reason = "diagnostic docs mention source-language tokens without full rustdoc markup yet"
-)]
-#![expect(
     clippy::missing_const_for_fn,
     reason = "utility const qualification will be handled after behavior cleanup"
 )]
@@ -43,6 +27,26 @@
 #![expect(
     clippy::missing_errors_doc,
     reason = "public checker docs need a dedicated polish pass"
+)]
+#![expect(
+    clippy::exhaustive_structs,
+    reason = "frontend diagnostics and contexts are constructed directly by workspace callers"
+)]
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "identifier conversion walks byte offsets derived from validated string boundaries"
+)]
+#![expect(
+    clippy::shadow_reuse,
+    reason = "identifier conversion rebinds neighboring-character options while normalizing names"
+)]
+#![expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "Oxc AST fallback arms intentionally group unsupported syntax for diagnostics"
+)]
+#![expect(
+    clippy::expect_used,
+    reason = "tests use parser expectations to keep fixture setup compact"
 )]
 
 pub mod checker;

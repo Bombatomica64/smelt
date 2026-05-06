@@ -1,6 +1,6 @@
 //! Unit tests for the Python frontend.
 
-use crate::{to_hir, HirCtx, SmeltError};
+use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, ExprKind, FileId, Item, ItemId, Language, Module, ModuleId, Pattern,
     PatternId, Stmt, StringCaseOp, Symbol, Type,

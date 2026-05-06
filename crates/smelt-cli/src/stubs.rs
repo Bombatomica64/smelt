@@ -80,7 +80,10 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
             Item::Class(class) => {
                 push_fmt(
                     &mut out,
-                    format_args!("export declare class {} {{\n", symbol_name(krate, class.name)),
+                    format_args!(
+                        "export declare class {} {{\n",
+                        symbol_name(krate, class.name)
+                    ),
                 );
                 for field in &class.fields {
                     push_fmt(
@@ -97,7 +100,10 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
             Item::Interface(interface) => {
                 push_fmt(
                     &mut out,
-                    format_args!("export interface {} {{\n", symbol_name(krate, interface.name)),
+                    format_args!(
+                        "export interface {} {{\n",
+                        symbol_name(krate, interface.name)
+                    ),
                 );
                 for field in &interface.fields {
                     push_fmt(

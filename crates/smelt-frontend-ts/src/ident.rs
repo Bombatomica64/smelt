@@ -1,6 +1,6 @@
 //! Identifier normalization helpers for TypeScript source names.
 
-/// Converts a TypeScript-style identifier into a Rust-style snake_case identifier.
+/// Converts a TypeScript-style identifier into a Rust-style `snake_case` identifier.
 pub fn camel_to_snake(name: &str) -> String {
     let chars: Vec<char> = name.chars().collect();
     let mut out = String::with_capacity(name.len());

@@ -37,14 +37,6 @@
     reason = "existing option pipelines are being preserved until the lowering refactor"
 )]
 #![expect(
-    clippy::redundant_clone,
-    reason = "clone sites in lowering will be reviewed alongside ownership cleanup"
-)]
-#![expect(
-    clippy::needless_pass_by_value,
-    reason = "lowering helpers take owned operands so call sites can move or inspect them uniformly"
-)]
-#![expect(
     clippy::unused_self,
     reason = "lowering helpers remain methods to keep the API shape stable during refactors"
 )]
@@ -55,6 +47,22 @@
 #![expect(
     clippy::similar_names,
     reason = "MIR lowering uses related HIR/MIR block names that differ only by role"
+)]
+#![expect(
+    clippy::exhaustive_enums,
+    reason = "MIR is the internal compiler data model and codegen/validators match variants directly"
+)]
+#![expect(
+    clippy::exhaustive_structs,
+    reason = "MIR structs are constructed across workspace crates during lowering and tests"
+)]
+#![expect(
+    clippy::panic,
+    reason = "debug formatters and test-only conversion helpers still use panic for impossible states"
+)]
+#![expect(
+    clippy::shadow_unrelated,
+    reason = "optimizer match arms reuse domain variable names in independent scopes"
 )]
 
 /// Compact MIR formatting utilities.
@@ -76,9 +84,9 @@ pub use validate::{ValidationError, validate};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::convert::TryFrom;
     use smelt_frontend_ts::{HirCtx, to_hir};
     use smelt_hir::FileId;
+    use std::convert::TryFrom;
 
     fn ok_or_panic<T, E: std::fmt::Debug>(result: Result<T, E>, context: &str) -> T {
         result.unwrap_or_else(|error| {
@@ -93,9 +101,7 @@ mod tests {
             )))
         });
         function.blocks.get_mut(index).unwrap_or_else(|| {
-            std::panic::resume_unwind(Box::new(format!(
-                "block index {index} is out of bounds"
-            )))
+            std::panic::resume_unwind(Box::new(format!("block index {index} is out of bounds")))
         })
     }
 

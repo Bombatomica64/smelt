@@ -2,6 +2,7 @@
 name = "smelt-frontend-py"
 version.workspace = true
 edition.workspace = true
+autoexamples = false
 
 [lints]
 workspace = true
@@ -24,3 +25,11 @@ ruff_text_size     = { git = "https://github.com/astral-sh/ruff", branch = "main
 
 [dev-dependencies]
 pico-args = "0.5"
+
+[[example]]
+name = "py_parser"
+path = "examples/parser.rs"
+
+[[example]]
+name = "py_print_hir"
+path = "examples/print_hir.rs"

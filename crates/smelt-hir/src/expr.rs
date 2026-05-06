@@ -73,6 +73,13 @@ pub enum ExprKind {
         /// The substring to search for.
         needle: ExprId,
     },
+    /// Test whether a list contains an item.
+    ListContains {
+        /// The list value being searched.
+        list: ExprId,
+        /// The item to search for.
+        item: ExprId,
+    },
     /// Split a string into a list of strings.
     StringSplit {
         /// The string value being split.

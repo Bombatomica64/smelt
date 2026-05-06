@@ -4,6 +4,39 @@
 //! frontend lowering. It includes types for expressions, statements, items (functions,
 //! classes, interfaces), control flow, and type information.
 
+#![expect(
+    clippy::exhaustive_enums,
+    reason = "HIR is the internal compiler data model and downstream crates pattern-match variants directly"
+)]
+#![expect(
+    clippy::exhaustive_structs,
+    reason = "HIR structs are constructed across workspace crates during lowering and tests"
+)]
+#![expect(
+    clippy::indexing_slicing,
+    reason = "HIR arenas use compact IDs validated by construction"
+)]
+#![expect(
+    clippy::as_conversions,
+    reason = "HIR compact IDs are u32 indexes and conversion hardening is tracked separately"
+)]
+#![expect(
+    clippy::arithmetic_side_effects,
+    reason = "HIR arena index arithmetic is bounded by vector lengths in current builders"
+)]
+#![expect(
+    clippy::shadow_reuse,
+    reason = "formatter code intentionally reuses domain names while descending nested structures"
+)]
+#![expect(
+    clippy::shadow_unrelated,
+    reason = "formatter code intentionally reuses short domain names across independent match arms"
+)]
+#![expect(
+    clippy::too_many_lines,
+    reason = "HIR compact formatter sections are kept together for readable output structure"
+)]
+
 /// HIR body structures and control-flow nodes.
 mod body;
 /// HIR expression nodes and operators.

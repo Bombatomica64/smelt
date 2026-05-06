@@ -82,7 +82,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
             } else if let Stmt::ClassDef(class) = stmt {
                 match self.class_def(class, &mut hir_module) {
-                    Ok(_) => {}
+                    Ok(()) => {}
                     Err(err) => errors.push(err),
                 }
             } else if let Stmt::Import(import) = stmt {
@@ -1732,12 +1732,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .map(|e| self.expression(e, body))
                     .collect::<Result<_, _>>()?;
                 // Infer element type from hint or first element.
-                let ty = type_hint.unwrap_or_else(|| match elts.first().copied() {
-                    Some(first_id) => {
+                let ty = type_hint.unwrap_or_else(|| {
+                    if let Some(first_id) = elts.first().copied() {
                         let elem_ty = Self::expr_ty(body, first_id);
                         self.intern_type(Type::List(elem_ty))
-                    }
-                    None => {
+                    } else {
                         let none = self.intern_type(Type::None);
                         self.intern_type(Type::List(none))
                     }
@@ -1771,12 +1770,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .iter()
                     .map(|e| self.expression(e, body))
                     .collect::<Result<_, _>>()?;
-                let ty = type_hint.unwrap_or_else(|| match elts.first().copied() {
-                    Some(first_id) => {
+                let ty = type_hint.unwrap_or_else(|| {
+                    if let Some(first_id) = elts.first().copied() {
                         let elem_ty = Self::expr_ty(body, first_id);
                         self.intern_type(Type::Set(elem_ty))
-                    }
-                    None => {
+                    } else {
                         let none = self.intern_type(Type::None);
                         self.intern_type(Type::Set(none))
                     }
@@ -1801,13 +1799,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let val = self.expression(&item.value, body)?;
                     entries.push((key, val));
                 }
-                let ty = type_hint.unwrap_or_else(|| match entries.first().copied() {
-                    Some((k_id, v_id)) => {
+                let ty = type_hint.unwrap_or_else(|| {
+                    if let Some((k_id, v_id)) = entries.first().copied() {
                         let k_ty = Self::expr_ty(body, k_id);
                         let v_ty = Self::expr_ty(body, v_id);
                         self.intern_type(Type::Dict(k_ty, v_ty))
-                    }
-                    None => {
+                    } else {
                         let none = self.intern_type(Type::None);
                         self.intern_type(Type::Dict(none, none))
                     }

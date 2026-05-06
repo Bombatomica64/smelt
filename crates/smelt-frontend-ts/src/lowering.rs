@@ -76,11 +76,7 @@ pub fn to_hir_with_path(
             .into_iter()
             .map(|error| {
                 SmeltError::parse(
-                    Span::new(
-                        file_id,
-                        0,
-                        u32::try_from(source.len()).unwrap_or(u32::MAX),
-                    ),
+                    Span::new(file_id, 0, u32::try_from(source.len()).unwrap_or(u32::MAX)),
                     error.to_string(),
                 )
             })
@@ -147,8 +143,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut classes = HashMap::new();
         let mut interfaces = HashMap::new();
         for (idx, item) in ctx.krate.items.iter().enumerate() {
-            let item_id =
-                smelt_hir::ItemId(u32::try_from(idx).unwrap_or(u32::MAX));
+            let item_id = smelt_hir::ItemId(u32::try_from(idx).unwrap_or(u32::MAX));
             let Some(name) = item_name(&ctx.krate, item) else {
                 continue;
             };
@@ -278,9 +273,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "default".to_owned(),
                     specifier_data.local.name.as_str().to_owned(),
                 ),
-                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => {
-                    ("*".to_owned(), specifier_data.local.name.as_str().to_owned())
-                }
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => (
+                    "*".to_owned(),
+                    specifier_data.local.name.as_str().to_owned(),
+                ),
             };
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
@@ -1265,7 +1261,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(update) = &for_stmt.update {
             let (target, value) = match update {
                 Expression::AssignmentExpression(assign) => self.assignment_parts(assign, body)?,
-                Expression::UpdateExpression(update_expr) => self.update_parts(update_expr, body)?,
+                Expression::UpdateExpression(update_expr) => {
+                    self.update_parts(update_expr, body)?
+                }
                 _ => {
                     return Err(SmeltError::unsupported(
                         self.expression_span(update),
@@ -1731,20 +1729,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             format!("unresolved function `{}`", callee_ident.name),
                         ));
                     };
-                    let (params, return_ty, is_async) = if let Item::Function(function) =
-                        self.item_ref(item)
-                    {
-                        (
-                            function.params.iter().map(|param| param.ty).collect(),
-                            function.return_ty,
-                            function.is_async,
-                        )
-                    } else {
-                        return Err(SmeltError::unsupported(
-                            self.span(callee_ident.span.start, callee_ident.span.end),
-                            "callee item is not a function",
-                        ));
-                    };
+                    let (params, return_ty, is_async) =
+                        if let Item::Function(function) = self.item_ref(item) {
+                            (
+                                function.params.iter().map(|param| param.ty).collect(),
+                                function.return_ty,
+                                function.is_async,
+                            )
+                        } else {
+                            return Err(SmeltError::unsupported(
+                                self.span(callee_ident.span.start, callee_ident.span.end),
+                                "callee item is not a function",
+                            ));
+                        };
                     let mut args = Vec::new();
                     for arg in &call.arguments {
                         args.push(self.argument(arg, body)?);
@@ -1846,7 +1843,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         span,
                     });
                     // Concatenate the next quasi string (skip empty ones to keep HIR tidy)
-                        if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
+                    if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
                         let s = quasi
                             .value
                             .cooked
@@ -2393,12 +2390,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             items.push(self.array_element(element, body)?);
         }
-                let ty = if let Some(hint) = type_hint {
-                    hint
-                } else if let Some(first) = items.first() {
-                    let item_ty = Self::expr_ty(body, *first);
-                    self.ctx.krate.types.intern(Type::List(item_ty))
-                } else {
+        let ty = if let Some(hint) = type_hint {
+            hint
+        } else if let Some(first) = items.first() {
+            let item_ty = Self::expr_ty(body, *first);
+            self.ctx.krate.types.intern(Type::List(item_ty))
+        } else {
             return Err(SmeltError::unsupported(
                 self.span(array.span.start, array.span.end),
                 "empty arrays require an explicit type annotation",
@@ -2571,20 +2568,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     format!("unresolved function `{}`", callee_ident.name),
                 ));
             };
-            let (params, return_ty, is_async) = if let Item::Function(function) =
-                self.item_ref(item)
-            {
-                (
-                    function.params.iter().map(|param| param.ty).collect(),
-                    function.return_ty,
-                    function.is_async,
-                )
-            } else {
-                return Err(SmeltError::unsupported(
-                    self.span(callee_ident.span.start, callee_ident.span.end),
-                    "callee item is not a function",
-                ));
-            };
+            let (params, return_ty, is_async) =
+                if let Item::Function(function) = self.item_ref(item) {
+                    (
+                        function.params.iter().map(|param| param.ty).collect(),
+                        function.return_ty,
+                        function.is_async,
+                    )
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(callee_ident.span.start, callee_ident.span.end),
+                        "callee item is not a function",
+                    ));
+                };
             let args = call
                 .arguments
                 .iter()
@@ -3063,7 +3059,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Intern a source identifier name and convert from camelCase to snake_case.
+    /// Intern a source identifier name and convert from `camelCase` to `snake_case`.
     fn intern_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
         self.ctx.krate.names.record(symbol, name);

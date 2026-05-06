@@ -3,11 +3,15 @@
     clippy::str_to_string,
     reason = "example code keeps simple string conversion close to existing style"
 )]
+#![expect(
+    clippy::use_debug,
+    reason = "example intentionally prints the raw Ruff AST without summary mode"
+)]
 //! Parse a Python file with ruff and inspect the raw AST.
 //!
 //! Usage:
 //! ```bash
-//! cargo run -p smelt-frontend-py --example parser -- [--summary] <file.py>
+//! cargo run -p smelt-frontend-py --example py_parser -- [--summary] <file.py>
 //! ```
 //! By default the full `{:#?}` AST is printed.
 //! Pass `--summary` to print only the top-level statement count.

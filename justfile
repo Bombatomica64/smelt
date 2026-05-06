@@ -7,14 +7,13 @@ test dir:
 	@echo "# Test Output for {{dir}}" > output.md
 	@echo "## MIR" >> output.md
 	@echo '```text' >> output.md
-	@{{smelt}} dump-mir {{dir}}/input.ts >> output.md || {{smelt}} dump-mir {{dir}}/input.py >> output.md
+	@if [ -f {{dir}}/input.ts ]; then {{smelt}} dump-mir {{dir}}/input.ts >> output.md; else {{smelt}} dump-mir {{dir}}/input.py >> output.md; fi
 	@echo '```' >> output.md
 	@echo "" >> output.md
 	@echo "## Generated Rust Code" >> output.md
 	@echo '```rust' >> output.md
 	@rm -rf .tmp_test && mkdir -p .tmp_test/src
-	@if [ -f {{dir}}/input.ts ]; then cp {{dir}}/input.ts .tmp_test/src/main.ts; else cp {{dir}}/input.py .tmp_test/src/main.py; fi
-	@echo '[project]\nname = "test-app"\nversion = "0.1.0"\n\n[sources]\nentries = ["src/main.ts", "src/main.py"]\n\n[output]\ntarget = "./dist"\ncrate-name = "test_app"\nbuild = true\n\n[runtime]\nclone-strategy = "aggressive"' > .tmp_test/Smelt.toml
+	@if [ -f {{dir}}/input.ts ]; then cp {{dir}}/input.ts .tmp_test/src/main.ts && entry='src/main.ts'; else cp {{dir}}/input.py .tmp_test/src/main.py && entry='src/main.py'; fi; printf '%s\n' '[project]' 'name = "test-app"' 'version = "0.1.0"' '' '[sources]' "entries = [\"$entry\"]" '' '[output]' 'target = "./dist"' 'crate-name = "test_app"' 'build = true' '' '[runtime]' 'clone-strategy = "aggressive"' > .tmp_test/Smelt.toml
 	@{{smelt}} --manifest-path .tmp_test/Smelt.toml build
 	@cat .tmp_test/dist/src/main.rs >> output.md
 	@echo '```' >> output.md

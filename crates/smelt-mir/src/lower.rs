@@ -69,14 +69,15 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let mut item_functions = HashMap::new();
 
     for (idx, hir_item) in krate.items.iter().enumerate() {
-        let item_id = smelt_hir::ItemId(match u32_from_usize(
-            idx,
-            "HIR item index does not fit in u32",
-        ) {
-            Ok(value) => value,
-            Err(error) => return Err(vec![error]),
-        });
-        if let smelt_hir::Item::Function(function) = hir_item && function.body.is_some() {
+        let item_id = smelt_hir::ItemId(
+            match u32_from_usize(idx, "HIR item index does not fit in u32") {
+                Ok(value) => value,
+                Err(error) => return Err(vec![error]),
+            },
+        );
+        if let smelt_hir::Item::Function(function) = hir_item
+            && function.body.is_some()
+        {
             let function_id = match u32_from_usize(
                 item_functions.len(),
                 "MIR function index does not fit in u32",
@@ -84,10 +85,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                 Ok(value) => value,
                 Err(error) => return Err(vec![error]),
             };
-            item_functions.insert(
-                item_id,
-                FuncId(function_id),
-            );
+            item_functions.insert(item_id, FuncId(function_id));
         }
     }
 
@@ -109,7 +107,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                         .collect(),
                     constructor: class
                         .constructor
-                    .and_then(|item_id| item_functions.get(&item_id).copied()),
+                        .and_then(|item_id| item_functions.get(&item_id).copied()),
                     methods: class
                         .methods
                         .iter()
@@ -140,32 +138,30 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     }
 
     for (idx, item) in krate.items.iter().enumerate() {
-        let item_id = smelt_hir::ItemId(match u32_from_usize(
-            idx,
-            "HIR item index does not fit in u32",
-        ) {
-            Ok(value) => value,
-            Err(error) => {
-                errors.push(error);
-                continue;
-            }
-        });
+        let item_id = smelt_hir::ItemId(
+            match u32_from_usize(idx, "HIR item index does not fit in u32") {
+                Ok(value) => value,
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            },
+        );
         let smelt_hir::Item::Function(function) = item else {
             continue;
         };
         let Some(body_id) = function.body else {
             continue;
         };
-        let Some(body) = krate.bodies.get(match usize_from_u32(
-            body_id.0,
-            "HIR body index does not fit in usize",
-        ) {
-            Ok(value) => value,
-            Err(error) => {
-                errors.push(error);
-                continue;
-            }
-        }) else {
+        let Some(body) = krate.bodies.get(
+            match usize_from_u32(body_id.0, "HIR body index does not fit in usize") {
+                Ok(value) => value,
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            },
+        ) else {
             continue;
         };
         let return_ty = if function.is_async {
@@ -200,16 +196,15 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         let Some(body_id) = module.body else {
             continue;
         };
-        let Some(body) = krate.bodies.get(match usize_from_u32(
-            body_id.0,
-            "HIR body index does not fit in usize",
-        ) {
-            Ok(value) => value,
-            Err(error) => {
-                errors.push(error);
-                continue;
-            }
-        }) else {
+        let Some(body) = krate.bodies.get(
+            match usize_from_u32(body_id.0, "HIR body index does not fit in usize") {
+                Ok(value) => value,
+                Err(error) => {
+                    errors.push(error);
+                    continue;
+                }
+            },
+        ) else {
             continue;
         };
         let name = mir.symbols.intern(&module.name);
@@ -323,10 +318,7 @@ impl<'hir> LoweringCtx<'hir> {
         let mut locals = HashMap::new();
 
         for (idx, local) in body.locals.iter().enumerate() {
-            let hir_local = HirLocalId(u32_from_usize(
-                idx,
-                "HIR local index does not fit in u32",
-            )?);
+            let hir_local = HirLocalId(u32_from_usize(idx, "HIR local index does not fit in u32")?);
             let is_param = body.params.contains(&hir_local);
             let kind = if is_param {
                 LocalKind::Param
@@ -411,7 +403,9 @@ impl<'hir> LoweringCtx<'hir> {
                     smelt_hir::Pattern::Wildcard
                     | smelt_hir::Pattern::Tuple(_)
                     | smelt_hir::Pattern::Literal(_) => {
-                        return Err(self.error("only binding let patterns can lower to MIR yet", None));
+                        return Err(
+                            self.error("only binding let patterns can lower to MIR yet", None)
+                        );
                     }
                 };
                 let Some(dest) = self.locals.get(&hir_local).copied() else {
@@ -670,8 +664,14 @@ impl<'hir> LoweringCtx<'hir> {
             .ok_or_else(|| self.error("for pattern references an unknown local", None))?;
         let iter_operand = self.lower_expr(iter)?;
         let iter_span = self.hir_expr(iter)?.span;
-        let iter_local = self.local_operand(iter_operand.clone(), iter_span)?;
-        let float_ty = if let Some(idx) = self.krate.types.all().iter().position(|ty| *ty == Type::Float) {
+        let iter_local = self.local_operand(iter_operand, iter_span)?;
+        let float_ty = if let Some(idx) = self
+            .krate
+            .types
+            .all()
+            .iter()
+            .position(|ty| *ty == Type::Float)
+        {
             TypeId(u32_from_usize(idx, "HIR type index does not fit in u32")?)
         } else {
             let local_index = usize_from_u32(hir_local.0, "HIR local index does not fit in usize")?;
@@ -681,15 +681,18 @@ impl<'hir> LoweringCtx<'hir> {
                 .map(|local| local.ty)
                 .ok_or_else(|| self.error("HIR local index should be valid", None))?
         };
-        let bool_ty = if let Some(idx) = self.krate.types.all().iter().position(|ty| *ty == Type::Bool) {
+        let bool_ty = if let Some(idx) = self
+            .krate
+            .types
+            .all()
+            .iter()
+            .position(|ty| *ty == Type::Bool)
+        {
             TypeId(u32_from_usize(idx, "HIR type index does not fit in u32")?)
         } else {
             float_ty
         };
-        let idx = self.push_temp(
-            float_ty,
-            iter_span,
-        );
+        let idx = self.push_temp(float_ty, iter_span);
         self.block_mut()?.statements.push(Statement::Assign {
             dest: idx,
             value: Rvalue::Use(Operand::Const(Constant::Float(0.0))),
@@ -712,11 +715,7 @@ impl<'hir> LoweringCtx<'hir> {
                 rhs: Operand::Copy(Place::Local(len)),
             },
         });
-        let body_mir = self
-            .function
-            .push_block(
-                self.hir_block(body_hir)?.span,
-            );
+        let body_mir = self.function.push_block(self.hir_block(body_hir)?.span);
         let update_block = self.function.push_block(self.block()?.span);
         let after = self.function.push_block(self.block()?.span);
         self.set_terminator(Terminator::Switch {
@@ -1215,7 +1214,10 @@ impl<'hir> LoweringCtx<'hir> {
 
     /// Returns a reference to the current block.
     fn block(&self) -> Result<&BasicBlock, LowerError> {
-        let block_index = usize_from_u32(self.current_block.0, "MIR block index does not fit in usize")?;
+        let block_index = usize_from_u32(
+            self.current_block.0,
+            "MIR block index does not fit in usize",
+        )?;
         self.function
             .blocks
             .get(block_index)
@@ -1224,7 +1226,10 @@ impl<'hir> LoweringCtx<'hir> {
 
     /// Returns a mutable reference to the current block.
     fn block_mut(&mut self) -> Result<&mut BasicBlock, LowerError> {
-        let block_index = usize_from_u32(self.current_block.0, "MIR block index does not fit in usize")?;
+        let block_index = usize_from_u32(
+            self.current_block.0,
+            "MIR block index does not fit in usize",
+        )?;
         match self.function.blocks.get_mut(block_index) {
             Some(block) => Ok(block),
             None => Err(LowerError {
@@ -1280,8 +1285,12 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     /// Returns a HIR pattern by ID.
-    fn hir_pattern(&self, pattern_id: smelt_hir::PatternId) -> Result<&smelt_hir::Pattern, LowerError> {
-        let pattern_index = usize_from_u32(pattern_id.0, "HIR pattern index does not fit in usize")?;
+    fn hir_pattern(
+        &self,
+        pattern_id: smelt_hir::PatternId,
+    ) -> Result<&smelt_hir::Pattern, LowerError> {
+        let pattern_index =
+            usize_from_u32(pattern_id.0, "HIR pattern index does not fit in usize")?;
         self.body
             .patterns
             .get(pattern_index)

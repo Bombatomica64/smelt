@@ -185,14 +185,16 @@ for (let ch: string of word) {
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body
-        .exprs
-        .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::Index { .. })));
-    ensure!(body
-        .stmts
-        .iter()
-        .any(|stmt| matches!(stmt, Stmt::For { .. })));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. }))
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -242,10 +244,11 @@ const has = word.includes("mel");
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body
-        .exprs
-        .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::StringContains { .. })));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringContains { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -263,10 +266,11 @@ const parts = word.split(",");
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body
-        .exprs
-        .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::StringSplit { .. })));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringSplit { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -349,18 +353,21 @@ for (let item: number of count) {
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body
-        .stmts
-        .iter()
-        .any(|stmt| matches!(stmt, Stmt::If { .. })));
-    ensure!(body
-        .stmts
-        .iter()
-        .any(|stmt| matches!(stmt, Stmt::While { .. })));
-    ensure!(body
-        .stmts
-        .iter()
-        .any(|stmt| matches!(stmt, Stmt::For { .. })));
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::If { .. }))
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::While { .. }))
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -413,8 +420,10 @@ fn lowers_try_catch_finally_to_hir() -> Result<(), String> {
             format!("finally block id {finally_body:?} does not fit in usize: {err}")
         })?)
         .ok_or_else(|| format!("missing finally block {finally_body:?}"))?;
-    ensure!(try_block.stmts.iter().any(|stmt| usize::try_from(stmt.0)
-        .is_ok_and(|stmt_index| matches!(body.stmts.get(stmt_index), Some(Stmt::Throw(_))))));
+    ensure!(try_block.stmts.iter().any(|stmt| {
+        usize::try_from(stmt.0)
+            .is_ok_and(|stmt_index| matches!(body.stmts.get(stmt_index), Some(Stmt::Throw(_))))
+    }));
     ensure!(!catch_block.stmts.is_empty());
     ensure!(!finally_block.stmts.is_empty());
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -739,10 +748,11 @@ async function main(): Promise<number> {
 
     let main = function_item(&ctx, module, 1)?;
     let body = function_body(&ctx, main)?;
-    ensure!(body
-        .exprs
-        .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::Await(_))));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Await(_)))
+    );
     let machine = body
         .async_state_machine
         .as_ref()
