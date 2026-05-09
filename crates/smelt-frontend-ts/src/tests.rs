@@ -594,6 +594,29 @@ const length = values.push(4);
 }
 
 #[test]
+fn lowers_array_unshift_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [2, 3];
+const sameLength = values.unshift();
+const oneMore = values.unshift(1);
+const threeMore = values.unshift(-1, 0);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let unshifts = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListUnshift { .. }))
+        .count();
+    ensure_eq!(unshifts, 3);
+    Ok(())
+}
+
+#[test]
 fn lowers_array_reverse_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -680,6 +703,29 @@ values.push(3, 4);
         &mut ctx,
     )?;
     assert_unsupported_ts(&too_many, "exactly one item argument")
+}
+
+#[test]
+fn rejects_unsupported_array_unshift_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let wrong_type = lowering_errors(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.unshift("x");
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&wrong_type, "arguments must match")?;
+
+    let mut ctx = HirCtx::new();
+    let non_local = lowering_errors(
+        ts!(r#"
+function values(): number[] { return [1, 2]; }
+values().unshift(0);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&non_local, "local array receiver")
 }
 
 #[test]

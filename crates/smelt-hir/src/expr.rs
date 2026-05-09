@@ -239,6 +239,13 @@ pub enum ExprKind {
         /// Item to append.
         item: ExprId,
     },
+    /// Insert zero or more items at the front of a list and return the new length.
+    ListUnshift {
+        /// List value to mutate.
+        list: ExprId,
+        /// Items to insert at the front.
+        items: Vec<ExprId>,
+    },
     /// Reverse a list in place and return the language-specific result.
     ListReverse {
         /// List value to mutate.

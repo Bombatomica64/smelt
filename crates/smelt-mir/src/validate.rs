@@ -216,6 +216,12 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
         }
+        Rvalue::ListUnshift { list, items } => {
+            validate_operand_exists(function, list, errors);
+            for item in items {
+                validate_operand_exists(function, item, errors);
+            }
+        }
         Rvalue::ListReverse { list } => {
             validate_operand_exists(function, list, errors);
         }
@@ -562,6 +568,12 @@ fn validate_rvalue(
         Rvalue::ListPush { list, item } => {
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::ListUnshift { list, items } => {
+            validate_operand(function, definitions, list, errors);
+            for item in items {
+                validate_operand(function, definitions, item, errors);
+            }
         }
         Rvalue::ListReverse { list } => {
             validate_operand(function, definitions, list, errors);

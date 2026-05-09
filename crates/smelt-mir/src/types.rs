@@ -540,6 +540,13 @@ pub enum Rvalue {
         /// Item to append.
         item: Operand,
     },
+    /// Insert zero or more items at the front of a list and return the new length.
+    ListUnshift {
+        /// List value to mutate.
+        list: Operand,
+        /// Items to insert at the front.
+        items: Vec<Operand>,
+    },
     /// Reverse a list in place and return the language-specific result.
     ListReverse {
         /// List value to mutate.

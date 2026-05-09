@@ -228,6 +228,13 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
         }
+        Rvalue::ListUnshift { list, items } => {
+            let mut changed = rewrite_operand_except(list, aliases, dest);
+            for item in items {
+                changed |= rewrite_operand_except(item, aliases, dest);
+            }
+            changed
+        }
         Rvalue::ListReverse { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListPop { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListShift { list } => rewrite_operand_except(list, aliases, dest),

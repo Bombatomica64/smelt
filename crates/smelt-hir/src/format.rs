@@ -469,6 +469,15 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListPush { list, item } => {
             format!("list_push {}, {}", expr_ref(*list), expr_ref(*item))
         }
+        ExprKind::ListUnshift { list, items } => format!(
+            "list_unshift {} [{}]",
+            expr_ref(*list),
+            items
+                .iter()
+                .map(|item| expr_ref(*item))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         ExprKind::ListReverse { list } => format!("list_reverse {}", expr_ref(*list)),
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),
@@ -587,6 +596,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListSearch { .. }
         | ExprKind::ListSlice { .. }
         | ExprKind::ListPush { .. }
+        | ExprKind::ListUnshift { .. }
         | ExprKind::ListReverse { .. }
         | ExprKind::ListPop { .. }
         | ExprKind::ListShift { .. }

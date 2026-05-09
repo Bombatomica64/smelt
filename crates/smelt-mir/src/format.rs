@@ -374,6 +374,15 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListPush { list, item } => {
             format!("list_push {}, {}", operand_text(list), operand_text(item))
         }
+        Rvalue::ListUnshift { list, items } => format!(
+            "list_unshift {} [{}]",
+            operand_text(list),
+            items
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Rvalue::ListReverse { list } => format!("list_reverse {}", operand_text(list)),
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
