@@ -417,6 +417,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("list_count {}, {}", operand_text(list), operand_text(item))
         }
         Rvalue::ListSum { list } => format!("list_sum {}", operand_text(list)),
+        Rvalue::ListBoolFold { op, list } => {
+            let op_text = match op {
+                smelt_hir::BoolFoldOp::All => "all",
+                smelt_hir::BoolFoldOp::Any => "any",
+            };
+            format!("list_{op_text} {}", operand_text(list))
+        }
         Rvalue::ListIndex { list, item } => {
             format!("list_index {}, {}", operand_text(list), operand_text(item))
         }

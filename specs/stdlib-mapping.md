@@ -89,6 +89,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `max(...)` | `NumericExtrema::Max` | `NumericExtrema::Max` | Chained `.max(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
 | `min(...)` | `NumericExtrema::Min` | `NumericExtrema::Min` | Chained `.min(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
 | `sum(values)` | `ListSum` | `ListSum` | `values.iter().copied().sum::<i64/f64>()` | One `list[int]` or `list[float]` argument | Start argument, iterables other than lists, non-numeric lists | Empty numeric lists use Rust's numeric zero identity. |
+| `all(values)` | `ListBoolFold::All` | `ListBoolFold::All` | `values.iter().copied().all(|value| value)` | One `list[bool]` argument | Iterables other than lists, non-bool lists | Python truthiness for arbitrary item types is not modeled. |
+| `any(values)` | `ListBoolFold::Any` | `ListBoolFold::Any` | `values.iter().copied().any(|value| value)` | One `list[bool]` argument | Iterables other than lists, non-bool lists | Python truthiness for arbitrary item types is not modeled. |
 
 ## HTTP
 

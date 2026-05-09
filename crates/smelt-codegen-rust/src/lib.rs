@@ -1302,6 +1302,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListCopy { list } => self.list_copy_text(list, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
             Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
+            Rvalue::ListBoolFold { op, list } => self.list_bool_fold_text(*op, list),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
             Rvalue::ListSort { list } => self.list_sort_text(list, dest_ty),
@@ -2355,6 +2356,31 @@ impl<'mir> FunctionEmitter<'mir> {
             )),
             _ => Err(EmitError::new("list sum supports int and float lists")),
         }
+    }
+
+    /// Converts a boolean list fold operation to Rust text.
+    fn list_bool_fold_text(
+        &self,
+        op: smelt_hir::BoolFoldOp,
+        list: &Operand,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list boolean fold receiver must be a list"));
+        };
+        if !matches!(self.mir.types.get(*item_ty), Some(Type::Bool)) {
+            return Err(EmitError::new(
+                "list boolean fold supports boolean lists only",
+            ));
+        }
+        let method_name = match op {
+            smelt_hir::BoolFoldOp::All => "all",
+            smelt_hir::BoolFoldOp::Any => "any",
+        };
+        Ok(format!(
+            "{}.iter().copied().{method_name}(|value| value)",
+            self.operand_text(list)?
+        ))
     }
 
     /// Converts a list index operation to Rust text.

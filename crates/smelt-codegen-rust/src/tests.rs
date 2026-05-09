@@ -688,6 +688,20 @@ float_total: float = sum(floats)
 }
 
 #[test]
+fn emits_python_all_any_builtins() {
+    let source = source_for_py(
+        r#"
+values: list[bool] = [True, False]
+all_values: bool = all(values)
+any_values: bool = any(values)
+"#,
+    );
+
+    assert!(source.contains(".iter().copied().all(|value| value)"));
+    assert!(source.contains(".iter().copied().any(|value| value)"));
+}
+
+#[test]
 fn emits_json_stringify_calls() {
     let ts_source = source_for(
         r#"

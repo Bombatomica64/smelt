@@ -298,6 +298,13 @@ pub enum ExprKind {
         /// List value to reduce.
         list: ExprId,
     },
+    /// Fold boolean items in a list with `all` or `any` semantics.
+    ListBoolFold {
+        /// Fold operation to apply.
+        op: BoolFoldOp,
+        /// Boolean list value to reduce.
+        list: ExprId,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.
@@ -496,6 +503,15 @@ pub enum NumericExtremaOp {
     Min,
     /// Compute the largest argument.
     Max,
+}
+
+/// A directly lowered boolean collection fold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BoolFoldOp {
+    /// Return true when every item is true.
+    All,
+    /// Return true when at least one item is true.
+    Any,
 }
 
 /// A directly lowered unary numeric function.

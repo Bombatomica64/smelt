@@ -599,6 +599,13 @@ pub enum Rvalue {
         /// List value to reduce.
         list: Operand,
     },
+    /// Fold boolean items in a list with `all` or `any` semantics.
+    ListBoolFold {
+        /// Fold operation to apply.
+        op: smelt_hir::BoolFoldOp,
+        /// Boolean list value to reduce.
+        list: Operand,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

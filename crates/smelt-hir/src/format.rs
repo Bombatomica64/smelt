@@ -508,6 +508,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("list_count {}, {}", expr_ref(*list), expr_ref(*item))
         }
         ExprKind::ListSum { list } => format!("list_sum {}", expr_ref(*list)),
+        ExprKind::ListBoolFold { op, list } => {
+            let op_text = match op {
+                crate::expr::BoolFoldOp::All => "all",
+                crate::expr::BoolFoldOp::Any => "any",
+            };
+            format!("list_{op_text} {}", expr_ref(*list))
+        }
         ExprKind::ListIndex { list, item } => {
             format!("list_index {}, {}", expr_ref(*list), expr_ref(*item))
         }
@@ -666,6 +673,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListCopy { .. }
         | ExprKind::ListCount { .. }
         | ExprKind::ListSum { .. }
+        | ExprKind::ListBoolFold { .. }
         | ExprKind::ListIndex { .. }
         | ExprKind::ListRemove { .. }
         | ExprKind::ListSort { .. }

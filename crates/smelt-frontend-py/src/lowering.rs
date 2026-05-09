@@ -2185,6 +2185,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             {
                 return Ok(expr);
             }
+            if matches!(name.id.as_str(), "all" | "any")
+                && let Some(expr) = self.bool_fold_call_expression(call, body)?
+            {
+                return Ok(expr);
+            }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);
                 let none_ty = self.intern_type(Type::None);

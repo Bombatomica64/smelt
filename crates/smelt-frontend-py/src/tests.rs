@@ -2,9 +2,9 @@
 
 use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
-    AsyncOp, Body, BodyId, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language, Module,
-    ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Pattern,
-    PatternId, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
+    AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
+    Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
+    Pattern, PatternId, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
     StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
@@ -1504,6 +1504,36 @@ total: str = sum(values)
 }
 
 #[test]
+fn unsupported_builtin_all_any_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+result: bool = all()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("exactly one bool list"),
+        "expected all arity diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let non_bool = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: bool = any(values)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&non_bool)?.message.contains("bool list"),
+        "expected any type diagnostic",
+    )
+}
+
+#[test]
 fn unsupported_dict_pop_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let missing_key = lower_errors(
@@ -1969,6 +1999,34 @@ missing: bool = "xyz" not in word
         .filter(|expr| matches!(expr.kind, ExprKind::StringContains { .. }))
         .count();
     ensure_eq(&contains_count, &2, "string contains count")?;
+    Ok(())
+}
+
+#[test]
+fn builtin_all_any_lower() -> TestResult {
+    let source = py!(r#"
+values: list[bool] = [True, False]
+all_values: bool = all(values)
+any_values: bool = any(values)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [BoolFoldOp::All, BoolFoldOp::Any] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::ListBoolFold { op, .. } if op == expected),
+            ),
+            "expected bool fold lowering",
+        )?;
+    }
     Ok(())
 }
 

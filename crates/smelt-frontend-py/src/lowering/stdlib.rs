@@ -2,7 +2,7 @@
 
 use ruff_python_ast::{Expr, ExprSubscript, UnaryOp as RuffUnaryOp};
 use ruff_text_size::Ranged;
-use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
+use smelt_hir::{Body, BoolFoldOp, Expr as HirExpr, ExprKind, Type};
 
 use super::{ModuleBuilder, SmeltError};
 
@@ -99,6 +99,48 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListSum { list },
             ty: *item_ty,
+            span: self.span(call.range),
+        })))
+    }
+
+    /// Lower Python `all(values)` and `any(values)` calls for boolean lists.
+    pub(super) fn bool_fold_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match name.id.as_str() {
+            "all" => BoolFoldOp::All,
+            "any" => BoolFoldOp::Any,
+            _ => return Ok(None),
+        };
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "all() and any() currently support exactly one bool list argument",
+            ));
+        }
+        let list = self.expression(&call.arguments.args[0], body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "all() and any() argument must be a bool list",
+            ));
+        };
+        if self.ctx.krate.types.get(*item_ty) != Some(&Type::Bool) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "all() and any() argument must be a bool list",
+            ));
+        }
+        let ty = self.intern_type(Type::Bool);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListBoolFold { op, list },
+            ty,
             span: self.span(call.range),
         })))
     }
