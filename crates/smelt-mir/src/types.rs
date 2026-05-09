@@ -569,6 +569,13 @@ pub enum Rvalue {
         /// Item to count.
         item: Operand,
     },
+    /// Return the first index of an equal list item.
+    ListIndex {
+        /// List value to scan.
+        list: Operand,
+        /// Item to locate.
+        item: Operand,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

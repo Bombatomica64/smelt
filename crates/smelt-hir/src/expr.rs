@@ -268,6 +268,13 @@ pub enum ExprKind {
         /// Item to count.
         item: ExprId,
     },
+    /// Return the first index of an equal list item.
+    ListIndex {
+        /// List value to scan.
+        list: ExprId,
+        /// Item to locate.
+        item: ExprId,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

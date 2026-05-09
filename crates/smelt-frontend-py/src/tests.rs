@@ -804,6 +804,29 @@ count: int = values.count(1)
 }
 
 #[test]
+fn list_index_method_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2, 1]
+index: int = values.index(2)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListIndex { .. })),
+        "expected list index lowering",
+    )
+}
+
+#[test]
 fn dict_pop_method_lowers() -> TestResult {
     let source = py!(r#"
 mapping: dict[str, int] = {"a": 1}
@@ -985,6 +1008,37 @@ count: int = values.count()
             .message
             .contains("exactly one item"),
         "expected list count arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_list_index_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_type = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+index: int = values.index("x")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_type)?.message.contains("element type"),
+        "expected list index type diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let unsupported_bounds = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+index: int = values.index(1, 0)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&unsupported_bounds)?
+            .message
+            .contains("exactly one item"),
+        "expected list index bounds diagnostic",
     )
 }
 

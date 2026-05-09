@@ -389,6 +389,9 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListCount { list, item } => {
             format!("list_count {}, {}", operand_text(list), operand_text(item))
         }
+        Rvalue::ListIndex { list, item } => {
+            format!("list_index {}, {}", operand_text(list), operand_text(item))
+        }
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
         Rvalue::TupleContains { tuple, item } => {

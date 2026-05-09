@@ -99,6 +99,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `list.clear()` | `ListClear` | `ListClear` | `{ list.clear(); () }` | No arguments | Arguments | Python returns `None`; generated Rust mutates the local `Vec`. |
 | `list.copy()` | `ListCopy` | `ListCopy` | `list.clone()` | No arguments | Arguments | Produces a shallow `Vec` clone. |
 | `list.count(item)` | `ListCount` | `ListCount` | `list.iter().filter(...).count() as i64` | One item matching element type | Wrong arity, mismatched item type | Rust equality semantics are used. |
+| `list.index(item)` | `ListIndex` | `ListIndex` | `list.iter().position(...).expect(...) as i64` | One item matching element type | Start/stop bounds, mismatched item type | Missing-value `ValueError` is modeled as a generated panic for now. |
 | `array.pop()` | `ListPop` | `ListPop` | `array.pop()` | No args | Arguments | TypeScript `undefined` on empty arrays is represented as `Option<T>`. |
 | `array.shift()` | `ListShift` | `ListShift` | `if array.is_empty() { None } else { Some(array.remove(0)) }` | No args | Arguments | TypeScript `undefined` on empty arrays is represented as `Option<T>`; Rust removal from the front of a `Vec` is linear time. |
 | `list.pop()` | `ListPop` | `ListPop` | `list.pop().expect("pop from empty list")` | No args | Index argument | Empty-list `IndexError` is modeled as a generated panic for now. |

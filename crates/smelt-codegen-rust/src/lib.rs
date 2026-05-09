@@ -1218,6 +1218,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
             Rvalue::ListCopy { list } => self.list_copy_text(list, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
+            Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
@@ -2131,6 +2132,32 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         Ok(format!(
             "{}.iter().filter(|item| *item == &{}).count() as i64",
+            self.operand_text(list)?,
+            self.operand_text(item)?
+        ))
+    }
+
+    /// Converts a list index operation to Rust text.
+    fn list_index_text(
+        &self,
+        list: &Operand,
+        item: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list index receiver must be a list"));
+        };
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(
+                "list index item must match the list element type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
+            return Err(EmitError::new("list index destination must be int"));
+        }
+        Ok(format!(
+            "{}.iter().position(|item| item == &{}).expect(\"list index missing item\") as i64",
             self.operand_text(list)?,
             self.operand_text(item)?
         ))

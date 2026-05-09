@@ -385,6 +385,19 @@ count: int = values.count(1)
 }
 
 #[test]
+fn emits_python_list_index_method() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2, 1]
+index: int = values.index(2)
+"#,
+    );
+
+    assert!(source.contains(".iter().position(|item| item == &2)"));
+    assert!(source.contains(".expect(\"list index missing item\") as i64;"));
+}
+
+#[test]
 fn emits_python_dict_pop_method() {
     let source = source_for_py(
         r#"
