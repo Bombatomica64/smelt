@@ -425,6 +425,17 @@ pub enum Rvalue {
         /// Substring to search for.
         needle: Operand,
     },
+    /// Replace literal string matches with a literal replacement string.
+    StringReplace {
+        /// Replacement operation to apply.
+        op: smelt_hir::StringReplaceOp,
+        /// String value to transform.
+        haystack: Operand,
+        /// Literal pattern to replace.
+        pattern: Operand,
+        /// Literal replacement value.
+        replacement: Operand,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// String value to search in.

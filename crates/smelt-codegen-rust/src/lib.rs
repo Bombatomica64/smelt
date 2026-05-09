@@ -1158,6 +1158,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 haystack,
                 needle,
             } => self.string_search_text(*op, haystack, needle, dest_ty),
+            Rvalue::StringReplace {
+                op,
+                haystack,
+                pattern,
+                replacement,
+            } => self.string_replace_text(*op, haystack, pattern, replacement),
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
@@ -1520,6 +1526,39 @@ impl<'mir> FunctionEmitter<'mir> {
             self.operand_text(haystack)?,
             self.operand_text(needle)?
         ))
+    }
+
+    /// Converts a string replacement operation to Rust text.
+    fn string_replace_text(
+        &self,
+        op: smelt_hir::StringReplaceOp,
+        haystack: &Operand,
+        pattern: &Operand,
+        replacement: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(pattern)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(replacement)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string replace operands must be strings"));
+        }
+        let haystack_text = self.operand_text(haystack)?;
+        let pattern_text = self.operand_text(pattern)?;
+        let replacement_text = self.operand_text(replacement)?;
+        match op {
+            smelt_hir::StringReplaceOp::First => Ok(format!(
+                "{haystack_text}.replacen(&{pattern_text}, &{replacement_text}, 1)"
+            )),
+            smelt_hir::StringReplaceOp::All => Ok(format!(
+                "{haystack_text}.replace(&{pattern_text}, &{replacement_text})"
+            )),
+        }
     }
 
     /// Converts a string containment operation to Rust text.

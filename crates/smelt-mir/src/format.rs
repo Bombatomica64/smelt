@@ -250,6 +250,23 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(needle)
             )
         }
+        Rvalue::StringReplace {
+            op,
+            haystack,
+            pattern,
+            replacement,
+        } => {
+            let op_text = match op {
+                smelt_hir::StringReplaceOp::First => "replace_first",
+                smelt_hir::StringReplaceOp::All => "replace_all",
+            };
+            format!(
+                "string_{op_text} {}, {}, {}",
+                operand_text(haystack),
+                operand_text(pattern),
+                operand_text(replacement)
+            )
+        }
         Rvalue::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",

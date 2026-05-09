@@ -124,6 +124,17 @@ pub enum ExprKind {
         /// The substring to search for.
         needle: ExprId,
     },
+    /// Replace literal string matches with a literal replacement string.
+    StringReplace {
+        /// Replacement operation to apply.
+        op: StringReplaceOp,
+        /// The string value being transformed.
+        haystack: ExprId,
+        /// The literal pattern to replace.
+        pattern: ExprId,
+        /// The literal replacement value.
+        replacement: ExprId,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// The string value being searched.
@@ -282,6 +293,15 @@ pub enum StringSearchOp {
     Find,
     /// Find the last occurrence.
     RFind,
+}
+
+/// A directly lowered string replacement operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringReplaceOp {
+    /// Replace only the first match.
+    First,
+    /// Replace every match.
+    All,
 }
 
 /// Runtime-backed async operation represented in HIR.

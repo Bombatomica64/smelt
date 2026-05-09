@@ -364,6 +364,23 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*needle)
             )
         }
+        ExprKind::StringReplace {
+            op,
+            haystack,
+            pattern,
+            replacement,
+        } => {
+            let op_name = match op {
+                crate::expr::StringReplaceOp::First => "replace_first",
+                crate::expr::StringReplaceOp::All => "replace_all",
+            };
+            format!(
+                "string_{op_name} {}, {}, {}",
+                expr_ref(*haystack),
+                expr_ref(*pattern),
+                expr_ref(*replacement)
+            )
+        }
         ExprKind::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",
@@ -463,6 +480,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringTrim { .. }
         | ExprKind::StringAffix { .. }
         | ExprKind::StringSearch { .. }
+        | ExprKind::StringReplace { .. }
         | ExprKind::StringContains { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::TupleContains { .. }
