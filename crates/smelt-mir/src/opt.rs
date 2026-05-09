@@ -238,6 +238,10 @@ fn rewrite_rvalue(
         Rvalue::ListReverse { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListClear { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListCopy { list } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListCount { list, item } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(item, aliases, dest)
+        }
         Rvalue::ListPop { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListShift { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::TupleContains { tuple, item } => {

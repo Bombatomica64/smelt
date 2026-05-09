@@ -261,6 +261,13 @@ pub enum ExprKind {
         /// List value to copy.
         list: ExprId,
     },
+    /// Count list items equal to a target item.
+    ListCount {
+        /// List value to scan.
+        list: ExprId,
+        /// Item to count.
+        item: ExprId,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

@@ -481,6 +481,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListReverse { list } => format!("list_reverse {}", expr_ref(*list)),
         ExprKind::ListClear { list } => format!("list_clear {}", expr_ref(*list)),
         ExprKind::ListCopy { list } => format!("list_copy {}", expr_ref(*list)),
+        ExprKind::ListCount { list, item } => {
+            format!("list_count {}, {}", expr_ref(*list), expr_ref(*item))
+        }
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),
         ExprKind::TupleContains { tuple, item } => {
@@ -613,6 +616,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListReverse { .. }
         | ExprKind::ListClear { .. }
         | ExprKind::ListCopy { .. }
+        | ExprKind::ListCount { .. }
         | ExprKind::ListPop { .. }
         | ExprKind::ListShift { .. }
         | ExprKind::TupleContains { .. }

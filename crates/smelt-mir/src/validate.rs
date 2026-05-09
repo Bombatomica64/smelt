@@ -231,6 +231,10 @@ fn validate_rvalue_exists(
         Rvalue::ListCopy { list } => {
             validate_operand_exists(function, list, errors);
         }
+        Rvalue::ListCount { list, item } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, item, errors);
+        }
         Rvalue::ListPop { list } => {
             validate_operand_exists(function, list, errors);
         }
@@ -604,6 +608,10 @@ fn validate_rvalue(
         }
         Rvalue::ListCopy { list } => {
             validate_operand(function, definitions, list, errors);
+        }
+        Rvalue::ListCount { list, item } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, item, errors);
         }
         Rvalue::ListPop { list } => {
             validate_operand(function, definitions, list, errors);

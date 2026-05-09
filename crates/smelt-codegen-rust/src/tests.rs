@@ -373,6 +373,18 @@ copied: list[int] = values.copy()
 }
 
 #[test]
+fn emits_python_list_count_method() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2, 1]
+count: int = values.count(1)
+"#,
+    );
+
+    assert!(source.contains(".iter().filter(|item| *item == &1).count() as i64;"));
+}
+
+#[test]
 fn emits_python_dict_pop_method() {
     let source = source_for_py(
         r#"

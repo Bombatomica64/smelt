@@ -562,6 +562,13 @@ pub enum Rvalue {
         /// List value to copy.
         list: Operand,
     },
+    /// Count list items equal to a target item.
+    ListCount {
+        /// List value to scan.
+        list: Operand,
+        /// Item to count.
+        item: Operand,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

@@ -781,6 +781,29 @@ copied: list[int] = values.copy()
 }
 
 #[test]
+fn list_count_method_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2, 1]
+count: int = values.count(1)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCount { .. })),
+        "expected list count lowering",
+    )
+}
+
+#[test]
 fn dict_pop_method_lowers() -> TestResult {
     let source = py!(r#"
 mapping: dict[str, int] = {"a": 1}
@@ -931,6 +954,37 @@ copied: list[int] = values.copy(1)
             .message
             .contains("requires no arguments"),
         "expected list copy arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_list_count_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_type = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+count: int = values.count("x")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_type)?.message.contains("element type"),
+        "expected list count type diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+count: int = values.count()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("exactly one item"),
+        "expected list count arity diagnostic",
     )
 }
 
