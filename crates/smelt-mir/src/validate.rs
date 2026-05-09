@@ -254,6 +254,9 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, other, errors);
         }
+        Rvalue::DictCopy { dict } => {
+            validate_operand_exists(function, dict, errors);
+        }
         Rvalue::DictProjection { dict, .. } => {
             validate_operand_exists(function, dict, errors);
         }
@@ -621,6 +624,9 @@ fn validate_rvalue(
         Rvalue::DictUpdate { dict, other } => {
             validate_operand(function, definitions, dict, errors);
             validate_operand(function, definitions, other, errors);
+        }
+        Rvalue::DictCopy { dict } => {
+            validate_operand(function, definitions, dict, errors);
         }
         Rvalue::DictProjection { dict, .. } => {
             validate_operand(function, definitions, dict, errors);

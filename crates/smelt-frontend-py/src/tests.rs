@@ -806,6 +806,29 @@ result: None = left.update(right)
 }
 
 #[test]
+fn dict_copy_method_lowers() -> TestResult {
+    let source = py!(r#"
+mapping: dict[str, int] = {"a": 1}
+copied: dict[str, int] = mapping.copy()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictCopy { .. })),
+        "expected dict copy lowering",
+    )
+}
+
+#[test]
 fn unsupported_list_append_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_type = lower_errors(
@@ -945,6 +968,24 @@ result: None = left.update(right)
             .message
             .contains("receiver dict type"),
         "expected dict update type diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_dict_copy_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+copied: dict[str, int] = mapping.copy(1)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("requires no arguments"),
+        "expected dict copy arity diagnostic",
     )
 }
 

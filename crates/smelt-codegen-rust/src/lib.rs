@@ -1225,6 +1225,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.dict_pop_text(dict, key, default.as_ref(), dest_ty)
             }
             Rvalue::DictUpdate { dict, other } => self.dict_update_text(dict, other, dest_ty),
+            Rvalue::DictCopy { dict } => self.dict_copy_text(dict, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
                 haystack,
@@ -2253,6 +2254,20 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(format!(
             "{{ {dict_text}.extend({other_text}.iter().map(|(key, value)| (key.clone(), value.clone()))); () }}"
         ))
+    }
+
+    /// Converts a dictionary copy operation to Rust text.
+    fn dict_copy_text(&self, dict: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Err(EmitError::new("dict copy receiver must be a dict"));
+        }
+        if dest_ty != dict_ty {
+            return Err(EmitError::new(
+                "dict copy destination must match the receiver dict type",
+            ));
+        }
+        Ok(format!("{}.clone()", self.operand_text(dict)?))
     }
 
     /// Converts a dictionary projection operation to Rust text.

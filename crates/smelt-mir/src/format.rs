@@ -415,6 +415,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(other)
             )
         }
+        Rvalue::DictCopy { dict } => format!("dict_copy {}", operand_text(dict)),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {
                 smelt_hir::DictProjectionOp::Keys => "keys",

@@ -256,6 +256,7 @@ fn rewrite_rvalue(
             rewrite_operand_except(dict, aliases, dest)
                 | rewrite_operand_except(other, aliases, dest)
         }
+        Rvalue::DictCopy { dict } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::DictProjection { dict, .. } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::StringSplit {
             haystack,

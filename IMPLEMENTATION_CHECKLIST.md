@@ -431,6 +431,7 @@ runtime errors.
     - [x] Dict `update`.
     - [x] Dict `pop`.
     - [x] Dict `clear`.
+    - [x] Dict `copy`.
   - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
         `difference`, and iteration.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.

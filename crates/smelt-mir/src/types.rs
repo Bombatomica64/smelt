@@ -602,6 +602,11 @@ pub enum Rvalue {
         /// Dictionary supplying entries to copy.
         other: Operand,
     },
+    /// Return a shallow copy of a dictionary.
+    DictCopy {
+        /// Dictionary value to copy.
+        dict: Operand,
+    },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {
         /// Projection to apply.

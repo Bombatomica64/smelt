@@ -7,6 +7,36 @@ use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower Python `dict.copy()` calls.
+    pub(super) fn dict_copy_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "copy" {
+            return Ok(None);
+        }
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "dict.copy() requires no arguments",
+            ));
+        }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        if !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Ok(None);
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::DictCopy { dict },
+            ty: dict_ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `dict.update(other)` calls for same-typed dictionaries.
     pub(super) fn dict_update_call_expression(
         &mut self,

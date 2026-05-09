@@ -392,6 +392,19 @@ result: None = left.update(right)
 }
 
 #[test]
+fn emits_python_dict_copy_method() {
+    let source = source_for_py(
+        r#"
+mapping: dict[str, int] = {"a": 1}
+copied: dict[str, int] = mapping.copy()
+"#,
+    );
+
+    assert!(source.contains("let mapping: ::std::collections::HashMap<String, i64>"));
+    assert!(source.contains(".clone();"));
+}
+
+#[test]
 fn emits_python_string_replace_method() {
     let source = source_for_py(
         r#"

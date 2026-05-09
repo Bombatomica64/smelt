@@ -301,6 +301,11 @@ pub enum ExprKind {
         /// Dictionary supplying entries to copy.
         other: ExprId,
     },
+    /// Return a shallow copy of a dictionary.
+    DictCopy {
+        /// Dictionary value to copy.
+        dict: ExprId,
+    },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {
         /// Projection to apply.
