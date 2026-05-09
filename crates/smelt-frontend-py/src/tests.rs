@@ -897,6 +897,31 @@ result: None = values.remove(2)
 }
 
 #[test]
+fn list_sort_method_lowers() -> TestResult {
+    let source = py!(r#"
+ints: list[int] = [2, 1]
+int_result: None = ints.sort()
+floats: list[float] = [2.0, 1.0]
+float_result: None = floats.sort()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    let sorts = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListSort { .. }))
+        .count();
+    ensure_eq(&sorts, &2, "list sort count")
+}
+
+#[test]
 fn dict_pop_method_lowers() -> TestResult {
     let source = py!(r#"
 mapping: dict[str, int] = {"a": 1}
@@ -1221,6 +1246,37 @@ result: None = values.remove()
             .message
             .contains("exactly one item"),
         "expected list remove arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_list_sort_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let positional_arg = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.sort(True)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&positional_arg)?
+            .message
+            .contains("no arguments"),
+        "expected list sort positional arg diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let keyword_arg = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.sort(reverse=True)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&keyword_arg)?.message.contains("no arguments"),
+        "expected list sort keyword diagnostic",
     )
 }
 

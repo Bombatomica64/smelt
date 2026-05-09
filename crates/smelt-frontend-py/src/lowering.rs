@@ -2141,6 +2141,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.list_remove_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.list_sort_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.dict_pop_call_expression(call, body)? {
             return Ok(expr);
         }

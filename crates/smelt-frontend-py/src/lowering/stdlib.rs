@@ -172,6 +172,46 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `list.sort()` calls without key or reverse arguments.
+    pub(super) fn list_sort_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "sort" {
+            return Ok(None);
+        }
+        if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "list.sort() currently supports no arguments",
+            ));
+        }
+        let list = self.expression(&attr.value, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        if !matches!(
+            self.ctx.krate.types.get(*list_element_ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(attr.value.range()),
+                "list.sort() supports bool, int, float, and str lists for now",
+            ));
+        }
+        let ty = self.intern_type(Type::None);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListSort { list },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.count(item)` calls.
     pub(super) fn list_count_call_expression(
         &mut self,

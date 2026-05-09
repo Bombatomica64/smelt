@@ -599,6 +599,11 @@ pub enum Rvalue {
         /// Item to remove.
         item: Operand,
     },
+    /// Sort a list in place and return `None`.
+    ListSort {
+        /// List value to mutate.
+        list: Operand,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

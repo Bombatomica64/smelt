@@ -445,6 +445,24 @@ result: None = values.remove(2)
 }
 
 #[test]
+fn emits_python_list_sort_method() {
+    let source = source_for_py(
+        r#"
+ints: list[int] = [2, 1]
+int_result: None = ints.sort()
+floats: list[float] = [2.0, 1.0]
+float_result: None = floats.sort()
+"#,
+    );
+
+    assert!(source.contains("let mut"));
+    assert!(source.contains(".sort();"));
+    assert!(source.contains(".sort_by(|left, right| left.partial_cmp(right)"));
+    assert!(source.contains(".expect(\"list sort incomparable float\")"));
+    assert!(source.matches("()").count() >= 2);
+}
+
+#[test]
 fn emits_python_dict_pop_method() {
     let source = source_for_py(
         r#"

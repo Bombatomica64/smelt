@@ -1224,6 +1224,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
+            Rvalue::ListSort { list } => self.list_sort_text(list, dest_ty),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
@@ -2276,6 +2277,38 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a list sort operation to Rust text.
+    ///
+    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
+    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
+    /// until Python-compatible edge semantics are modeled explicitly.
+    fn list_sort_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list sort receiver must be a list"));
+        };
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new("list sort destination must be None"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list sort receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        match self.mir.types.get(*item_ty) {
+            Some(Type::Bool | Type::Int | Type::String) => {
+                Ok(format!("{{ {list_text}.sort(); () }}"))
+            }
+            Some(Type::Float) => Ok(format!(
+                "{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); () }}"
+            )),
+            _ => Err(EmitError::new(
+                "list sort supports bool, int, float, and string items",
+            )),
+        }
+    }
+
     /// Validates that an optional slice index is numeric.
     fn validate_optional_numeric_index(
         &self,
@@ -3056,6 +3089,7 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     | Rvalue::ListReverse { list }
                     | Rvalue::ListClear { list }
                     | Rvalue::ListRemove { list, .. }
+                    | Rvalue::ListSort { list }
                     | Rvalue::ListPop { list }
                     | Rvalue::ListShift { list }
                     | Rvalue::DictClear { dict: list }

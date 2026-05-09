@@ -298,6 +298,11 @@ pub enum ExprKind {
         /// Item to remove.
         item: ExprId,
     },
+    /// Sort a list in place and return `None`.
+    ListSort {
+        /// List value to mutate.
+        list: ExprId,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.
