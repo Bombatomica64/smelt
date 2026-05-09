@@ -372,6 +372,27 @@ pub enum Rvalue {
         /// Numeric operand to round.
         operand: Operand,
     },
+    /// Compute the minimum or maximum of floating-point operands.
+    NumericExtrema {
+        /// Operation to apply.
+        op: smelt_hir::NumericExtremaOp,
+        /// Numeric operands to compare.
+        args: Vec<Operand>,
+    },
+    /// Apply a direct unary numeric function.
+    NumericUnaryFunc {
+        /// Operation to apply.
+        op: smelt_hir::NumericUnaryFuncOp,
+        /// Numeric operand to transform.
+        operand: Operand,
+    },
+    /// Raise a floating-point base to a floating-point exponent.
+    NumericPow {
+        /// Base operand.
+        base: Operand,
+        /// Exponent operand.
+        exponent: Operand,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.
@@ -379,8 +400,31 @@ pub enum Rvalue {
         /// String operand to transform.
         operand: Operand,
     },
-    /// Trim leading and trailing whitespace from a string value.
-    StringTrim(Operand),
+    /// Trim whitespace from a string value.
+    StringTrim {
+        /// Which side of the string to trim.
+        side: smelt_hir::StringTrimSide,
+        /// String operand to trim.
+        operand: Operand,
+    },
+    /// Test whether a string has a prefix or suffix.
+    StringAffix {
+        /// Affix operation to apply.
+        op: smelt_hir::StringAffixOp,
+        /// String value to search in.
+        haystack: Operand,
+        /// Affix to search for.
+        needle: Operand,
+    },
+    /// Find a substring index in a string, returning -1 when absent.
+    StringSearch {
+        /// Search operation to apply.
+        op: smelt_hir::StringSearchOp,
+        /// String value to search in.
+        haystack: Operand,
+        /// Substring to search for.
+        needle: Operand,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// String value to search in.
@@ -395,12 +439,31 @@ pub enum Rvalue {
         /// Item to search for.
         item: Operand,
     },
+    /// Test whether a tuple contains an item.
+    TupleContains {
+        /// Tuple value to search in.
+        tuple: Operand,
+        /// Item to search for.
+        item: Operand,
+    },
+    /// Test whether a dictionary contains a key.
+    DictContainsKey {
+        /// Dictionary value to search in.
+        dict: Operand,
+        /// Key to search for.
+        key: Operand,
+    },
     /// Split a string into a list of strings.
     StringSplit {
         /// String value to split.
         haystack: Operand,
         /// Separator string.
         separator: Operand,
+    },
+    /// Perform a blocking HTTP GET request and return response text.
+    HttpGetText {
+        /// URL to request.
+        url: Operand,
     },
     /// Await a future and produce its output.
     Await(Operand),

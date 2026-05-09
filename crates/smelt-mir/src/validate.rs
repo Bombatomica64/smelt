@@ -149,9 +149,26 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, needle, errors);
         }
+        Rvalue::StringAffix {
+            haystack, needle, ..
+        }
+        | Rvalue::StringSearch {
+            haystack, needle, ..
+        } => {
+            validate_operand_exists(function, haystack, errors);
+            validate_operand_exists(function, needle, errors);
+        }
         Rvalue::ListContains { list, item } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
+        }
+        Rvalue::TupleContains { tuple, item } => {
+            validate_operand_exists(function, tuple, errors);
+            validate_operand_exists(function, item, errors);
+        }
+        Rvalue::DictContainsKey { dict, key } => {
+            validate_operand_exists(function, dict, errors);
+            validate_operand_exists(function, key, errors);
         }
         Rvalue::StringSplit {
             haystack,
@@ -159,6 +176,18 @@ fn validate_rvalue_exists(
         } => {
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, separator, errors);
+        }
+        Rvalue::HttpGetText { url } => {
+            validate_operand_exists(function, url, errors);
+        }
+        Rvalue::NumericExtrema { args, .. } => {
+            for arg in args {
+                validate_operand_exists(function, arg, errors);
+            }
+        }
+        Rvalue::NumericPow { base, exponent } => {
+            validate_operand_exists(function, base, errors);
+            validate_operand_exists(function, exponent, errors);
         }
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Struct { fields, .. } => {
@@ -169,8 +198,9 @@ fn validate_rvalue_exists(
         Rvalue::Len(operand)
         | Rvalue::NumericAbs(operand)
         | Rvalue::NumericRound { operand, .. }
+        | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
-        | Rvalue::StringTrim(operand)
+        | Rvalue::StringTrim { operand, .. }
         | Rvalue::Await(operand) => validate_operand_exists(function, operand, errors),
         Rvalue::AsyncOp { args, .. } => {
             for arg in args {
@@ -378,9 +408,26 @@ fn validate_rvalue(
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, needle, errors);
         }
+        Rvalue::StringAffix {
+            haystack, needle, ..
+        }
+        | Rvalue::StringSearch {
+            haystack, needle, ..
+        } => {
+            validate_operand(function, definitions, haystack, errors);
+            validate_operand(function, definitions, needle, errors);
+        }
         Rvalue::ListContains { list, item } => {
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::TupleContains { tuple, item } => {
+            validate_operand(function, definitions, tuple, errors);
+            validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::DictContainsKey { dict, key } => {
+            validate_operand(function, definitions, dict, errors);
+            validate_operand(function, definitions, key, errors);
         }
         Rvalue::StringSplit {
             haystack,
@@ -388,6 +435,18 @@ fn validate_rvalue(
         } => {
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, separator, errors);
+        }
+        Rvalue::HttpGetText { url } => {
+            validate_operand(function, definitions, url, errors);
+        }
+        Rvalue::NumericExtrema { args, .. } => {
+            for arg in args {
+                validate_operand(function, definitions, arg, errors);
+            }
+        }
+        Rvalue::NumericPow { base, exponent } => {
+            validate_operand(function, definitions, base, errors);
+            validate_operand(function, definitions, exponent, errors);
         }
         Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
         Rvalue::Struct { fields, .. } => {
@@ -398,8 +457,9 @@ fn validate_rvalue(
         Rvalue::Len(operand)
         | Rvalue::NumericAbs(operand)
         | Rvalue::NumericRound { operand, .. }
+        | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
-        | Rvalue::StringTrim(operand)
+        | Rvalue::StringTrim { operand, .. }
         | Rvalue::Await(operand) => validate_operand(function, definitions, operand, errors),
         Rvalue::AsyncOp { args, .. } => {
             for arg in args {

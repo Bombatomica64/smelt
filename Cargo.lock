@@ -1141,6 +1141,7 @@ dependencies = [
 name = "smelt-codegen-rust"
 version = "0.1.0"
 dependencies = [
+ "smelt-frontend-py",
  "smelt-frontend-ts",
  "smelt-hir",
  "smelt-mir",

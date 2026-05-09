@@ -149,7 +149,7 @@ pub fn emit_crate(
     fs::create_dir_all(&src_dir)?;
     fs::write(
         output_dir.join("Cargo.toml"),
-        cargo_toml(options, needs_tokio(mir)),
+        cargo_toml(options, needs_tokio(mir), needs_reqwest(mir)),
     )?;
     fs::write(src_dir.join("main.rs"), emit_source(mir)?)?;
     Ok(())
@@ -232,12 +232,16 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
 }
 
 /// Generates Cargo.toml content for the given emission options.
-fn cargo_toml(options: &EmitOptions, needs_tokio: bool) -> String {
-    let deps = if needs_tokio {
-        "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\"] }\n"
-    } else {
-        ""
-    };
+fn cargo_toml(options: &EmitOptions, needs_tokio: bool, needs_reqwest: bool) -> String {
+    let mut deps = String::new();
+    if needs_tokio {
+        deps.push_str(
+            "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\"] }\n",
+        );
+    }
+    if needs_reqwest {
+        deps.push_str("reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n");
+    }
     format!(
         "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}",
         options.crate_name
@@ -266,6 +270,38 @@ fn needs_tokio(mir: &Mir) -> bool {
                     )
                 })
             })
+    })
+}
+
+/// Returns true when generated Rust uses Reqwest APIs.
+fn needs_reqwest(mir: &Mir) -> bool {
+    mir.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    Statement::Assign {
+                        value: Rvalue::HttpGetText { .. },
+                        ..
+                    } | Statement::AssignPlace {
+                        value: Rvalue::HttpGetText { .. },
+                        ..
+                    } | Statement::Assign {
+                        value: Rvalue::AsyncOp {
+                            op: smelt_hir::AsyncOp::HttpGetText,
+                            ..
+                        },
+                        ..
+                    } | Statement::AssignPlace {
+                        value: Rvalue::AsyncOp {
+                            op: smelt_hir::AsyncOp::HttpGetText,
+                            ..
+                        },
+                        ..
+                    }
+                )
+            })
+        })
     })
 }
 
@@ -1106,17 +1142,33 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
             Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
-            Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand),
+            Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand, dest_ty),
+            Rvalue::NumericExtrema { op, args } => self.numeric_extrema_text(*op, args, dest_ty),
+            Rvalue::NumericUnaryFunc { op, operand } => self.numeric_unary_func_text(*op, operand),
+            Rvalue::NumericPow { base, exponent } => self.numeric_pow_text(base, exponent),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
-            Rvalue::StringTrim(operand) => self.string_trim_text(operand),
+            Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
+            Rvalue::StringAffix {
+                op,
+                haystack,
+                needle,
+            } => self.string_affix_text(*op, haystack, needle),
+            Rvalue::StringSearch {
+                op,
+                haystack,
+                needle,
+            } => self.string_search_text(*op, haystack, needle, dest_ty),
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
+            Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
+            Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::StringSplit {
                 haystack,
                 separator,
             } => self.string_split_text(haystack, separator),
+            Rvalue::HttpGetText { url } => self.http_get_text(url),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
         }
@@ -1192,6 +1244,21 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.operand_text(timeout)?
                 ))
             }
+            smelt_hir::AsyncOp::HttpGetText => {
+                let Some(url) = args.first() else {
+                    return Err(EmitError::new("async HTTP GET requires a URL operand"));
+                };
+                if !matches!(
+                    self.mir.types.get(self.operand_ty(url)?),
+                    Some(Type::String)
+                ) {
+                    return Err(EmitError::new("async HTTP GET URL must be a string"));
+                }
+                Ok(format!(
+                    "Box::pin(async move {{ reqwest::get({}).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\") }})",
+                    self.operand_text(url)?
+                ))
+            }
         }
     }
 
@@ -1262,6 +1329,7 @@ impl<'mir> FunctionEmitter<'mir> {
         &self,
         op: smelt_hir::NumericRoundOp,
         operand: &Operand,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
@@ -1273,19 +1341,185 @@ impl<'mir> FunctionEmitter<'mir> {
             smelt_hir::NumericRoundOp::Floor => "floor",
             smelt_hir::NumericRoundOp::Ceil => "ceil",
             smelt_hir::NumericRoundOp::Round => "round",
+            smelt_hir::NumericRoundOp::Trunc => "trunc",
         };
-        Ok(format!("{}.{}()", self.operand_text(operand)?, method_name))
+        let text = format!("{}.{}()", self.operand_text(operand)?, method_name);
+        if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
+            Ok(format!("{text} as i64"))
+        } else {
+            Ok(text)
+        }
+    }
+
+    /// Converts a numeric extrema operation to Rust text.
+    fn numeric_extrema_text(
+        &self,
+        op: smelt_hir::NumericExtremaOp,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dest_is_int = matches!(self.mir.types.get(dest_ty), Some(Type::Int));
+        for arg in args {
+            if self.operand_ty(arg)? != dest_ty
+                || !matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float))
+            {
+                return Err(EmitError::new(
+                    "numeric extrema operands must match the numeric destination type",
+                ));
+            }
+        }
+        let identity = match op {
+            smelt_hir::NumericExtremaOp::Min if dest_is_int => "i64::MAX",
+            smelt_hir::NumericExtremaOp::Max if dest_is_int => "i64::MIN",
+            smelt_hir::NumericExtremaOp::Min => "f64::INFINITY",
+            smelt_hir::NumericExtremaOp::Max => "f64::NEG_INFINITY",
+        };
+        let method_name = match op {
+            smelt_hir::NumericExtremaOp::Min => "min",
+            smelt_hir::NumericExtremaOp::Max => "max",
+        };
+        let Some((first, rest)) = args.split_first() else {
+            return Ok(identity.to_owned());
+        };
+        let mut rendered = self.operand_text(first)?;
+        for arg in rest {
+            rendered = format!("{rendered}.{method_name}({})", self.operand_text(arg)?);
+        }
+        Ok(rendered)
+    }
+
+    /// Converts a direct unary numeric function to Rust text.
+    fn numeric_unary_func_text(
+        &self,
+        op: smelt_hir::NumericUnaryFuncOp,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "numeric unary function operand must be numeric",
+            ));
+        }
+        let method_name = match op {
+            smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
+            smelt_hir::NumericUnaryFuncOp::Sign => "signum",
+        };
+        let operand_text = self.float_operand_text(operand)?;
+        Ok(format!("{operand_text}.{method_name}()"))
+    }
+
+    /// Converts a numeric power operation to Rust text.
+    fn numeric_pow_text(&self, base: &Operand, exponent: &Operand) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(base)?),
+            Some(Type::Int | Type::Float)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(exponent)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("numeric pow operands must be numeric"));
+        }
+        let base_text = self.float_operand_text(base)?;
+        let exponent_text = self.float_operand_text(exponent)?;
+        Ok(format!("{base_text}.powf({exponent_text})"))
+    }
+
+    /// Converts a numeric operand to text usable as an `f64` receiver or argument.
+    fn float_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let operand_text = self.operand_text(operand)?;
+        if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Int)
+        ) {
+            Ok(format!("({operand_text} as f64)"))
+        } else {
+            Ok(operand_text)
+        }
     }
 
     /// Converts a string trim operation to Rust text.
-    fn string_trim_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    fn string_trim_text(
+        &self,
+        side: smelt_hir::StringTrimSide,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::String)
         ) {
             return Err(EmitError::new("string trim operand must be a string"));
         }
-        Ok(format!("{}.trim().to_owned()", self.operand_text(operand)?))
+        let method_name = match side {
+            smelt_hir::StringTrimSide::Both => "trim",
+            smelt_hir::StringTrimSide::Start => "trim_start",
+            smelt_hir::StringTrimSide::End => "trim_end",
+        };
+        Ok(format!(
+            "{}.{method_name}().to_owned()",
+            self.operand_text(operand)?
+        ))
+    }
+
+    /// Converts a string affix operation to Rust text.
+    fn string_affix_text(
+        &self,
+        op: smelt_hir::StringAffixOp,
+        haystack: &Operand,
+        needle: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(needle)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string affix operands must be strings"));
+        }
+        let method_name = match op {
+            smelt_hir::StringAffixOp::StartsWith => "starts_with",
+            smelt_hir::StringAffixOp::EndsWith => "ends_with",
+        };
+        Ok(format!(
+            "{}.{method_name}(&{})",
+            self.operand_text(haystack)?,
+            self.operand_text(needle)?
+        ))
+    }
+
+    /// Converts a string search operation to Rust text.
+    fn string_search_text(
+        &self,
+        op: smelt_hir::StringSearchOp,
+        haystack: &Operand,
+        needle: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(needle)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string search operands must be strings"));
+        }
+        let (missing, cast) = match self.mir.types.get(dest_ty) {
+            Some(Type::Int) => ("-1", "i64"),
+            Some(Type::Float) => ("-1.0", "f64"),
+            _ => return Err(EmitError::new("string search destination must be numeric")),
+        };
+        let method_name = match op {
+            smelt_hir::StringSearchOp::Find => "find",
+            smelt_hir::StringSearchOp::RFind => "rfind",
+        };
+        Ok(format!(
+            "{}.{method_name}(&{}).map_or({missing}, |idx| idx as {cast})",
+            self.operand_text(haystack)?,
+            self.operand_text(needle)?
+        ))
     }
 
     /// Converts a string containment operation to Rust text.
@@ -1328,6 +1562,47 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a tuple containment operation to Rust text.
+    fn tuple_contains_text(&self, tuple: &Operand, item: &Operand) -> Result<String, EmitError> {
+        let tuple_ty = self.operand_ty(tuple)?;
+        let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
+            return Err(EmitError::new("tuple contains receiver must be a tuple"));
+        };
+        let item_ty = self.operand_ty(item)?;
+        if !items.contains(&item_ty) {
+            return Err(EmitError::new(
+                "tuple contains item must match at least one tuple element type",
+            ));
+        }
+        if items.is_empty() {
+            return Ok("false".to_owned());
+        }
+        let tuple_text = self.operand_text(tuple)?;
+        let item_text = self.operand_text(item)?;
+        Ok((0..items.len())
+            .map(|idx| format!("{tuple_text}.{idx} == {item_text}"))
+            .collect::<Vec<_>>()
+            .join(" || "))
+    }
+
+    /// Converts a dictionary key containment operation to Rust text.
+    fn dict_contains_key_text(&self, dict: &Operand, key: &Operand) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict contains receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new(
+                "dict contains key must match the dictionary key type",
+            ));
+        }
+        Ok(format!(
+            "{}.contains_key(&{})",
+            self.operand_text(dict)?,
+            self.operand_text(key)?
+        ))
+    }
+
     /// Converts a string split operation to Rust text.
     fn string_split_text(
         &self,
@@ -1347,6 +1622,20 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.split(&{}).map(str::to_owned).collect::<Vec<_>>()",
             self.operand_text(haystack)?,
             self.operand_text(separator)?
+        ))
+    }
+
+    /// Converts a blocking HTTP GET operation to Rust text.
+    fn http_get_text(&self, url: &Operand) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(url)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("HTTP GET URL must be a string"));
+        }
+        Ok(format!(
+            "reqwest::blocking::get({}).expect(\"HTTP GET failed\").text().expect(\"HTTP response body read failed\")",
+            self.operand_text(url)?
         ))
     }
 
@@ -1923,6 +2212,7 @@ fn is_rust_keyword(name: &str) -> bool {
 /// Tests for the code generator.
 mod tests {
     use super::*;
+    use smelt_frontend_py as py_frontend;
     use smelt_frontend_ts::{HirCtx, to_hir};
     use smelt_hir::FileId;
 
@@ -1930,6 +2220,21 @@ mod tests {
     fn source_for(ts: &str) -> String {
         let mut ctx = HirCtx::new();
         assert!(to_hir(ts, FileId(0), &mut ctx).is_ok(), "HIR");
+        let mut mir = match smelt_mir::lower_hir(&ctx.krate) {
+            Ok(mir) => mir,
+            Err(_) => panic!("MIR lowering failed"),
+        };
+        smelt_mir::opt::optimize(&mut mir);
+        match emit_source(&mir) {
+            Ok(source) => source,
+            Err(err) => panic!("Rust source: {err}"),
+        }
+    }
+
+    /// Converts Python source to generated Rust source.
+    fn source_for_py(py: &str) -> String {
+        let mut ctx = py_frontend::HirCtx::new();
+        assert!(py_frontend::to_hir(py, FileId(0), &mut ctx).is_ok(), "HIR");
         let mut mir = match smelt_mir::lower_hir(&ctx.krate) {
             Ok(mir) => mir,
             Err(_) => panic!("MIR lowering failed"),
@@ -1992,12 +2297,29 @@ const value = 5.5;
 const floor = Math.floor(value);
 const ceil = Math.ceil(value);
 const round = Math.round(value);
+const trunc = Math.trunc(value);
 "#,
         );
 
         assert!(source.contains(".floor();"));
         assert!(source.contains(".ceil();"));
         assert!(source.contains(".round();"));
+        assert!(source.contains(".trunc();"));
+    }
+
+    #[test]
+    fn emits_math_extrema_calls() {
+        let source = source_for(
+            r#"
+const first = 1;
+const second = 2;
+const highest = Math.max(first, second, 3);
+const lowest = Math.min(first, second, -1);
+"#,
+        );
+
+        assert!(source.contains(".max("));
+        assert!(source.contains(".min("));
     }
 
     #[test]
@@ -2038,10 +2360,97 @@ const upper = word.toUpperCase();
             r#"
 const word = " Smelt ";
 const trimmed = word.trim();
+const left = word.trimStart();
+const right = word.trimEnd();
 "#,
         );
 
         assert!(source.contains(".trim().to_owned();"));
+        assert!(source.contains(".trim_start().to_owned();"));
+        assert!(source.contains(".trim_end().to_owned();"));
+    }
+
+    #[test]
+    fn emits_string_prefix_suffix_methods() {
+        let source = source_for(
+            r#"
+const word = "Smelt";
+const starts = word.startsWith("Sm");
+const ends = word.endsWith("lt");
+"#,
+        );
+
+        assert!(source.contains(".starts_with(&"));
+        assert!(source.contains(".ends_with(&"));
+    }
+
+    #[test]
+    fn emits_string_search_methods() {
+        let source = source_for(
+            r#"
+const word = "Smelt";
+const first = word.indexOf("m");
+const last = word.lastIndexOf("t");
+"#,
+        );
+
+        assert!(source.contains(".find(&"));
+        assert!(source.contains(".rfind(&"));
+        assert!(source.contains(".map_or(-1.0"));
+    }
+
+    #[test]
+    fn emits_math_sqrt_pow_sign() {
+        let source = source_for(
+            r#"
+const value = 4;
+const root = Math.sqrt(value);
+const raised = Math.pow(value, 2);
+const signed = Math.sign(value);
+"#,
+        );
+
+        assert!(source.contains(".sqrt();"));
+        assert!(source.contains(".powf("));
+        assert!(source.contains(".signum();"));
+    }
+
+    #[test]
+    fn emits_python_string_search_as_int() {
+        let source = source_for_py(
+            r#"
+word: str = "Smelt"
+first: int = word.find("m")
+last: int = word.rfind("t")
+"#,
+        );
+
+        assert!(source.contains(".find(&"));
+        assert!(source.contains(".rfind(&"));
+        assert!(source.contains(".map_or(-1,"));
+    }
+
+    #[test]
+    fn emits_python_math_and_contains_helpers() {
+        let source = source_for_py(
+            r#"
+import math
+value: float = 4.0
+root: float = math.sqrt(value)
+raised: float = math.pow(value, 2.0)
+whole: int = math.trunc(value)
+values: tuple[int, int] = (1, 2)
+has_tuple: bool = 2 in values
+mapping: dict[str, int] = {"a": 1}
+has_key: bool = "a" in mapping
+"#,
+        );
+
+        assert!(source.contains(".sqrt();"));
+        assert!(source.contains(".powf("));
+        assert!(source.contains(".trunc() as i64;"));
+        assert!(source.contains(".0 == "));
+        assert!(source.contains(".contains_key(&"));
     }
 
     #[test]
@@ -2197,6 +2606,55 @@ fail();
         assert!(source.contains("fn main() -> Result<(), Box<dyn std::error::Error>> {"));
         assert!(source.contains("let _smelt_tmp_0: () = fail()?;"));
         assert!(source.contains("return Ok(());"));
+    }
+
+    #[test]
+    fn emits_fetch_as_reqwest_get_text_future() {
+        let source = source_for(
+            "async function load(): Promise<string> {
+  return await fetch(\"https://example.com\");
+}
+",
+        );
+
+        assert!(source.contains(
+            "reqwest::get(\"https://example.com\".to_owned()).await.expect(\"HTTP GET failed\").text().await.expect(\"HTTP response body read failed\")"
+        ));
+    }
+
+    #[test]
+    fn emits_python_requests_get_as_blocking_reqwest_text() {
+        let mut ctx = py_frontend::HirCtx::new();
+        assert!(
+            py_frontend::to_hir(
+                "import requests\n\ndef load() -> str:\n    return requests.get(\"https://example.com\")\n",
+                FileId(0),
+                &mut ctx,
+            )
+            .is_ok(),
+            "HIR"
+        );
+        let mut mir = match smelt_mir::lower_hir(&ctx.krate) {
+            Ok(mir) => mir,
+            Err(_) => panic!("MIR lowering failed"),
+        };
+        smelt_mir::opt::optimize(&mut mir);
+        let source = match emit_source(&mir) {
+            Ok(source) => source,
+            Err(err) => panic!("Rust source: {err}"),
+        };
+
+        assert!(source.contains(
+            "reqwest::blocking::get(\"https://example.com\".to_owned()).expect(\"HTTP GET failed\").text().expect(\"HTTP response body read failed\")"
+        ));
+    }
+
+    #[test]
+    fn injects_reqwest_dependency_for_http_mapping() {
+        let manifest = cargo_toml(&EmitOptions::default(), true, true);
+
+        assert!(manifest.contains("tokio = { version = \"1\""));
+        assert!(manifest.contains("reqwest = { version = \"0.12\""));
     }
 
     #[test]

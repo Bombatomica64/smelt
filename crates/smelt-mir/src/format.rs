@@ -179,8 +179,31 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::NumericRoundOp::Floor => "floor",
                 smelt_hir::NumericRoundOp::Ceil => "ceil",
                 smelt_hir::NumericRoundOp::Round => "round",
+                smelt_hir::NumericRoundOp::Trunc => "trunc",
             };
             format!("numeric_{op_text} {}", operand_text(operand))
+        }
+        Rvalue::NumericExtrema { op, args } => {
+            let op_text = match op {
+                smelt_hir::NumericExtremaOp::Min => "min",
+                smelt_hir::NumericExtremaOp::Max => "max",
+            };
+            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!("numeric_{op_text} {arg_list}")
+        }
+        Rvalue::NumericUnaryFunc { op, operand } => {
+            let op_text = match op {
+                smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
+                smelt_hir::NumericUnaryFuncOp::Sign => "sign",
+            };
+            format!("numeric_{op_text} {}", operand_text(operand))
+        }
+        Rvalue::NumericPow { base, exponent } => {
+            format!(
+                "numeric_pow {}, {}",
+                operand_text(base),
+                operand_text(exponent)
+            )
         }
         Rvalue::StringCase { op, operand } => {
             let op_text = match op {
@@ -189,7 +212,44 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("string_{op_text} {}", operand_text(operand))
         }
-        Rvalue::StringTrim(operand) => format!("string_trim {}", operand_text(operand)),
+        Rvalue::StringTrim { side, operand } => {
+            let side_text = match side {
+                smelt_hir::StringTrimSide::Both => "both",
+                smelt_hir::StringTrimSide::Start => "start",
+                smelt_hir::StringTrimSide::End => "end",
+            };
+            format!("string_trim_{side_text} {}", operand_text(operand))
+        }
+        Rvalue::StringAffix {
+            op,
+            haystack,
+            needle,
+        } => {
+            let op_text = match op {
+                smelt_hir::StringAffixOp::StartsWith => "starts_with",
+                smelt_hir::StringAffixOp::EndsWith => "ends_with",
+            };
+            format!(
+                "string_{op_text} {}, {}",
+                operand_text(haystack),
+                operand_text(needle)
+            )
+        }
+        Rvalue::StringSearch {
+            op,
+            haystack,
+            needle,
+        } => {
+            let op_text = match op {
+                smelt_hir::StringSearchOp::Find => "find",
+                smelt_hir::StringSearchOp::RFind => "rfind",
+            };
+            format!(
+                "string_{op_text} {}, {}",
+                operand_text(haystack),
+                operand_text(needle)
+            )
+        }
         Rvalue::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",
@@ -204,6 +264,20 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(item)
             )
         }
+        Rvalue::TupleContains { tuple, item } => {
+            format!(
+                "tuple_contains {}, {}",
+                operand_text(tuple),
+                operand_text(item)
+            )
+        }
+        Rvalue::DictContainsKey { dict, key } => {
+            format!(
+                "dict_contains_key {}, {}",
+                operand_text(dict),
+                operand_text(key)
+            )
+        }
         Rvalue::StringSplit {
             haystack,
             separator,
@@ -214,6 +288,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(separator)
             )
         }
+        Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {
             let op_text = match op {
@@ -223,6 +298,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Sleep => "async_sleep",
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",
+                smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
             };
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
             format!("{op_text}({arg_list})")

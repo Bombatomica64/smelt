@@ -161,9 +161,25 @@ fn rewrite_rvalue(
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(needle, aliases, dest)
         }
+        Rvalue::StringAffix {
+            haystack, needle, ..
+        }
+        | Rvalue::StringSearch {
+            haystack, needle, ..
+        } => {
+            rewrite_operand_except(haystack, aliases, dest)
+                | rewrite_operand_except(needle, aliases, dest)
+        }
         Rvalue::ListContains { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
+        }
+        Rvalue::TupleContains { tuple, item } => {
+            rewrite_operand_except(tuple, aliases, dest)
+                | rewrite_operand_except(item, aliases, dest)
+        }
+        Rvalue::DictContainsKey { dict, key } => {
+            rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
         }
         Rvalue::StringSplit {
             haystack,
@@ -172,6 +188,14 @@ fn rewrite_rvalue(
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(separator, aliases, dest)
         }
+        Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
+        Rvalue::NumericExtrema { args, .. } => args.iter_mut().fold(false, |changed, arg| {
+            rewrite_operand_except(arg, aliases, dest) || changed
+        }),
+        Rvalue::NumericPow { base, exponent } => {
+            rewrite_operand_except(base, aliases, dest)
+                | rewrite_operand_except(exponent, aliases, dest)
+        }
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
             rewrite_operand_except(value, aliases, dest) | changed
@@ -179,8 +203,9 @@ fn rewrite_rvalue(
         Rvalue::Len(operand)
         | Rvalue::NumericAbs(operand)
         | Rvalue::NumericRound { operand, .. }
+        | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
-        | Rvalue::StringTrim(operand)
+        | Rvalue::StringTrim { operand, .. }
         | Rvalue::Await(operand) => rewrite_operand_except(operand, aliases, dest),
         Rvalue::AsyncOp { args, .. } => args.iter_mut().fold(false, |changed, arg| {
             rewrite_operand_except(arg, aliases, dest) || changed

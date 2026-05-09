@@ -198,6 +198,88 @@ runtime errors.
   - [x] TypeScript `Array.prototype.length`.
   - [x] TypeScript `String.prototype.length`.
   - [x] Python `len(...)` for list/dict/tuple/string values.
+- [ ] Fast-port execution plan:
+  - [ ] Batch ports by HIR/MIR shape, not by source language, so one MIR/codegen operation can
+        unlock multiple TypeScript and Python APIs.
+  - [ ] Prefer leaf expression mappings first: no callbacks, no mutation, no external crates, no
+        control-flow rewrites.
+  - [ ] Add one shared HIR expression/rvalue per semantic operation, then wire every source API that
+        maps to it in the same slice.
+  - [ ] For each slice, add frontend unit tests, MIR/codegen tests, and one end-to-end fixture only
+        when stdout/runtime behavior matters.
+  - [ ] Keep generated Rust boring and direct; only introduce runtime helpers when the inline Rust
+        would be wrong, unreadable, or repeatedly duplicated.
+- [ ] Batch A, scalar/string/list leaf mappings with no new dependencies:
+  - [x] String prefix/suffix checks:
+    - [x] TypeScript `startsWith` and `endsWith`.
+    - [x] Python `str.startswith()` and `str.endswith()`.
+  - [x] String trim variants:
+    - [x] TypeScript `trimStart` and `trimEnd`.
+    - [x] Python `str.lstrip()` and `str.rstrip()` with no arguments.
+  - [x] String search:
+    - [x] TypeScript `indexOf` and `lastIndexOf`.
+    - [x] Python `str.find()` and `str.rfind()`.
+    - [x] Current Rust output returns Rust byte offsets; Unicode user-index parity is deferred.
+  - [ ] String replace literal:
+    - [ ] TypeScript `replace` for literal string pattern.
+    - [ ] Python `str.replace()` for string pattern/replacement.
+  - [x] Numeric predicates and math:
+    - [x] TypeScript `Math.trunc`, `Math.sign`, `Math.sqrt`, `Math.pow`, `Math.max`, and `Math.min`.
+    - [x] Python `math.trunc`, `math.sqrt`, `math.pow`, `max(...)`, and `min(...)`.
+    - [x] TypeScript `Math.sign` currently lowers to Rust `signum()` for normal finite numbers; JS `-0`/`NaN` edge parity is deferred.
+  - [x] Collection contains parity:
+    - [x] Python tuple `in` / `not in`.
+    - [x] Python dict key `in` / `not in`.
+- [ ] Batch B, mutation methods with existing place-assignment support:
+  - [ ] TypeScript `Array.prototype.push`.
+  - [ ] TypeScript `Array.prototype.pop`.
+  - [ ] TypeScript `Array.prototype.reverse`.
+  - [ ] Python `list.append`.
+  - [ ] Python `list.pop`.
+  - [ ] Python `list.clear`.
+  - [ ] Python `list.reverse`.
+  - [ ] Python `dict.update`.
+  - [ ] Python `dict.pop`.
+  - [ ] Python `dict.clear`.
+- [ ] Batch C, collection projection methods:
+  - [ ] TypeScript `Object.keys`, `Object.values`, and `Object.entries`.
+  - [ ] Python `dict.keys`, `dict.values`, and `dict.items`.
+  - [ ] TypeScript `Array.prototype.join`.
+  - [ ] Python `str.join`.
+  - [ ] TypeScript `Array.prototype.concat`.
+  - [ ] Python `list.extend`.
+- [ ] Batch D, slicing/indexing semantics:
+  - [ ] TypeScript `Array.prototype.slice` with omitted and positive indexes.
+  - [ ] TypeScript `String.prototype.slice` with omitted and positive indexes.
+  - [ ] Python list slicing with positive indexes.
+  - [ ] Python tuple slicing with positive indexes.
+  - [ ] Python string slicing with positive indexes.
+  - [ ] Decide one shared policy for negative indexes before enabling negative-index forms.
+- [ ] Batch E, callback-heavy methods after closure support:
+  - [ ] TypeScript `Array.prototype.map`.
+  - [ ] TypeScript `Array.prototype.filter`.
+  - [ ] TypeScript `Array.prototype.reduce`.
+  - [ ] TypeScript `Array.prototype.forEach`.
+  - [ ] TypeScript `Array.prototype.find` and `findIndex`.
+  - [ ] TypeScript `Array.prototype.some` and `every`.
+  - [ ] Python `map`, `filter`, and callback-style `sorted(key=...)` if supported.
+- [ ] Batch F, dependency-backed mappings:
+  - [ ] `serde_json` dependency injection, then TypeScript `JSON.stringify` / `JSON.parse` and
+        Python `json.dumps` / `json.loads`.
+  - [ ] `regex` dependency injection, then regex-backed TypeScript `replace` / `replaceAll` and
+        Python `re` basics.
+  - [x] `reqwest` dependency injection, then TypeScript `fetch` and Python HTTP mapping decision.
+    - [x] Python `requests.get(url)` maps to blocking Reqwest response text.
+  - [ ] `chrono` dependency injection, then TypeScript `Date` and Python `datetime` decision.
+  - [ ] RNG dependency/policy, then TypeScript `Math.random` and Python `random` basics.
+- [ ] Batch G, native/data libraries:
+  - [ ] NumPy scalar dtype model.
+  - [ ] NumPy one-dimensional array construction and indexing.
+  - [ ] NumPy shape/size/ndim metadata.
+  - [ ] NumPy elementwise arithmetic.
+  - [ ] NumPy reductions.
+  - [ ] NumPy broadcasting.
+  - [ ] Decide whether pandas is explicitly out of scope for v1.
 - [ ] Mapping infrastructure and shared semantics:
   - [ ] Add a typed stdlib mapping registry shared by frontend lowering and Rust codegen.
   - [ ] Represent mapping rules with receiver kind, receiver type, function/member name, argument
@@ -241,9 +323,9 @@ runtime errors.
   - [x] `String.prototype.includes`.
   - [x] `String.prototype.split(separator)`.
   - [x] `String.prototype.trim`.
-  - [ ] `String.prototype.trimStart` and `trimEnd`.
-  - [ ] `String.prototype.startsWith` and `endsWith`.
-  - [ ] `String.prototype.indexOf` and `lastIndexOf`.
+  - [x] `String.prototype.trimStart` and `trimEnd`.
+  - [x] `String.prototype.startsWith` and `endsWith`.
+  - [x] `String.prototype.indexOf` and `lastIndexOf`.
   - [ ] `String.prototype.slice` and `substring`, including Unicode/index semantics decision.
   - [ ] `String.prototype.replace` for literal strings.
   - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
@@ -254,11 +336,11 @@ runtime errors.
         rejection where JS coercion would be misleading.
 - [ ] TypeScript number and `Math` mappings:
   - [x] `Math.abs`.
-  - [ ] `Math.floor`, `ceil`, `round`, and `trunc`.
-    - [x] `Math.floor`, `Math.ceil`, and `Math.round`.
-  - [ ] `Math.max` and `min` for fixed argument lists.
+  - [x] `Math.floor`, `ceil`, `round`, and `trunc`.
+  - [x] `Math.max` and `min` for fixed argument lists.
   - [ ] `Math.pow`, `sqrt`, `cbrt`, `hypot`, and exponentiation alignment.
-  - [ ] `Math.sign`.
+    - [x] `Math.pow` and `Math.sqrt`.
+  - [x] `Math.sign`.
   - [ ] `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and `atan2`.
   - [ ] `Math.log`, `log10`, `log2`, and `exp`.
   - [ ] `Math.random` with an explicit randomness/backend policy.
@@ -292,7 +374,7 @@ runtime errors.
 - [ ] TypeScript platform and async mappings:
   - [ ] `console.log`, `console.error`, and `console.warn` formatting policy.
   - [ ] `setTimeout`, `clearTimeout`, `setInterval`, and `clearInterval` in async contexts.
-  - [ ] `fetch` with `reqwest` dependency injection.
+  - [x] `fetch` with `reqwest` dependency injection.
   - [ ] `Response.text`, `json`, `status`, `ok`, and headers access.
   - [ ] `Promise.resolve`, `Promise.reject`, `then`, `catch`, and `finally`, or explicit rejection
         in favor of `async`/`await`.
@@ -305,6 +387,7 @@ runtime errors.
   - [ ] `enumerate(...)`.
   - [ ] `zip(...)`.
   - [ ] `sum(...)`, `min(...)`, and `max(...)`.
+    - [x] `min(...)` and `max(...)` for all-int or all-float fixed argument lists.
   - [ ] `all(...)` and `any(...)`.
   - [ ] `sorted(...)` and `reversed(...)`.
   - [ ] `list(...)`, `dict(...)`, `tuple(...)`, and `set(...)` constructors.
@@ -316,9 +399,11 @@ runtime errors.
   - [x] `str.strip()` with no arguments.
   - [x] `str.split(separator)`.
   - [x] String `in` / `not in`.
-  - [ ] `str.lstrip()` and `str.rstrip()`.
-  - [ ] `str.startswith()` and `str.endswith()`.
+  - [x] `str.lstrip()` and `str.rstrip()`.
+  - [x] `str.startswith()` and `str.endswith()`.
   - [ ] `str.find()`, `index()`, `rfind()`, and `rindex()`.
+    - [x] `str.find()` and `str.rfind()`.
+    - [ ] `str.index()` and `str.rindex()` remain unsupported because missing-value exception semantics are not modeled yet.
   - [ ] `str.replace()`.
   - [ ] `str.join()`.
   - [ ] `str.removeprefix()` and `removesuffix()`.
@@ -326,8 +411,8 @@ runtime errors.
   - [ ] f-string lowering beyond the currently supported literal/string-concat subset, if needed.
 - [ ] Python list/tuple/set/dict mappings:
   - [x] List `in` / `not in`.
-  - [ ] Tuple `in` / `not in`.
-  - [ ] Dict key `in` / `not in`.
+  - [x] Tuple `in` / `not in`.
+  - [x] Dict key `in` / `not in`.
   - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
         `reverse`, and `sort`.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
@@ -356,7 +441,7 @@ runtime errors.
   - [ ] `open(...)` read/write text mode.
   - [ ] `open(...)` binary mode.
   - [ ] Context-manager lowering for files.
-  - [ ] `requests` or `urllib` support decision; prefer explicit crate-backed mappings over a
+  - [x] `requests` or `urllib` support decision; prefer explicit crate-backed mappings over a
         broad compatibility shim.
   - [ ] Async HTTP mapping compatible with the Phase 5 runtime model.
 - [ ] Python native/data-library mappings:

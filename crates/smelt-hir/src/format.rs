@@ -298,8 +298,26 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::NumericRoundOp::Floor => "floor",
                 crate::expr::NumericRoundOp::Ceil => "ceil",
                 crate::expr::NumericRoundOp::Round => "round",
+                crate::expr::NumericRoundOp::Trunc => "trunc",
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))
+        }
+        ExprKind::NumericExtrema { op, args } => {
+            let op_name = match op {
+                crate::expr::NumericExtremaOp::Min => "min",
+                crate::expr::NumericExtremaOp::Max => "max",
+            };
+            format!("numeric_{op_name} {}", expr_list_text(args))
+        }
+        ExprKind::NumericUnaryFunc { op, operand } => {
+            let op_name = match op {
+                crate::expr::NumericUnaryFuncOp::Sqrt => "sqrt",
+                crate::expr::NumericUnaryFuncOp::Sign => "sign",
+            };
+            format!("numeric_{op_name} {}", expr_ref(*operand))
+        }
+        ExprKind::NumericPow { base, exponent } => {
+            format!("numeric_pow {}, {}", expr_ref(*base), expr_ref(*exponent))
         }
         ExprKind::StringCase { op, operand } => {
             let op_name = match op {
@@ -308,7 +326,44 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_{op_name} {}", expr_ref(*operand))
         }
-        ExprKind::StringTrim { operand } => format!("string_trim {}", expr_ref(*operand)),
+        ExprKind::StringTrim { side, operand } => {
+            let side_name = match side {
+                crate::expr::StringTrimSide::Both => "both",
+                crate::expr::StringTrimSide::Start => "start",
+                crate::expr::StringTrimSide::End => "end",
+            };
+            format!("string_trim_{side_name} {}", expr_ref(*operand))
+        }
+        ExprKind::StringAffix {
+            op,
+            haystack,
+            needle,
+        } => {
+            let op_name = match op {
+                crate::expr::StringAffixOp::StartsWith => "starts_with",
+                crate::expr::StringAffixOp::EndsWith => "ends_with",
+            };
+            format!(
+                "string_{op_name} {}, {}",
+                expr_ref(*haystack),
+                expr_ref(*needle)
+            )
+        }
+        ExprKind::StringSearch {
+            op,
+            haystack,
+            needle,
+        } => {
+            let op_name = match op {
+                crate::expr::StringSearchOp::Find => "find",
+                crate::expr::StringSearchOp::RFind => "rfind",
+            };
+            format!(
+                "string_{op_name} {}, {}",
+                expr_ref(*haystack),
+                expr_ref(*needle)
+            )
+        }
         ExprKind::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",
@@ -318,6 +373,12 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::ListContains { list, item } => {
             format!("list_contains {}, {}", expr_ref(*list), expr_ref(*item))
+        }
+        ExprKind::TupleContains { tuple, item } => {
+            format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
+        }
+        ExprKind::DictContainsKey { dict, key } => {
+            format!("dict_contains_key {}, {}", expr_ref(*dict), expr_ref(*key))
         }
         ExprKind::StringSplit {
             haystack,
@@ -329,6 +390,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*separator)
             )
         }
+        ExprKind::HttpGetText { url } => format!("http_get_text {}", expr_ref(*url)),
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
         }
@@ -355,6 +417,7 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Sleep => "async_sleep",
         AsyncOp::CreateTask => "async_create_task",
         AsyncOp::WaitFor => "async_wait_for",
+        AsyncOp::HttpGetText => "async_http_get_text",
     };
     let args_text = args
         .iter()
@@ -393,11 +456,19 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::Len { .. }
         | ExprKind::NumericAbs { .. }
         | ExprKind::NumericRound { .. }
+        | ExprKind::NumericExtrema { .. }
+        | ExprKind::NumericUnaryFunc { .. }
+        | ExprKind::NumericPow { .. }
         | ExprKind::StringCase { .. }
         | ExprKind::StringTrim { .. }
+        | ExprKind::StringAffix { .. }
+        | ExprKind::StringSearch { .. }
         | ExprKind::StringContains { .. }
         | ExprKind::ListContains { .. }
+        | ExprKind::TupleContains { .. }
+        | ExprKind::DictContainsKey { .. }
         | ExprKind::StringSplit { .. }
+        | ExprKind::HttpGetText { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. }
         | ExprKind::Block(_)

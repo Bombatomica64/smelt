@@ -1,0 +1,77 @@
+# Stdlib Mapping
+
+This document lists direct stdlib mappings currently lowered through HIR/MIR and emitted as inline Rust.
+
+## TypeScript Strings
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `s.toLowerCase()` | `StringCase::Lower` | `StringCase::Lower` | `s.to_lowercase()` | No arguments | Any arguments | Locale-sensitive JS casing is not modeled. |
+| `s.toUpperCase()` | `StringCase::Upper` | `StringCase::Upper` | `s.to_uppercase()` | No arguments | Any arguments | Locale-sensitive JS casing is not modeled. |
+| `s.trim()` | `StringTrim::Both` | `StringTrim::Both` | `s.trim().to_owned()` | No arguments | Any arguments | Rust whitespace semantics are used. |
+| `s.trimStart()` | `StringTrim::Start` | `StringTrim::Start` | `s.trim_start().to_owned()` | No arguments | Any arguments | Rust whitespace semantics are used. |
+| `s.trimEnd()` | `StringTrim::End` | `StringTrim::End` | `s.trim_end().to_owned()` | No arguments | Any arguments | Rust whitespace semantics are used. |
+| `s.includes(x)` | `StringContains` | `StringContains` | `s.contains(&x)` | One string argument | Optional start index | Rust substring matching is used. |
+| `s.startsWith(x)` | `StringAffix::StartsWith` | `StringAffix::StartsWith` | `s.starts_with(&x)` | One string argument | Optional position | Rust prefix matching is used. |
+| `s.endsWith(x)` | `StringAffix::EndsWith` | `StringAffix::EndsWith` | `s.ends_with(&x)` | One string argument | Optional length | Rust suffix matching is used. |
+| `s.indexOf(x)` | `StringSearch::Find` | `StringSearch::Find` | `s.find(&x).map_or(-1.0, ...)` | One string argument | Optional `fromIndex` | Returns Rust byte offsets for now, not JS UTF-16 code-unit indexes. |
+| `s.lastIndexOf(x)` | `StringSearch::RFind` | `StringSearch::RFind` | `s.rfind(&x).map_or(-1.0, ...)` | One string argument | Optional `fromIndex` | Returns Rust byte offsets for now, not JS UTF-16 code-unit indexes. |
+| `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Regex separators and limit | Rust split semantics are used. |
+
+## Python Strings
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `s.lower()` | `StringCase::Lower` | `StringCase::Lower` | `s.to_lowercase()` | No arguments | Any arguments | Python Unicode casing parity is not complete. |
+| `s.upper()` | `StringCase::Upper` | `StringCase::Upper` | `s.to_uppercase()` | No arguments | Any arguments | Python Unicode casing parity is not complete. |
+| `s.strip()` | `StringTrim::Both` | `StringTrim::Both` | `s.trim().to_owned()` | No arguments | Character-set argument | Rust whitespace semantics are used. |
+| `s.lstrip()` | `StringTrim::Start` | `StringTrim::Start` | `s.trim_start().to_owned()` | No arguments | Character-set argument | Rust whitespace semantics are used. |
+| `s.rstrip()` | `StringTrim::End` | `StringTrim::End` | `s.trim_end().to_owned()` | No arguments | Character-set argument | Rust whitespace semantics are used. |
+| `x in s` | `StringContains` | `StringContains` | `s.contains(&x)` | String item and string receiver | Non-string operands | Rust substring matching is used. |
+| `s.startswith(x)` | `StringAffix::StartsWith` | `StringAffix::StartsWith` | `s.starts_with(&x)` | One string argument | Tuple prefixes, start/end arguments | Rust prefix matching is used. |
+| `s.endswith(x)` | `StringAffix::EndsWith` | `StringAffix::EndsWith` | `s.ends_with(&x)` | One string argument | Tuple suffixes, start/end arguments | Rust suffix matching is used. |
+| `s.find(x)` | `StringSearch::Find` | `StringSearch::Find` | `s.find(&x).map_or(-1, ...)` | One string argument | Optional start/end arguments | Returns Rust byte offsets for now, not Python code-point indexes. |
+| `s.rfind(x)` | `StringSearch::RFind` | `StringSearch::RFind` | `s.rfind(&x).map_or(-1, ...)` | One string argument | Optional start/end arguments | Returns Rust byte offsets for now, not Python code-point indexes. |
+| `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Default whitespace split and maxsplit | Rust split semantics are used. |
+
+## TypeScript Math
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Math.abs(x)` | `NumericAbs` | `NumericAbs` | `x.abs()` | One number | Non-number or wrong arity | Uses Rust `f64::abs`. |
+| `Math.floor(x)` | `NumericRound::Floor` | `NumericRound::Floor` | `x.floor()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
+| `Math.ceil(x)` | `NumericRound::Ceil` | `NumericRound::Ceil` | `x.ceil()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
+| `Math.round(x)` | `NumericRound::Round` | `NumericRound::Round` | `x.round()` | One number | Non-number or wrong arity | Rust midpoint behavior may differ from JS in edge cases. |
+| `Math.trunc(x)` | `NumericRound::Trunc` | `NumericRound::Trunc` | `x.trunc()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
+| `Math.max(...)` | `NumericExtrema::Max` | `NumericExtrema::Max` | Chained `.max(...)` or `f64::NEG_INFINITY` | Any number of number args | Non-number args | Zero args use JS-compatible identity. |
+| `Math.min(...)` | `NumericExtrema::Min` | `NumericExtrema::Min` | Chained `.min(...)` or `f64::INFINITY` | Any number of number args | Non-number args | Zero args use JS-compatible identity. |
+| `Math.sqrt(x)` | `NumericUnaryFunc::Sqrt` | `NumericUnaryFunc::Sqrt` | `x.sqrt()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
+| `Math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numbers | Non-number or wrong arity | Uses Rust `f64`. |
+| `Math.sign(x)` | `NumericUnaryFunc::Sign` | `NumericUnaryFunc::Sign` | `x.signum()` | One number | Non-number or wrong arity | JS `-0` and `NaN` edge semantics are not modeled yet. |
+
+## Python Math And Builtins
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `abs(x)` | `NumericAbs` | `NumericAbs` | `x.abs()` | One `int` or `float` | Non-numeric or wrong arity | Uses Rust numeric methods. |
+| `math.sqrt(x)` | `NumericUnaryFunc::Sqrt` | `NumericUnaryFunc::Sqrt` | `x.sqrt()` | One numeric argument | Non-numeric or wrong arity | Codegen currently emits direct floating-point Rust. |
+| `math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numeric arguments | Non-numeric or wrong arity | Codegen currently emits direct floating-point Rust. |
+| `math.trunc(x)` | `NumericRound::Trunc` | `NumericRound::Trunc` | `x.trunc() as i64` | One float argument | Non-float or wrong arity | Python arbitrary-size integer behavior is not modeled. |
+| `max(...)` | `NumericExtrema::Max` | `NumericExtrema::Max` | Chained `.max(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
+| `min(...)` | `NumericExtrema::Min` | `NumericExtrema::Min` | Chained `.min(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
+
+## HTTP
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `fetch(url)` | `AsyncOp::HttpGetText` | `AsyncOp::HttpGetText` | `reqwest::get(url).await...text().await...` | One string URL | Options object, response object APIs | Returns response text directly. |
+| `requests.get(url)` | `HttpGetText` | `HttpGetText` | `reqwest::blocking::get(url)...text()...` | One string URL | Headers/options, response object APIs | Returns response text directly. |
+
+## Contains
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `array.includes(x)` | `ListContains` | `ListContains` | `array.contains(&x)` | One item matching element type | Optional `fromIndex` | Rust equality semantics are used. |
+| `x in list` / `x not in list` | `ListContains` plus optional `UnaryOp::Not` | `ListContains` plus optional `Unary` | `list.contains(&x)` | Item matching element type | Mismatched types | Rust equality semantics are used. |
+| `x in tuple` / `x not in tuple` | `TupleContains` plus optional `UnaryOp::Not` | `TupleContains` plus optional `Unary` | Equality chain over tuple fields | Item matching at least one tuple element type | Mismatched types | Rust equality semantics are used. |
+| `k in dict` / `k not in dict` | `DictContainsKey` plus optional `UnaryOp::Not` | `DictContainsKey` plus optional `Unary` | `dict.contains_key(&k)` | Key matching dict key type | Mismatched key type | Rust `HashMap` key semantics are used. |

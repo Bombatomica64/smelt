@@ -16,8 +16,9 @@ use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, ClassKind, Expr as HirExpr, ExprKind, Field, FileId, Function,
     FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal, LocalDecl, MatchArm,
-    Module, ModuleId, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt,
-    StringCaseOp, Symbol, Type, TypeId, UnaryOp, Visibility,
+    Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param,
+    Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
+    StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
 };
 
 use crate::helpers::{
@@ -1997,10 +1998,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 list: haystack,
                 item: needle,
             },
+            Some(Type::Tuple(items)) if items.iter().any(|item_ty| *item_ty == needle_ty) => {
+                ExprKind::TupleContains {
+                    tuple: haystack,
+                    item: needle,
+                }
+            }
+            Some(Type::Dict(key_ty, _)) if needle_ty == *key_ty => ExprKind::DictContainsKey {
+                dict: haystack,
+                key: needle,
+            },
             _ => {
                 return Err(SmeltError::unsupported(
                     span,
-                    "containment requires str operands or a list item matching the list element type",
+                    "containment requires str operands or an item matching the collection element/key type",
                 ));
             }
         };
@@ -2070,7 +2081,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.string_trim_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_affix_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.string_search_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_split_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.requests_get_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.math_module_call_expression(call, body)? {
             return Ok(expr);
         }
 
@@ -2078,6 +2101,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Expr::Name(name) = call.func.as_ref() {
             if name.id.as_str() == "abs" {
                 return self.numeric_abs_call_expression(call, body);
+            }
+            if matches!(name.id.as_str(), "max" | "min") {
+                return self.numeric_extrema_call_expression(call, body);
             }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);
@@ -2224,6 +2250,156 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }))
     }
 
+    /// Lower direct Python `math.*` numeric calls.
+    fn math_module_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return Ok(None);
+        };
+        if module.id.as_str() != "math" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        match attr.attr.as_str() {
+            "sqrt" => {
+                if call.arguments.args.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.sqrt() requires exactly one argument",
+                    ));
+                }
+                let operand = self.expression(&call.arguments.args[0], body)?;
+                if !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+                    Some(Type::Int | Type::Float)
+                ) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.sqrt() requires a numeric argument",
+                    ));
+                }
+                let ty = self.intern_type(Type::Float);
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::NumericUnaryFunc {
+                        op: NumericUnaryFuncOp::Sqrt,
+                        operand,
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            "pow" => {
+                if call.arguments.args.len() != 2 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.pow() requires exactly two arguments",
+                    ));
+                }
+                let base = self.expression(&call.arguments.args[0], body)?;
+                let exponent = self.expression(&call.arguments.args[1], body)?;
+                if [base, exponent].iter().any(|arg| {
+                    !matches!(
+                        self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
+                        Some(Type::Int | Type::Float)
+                    )
+                }) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.pow() requires numeric arguments",
+                    ));
+                }
+                let ty = self.intern_type(Type::Float);
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::NumericPow { base, exponent },
+                    ty,
+                    span,
+                })))
+            }
+            "trunc" => {
+                if call.arguments.args.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.trunc() requires exactly one argument",
+                    ));
+                }
+                let operand = self.expression(&call.arguments.args[0], body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.trunc() requires a float argument",
+                    ));
+                }
+                let ty = self.intern_type(Type::Int);
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::NumericRound {
+                        op: NumericRoundOp::Trunc,
+                        operand,
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Lower direct Python `min(...)` and `max(...)` calls.
+    fn numeric_extrema_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.range);
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "numeric extrema requires a name call",
+            ));
+        };
+        let op = match name.id.as_str() {
+            "max" => NumericExtremaOp::Max,
+            "min" => NumericExtremaOp::Min,
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "numeric extrema requires min or max",
+                ));
+            }
+        };
+        if call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "Python min() and max() require at least one argument",
+            ));
+        }
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ty = Self::expr_ty(body, args[0]);
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Int | Type::Float))
+            || args.iter().any(|arg| Self::expr_ty(body, *arg) != ty)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "Python min() and max() require all-int or all-float arguments",
+            ));
+        }
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::NumericExtrema { op, args },
+            ty,
+            span,
+        }))
+    }
+
     /// Lower direct Python string case methods.
     fn string_case_call_expression(
         &mut self,
@@ -2270,14 +2446,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
-        if attr.attr.as_str() != "strip" {
-            return Ok(None);
-        }
+        let side = match attr.attr.as_str() {
+            "strip" => StringTrimSide::Both,
+            "lstrip" => StringTrimSide::Start,
+            "rstrip" => StringTrimSide::End,
+            _ => return Ok(None),
+        };
         let span = self.span(call.range);
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 span,
-                "str.strip() currently supports no arguments",
+                "str strip/lstrip/rstrip argument-based trim is not supported yet",
             ));
         }
         let operand = self.expression(&attr.value, body)?;
@@ -2290,7 +2469,93 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let ty = self.intern_type(Type::String);
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::StringTrim { operand },
+            kind: ExprKind::StringTrim { side, operand },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python string prefix and suffix methods.
+    fn string_affix_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match attr.attr.as_str() {
+            "startswith" => StringAffixOp::StartsWith,
+            "endswith" => StringAffixOp::EndsWith,
+            _ => return Ok(None),
+        };
+        let span = self.span(call.range);
+        if call.arguments.args.len() != 1 {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.startswith()/endswith() require exactly one argument",
+            ));
+        }
+        let haystack = self.expression(&attr.value, body)?;
+        let needle = self.expression(&call.arguments.args[0], body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.startswith()/endswith() require str receiver and argument",
+            ));
+        }
+        let ty = self.intern_type(Type::Bool);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringAffix {
+                op,
+                haystack,
+                needle,
+            },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python string search methods.
+    fn string_search_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match attr.attr.as_str() {
+            "find" => StringSearchOp::Find,
+            "rfind" => StringSearchOp::RFind,
+            _ => return Ok(None),
+        };
+        let span = self.span(call.range);
+        if call.arguments.args.len() != 1 {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.find()/rfind() optional start/end arguments are not supported yet",
+            ));
+        }
+        let haystack = self.expression(&attr.value, body)?;
+        let needle = self.expression(&call.arguments.args[0], body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.find()/rfind() require str receiver and argument",
+            ));
+        }
+        let ty = self.intern_type(Type::Int);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringSearch {
+                op,
+                haystack,
+                needle,
+            },
             ty,
             span,
         })))
@@ -2340,6 +2605,52 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 haystack,
                 separator,
             },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python `requests.get(url)` calls to response text.
+    fn requests_get_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "get" {
+            return Ok(None);
+        }
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return Ok(None);
+        };
+        if module.id.as_str() != "requests" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        if call.arguments.args.len() != 1 {
+            return Err(SmeltError::unsupported(
+                span,
+                "requests.get() supports exactly one string URL argument",
+            ));
+        }
+        let [url_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "requests.get() supports exactly one string URL argument",
+            ));
+        };
+        let url = self.expression(url_expr, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                span,
+                "requests.get() requires a str URL argument",
+            ));
+        }
+        let ty = self.intern_type(Type::String);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::HttpGetText { url },
             ty,
             span,
         })))

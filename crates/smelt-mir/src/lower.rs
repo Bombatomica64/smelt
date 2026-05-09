@@ -955,6 +955,46 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::NumericExtrema { op, args } => {
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericExtrema {
+                        op: *op,
+                        args: lowered_args,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::NumericUnaryFunc { op, operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericUnaryFunc {
+                        op: *op,
+                        operand: lowered_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::NumericPow { base, exponent } => {
+                let base_operand = self.lower_expr(*base)?;
+                let exponent_operand = self.lower_expr(*exponent)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericPow {
+                        base: base_operand,
+                        exponent: exponent_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringCase { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -967,12 +1007,51 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::StringTrim { operand } => {
+            ExprKind::StringTrim { side, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
-                    value: Rvalue::StringTrim(lowered_operand),
+                    value: Rvalue::StringTrim {
+                        side: *side,
+                        operand: lowered_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::StringAffix {
+                op,
+                haystack,
+                needle,
+            } => {
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let needle_operand = self.lower_expr(*needle)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringAffix {
+                        op: *op,
+                        haystack: haystack_operand,
+                        needle: needle_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::StringSearch {
+                op,
+                haystack,
+                needle,
+            } => {
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let needle_operand = self.lower_expr(*needle)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringSearch {
+                        op: *op,
+                        haystack: haystack_operand,
+                        needle: needle_operand,
+                    },
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -1002,6 +1081,32 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::TupleContains { tuple, item } => {
+                let tuple_operand = self.lower_expr(*tuple)?;
+                let item_operand = self.lower_expr(*item)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::TupleContains {
+                        tuple: tuple_operand,
+                        item: item_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DictContainsKey { dict, key } => {
+                let dict_operand = self.lower_expr(*dict)?;
+                let key_operand = self.lower_expr(*key)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictContainsKey {
+                        dict: dict_operand,
+                        key: key_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringSplit {
                 haystack,
                 separator,
@@ -1015,6 +1120,15 @@ impl<'hir> LoweringCtx<'hir> {
                         haystack: haystack_operand,
                         separator: separator_operand,
                     },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::HttpGetText { url } => {
+                let url_operand = self.lower_expr(*url)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::HttpGetText { url: url_operand },
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -1220,11 +1334,19 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::Len { .. }
             | ExprKind::NumericAbs { .. }
             | ExprKind::NumericRound { .. }
+            | ExprKind::NumericExtrema { .. }
+            | ExprKind::NumericUnaryFunc { .. }
+            | ExprKind::NumericPow { .. }
             | ExprKind::StringCase { .. }
             | ExprKind::StringTrim { .. }
+            | ExprKind::StringAffix { .. }
+            | ExprKind::StringSearch { .. }
             | ExprKind::StringContains { .. }
             | ExprKind::ListContains { .. }
+            | ExprKind::TupleContains { .. }
+            | ExprKind::DictContainsKey { .. }
             | ExprKind::StringSplit { .. }
+            | ExprKind::HttpGetText { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
             | ExprKind::Block(_)

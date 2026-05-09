@@ -71,6 +71,27 @@ pub enum ExprKind {
         /// The numeric value being rounded.
         operand: ExprId,
     },
+    /// Compute the minimum or maximum of numeric values.
+    NumericExtrema {
+        /// Operation to apply to the arguments.
+        op: NumericExtremaOp,
+        /// Numeric arguments to compare.
+        args: Vec<ExprId>,
+    },
+    /// Apply a direct unary numeric function.
+    NumericUnaryFunc {
+        /// Operation to apply to the number.
+        op: NumericUnaryFuncOp,
+        /// Numeric operand to transform.
+        operand: ExprId,
+    },
+    /// Raise a floating-point base to a floating-point exponent.
+    NumericPow {
+        /// Base operand.
+        base: ExprId,
+        /// Exponent operand.
+        exponent: ExprId,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.
@@ -80,8 +101,28 @@ pub enum ExprKind {
     },
     /// Trim leading and trailing whitespace from a string value.
     StringTrim {
+        /// Which side of the string to trim.
+        side: StringTrimSide,
         /// The string value being trimmed.
         operand: ExprId,
+    },
+    /// Test whether a string has a prefix or suffix.
+    StringAffix {
+        /// Affix operation to apply.
+        op: StringAffixOp,
+        /// The string value being searched.
+        haystack: ExprId,
+        /// The affix to test for.
+        needle: ExprId,
+    },
+    /// Find a substring index in a string, returning -1 when absent.
+    StringSearch {
+        /// Search direction.
+        op: StringSearchOp,
+        /// The string value being searched.
+        haystack: ExprId,
+        /// The substring to search for.
+        needle: ExprId,
     },
     /// Test whether one string contains another string.
     StringContains {
@@ -97,12 +138,31 @@ pub enum ExprKind {
         /// The item to search for.
         item: ExprId,
     },
+    /// Test whether a tuple contains an item.
+    TupleContains {
+        /// The tuple value being searched.
+        tuple: ExprId,
+        /// The item to search for.
+        item: ExprId,
+    },
+    /// Test whether a dictionary contains a key.
+    DictContainsKey {
+        /// The dictionary value being searched.
+        dict: ExprId,
+        /// The key to search for.
+        key: ExprId,
+    },
     /// Split a string into a list of strings.
     StringSplit {
         /// The string value being split.
         haystack: ExprId,
         /// The separator string.
         separator: ExprId,
+    },
+    /// Perform a blocking HTTP GET request and return the response body as text.
+    HttpGetText {
+        /// The URL to request.
+        url: ExprId,
     },
     /// A binary operation.
     BinOp {
@@ -173,6 +233,55 @@ pub enum NumericRoundOp {
     Ceil,
     /// Round to the nearest integer value.
     Round,
+    /// Round toward zero.
+    Trunc,
+}
+
+/// A directly lowered numeric extrema operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NumericExtremaOp {
+    /// Compute the smallest argument.
+    Min,
+    /// Compute the largest argument.
+    Max,
+}
+
+/// A directly lowered unary numeric function.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NumericUnaryFuncOp {
+    /// Square root.
+    Sqrt,
+    /// Numeric sign.
+    Sign,
+}
+
+/// Which side of a string trim operation is lowered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringTrimSide {
+    /// Trim both leading and trailing whitespace.
+    Both,
+    /// Trim leading whitespace.
+    Start,
+    /// Trim trailing whitespace.
+    End,
+}
+
+/// A directly lowered string affix test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringAffixOp {
+    /// Test for a prefix.
+    StartsWith,
+    /// Test for a suffix.
+    EndsWith,
+}
+
+/// A directly lowered string search operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringSearchOp {
+    /// Find the first occurrence.
+    Find,
+    /// Find the last occurrence.
+    RFind,
 }
 
 /// Runtime-backed async operation represented in HIR.
@@ -190,6 +299,8 @@ pub enum AsyncOp {
     CreateTask,
     /// Wait for a future with a timeout.
     WaitFor,
+    /// Perform an HTTP GET request and return the response body as text.
+    HttpGetText,
 }
 
 /// A literal value.

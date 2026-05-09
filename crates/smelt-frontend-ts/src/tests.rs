@@ -2,7 +2,8 @@
 
 use super::*;
 use smelt_hir::{
-    ExprKind, FileId, Function, Item, ModuleId, NumericRoundOp, Stmt, StringCaseOp, Type,
+    ExprKind, FileId, Function, Item, ModuleId, NumericExtremaOp, NumericRoundOp,
+    NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -30,6 +31,13 @@ macro_rules! ensure_eq {
             ));
         }
     }};
+}
+
+/// Marks a test fixture string as TypeScript source code.
+macro_rules! ts {
+    ($source:literal $(,)?) => {
+        $source
+    };
 }
 
 /// Lower TypeScript source and fail the test with a readable message on error.
@@ -130,9 +138,9 @@ fn assert_unsupported_ts(errors: &[SmeltError], needle: &str) -> Result<(), Stri
 fn converts_top_level_let_and_console_log() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "let x = 6;
+        ts!("let x = 6;
 console.log(x);
-",
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -149,12 +157,12 @@ console.log(x);
 fn lowers_stdlib_length_properties() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const values: number[] = [1, 2, 3];
 const count = values.length;
 const word = "smelt";
 const letters = word.length;
-"#,
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -174,14 +182,14 @@ const letters = word.length;
 fn lowers_string_index_and_for_of() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const word = "abc";
 const first = word[0];
 let joined = "";
 for (let ch: string of word) {
   joined = joined + ch;
 }
-"#,
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -205,10 +213,10 @@ for (let ch: string of word) {
 fn lowers_math_abs_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const value = -5;
 const positive = Math.abs(value);
-"#,
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -227,12 +235,13 @@ const positive = Math.abs(value);
 fn lowers_math_rounding_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const value = 5.5;
 const floor = Math.floor(value);
 const ceil = Math.ceil(value);
 const round = Math.round(value);
-"#,
+const trunc = Math.trunc(value);
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -242,6 +251,7 @@ const round = Math.round(value);
         NumericRoundOp::Floor,
         NumericRoundOp::Ceil,
         NumericRoundOp::Round,
+        NumericRoundOp::Trunc,
     ] {
         ensure!(
             body.exprs.iter().any(
@@ -254,14 +264,38 @@ const round = Math.round(value);
 }
 
 #[test]
+fn lowers_math_extrema_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const first = 1;
+const second = 2;
+const highest = Math.max(first, second, 3);
+const lowest = Math.min(first, second, -1);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [NumericExtremaOp::Max, NumericExtremaOp::Min] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::NumericExtrema { op, .. } if op == expected)
+        ));
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_string_case_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const word = "Smelt";
 const lower = word.toLowerCase();
 const upper = word.toUpperCase();
-"#,
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -289,21 +323,103 @@ const upper = word.toUpperCase();
 fn lowers_string_trim_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const word = " Smelt ";
 const trimmed = word.trim();
-"#,
+const left = word.trimStart();
+const right = word.trimEnd();
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
+    for expected in [
+        StringTrimSide::Both,
+        StringTrimSide::Start,
+        StringTrimSide::End,
+    ] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::StringTrim { side, .. } if side == expected)
+        ));
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_prefix_suffix_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "Smelt";
+const starts = word.startsWith("Sm");
+const ends = word.endsWith("lt");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [StringAffixOp::StartsWith, StringAffixOp::EndsWith] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringAffix { op, .. } if op == expected)
+            )
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_string_search_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "Smelt";
+const first = word.indexOf("m");
+const last = word.lastIndexOf("t");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [StringSearchOp::Find, StringSearchOp::RFind] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringSearch { op, .. } if op == expected)
+            )
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_math_sqrt_pow_sign() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const value = 4;
+const root = Math.sqrt(value);
+const signed = Math.sign(value);
+const raised = Math.pow(value, 2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [NumericUnaryFuncOp::Sqrt, NumericUnaryFuncOp::Sign] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::NumericUnaryFunc { op, .. } if op == expected)
+        ));
+    }
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::StringTrim { .. }))
+            .any(|expr| matches!(expr.kind, ExprKind::NumericPow { .. }))
     );
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -311,10 +427,10 @@ const trimmed = word.trim();
 fn lowers_string_includes_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const word = "Smelt";
 const has = word.includes("mel");
-"#,
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -333,10 +449,10 @@ const has = word.includes("mel");
 fn lowers_array_includes_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const values: number[] = [1, 2, 3];
 const has = values.includes(2);
-"#,
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -355,10 +471,10 @@ const has = values.includes(2);
 fn lowers_string_split_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        r#"
+        ts!(r#"
 const word = "a,b,c";
 const parts = word.split(",");
-"#,
+"#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -376,7 +492,7 @@ const parts = word.split(",");
 #[test]
 fn rejects_unknown_identifier() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors("console.log(x);", &mut ctx)?;
+    let errors = lowering_errors(ts!("console.log(x);"), &mut ctx)?;
     assert_unsupported_ts(&errors, "unresolved identifier")
 }
 
@@ -384,9 +500,9 @@ fn rejects_unknown_identifier() -> Result<(), String> {
 fn formats_compact_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "let count = 42;
+        ts!("let count = 42;
 console.log(count);
-",
+"),
         &mut ctx,
     )?;
 
@@ -412,12 +528,12 @@ fn normalizes_camel_case() -> Result<(), String> {
 fn lowers_function_declaration_and_direct_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "function add(a: number, b: number): number {
+        ts!("function add(a: number, b: number): number {
   return a + b;
 }
 const result = add(2, 3);
 console.log(result);
-",
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -433,7 +549,7 @@ console.log(result);
 fn lowers_if_else_while_and_for_of_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "let count = 0;
+        ts!("let count = 0;
 if (count < 10) {
   console.log(count);
 } else {
@@ -445,7 +561,7 @@ while (count < 10) {
 for (let item: number of count) {
   continue;
 }
-",
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -474,14 +590,14 @@ for (let item: number of count) {
 fn lowers_try_catch_finally_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "try {
+        ts!("try {
   throw 'x';
 } catch (error) {
   console.log(error);
 } finally {
   console.log('done');
 }
-",
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -532,11 +648,11 @@ fn lowers_try_catch_finally_to_hir() -> Result<(), String> {
 fn rejects_missing_implemented_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "interface Named { name: string; }
+        ts!("interface Named { name: string; }
 class User implements Named {
   constructor() {}
 }
-",
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "field `name`")
@@ -546,11 +662,11 @@ class User implements Named {
 fn rejects_implemented_method_signature_mismatch() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "interface Named { label(prefix: string): string; }
+        ts!("interface Named { label(prefix: string): string; }
 class User implements Named {
   label(prefix: number): string { return \"x\"; }
 }
-",
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "mismatched signature")
@@ -560,7 +676,7 @@ class User implements Named {
 fn lowers_interface_inheritance_into_shape_requirements() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        "interface Entity { id: string; }
+        ts!("interface Entity { id: string; }
 interface Named extends Entity { name: string; }
 class User implements Named {
   id: string;
@@ -570,7 +686,7 @@ class User implements Named {
     this.name = name;
   }
 }
-",
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -580,7 +696,7 @@ class User implements Named {
 fn rejects_missing_inherited_interface_field() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "interface Entity { id: string; }
+        ts!("interface Entity { id: string; }
 interface Named extends Entity { name: string; }
 class User implements Named {
   name: string;
@@ -588,7 +704,7 @@ class User implements Named {
     this.name = name;
   }
 }
-",
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "field `id`")
@@ -598,14 +714,14 @@ class User implements Named {
 fn lowers_literal_computed_property_names() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        "interface Entity { [\"id\"]: string; }
+        ts!("interface Entity { [\"id\"]: string; }
 class User implements Entity {
   [\"id\"]: string;
   constructor(id: string) {
     this.id = id;
   }
 }
-",
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -615,12 +731,12 @@ class User implements Entity {
 fn rejects_dynamic_computed_property_names() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "const key = \"id\";
+        ts!("const key = \"id\";
 class User {
   [key]: string;
   constructor() {}
 }
-",
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "dynamic computed property")
@@ -630,11 +746,11 @@ class User {
 fn optional_interface_fields_may_be_absent() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        "interface Named { name?: string; }
+        ts!("interface Named { name?: string; }
 class User implements Named {
   constructor() {}
 }
-",
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -644,14 +760,14 @@ class User implements Named {
 fn required_fields_satisfy_optional_interface_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        "interface Named { name?: string; }
+        ts!("interface Named { name?: string; }
 class User implements Named {
   name: string;
   constructor(name: string) {
     this.name = name;
   }
 }
-",
+"),
         &mut ctx,
     )?;
     Ok(())
@@ -661,11 +777,11 @@ class User implements Named {
 fn rejects_optional_class_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "class User {
+        ts!("class User {
   name?: string;
   constructor() {}
 }
-",
+"),
         &mut ctx,
     )?;
     assert_unsupported_ts(&errors, "optional class fields")
@@ -675,23 +791,23 @@ fn rejects_optional_class_fields() -> Result<(), String> {
 fn rejects_generic_classes_and_interfaces() -> Result<(), String> {
     let mut class_ctx = HirCtx::new();
     let class_errors = lowering_errors(
-        "class Box<T> {
+        ts!("class Box<T> {
   value: T;
   constructor(value: T) {
     this.value = value;
   }
 }
-",
+"),
         &mut class_ctx,
     )?;
     assert_unsupported_ts(&class_errors, "generic classes")?;
 
     let mut interface_ctx = HirCtx::new();
     let interface_errors = lowering_errors(
-        "interface Box<T> {
+        ts!("interface Box<T> {
   value: T;
 }
-",
+"),
         &mut interface_ctx,
     )?;
     assert_unsupported_ts(&interface_errors, "generic interfaces")
@@ -701,21 +817,21 @@ fn rejects_generic_classes_and_interfaces() -> Result<(), String> {
 fn rejects_static_members() -> Result<(), String> {
     let mut field_ctx = HirCtx::new();
     let field_errors = lowering_errors(
-        "class User {
+        ts!("class User {
   static role: string;
   constructor() {}
 }
-",
+"),
         &mut field_ctx,
     )?;
     assert_unsupported_ts(&field_errors, "static fields")?;
 
     let mut method_ctx = HirCtx::new();
     let method_errors = lowering_errors(
-        "class User {
+        ts!("class User {
   static role(): string { return \"admin\"; }
 }
-",
+"),
         &mut method_ctx,
     )?;
     assert_unsupported_ts(&method_errors, "static methods")
@@ -725,31 +841,31 @@ fn rejects_static_members() -> Result<(), String> {
 fn rejects_getters_setters_decorators_and_abstract_classes() -> Result<(), String> {
     let mut getter_ctx = HirCtx::new();
     let getter_errors = lowering_errors(
-        "class User {
+        ts!("class User {
   get name(): string { return \"Ada\"; }
 }
-",
+"),
         &mut getter_ctx,
     )?;
     assert_unsupported_ts(&getter_errors, "getters and setters")?;
 
     let mut decorator_ctx = HirCtx::new();
     let decorator_errors = lowering_errors(
-        "@sealed
+        ts!("@sealed
 class User {
   constructor() {}
 }
-",
+"),
         &mut decorator_ctx,
     )?;
     assert_unsupported_ts(&decorator_errors, "decorators")?;
 
     let mut abstract_ctx = HirCtx::new();
     let abstract_errors = lowering_errors(
-        "abstract class User {
+        ts!("abstract class User {
   abstract name(): string;
 }
-",
+"),
         &mut abstract_ctx,
     )?;
     assert_unsupported_ts(&abstract_errors, "abstract classes")
@@ -759,7 +875,8 @@ class User {
 fn lowers_literal_switch_to_hir_match() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "function label(status: \"pending\" | \"approved\" | \"rejected\"): string {
+        ts!(
+            "function label(status: \"pending\" | \"approved\" | \"rejected\"): string {
   switch (status) {
     case \"pending\":
       return \"Waiting\";
@@ -771,7 +888,8 @@ fn lowers_literal_switch_to_hir_match() -> Result<(), String> {
 }
 const result = label(\"approved\");
 console.log(result);
-",
+"
+        ),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -795,10 +913,10 @@ console.log(result);
 fn rejects_coercive_equality() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "function same(a: number, b: number): boolean {
+        ts!("function same(a: number, b: number): boolean {
   return a == b;
 }
-",
+"),
         &mut ctx,
     )?;
 
@@ -809,11 +927,11 @@ fn rejects_coercive_equality() -> Result<(), String> {
 fn rejects_untyped_for_of_binding() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "let values = 1;
+        ts!("let values = 1;
 for (let item of values) {
   continue;
 }
-",
+"),
         &mut ctx,
     )?;
 
@@ -824,14 +942,14 @@ for (let item of values) {
 fn lowers_async_functions_and_await_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "async function load(value: number): Promise<number> {
+        ts!("async function load(value: number): Promise<number> {
   return value;
 }
 
 async function main(): Promise<number> {
   return await load(1);
 }
-",
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -865,14 +983,14 @@ async function main(): Promise<number> {
 fn lowers_promise_all_to_async_runtime_op() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
-        "async function lift(value: number): Promise<number> {
+        ts!("async function lift(value: number): Promise<number> {
   return value;
 }
 
 async function main(): Promise<[number, number]> {
   return await Promise.all([lift(1), lift(2)]);
 }
-",
+"),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
@@ -895,7 +1013,7 @@ async function main(): Promise<[number, number]> {
 fn lowers_promise_race_all_settled_and_timer_shim() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
-        "async function lift(value: number): Promise<number> {
+        ts!("async function lift(value: number): Promise<number> {
   await setTimeout(0);
   return value;
 }
@@ -907,9 +1025,35 @@ async function race(): Promise<number> {
 async function settled(): Promise<[number, number]> {
   return await Promise.allSettled([lift(1), lift(2)]);
 }
-",
+"),
         &mut ctx,
     )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_fetch_to_async_http_get_text() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("async function load(): Promise<string> {
+  return await fetch(\"https://example.com\");
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let load = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, load)?;
+
+    ensure!(body.exprs.iter().any(|expr| {
+        matches!(
+            expr.kind,
+            ExprKind::AsyncOp {
+                op: smelt_hir::AsyncOp::HttpGetText,
+                ..
+            }
+        )
+    }));
     Ok(())
 }
 
@@ -917,10 +1061,10 @@ async function settled(): Promise<[number, number]> {
 fn rejects_await_outside_async_function() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "function read(): number {
+        ts!("function read(): number {
   return await 1;
 }
-",
+"),
         &mut ctx,
     )?;
 
@@ -936,10 +1080,10 @@ fn rejects_await_outside_async_function() -> Result<(), String> {
 fn rejects_async_functions_without_promise_return_type() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "async function load(): number {
+        ts!("async function load(): number {
   return 1;
 }
-",
+"),
         &mut ctx,
     )?;
 
@@ -950,7 +1094,8 @@ fn rejects_async_functions_without_promise_return_type() -> Result<(), String> {
 fn rejects_switch_fallthrough_until_it_is_modeled() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
-        "function label(status: \"pending\" | \"approved\"): string {
+        ts!(
+            "function label(status: \"pending\" | \"approved\"): string {
   switch (status) {
     case \"pending\":
       const waiting = \"waiting\";
@@ -958,7 +1103,8 @@ fn rejects_switch_fallthrough_until_it_is_modeled() -> Result<(), String> {
       return \"Approved\";
   }
 }
-",
+"
+        ),
         &mut ctx,
     )?;
 
@@ -975,7 +1121,7 @@ fn rejects_switch_fallthrough_until_it_is_modeled() -> Result<(), String> {
 fn lowers_template_literal_to_string_concat() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let _module_id = lower_ok(
-        "const name: string = \"world\";\nconst msg: string = `Hello ${name}!`;",
+        ts!("const name: string = \"world\";\nconst msg: string = `Hello ${name}!`;"),
         &mut ctx,
     )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
@@ -986,7 +1132,7 @@ fn lowers_template_literal_to_string_concat() -> Result<(), String> {
 fn accepts_import_and_export_declarations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let _module_id = lower_ok(
-        "import { foo } from './foo';\nexport function bar(): number { return 1; }",
+        ts!("import { foo } from './foo';\nexport function bar(): number { return 1; }"),
         &mut ctx,
     )?;
     Ok(())

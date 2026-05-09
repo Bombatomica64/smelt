@@ -11,4 +11,5 @@ smelt-mir = { path = "../smelt-mir" }
 smelt-hir = { path = "../smelt-hir" }
 
 [dev-dependencies]
+smelt-frontend-py = { path = "../smelt-frontend-py" }
 smelt-frontend-ts = { path = "../smelt-frontend-ts" }

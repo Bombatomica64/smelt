@@ -19,7 +19,8 @@ use oxc::syntax::operator::{
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, Expr, ExprKind, Field, FileId, Function, FunctionOwner, Import,
     Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId,
-    NumericRoundOp, Param, ParamSig, Pattern, SourceFile, Span, Stmt, StringCaseOp, Type, UnaryOp,
+    NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile,
+    Span, Stmt, StringAffixOp, StringCaseOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
     Visibility,
 };
 
@@ -1672,16 +1673,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.timer_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.fetch_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.math_abs_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.math_round_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.math_extrema_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.math_unary_func_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.math_pow_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_case_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.string_trim_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.string_affix_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.string_search_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.list_contains_call(call, body)? {
@@ -2029,7 +2048,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         )
                     })?
             }
-            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor => {
+            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor | AsyncOp::HttpGetText => {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     format!("Promise.{op:?} is not lowered yet"),
@@ -2081,6 +2100,49 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
+    /// Lower TypeScript `fetch(url)` into an async HTTP GET text operation.
+    fn fetch_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "fetch" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "fetch lowering supports fetch(url) with one string argument",
+            ));
+        }
+        let Some(url_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "fetch lowering supports fetch(url) with one string argument",
+            ));
+        };
+        let url = self.argument(url_argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "fetch requires a string URL argument",
+            ));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let ty = self.ctx.krate.types.intern(Type::Future(string_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::AsyncOp {
+                op: AsyncOp::HttpGetText,
+                args: vec![url],
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Math.abs(...)` calls.
     fn math_abs_call(
         &mut self,
@@ -2123,7 +2185,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
-    /// Lower direct TypeScript `Math.floor`, `Math.ceil`, and `Math.round` calls.
+    /// Lower direct TypeScript numeric rounding calls.
     fn math_round_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2142,6 +2204,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             "floor" => NumericRoundOp::Floor,
             "ceil" => NumericRoundOp::Ceil,
             "round" => NumericRoundOp::Round,
+            "trunc" => NumericRoundOp::Trunc,
             _ => return Ok(None),
         };
         if call.arguments.len() != 1 {
@@ -2173,6 +2236,147 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericRound { op, operand },
             ty: operand_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Math.max` and `Math.min` calls.
+    fn math_extrema_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" {
+            return Ok(None);
+        }
+        let op = match member.property.name.as_str() {
+            "max" => NumericExtremaOp::Max,
+            "min" => NumericExtremaOp::Min,
+            _ => return Ok(None),
+        };
+        let args = call
+            .arguments
+            .iter()
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        if args
+            .iter()
+            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("Math.{} requires number arguments", member.property.name),
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericExtrema { op, args },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Math.sqrt` and `Math.sign` calls.
+    fn math_unary_func_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" {
+            return Ok(None);
+        }
+        let op = match member.property.name.as_str() {
+            "sqrt" => NumericUnaryFuncOp::Sqrt,
+            "sign" => NumericUnaryFuncOp::Sign,
+            _ => return Ok(None),
+        };
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "Math.{} requires exactly one argument",
+                    member.property.name
+                ),
+            ));
+        }
+        let Some(argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "Math.{} requires exactly one argument",
+                    member.property.name
+                ),
+            ));
+        };
+        let operand = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("Math.{} requires a number argument", member.property.name),
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericUnaryFunc { op, operand },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Math.pow` calls.
+    fn math_pow_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" || member.property.name != "pow" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 2 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.pow requires exactly two arguments",
+            ));
+        }
+        let [base_argument, exponent_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.pow requires exactly two arguments",
+            ));
+        };
+        let base = self.argument(base_argument, body)?;
+        let exponent = self.argument(exponent_argument, body)?;
+        if [base, exponent]
+            .iter()
+            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.pow requires number arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericPow { base, exponent },
+            ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
@@ -2218,9 +2422,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "trim" {
-            return Ok(None);
-        }
+        let side = match member.property.name.as_str() {
+            "trim" => StringTrimSide::Both,
+            "trimStart" => StringTrimSide::Start,
+            "trimEnd" => StringTrimSide::End,
+            _ => return Ok(None),
+        };
         if !call.arguments.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -2237,7 +2444,103 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::StringTrim { operand },
+            kind: ExprKind::StringTrim { side, operand },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript string prefix and suffix tests.
+    fn string_affix_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "startsWith" => StringAffixOp::StartsWith,
+            "endsWith" => StringAffixOp::EndsWith,
+            _ => return Ok(None),
+        };
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string prefix/suffix methods require exactly one argument",
+            ));
+        }
+        let haystack = self.expression(&member.object, body)?;
+        let Some(needle_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string prefix/suffix methods require exactly one argument",
+            ));
+        };
+        let needle = self.argument(needle_argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string prefix/suffix methods require string receiver and argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringAffix {
+                op,
+                haystack,
+                needle,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript string search methods.
+    fn string_search_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "indexOf" => StringSearchOp::Find,
+            "lastIndexOf" => StringSearchOp::RFind,
+            _ => return Ok(None),
+        };
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string search optional fromIndex arguments are not supported yet",
+            ));
+        }
+        let haystack = self.expression(&member.object, body)?;
+        let Some(needle_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string search optional fromIndex arguments are not supported yet",
+            ));
+        };
+        let needle = self.argument(needle_argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string search methods require string receiver and argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringSearch {
+                op,
+                haystack,
+                needle,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -2719,6 +3022,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.fetch_call(call, body)? {
+            return Ok(expr);
+        }
         if let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
             && object.name == "console"

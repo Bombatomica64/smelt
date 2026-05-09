@@ -2,12 +2,20 @@
 
 use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
-    AsyncOp, Body, BodyId, ExprKind, FileId, Item, ItemId, Language, Module, ModuleId, Pattern,
-    PatternId, Stmt, StringCaseOp, Symbol, Type,
+    AsyncOp, Body, BodyId, ExprKind, FileId, Item, ItemId, Language, Module, ModuleId,
+    NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Pattern, PatternId, Stmt, StringAffixOp,
+    StringCaseOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
 type TestResult = Result<(), String>;
+
+/// Marks a test fixture string as Python source code.
+macro_rules! py {
+    ($source:literal $(,)?) => {
+        $source
+    };
+}
 
 /// Lowers `source` into HIR and returns the module ID.
 fn lower_module(source: &str, ctx: &mut HirCtx) -> Result<ModuleId, String> {
@@ -103,7 +111,7 @@ fn symbol(ctx: &HirCtx, symbol: Symbol) -> Result<&str, String> {
 #[test]
 fn empty_module_lowers_to_empty_hir() -> TestResult {
     let mut ctx = HirCtx::new();
-    let module_id = lower_module("", &mut ctx)?;
+    let module_id = lower_module(py!(""), &mut ctx)?;
     let module = module(&ctx, module_id)?;
     ensure_eq(
         &module.source.language,
@@ -117,7 +125,7 @@ fn empty_module_lowers_to_empty_hir() -> TestResult {
 #[test]
 fn parse_error_is_reported() -> TestResult {
     let mut ctx = HirCtx::new();
-    let errors = lower_errors("x = \"oops", &mut ctx)?;
+    let errors = lower_errors(py!("x = \"oops"), &mut ctx)?;
     ensure(!errors.is_empty(), "expected parse error")?;
     ensure_eq(
         &first_error(&errors)?.code,
@@ -129,10 +137,10 @@ fn parse_error_is_reported() -> TestResult {
 
 #[test]
 fn simple_function_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 def add(x: int, y: int) -> int:
     return x + y
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -155,13 +163,13 @@ def add(x: int, y: int) -> int:
 
 #[test]
 fn async_function_and_await_lower() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 async def lift(value: int) -> int:
     return value
 
 async def run() -> int:
     return await lift(5)
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -209,13 +217,13 @@ async def run() -> int:
 
 #[test]
 fn await_outside_async_function_is_rejected() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 async def lift(value: int) -> int:
     return value
 
 def run() -> int:
     return await lift(5)
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -229,7 +237,7 @@ def run() -> int:
 
 #[test]
 fn asyncio_gather_and_sleep_lower_to_async_ops() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 import asyncio
 
 async def lift(value: int) -> int:
@@ -238,7 +246,7 @@ async def lift(value: int) -> int:
 
 async def run() -> tuple[int, int]:
     return await asyncio.gather(lift(1), lift(2))
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -293,12 +301,12 @@ async def run() -> tuple[int, int]:
 
 #[test]
 fn lower_level_asyncio_loop_apis_are_rejected() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 import asyncio
 
 def run() -> None:
     asyncio.get_event_loop()
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -312,7 +320,7 @@ def run() -> None:
 
 #[test]
 fn asyncio_task_wait_for_and_runtime_objects_are_classified() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 import asyncio
 
 async def lift(value: int) -> int:
@@ -321,16 +329,16 @@ async def lift(value: int) -> int:
 async def run() -> int:
     task: Awaitable[int] = asyncio.create_task(lift(1))
     return await asyncio.wait_for(task, 10)
-"#;
+"#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
 
-    let queue_source = r#"
+    let queue_source = py!(r#"
 import asyncio
 
 def run() -> None:
     asyncio.Queue()
-"#;
+"#);
     let mut queue_ctx = HirCtx::new();
     let errors = lower_errors(queue_source, &mut queue_ctx)?;
     ensure(
@@ -344,7 +352,7 @@ def run() -> None:
 
 #[test]
 fn annotated_assignment_lowers() -> TestResult {
-    let source = "x: int = 42\n";
+    let source = py!("x: int = 42\n");
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -358,10 +366,10 @@ fn annotated_assignment_lowers() -> TestResult {
 
 #[test]
 fn type_annotations_lowered() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 def process(items: list[str], counts: dict[str, int]) -> bool:
     return True
-"#;
+"#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -369,10 +377,10 @@ def process(items: list[str], counts: dict[str, int]) -> bool:
 
 #[test]
 fn optional_annotation_lowered() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 def find(x: int) -> str | None:
     return None
-"#;
+"#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -380,7 +388,7 @@ def find(x: int) -> str | None:
 
 #[test]
 fn missing_return_annotation_is_error() -> TestResult {
-    let source = "def bad(x: int):\n    return x\n";
+    let source = py!("def bad(x: int):\n    return x\n");
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     ensure_eq(
@@ -393,23 +401,54 @@ fn missing_return_annotation_is_error() -> TestResult {
 
 #[test]
 fn print_call_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 x: int = 1
 print(x)
-"#;
+"#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
 }
 
 #[test]
+fn requests_get_lowers_to_http_get_text() -> TestResult {
+    let source = py!(r#"
+import requests
+
+def load() -> str:
+    return requests.get("https://example.com")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let load_id = module
+        .items
+        .first()
+        .copied()
+        .ok_or_else(|| "expected load function".to_owned())?;
+    let Item::Function(load) = item(&ctx, load_id)? else {
+        return Err("expected function item for load".to_owned());
+    };
+    let load_body_id = load.body.ok_or_else(|| "expected load body".to_owned())?;
+    let load_body = body(&ctx, load_body_id)?;
+
+    ensure(
+        load_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::HttpGetText { .. })),
+        "expected requests.get lowering",
+    )
+}
+
+#[test]
 fn len_call_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 values: list[int] = [1, 2, 3]
 count: int = len(values)
 word: str = "smelt"
 letters: int = len(word)
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -429,10 +468,10 @@ letters: int = len(word)
 
 #[test]
 fn abs_call_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 value: int = -5
 positive: int = abs(value)
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -452,11 +491,11 @@ positive: int = abs(value)
 
 #[test]
 fn string_case_methods_lower() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 word: str = "Smelt"
 lower: str = word.lower()
 upper: str = word.upper()
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -494,10 +533,12 @@ upper: str = word.upper()
 
 #[test]
 fn string_trim_method_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 word: str = " Smelt "
 trimmed: str = word.strip()
-"#;
+left: str = word.lstrip()
+right: str = word.rstrip()
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -506,22 +547,165 @@ trimmed: str = word.strip()
         .ok_or_else(|| "expected module body".to_owned())?;
     let body = body(&ctx, body_id)?;
 
+    for expected in [
+        StringTrimSide::Both,
+        StringTrimSide::Start,
+        StringTrimSide::End,
+    ] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringTrim { side, .. } if side == expected),
+            ),
+            "expected string trim side lowering",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn string_prefix_suffix_methods_lower() -> TestResult {
+    let source = py!(r#"
+word: str = "Smelt"
+starts: bool = word.startswith("Sm")
+ends: bool = word.endswith("lt")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [StringAffixOp::StartsWith, StringAffixOp::EndsWith] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringAffix { op, .. } if op == expected),
+            ),
+            "expected string affix lowering",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn string_search_methods_lower() -> TestResult {
+    let source = py!(r#"
+word: str = "Smelt"
+first: int = word.find("m")
+last: int = word.rfind("t")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [StringSearchOp::Find, StringSearchOp::RFind] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringSearch { op, .. } if op == expected),
+            ),
+            "expected string search lowering",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn math_numeric_functions_lower() -> TestResult {
+    let source = py!(r#"
+import math
+value: float = 4.0
+root: float = math.sqrt(value)
+raised: float = math.pow(value, 2.0)
+whole: int = math.trunc(value)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::NumericUnaryFunc {
+                    op: NumericUnaryFuncOp::Sqrt,
+                    ..
+                }
+            )
+        }),
+        "expected math.sqrt lowering",
+    )?;
     ensure(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::StringTrim { .. })),
-        "expected string trim lowering",
+            .any(|expr| matches!(expr.kind, ExprKind::NumericPow { .. })),
+        "expected math.pow lowering",
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::NumericRound {
+                    op: NumericRoundOp::Trunc,
+                    ..
+                }
+            )
+        }),
+        "expected math.trunc lowering",
     )?;
     Ok(())
 }
 
 #[test]
+fn builtin_min_max_lower() -> TestResult {
+    let source = py!(r#"
+first: int = 1
+second: int = 2
+highest: int = max(first, second)
+lowest: int = min(first, second)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [NumericExtremaOp::Max, NumericExtremaOp::Min] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::NumericExtrema { op, .. } if op == expected),
+            ),
+            "expected Python min/max lowering",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
 fn string_contains_comparison_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 word: str = "Smelt"
 has: bool = "mel" in word
 missing: bool = "xyz" not in word
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -541,11 +725,11 @@ missing: bool = "xyz" not in word
 
 #[test]
 fn list_contains_comparison_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 values: list[int] = [1, 2, 3]
 has: bool = 2 in values
 missing: bool = 4 not in values
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -564,11 +748,69 @@ missing: bool = 4 not in values
 }
 
 #[test]
+fn tuple_contains_comparison_lowers() -> TestResult {
+    let source = py!(r#"
+values: tuple[int, int] = (1, 2)
+has: bool = 2 in values
+missing: bool = 4 not in values
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure_eq(
+        &body
+            .exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::TupleContains { .. }))
+            .count(),
+        &2,
+        "tuple contains count",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn dict_key_contains_comparison_lowers() -> TestResult {
+    let source = py!(r#"
+values: dict[str, int] = {"a": 1}
+has: bool = "a" in values
+missing: bool = "b" not in values
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure_eq(
+        &body
+            .exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+            .count(),
+        &2,
+        "dict key contains count",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn string_split_method_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 word: str = "a,b,c"
 parts: list[str] = word.split(",")
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -588,9 +830,9 @@ parts: list[str] = word.split(",")
 
 #[test]
 fn tuple_destructuring_assignment_lowers_to_pattern() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 left, right = (1, "two")
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -620,11 +862,11 @@ left, right = (1, "two")
 
 #[test]
 fn for_tuple_destructuring_target_lowers_to_pattern() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 pairs: list[tuple[int, str]] = [(1, "one")]
 for key, label in pairs:
     print(label)
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -650,14 +892,14 @@ for key, label in pairs:
 
 #[test]
 fn plain_class_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 class Point:
     x: int
     y: int
     def __init__(self, x: int, y: int) -> None:
         self.x = x
         self.y = y
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -682,14 +924,14 @@ class Point:
 
 #[test]
 fn dataclass_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 from dataclasses import dataclass
 
 @dataclass
 class Point:
     x: int
     y: int
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -715,11 +957,11 @@ class Point:
 
 #[test]
 fn frozen_dataclass_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 @dataclass(frozen=True)
 class Immutable:
     value: int
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
     let module = module(&ctx, module_id)?;
@@ -741,14 +983,14 @@ class Immutable:
 
 #[test]
 fn class_constructor_call_lowers() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 class Dog:
     name: str
     def __init__(self, name: str) -> None:
         self.name = name
 
 d: Dog = Dog("Rex")
-"#;
+"#);
     let mut ctx = HirCtx::new();
     lower_module(source, &mut ctx)?;
     Ok(())
@@ -756,10 +998,10 @@ d: Dog = Dog("Rex")
 
 #[test]
 fn django_model_rejected() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 class MyModel(models.Model):
     name: str
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -769,10 +1011,10 @@ class MyModel(models.Model):
 
 #[test]
 fn metaclass_rejected() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 class Meta(metaclass=ABCMeta):
     pass
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -782,10 +1024,10 @@ class Meta(metaclass=ABCMeta):
 
 #[test]
 fn multiple_inheritance_rejected() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 class C(A, B):
     pass
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
@@ -795,11 +1037,11 @@ class C(A, B):
 
 #[test]
 fn unknown_decorator_rejected() -> TestResult {
-    let source = r#"
+    let source = py!(r#"
 @some_decorator
 class Foo:
     x: int
-"#;
+"#);
     let mut ctx = HirCtx::new();
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
