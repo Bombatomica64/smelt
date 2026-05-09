@@ -1709,6 +1709,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_repeat_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.string_char_at_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.list_contains_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2626,6 +2629,42 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::StringRepeat { operand, count },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `String.prototype.charAt`.
+    fn string_char_at_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "charAt" {
+            return Ok(None);
+        }
+        let [index_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string charAt requires exactly one number argument",
+            ));
+        };
+        let operand = self.expression(&member.object, body)?;
+        let index = self.argument(index_argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, index)) != Some(&Type::Float)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string charAt requires a string receiver and number argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringCharAt { operand, index },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

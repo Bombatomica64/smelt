@@ -1171,6 +1171,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } => self.string_remove_affix_text(*op, haystack, affix),
             Rvalue::StringRepeat { operand, count } => self.string_repeat_text(operand, count),
             Rvalue::StringPredicate { op, operand } => self.string_predicate_text(*op, operand),
+            Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
@@ -1637,6 +1638,26 @@ impl<'mir> FunctionEmitter<'mir> {
         let operand_text = self.operand_text(operand)?;
         Ok(format!(
             "!{operand_text}.is_empty() && {operand_text}.chars().all(char::{method_name})"
+        ))
+    }
+
+    /// Converts a string character lookup operation to Rust text.
+    fn string_char_at_text(&self, operand: &Operand, index: &Operand) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(index)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "string charAt requires a string receiver and numeric index",
+            ));
+        }
+        Ok(format!(
+            "{}.chars().nth({} as usize).map(|ch| ch.to_string()).unwrap_or_default()",
+            self.operand_text(operand)?,
+            self.operand_text(index)?
         ))
     }
 
@@ -2540,6 +2561,22 @@ const repeated = word.repeat(3);
         );
 
         assert!(source.contains(".repeat(3.0 as usize);"));
+    }
+
+    #[test]
+    fn emits_string_char_at_method() {
+        let source = source_for(
+            r#"
+const word = "Smelt";
+const char = word.charAt(1);
+"#,
+        );
+
+        assert!(
+            source.contains(
+                ".chars().nth(1.0 as usize).map(|ch| ch.to_string()).unwrap_or_default();"
+            )
+        );
     }
 
     #[test]

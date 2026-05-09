@@ -407,6 +407,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_{op_name} {}", expr_ref(*operand))
         }
+        ExprKind::StringCharAt { operand, index } => {
+            format!(
+                "string_char_at {}, {}",
+                expr_ref(*operand),
+                expr_ref(*index)
+            )
+        }
         ExprKind::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",
@@ -510,6 +517,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringRemoveAffix { .. }
         | ExprKind::StringRepeat { .. }
         | ExprKind::StringPredicate { .. }
+        | ExprKind::StringCharAt { .. }
         | ExprKind::StringContains { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::TupleContains { .. }

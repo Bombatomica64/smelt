@@ -297,6 +297,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("string_{op_text} {}", operand_text(operand))
         }
+        Rvalue::StringCharAt { operand, index } => {
+            format!(
+                "string_char_at {}, {}",
+                operand_text(operand),
+                operand_text(index)
+            )
+        }
         Rvalue::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",

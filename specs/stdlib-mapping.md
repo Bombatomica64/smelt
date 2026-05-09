@@ -18,6 +18,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `s.lastIndexOf(x)` | `StringSearch::RFind` | `StringSearch::RFind` | `s.rfind(&x).map_or(-1.0, ...)` | One string argument | Optional `fromIndex` | Returns Rust byte offsets for now, not JS UTF-16 code-unit indexes. |
 | `s.replace(x, y)` | `StringReplace::First` | `StringReplace::First` | `s.replacen(&x, &y, 1)` | Two string arguments | Regex patterns and replacement callbacks | JS replacement-substitution patterns like `$1` are not modeled. |
 | `s.repeat(n)` | `StringRepeat` | `StringRepeat` | `s.repeat(n as usize)` | One number argument | Negative, infinite, or range-error parity | Count is cast directly to `usize`; JS range/error semantics are deferred. |
+| `s.charAt(n)` | `StringCharAt` | `StringCharAt` | `s.chars().nth(n as usize).map(...).unwrap_or_default()` | One number argument | Default index coercion, negative/infinite edge parity | Uses Rust Unicode scalar indexes, not JS UTF-16 code-unit indexes. |
 | `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Regex separators and limit | Rust split semantics are used. |
 
 ## Python Strings
