@@ -1215,10 +1215,12 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::ListUnshift { list, items } => self.list_unshift_text(list, items, dest_ty),
             Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
+            Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
+            Rvalue::DictClear { dict } => self.collection_clear_text(dict, dest_ty, "dict"),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
                 haystack,
@@ -2054,6 +2056,39 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a collection clear operation to Rust text.
+    fn collection_clear_text(
+        &self,
+        collection: &Operand,
+        dest_ty: TypeId,
+        collection_name: &str,
+    ) -> Result<String, EmitError> {
+        let collection_ty = self.operand_ty(collection)?;
+        let expected_collection = match collection_name {
+            "list" => matches!(self.mir.types.get(collection_ty), Some(Type::List(_))),
+            "dict" => matches!(self.mir.types.get(collection_ty), Some(Type::Dict(_, _))),
+            _ => false,
+        };
+        if !expected_collection {
+            return Err(EmitError::new(format!(
+                "{collection_name} clear receiver has the wrong type"
+            )));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new(format!(
+                "{collection_name} clear destination must be None"
+            )));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = collection
+        else {
+            return Err(EmitError::new(format!(
+                "{collection_name} clear receiver must be a mutable local for now"
+            )));
+        };
+        let collection_text = self.local_name(*local)?;
+        Ok(format!("{{ {collection_text}.clear(); () }}"))
+    }
+
     /// Validates that an optional slice index is numeric.
     fn validate_optional_numeric_index(
         &self,
@@ -2649,8 +2684,10 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     Rvalue::ListPush { list, .. }
                     | Rvalue::ListUnshift { list, .. }
                     | Rvalue::ListReverse { list }
+                    | Rvalue::ListClear { list }
                     | Rvalue::ListPop { list }
-                    | Rvalue::ListShift { list },
+                    | Rvalue::ListShift { list }
+                    | Rvalue::DictClear { dict: list },
                 ..
             } = statement
                 && let Some(local) = operand_local(list)
@@ -3092,6 +3129,22 @@ item: int = values.pop()
 
         assert!(source.contains("let mut"));
         assert!(source.contains(".pop().expect(\"pop from empty list\")"));
+    }
+
+    #[test]
+    fn emits_python_collection_clear_methods() {
+        let source = source_for_py(
+            r#"
+values: list[int] = [1, 2]
+list_result: None = values.clear()
+mapping: dict[str, int] = {"a": 1}
+dict_result: None = mapping.clear()
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.matches(".clear();").count() >= 2);
+        assert!(source.matches("()").count() >= 2);
     }
 
     #[test]

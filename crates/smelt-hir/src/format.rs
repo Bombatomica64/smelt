@@ -479,6 +479,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .join(", ")
         ),
         ExprKind::ListReverse { list } => format!("list_reverse {}", expr_ref(*list)),
+        ExprKind::ListClear { list } => format!("list_clear {}", expr_ref(*list)),
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),
         ExprKind::TupleContains { tuple, item } => {
@@ -487,6 +488,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DictContainsKey { dict, key } => {
             format!("dict_contains_key {}, {}", expr_ref(*dict), expr_ref(*key))
         }
+        ExprKind::DictClear { dict } => format!("dict_clear {}", expr_ref(*dict)),
         ExprKind::DictProjection { op, dict } => {
             let op_name = match op {
                 crate::expr::DictProjectionOp::Keys => "keys",
@@ -598,10 +600,12 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListPush { .. }
         | ExprKind::ListUnshift { .. }
         | ExprKind::ListReverse { .. }
+        | ExprKind::ListClear { .. }
         | ExprKind::ListPop { .. }
         | ExprKind::ListShift { .. }
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
+        | ExprKind::DictClear { .. }
         | ExprKind::DictProjection { .. }
         | ExprKind::StringSplit { .. }
         | ExprKind::StringJoin { .. }

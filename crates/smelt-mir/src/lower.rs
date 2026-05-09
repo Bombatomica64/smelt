@@ -1294,6 +1294,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListClear { list } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListClear { list: list_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListPop { list } => {
                 let list_operand = self.lower_expr(*list)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1335,6 +1344,15 @@ impl<'hir> LoweringCtx<'hir> {
                         dict: dict_operand,
                         key: key_operand,
                     },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DictClear { dict } => {
+                let dict_operand = self.lower_expr(*dict)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictClear { dict: dict_operand },
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -1614,10 +1632,12 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListPush { .. }
             | ExprKind::ListUnshift { .. }
             | ExprKind::ListReverse { .. }
+            | ExprKind::ListClear { .. }
             | ExprKind::ListPop { .. }
             | ExprKind::ListShift { .. }
             | ExprKind::TupleContains { .. }
             | ExprKind::DictContainsKey { .. }
+            | ExprKind::DictClear { .. }
             | ExprKind::DictProjection { .. }
             | ExprKind::StringSplit { .. }
             | ExprKind::StringJoin { .. }

@@ -96,6 +96,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `array.push(x)` | `ListPush` | `ListPush` | `{ array.push(x); array.len() as f64 }` | One item matching element type on a local array | Multiple args, mismatched item type, non-local receiver | JS returns the new length; generated Rust mutates the local `Vec`. |
 | `array.unshift(...items)` | `ListUnshift` | `ListUnshift` | `{ array.insert(0, item_n); ...; array.len() as f64 }` | Zero or more same-typed items on a local array | Mismatched item type, non-local receiver | Items are inserted in reverse evaluation order after arguments are evaluated, preserving final JS order; front insertion on a Rust `Vec` is linear time. |
 | `list.append(x)` | `ListPush` | `ListPush` | `{ list.push(x); () }` | One item matching element type | Multiple args, mismatched item type | Python returns `None`; generated Rust mutates the local `Vec`. |
+| `list.clear()` | `ListClear` | `ListClear` | `{ list.clear(); () }` | No arguments | Arguments | Python returns `None`; generated Rust mutates the local `Vec`. |
 | `array.pop()` | `ListPop` | `ListPop` | `array.pop()` | No args | Arguments | TypeScript `undefined` on empty arrays is represented as `Option<T>`. |
 | `array.shift()` | `ListShift` | `ListShift` | `if array.is_empty() { None } else { Some(array.remove(0)) }` | No args | Arguments | TypeScript `undefined` on empty arrays is represented as `Option<T>`; Rust removal from the front of a `Vec` is linear time. |
 | `list.pop()` | `ListPop` | `ListPop` | `list.pop().expect("pop from empty list")` | No args | Index argument | Empty-list `IndexError` is modeled as a generated panic for now. |
@@ -119,3 +120,4 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `dict.keys()` | `DictProjection::Keys` | `DictProjection::Keys` | `dict.keys().cloned().collect()` | No arguments | View object behavior | Returns a list, not a live Python view. |
 | `dict.values()` | `DictProjection::Values` | `DictProjection::Values` | `dict.values().cloned().collect()` | No arguments | View object behavior | Returns a list, not a live Python view. |
 | `dict.items()` | `DictProjection::Entries` | `DictProjection::Entries` | `dict.iter().map(...).collect()` | No arguments | View object behavior | Returns a list of tuples, not a live Python view. |
+| `dict.clear()` | `DictClear` | `DictClear` | `{ dict.clear(); () }` | No arguments | Arguments | Python returns `None`; generated Rust mutates the local `HashMap`. |

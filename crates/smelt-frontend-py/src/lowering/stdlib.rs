@@ -7,6 +7,39 @@ use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower Python `list.clear()` and `dict.clear()` calls.
+    pub(super) fn collection_clear_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "clear" {
+            return Ok(None);
+        }
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "collection clear requires no arguments",
+            ));
+        }
+        let collection = self.expression(&attr.value, body)?;
+        let collection_ty = Self::expr_ty(body, collection);
+        let kind = match self.ctx.krate.types.get(collection_ty) {
+            Some(Type::List(_)) => ExprKind::ListClear { list: collection },
+            Some(Type::Dict(_, _)) => ExprKind::DictClear { dict: collection },
+            _ => return Ok(None),
+        };
+        let ty = self.intern_type(Type::None);
+        Ok(Some(body.push_expr(HirExpr {
+            kind,
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.pop()` calls without an index argument.
     pub(super) fn list_pop_call_expression(
         &mut self,

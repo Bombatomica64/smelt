@@ -552,6 +552,11 @@ pub enum Rvalue {
         /// List value to mutate.
         list: Operand,
     },
+    /// Clear all items from a list and return `None`.
+    ListClear {
+        /// List value to mutate.
+        list: Operand,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.
@@ -575,6 +580,11 @@ pub enum Rvalue {
         dict: Operand,
         /// Key to search for.
         key: Operand,
+    },
+    /// Clear all entries from a dictionary and return `None`.
+    DictClear {
+        /// Dictionary value to mutate.
+        dict: Operand,
     },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {

@@ -251,6 +251,11 @@ pub enum ExprKind {
         /// List value to mutate.
         list: ExprId,
     },
+    /// Clear all items from a list and return `None`.
+    ListClear {
+        /// List value to mutate.
+        list: ExprId,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.
@@ -274,6 +279,11 @@ pub enum ExprKind {
         dict: ExprId,
         /// The key to search for.
         key: ExprId,
+    },
+    /// Clear all entries from a dictionary and return `None`.
+    DictClear {
+        /// Dictionary value to mutate.
+        dict: ExprId,
     },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {

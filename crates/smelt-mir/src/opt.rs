@@ -236,6 +236,7 @@ fn rewrite_rvalue(
             changed
         }
         Rvalue::ListReverse { list } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListClear { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListPop { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListShift { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::TupleContains { tuple, item } => {
@@ -245,6 +246,7 @@ fn rewrite_rvalue(
         Rvalue::DictContainsKey { dict, key } => {
             rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
         }
+        Rvalue::DictClear { dict } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::DictProjection { dict, .. } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::StringSplit {
             haystack,

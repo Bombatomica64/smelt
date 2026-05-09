@@ -727,6 +727,37 @@ item: int = values.pop()
 }
 
 #[test]
+fn collection_clear_methods_lower() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2]
+list_result: None = values.clear()
+mapping: dict[str, int] = {"a": 1}
+dict_result: None = mapping.clear()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListClear { .. })),
+        "expected list clear lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictClear { .. })),
+        "expected dict clear lowering",
+    )
+}
+
+#[test]
 fn unsupported_list_append_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_type = lower_errors(
@@ -771,6 +802,23 @@ item: int = values.pop(0)
     ensure(
         error.message.contains("index arguments"),
         "expected pop index diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_collection_clear_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.clear(1)
+"#),
+        &mut ctx,
+    )?;
+    let error = first_error(&errors)?;
+    ensure(
+        error.message.contains("requires no arguments"),
+        "expected clear arity diagnostic",
     )
 }
 

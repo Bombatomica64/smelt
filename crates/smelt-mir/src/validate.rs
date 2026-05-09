@@ -225,6 +225,9 @@ fn validate_rvalue_exists(
         Rvalue::ListReverse { list } => {
             validate_operand_exists(function, list, errors);
         }
+        Rvalue::ListClear { list } => {
+            validate_operand_exists(function, list, errors);
+        }
         Rvalue::ListPop { list } => {
             validate_operand_exists(function, list, errors);
         }
@@ -238,6 +241,9 @@ fn validate_rvalue_exists(
         Rvalue::DictContainsKey { dict, key } => {
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, key, errors);
+        }
+        Rvalue::DictClear { dict } => {
+            validate_operand_exists(function, dict, errors);
         }
         Rvalue::DictProjection { dict, .. } => {
             validate_operand_exists(function, dict, errors);
@@ -578,6 +584,9 @@ fn validate_rvalue(
         Rvalue::ListReverse { list } => {
             validate_operand(function, definitions, list, errors);
         }
+        Rvalue::ListClear { list } => {
+            validate_operand(function, definitions, list, errors);
+        }
         Rvalue::ListPop { list } => {
             validate_operand(function, definitions, list, errors);
         }
@@ -591,6 +600,9 @@ fn validate_rvalue(
         Rvalue::DictContainsKey { dict, key } => {
             validate_operand(function, definitions, dict, errors);
             validate_operand(function, definitions, key, errors);
+        }
+        Rvalue::DictClear { dict } => {
+            validate_operand(function, definitions, dict, errors);
         }
         Rvalue::DictProjection { dict, .. } => {
             validate_operand(function, definitions, dict, errors);

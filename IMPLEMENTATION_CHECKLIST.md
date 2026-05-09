@@ -236,11 +236,11 @@ runtime errors.
   - [x] TypeScript `Array.prototype.reverse`.
   - [x] Python `list.append`.
   - [x] Python `list.pop`.
-  - [ ] Python `list.clear`.
+  - [x] Python `list.clear`.
   - [x] Python `list.reverse`.
   - [ ] Python `dict.update`.
   - [ ] Python `dict.pop`.
-  - [ ] Python `dict.clear`.
+  - [x] Python `dict.clear`.
 - [ ] Batch C, collection projection methods:
   - [x] TypeScript `Object.keys`, `Object.values`, and `Object.entries`.
   - [x] Python `dict.keys`, `dict.values`, and `dict.items`.
@@ -423,10 +423,12 @@ runtime errors.
         `reverse`, and `sort`.
     - [x] `list.append`.
     - [x] `list.pop`.
+    - [x] `list.clear`.
     - [x] `list.reverse`.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
     - [x] Dict `keys`, `values`, and `items`.
+    - [x] Dict `clear`.
   - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
         `difference`, and iteration.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.

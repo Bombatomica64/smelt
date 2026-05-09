@@ -384,6 +384,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 .join(", ")
         ),
         Rvalue::ListReverse { list } => format!("list_reverse {}", operand_text(list)),
+        Rvalue::ListClear { list } => format!("list_clear {}", operand_text(list)),
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
         Rvalue::TupleContains { tuple, item } => {
@@ -400,6 +401,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(key)
             )
         }
+        Rvalue::DictClear { dict } => format!("dict_clear {}", operand_text(dict)),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {
                 smelt_hir::DictProjectionOp::Keys => "keys",
