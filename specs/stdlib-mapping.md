@@ -76,10 +76,14 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `abs(x)` | `NumericAbs` | `NumericAbs` | `x.abs()` | One `int` or `float` | Non-numeric or wrong arity | Uses Rust numeric methods. |
 | `math.sqrt(x)` | `NumericUnaryFunc::Sqrt` | `NumericUnaryFunc::Sqrt` | `x.sqrt()` | One numeric argument | Non-numeric or wrong arity | Codegen currently emits direct floating-point Rust. |
 | `math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numeric arguments | Non-numeric or wrong arity | Codegen currently emits direct floating-point Rust. |
+| `math.floor(x)` | `NumericRound::Floor` | `NumericRound::Floor` | `x.floor() as i64` | One float argument | Non-float or wrong arity | Python arbitrary-size integer behavior is not modeled. |
+| `math.ceil(x)` | `NumericRound::Ceil` | `NumericRound::Ceil` | `x.ceil() as i64` | One float argument | Non-float or wrong arity | Python arbitrary-size integer behavior is not modeled. |
 | `math.trunc(x)` | `NumericRound::Trunc` | `NumericRound::Trunc` | `x.trunc() as i64` | One float argument | Non-float or wrong arity | Python arbitrary-size integer behavior is not modeled. |
 | `math.sin/cos/tan/asin/acos/atan(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.sin()` / equivalent | One numeric argument | Non-numeric or wrong arity | Uses Rust `f64` behavior directly. |
 | `math.atan2(y, x)` | `NumericAtan2` | `NumericAtan2` | `y.atan2(x)` | Two numeric arguments | Non-numeric or wrong arity | Uses Rust `f64` behavior directly. |
 | `math.log/log10/log2/exp(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.ln()` / equivalent | One numeric argument | Non-numeric or wrong arity | Uses Rust `f64` behavior directly. |
+| `math.isfinite(x)` | `NumericPredicate::IsFinite` | `NumericPredicate::IsFinite` | `x.is_finite()` | One float argument | Non-float or wrong arity | Python accepts ints too; this direct mapping currently requires float. |
+| `math.isnan(x)` | `NumericPredicate::IsNaN` | `NumericPredicate::IsNaN` | `x.is_nan()` | One float argument | Non-float or wrong arity | Python accepts ints too; this direct mapping currently requires float. |
 | `max(...)` | `NumericExtrema::Max` | `NumericExtrema::Max` | Chained `.max(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
 | `min(...)` | `NumericExtrema::Min` | `NumericExtrema::Min` | Chained `.min(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
 | `sum(values)` | `ListSum` | `ListSum` | `values.iter().copied().sum::<i64/f64>()` | One `list[int]` or `list[float]` argument | Start argument, iterables other than lists, non-numeric lists | Empty numeric lists use Rust's numeric zero identity. |

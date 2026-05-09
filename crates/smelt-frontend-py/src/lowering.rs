@@ -18,10 +18,10 @@ use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, ClassKind, DictProjectionOp, Expr as HirExpr, ExprKind, Field,
     FileId, Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal,
-    LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp,
-    Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId,
-    UnaryOp, Visibility,
+    LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt,
+    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
 };
 
 use crate::helpers::{
@@ -2440,26 +2440,55 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span,
                 })))
             }
-            "trunc" => {
+            "floor" | "ceil" | "trunc" => {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
-                        "math.trunc() requires exactly one argument",
+                        format!("math.{}() requires exactly one argument", attr.attr),
                     ));
                 }
                 let operand = self.expression(&call.arguments.args[0], body)?;
                 if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
                     return Err(SmeltError::unsupported(
                         span,
-                        "math.trunc() requires a float argument",
+                        format!("math.{}() requires a float argument", attr.attr),
                     ));
                 }
+                let op = match attr.attr.as_str() {
+                    "floor" => NumericRoundOp::Floor,
+                    "ceil" => NumericRoundOp::Ceil,
+                    "trunc" => NumericRoundOp::Trunc,
+                    _ => return Ok(None),
+                };
                 let ty = self.intern_type(Type::Int);
                 Ok(Some(body.push_expr(HirExpr {
-                    kind: ExprKind::NumericRound {
-                        op: NumericRoundOp::Trunc,
-                        operand,
-                    },
+                    kind: ExprKind::NumericRound { op, operand },
+                    ty,
+                    span,
+                })))
+            }
+            "isfinite" | "isnan" => {
+                if call.arguments.args.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        format!("math.{}() requires exactly one argument", attr.attr),
+                    ));
+                }
+                let operand = self.expression(&call.arguments.args[0], body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        format!("math.{}() requires a float argument", attr.attr),
+                    ));
+                }
+                let op = match attr.attr.as_str() {
+                    "isfinite" => NumericPredicateOp::IsFinite,
+                    "isnan" => NumericPredicateOp::IsNaN,
+                    _ => return Ok(None),
+                };
+                let ty = self.intern_type(Type::Bool);
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::NumericPredicate { op, operand },
                     ty,
                     span,
                 })))

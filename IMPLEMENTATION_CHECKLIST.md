@@ -456,9 +456,12 @@ runtime errors.
 - [ ] Python standard-library module mappings:
   - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,
         `isnan`, constants `pi`, `e`, and `tau`.
+    - [x] `math.floor`, `ceil`, and `trunc`.
+    - [x] `math.sqrt` and `pow`.
     - [x] `math.sin`, `cos`, `tan`, `asin`, `acos`, and `atan`.
     - [x] `math.atan2`.
     - [x] `math.log`, `log10`, `log2`, and `exp`.
+    - [x] `math.isfinite` and `isnan`.
   - [ ] `json`: `loads`, `dumps`, `load`, and `dump` with `serde_json`.
     - [x] `json.dumps`.
   - [ ] `re`: `compile`, `search`, `match`, `fullmatch`, `sub`, and `split`, or explicitly defer

@@ -643,7 +643,11 @@ value: float = 4.0
 root: float = math.sqrt(value)
 raised: float = math.pow(value, 2.0)
 angle: float = math.atan2(value, 2.0)
+floored: int = math.floor(value)
+ceiled: int = math.ceil(value)
 whole: int = math.trunc(value)
+finite: bool = math.isfinite(value)
+nan_value: bool = math.isnan(value)
 values: tuple[int, int] = (1, 2)
 has_tuple: bool = 2 in values
 mapping: dict[str, int] = {"a": 1}
@@ -654,7 +658,11 @@ has_key: bool = "a" in mapping
     assert!(source.contains(".sqrt();"));
     assert!(source.contains(".powf("));
     assert!(source.contains(".atan2("));
+    assert!(source.contains(".floor() as i64;"));
+    assert!(source.contains(".ceil() as i64;"));
     assert!(source.contains(".trunc() as i64;"));
+    assert!(source.contains(".is_finite();"));
+    assert!(source.contains(".is_nan();"));
     assert!(source.contains(".0 == "));
     assert!(source.contains(".contains_key(&"));
 }

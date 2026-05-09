@@ -3,9 +3,9 @@
 use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language, Module,
-    ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Pattern, PatternId, Stmt,
-    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Symbol, Type,
+    ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Pattern,
+    PatternId, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -1798,7 +1798,11 @@ log10_value: float = math.log10(value)
 log2_value: float = math.log2(value)
 exp_value: float = math.exp(value)
 raised: float = math.pow(value, 2.0)
+floored: int = math.floor(value)
+ceiled: int = math.ceil(value)
 whole: int = math.trunc(value)
+finite: bool = math.isfinite(value)
+nan_value: bool = math.isnan(value)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -1842,18 +1846,26 @@ whole: int = math.trunc(value)
             .any(|expr| matches!(expr.kind, ExprKind::NumericAtan2 { .. })),
         "expected math.atan2 lowering",
     )?;
-    ensure(
-        body.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::NumericRound {
-                    op: NumericRoundOp::Trunc,
-                    ..
-                }
-            )
-        }),
-        "expected math.trunc lowering",
-    )?;
+    for expected in [
+        NumericRoundOp::Floor,
+        NumericRoundOp::Ceil,
+        NumericRoundOp::Trunc,
+    ] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::NumericRound { op, .. } if op == expected),
+            ),
+            "expected math rounding lowering",
+        )?;
+    }
+    for expected in [NumericPredicateOp::IsFinite, NumericPredicateOp::IsNaN] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::NumericPredicate { op, .. } if op == expected),
+            ),
+            "expected math predicate lowering",
+        )?;
+    }
     Ok(())
 }
 
