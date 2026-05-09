@@ -1870,6 +1870,31 @@ nan_value: bool = math.isnan(value)
 }
 
 #[test]
+fn random_module_functions_lower() -> TestResult {
+    let source = py!(r#"
+import random
+sample: float = random.random()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericRandom)),
+        "expected random.random lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn builtin_min_max_lower() -> TestResult {
     let source = py!(r#"
 first: int = 1

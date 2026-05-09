@@ -641,6 +641,7 @@ fn emits_python_math_and_contains_helpers() {
     let source = source_for_py(
         r#"
 import math
+import random
 value: float = 4.0
 root: float = math.sqrt(value)
 raised: float = math.pow(value, 2.0)
@@ -650,6 +651,7 @@ ceiled: int = math.ceil(value)
 whole: int = math.trunc(value)
 finite: bool = math.isfinite(value)
 nan_value: bool = math.isnan(value)
+sample: float = random.random()
 values: tuple[int, int] = (1, 2)
 has_tuple: bool = 2 in values
 mapping: dict[str, int] = {"a": 1}
@@ -665,6 +667,7 @@ has_key: bool = "a" in mapping
     assert!(source.contains(".trunc() as i64;"));
     assert!(source.contains(".is_finite();"));
     assert!(source.contains(".is_nan();"));
+    assert!(source.contains("rand::random::<f64>();"));
     assert!(source.contains(".0 == "));
     assert!(source.contains(".contains_key(&"));
 }

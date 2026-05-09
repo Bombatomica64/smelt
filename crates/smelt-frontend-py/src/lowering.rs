@@ -2165,6 +2165,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.math_module_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.random_module_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.json_dumps_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -2495,6 +2498,36 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Lower direct Python `random.*` numeric calls.
+    fn random_module_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return Ok(None);
+        };
+        if module.id.as_str() != "random" || attr.attr.as_str() != "random" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "random.random() requires no arguments",
+            ));
+        }
+        let ty = self.intern_type(Type::Float);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::NumericRandom,
+            ty,
+            span,
+        })))
     }
 
     /// Lower direct Python `min(...)` and `max(...)` calls.

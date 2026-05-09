@@ -278,6 +278,8 @@ runtime errors.
     - [x] Python `requests.get(url)` maps to blocking Reqwest response text.
   - [ ] `chrono` dependency injection, then TypeScript `Date` and Python `datetime` decision.
   - [ ] RNG dependency/policy, then TypeScript `Math.random` and Python `random` basics.
+    - [x] TypeScript `Math.random`.
+    - [x] Python `random.random`.
 - [ ] Batch G, native/data libraries:
   - [ ] NumPy scalar dtype model.
   - [ ] NumPy one-dimensional array construction and indexing.
@@ -472,6 +474,7 @@ runtime errors.
   - [ ] `os`: environment reads/writes, cwd, mkdir, makedirs, remove, and rename.
   - [ ] `sys`: argv, stdin/stdout/stderr basics.
   - [ ] `random`: random, randint, choice, shuffle with an explicit RNG policy.
+    - [x] `random.random`.
   - [ ] `collections`: `defaultdict`, `Counter`, and `deque`, or targeted rejection.
   - [ ] `itertools`: `chain`, `islice`, `count`, `repeat`, `product`, and `zip_longest`, or
         targeted rejection.
