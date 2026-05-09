@@ -228,6 +228,11 @@ fn validate_rvalue_exists(
                 validate_operand_exists(function, arg, errors);
             }
         }
+        Rvalue::NumericHypot { args } => {
+            for arg in args {
+                validate_operand_exists(function, arg, errors);
+            }
+        }
         Rvalue::NumericPow { base, exponent } => {
             validate_operand_exists(function, base, errors);
             validate_operand_exists(function, exponent, errors);
@@ -527,6 +532,11 @@ fn validate_rvalue(
             validate_operand(function, definitions, url, errors);
         }
         Rvalue::NumericExtrema { args, .. } => {
+            for arg in args {
+                validate_operand(function, definitions, arg, errors);
+            }
+        }
+        Rvalue::NumericHypot { args } => {
             for arg in args {
                 validate_operand(function, definitions, arg, errors);
             }

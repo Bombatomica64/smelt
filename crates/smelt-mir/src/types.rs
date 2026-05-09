@@ -379,6 +379,11 @@ pub enum Rvalue {
         /// Numeric operands to compare.
         args: Vec<Operand>,
     },
+    /// Compute the Euclidean norm of floating-point operands.
+    NumericHypot {
+        /// Numeric operands to combine.
+        args: Vec<Operand>,
+    },
     /// Apply a direct unary numeric function.
     NumericUnaryFunc {
         /// Operation to apply.

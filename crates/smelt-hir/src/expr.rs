@@ -78,6 +78,11 @@ pub enum ExprKind {
         /// Numeric arguments to compare.
         args: Vec<ExprId>,
     },
+    /// Compute the Euclidean norm of numeric values.
+    NumericHypot {
+        /// Numeric arguments to combine.
+        args: Vec<ExprId>,
+    },
     /// Apply a direct unary numeric function.
     NumericUnaryFunc {
         /// Operation to apply to the number.

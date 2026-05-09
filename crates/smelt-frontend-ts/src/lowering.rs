@@ -1685,6 +1685,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.math_extrema_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.math_hypot_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.math_unary_func_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2298,6 +2301,43 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericExtrema { op, args },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Math.hypot` calls.
+    fn math_hypot_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" || member.property.name != "hypot" {
+            return Ok(None);
+        }
+        let args = call
+            .arguments
+            .iter()
+            .map(|argument| self.argument(argument, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        if args
+            .iter()
+            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.hypot requires number arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericHypot { args },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

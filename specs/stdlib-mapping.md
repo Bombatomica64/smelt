@@ -59,6 +59,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `Math.sqrt(x)` | `NumericUnaryFunc::Sqrt` | `NumericUnaryFunc::Sqrt` | `x.sqrt()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
 | `Math.cbrt(x)` | `NumericUnaryFunc::Cbrt` | `NumericUnaryFunc::Cbrt` | `x.cbrt()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
 | `Math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numbers | Non-number or wrong arity | Uses Rust `f64`. |
+| `Math.hypot(...)` | `NumericHypot` | `NumericHypot` | `0.0f64.hypot(x).hypot(y)` | Any number of number args | Non-number args | Uses a left fold over Rust `f64::hypot`; this may not exactly match JS overflow/underflow edge handling. |
 | `Math.sign(x)` | `NumericUnaryFunc::Sign` | `NumericUnaryFunc::Sign` | `x.signum()` | One number | Non-number or wrong arity | JS `-0` and `NaN` edge semantics are not modeled yet. |
 
 ## Python Math And Builtins

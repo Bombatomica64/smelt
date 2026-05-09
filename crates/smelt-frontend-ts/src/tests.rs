@@ -546,6 +546,7 @@ const root = Math.sqrt(value);
 const cubeRoot = Math.cbrt(value);
 const signed = Math.sign(value);
 const raised = Math.pow(value, 2);
+const distance = Math.hypot(value, 3);
 "#),
         &mut ctx,
     )?;
@@ -565,6 +566,11 @@ const raised = Math.pow(value, 2);
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericPow { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericHypot { .. }))
     );
     Ok(())
 }

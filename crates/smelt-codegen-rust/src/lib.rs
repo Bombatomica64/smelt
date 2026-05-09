@@ -1144,6 +1144,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
             Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand, dest_ty),
             Rvalue::NumericExtrema { op, args } => self.numeric_extrema_text(*op, args, dest_ty),
+            Rvalue::NumericHypot { args } => self.numeric_hypot_text(args),
             Rvalue::NumericUnaryFunc { op, operand } => self.numeric_unary_func_text(*op, operand),
             Rvalue::NumericPow { base, exponent } => self.numeric_pow_text(base, exponent),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
@@ -1405,6 +1406,23 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut rendered = self.operand_text(first)?;
         for arg in rest {
             rendered = format!("{rendered}.{method_name}({})", self.operand_text(arg)?);
+        }
+        Ok(rendered)
+    }
+
+    /// Converts a numeric hypot operation to Rust text.
+    fn numeric_hypot_text(&self, args: &[Operand]) -> Result<String, EmitError> {
+        for arg in args {
+            if !matches!(
+                self.mir.types.get(self.operand_ty(arg)?),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(EmitError::new("numeric hypot operands must be numeric"));
+            }
+        }
+        let mut rendered = "0.0f64".to_owned();
+        for arg in args {
+            rendered = format!("{rendered}.hypot({})", self.float_operand_text(arg)?);
         }
         Ok(rendered)
     }
@@ -2715,6 +2733,7 @@ const root = Math.sqrt(value);
 const cubeRoot = Math.cbrt(value);
 const raised = Math.pow(value, 2);
 const signed = Math.sign(value);
+const distance = Math.hypot(value, 3);
 "#,
         );
 
@@ -2722,6 +2741,8 @@ const signed = Math.sign(value);
         assert!(source.contains(".cbrt();"));
         assert!(source.contains(".powf("));
         assert!(source.contains(".signum();"));
+        assert!(source.contains("0.0f64.hypot("));
+        assert!(source.contains(".hypot(3.0);"));
     }
 
     #[test]

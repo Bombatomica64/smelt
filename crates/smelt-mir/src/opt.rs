@@ -233,6 +233,9 @@ fn rewrite_rvalue(
         Rvalue::NumericExtrema { args, .. } => args.iter_mut().fold(false, |changed, arg| {
             rewrite_operand_except(arg, aliases, dest) || changed
         }),
+        Rvalue::NumericHypot { args } => args.iter_mut().fold(false, |changed, arg| {
+            rewrite_operand_except(arg, aliases, dest) || changed
+        }),
         Rvalue::NumericPow { base, exponent } => {
             rewrite_operand_except(base, aliases, dest)
                 | rewrite_operand_except(exponent, aliases, dest)

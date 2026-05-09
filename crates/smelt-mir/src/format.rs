@@ -191,6 +191,10 @@ fn rvalue_text(value: &Rvalue) -> String {
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
             format!("numeric_{op_text} {arg_list}")
         }
+        Rvalue::NumericHypot { args } => {
+            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!("numeric_hypot {arg_list}")
+        }
         Rvalue::NumericUnaryFunc { op, operand } => {
             let op_text = match op {
                 smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",

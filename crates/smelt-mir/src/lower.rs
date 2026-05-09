@@ -970,6 +970,18 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::NumericHypot { args } => {
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericHypot { args: lowered_args },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::NumericUnaryFunc { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1477,6 +1489,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::NumericAbs { .. }
             | ExprKind::NumericRound { .. }
             | ExprKind::NumericExtrema { .. }
+            | ExprKind::NumericHypot { .. }
             | ExprKind::NumericUnaryFunc { .. }
             | ExprKind::NumericPow { .. }
             | ExprKind::StringCase { .. }
