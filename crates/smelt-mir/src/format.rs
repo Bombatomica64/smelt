@@ -405,6 +405,9 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListIndex { list, item } => {
             format!("list_index {}, {}", operand_text(list), operand_text(item))
         }
+        Rvalue::ListRemove { list, item } => {
+            format!("list_remove {}, {}", operand_text(list), operand_text(item))
+        }
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
         Rvalue::TupleContains { tuple, item } => {

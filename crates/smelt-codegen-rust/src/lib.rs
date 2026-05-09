@@ -1223,6 +1223,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListCopy { list } => self.list_copy_text(list, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
+            Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
@@ -2241,6 +2242,37 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a list remove operation to Rust text.
+    fn list_remove_text(
+        &self,
+        list: &Operand,
+        item: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list remove receiver must be a list"));
+        };
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(
+                "list remove item must match the list element type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new("list remove destination must be None"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list remove receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        let item_text = self.operand_text(item)?;
+        Ok(format!(
+            "{{ let remove_index = {list_text}.iter().position(|item| item == &{item_text}).expect(\"list remove missing item\"); {list_text}.remove(remove_index); () }}"
+        ))
+    }
+
     /// Validates that an optional slice index is numeric.
     fn validate_optional_numeric_index(
         &self,
@@ -2976,6 +3008,7 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     | Rvalue::ListUnshift { list, .. }
                     | Rvalue::ListReverse { list }
                     | Rvalue::ListClear { list }
+                    | Rvalue::ListRemove { list, .. }
                     | Rvalue::ListPop { list }
                     | Rvalue::ListShift { list }
                     | Rvalue::DictClear { dict: list }

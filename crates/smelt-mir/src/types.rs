@@ -592,6 +592,13 @@ pub enum Rvalue {
         /// Item to locate.
         item: Operand,
     },
+    /// Remove the first list item equal to a target item and return `None`.
+    ListRemove {
+        /// List value to mutate.
+        list: Operand,
+        /// Item to remove.
+        item: Operand,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

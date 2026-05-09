@@ -291,6 +291,13 @@ pub enum ExprKind {
         /// Item to locate.
         item: ExprId,
     },
+    /// Remove the first list item equal to a target item and return `None`.
+    ListRemove {
+        /// List value to mutate.
+        list: ExprId,
+        /// Item to remove.
+        item: ExprId,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

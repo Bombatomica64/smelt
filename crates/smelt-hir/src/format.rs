@@ -496,6 +496,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListIndex { list, item } => {
             format!("list_index {}, {}", expr_ref(*list), expr_ref(*item))
         }
+        ExprKind::ListRemove { list, item } => {
+            format!("list_remove {}, {}", expr_ref(*list), expr_ref(*item))
+        }
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),
         ExprKind::TupleContains { tuple, item } => {
@@ -638,6 +641,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListCopy { .. }
         | ExprKind::ListCount { .. }
         | ExprKind::ListIndex { .. }
+        | ExprKind::ListRemove { .. }
         | ExprKind::ListPop { .. }
         | ExprKind::ListShift { .. }
         | ExprKind::TupleContains { .. }

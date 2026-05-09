@@ -874,6 +874,29 @@ index: int = values.index(2)
 }
 
 #[test]
+fn list_remove_method_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2, 1]
+result: None = values.remove(2)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListRemove { .. })),
+        "expected list remove lowering",
+    )
+}
+
+#[test]
 fn dict_pop_method_lowers() -> TestResult {
     let source = py!(r#"
 mapping: dict[str, int] = {"a": 1}
@@ -1144,6 +1167,37 @@ index: int = values.index(1, 0)
             .message
             .contains("exactly one item"),
         "expected list index bounds diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_list_remove_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_type = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.remove("x")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_type)?.message.contains("element type"),
+        "expected list remove type diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.remove()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("exactly one item"),
+        "expected list remove arity diagnostic",
     )
 }
 

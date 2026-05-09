@@ -236,6 +236,7 @@ runtime errors.
   - [x] TypeScript `Array.prototype.reverse`.
   - [x] Python `list.append`.
   - [x] Python `list.pop`.
+  - [x] Python `list.remove`.
   - [x] Python `list.clear`.
   - [x] Python `list.reverse`.
   - [x] Python `list.insert`.
@@ -426,6 +427,7 @@ runtime errors.
     - [x] `list.extend`.
     - [x] `list.insert`.
     - [x] `list.pop`.
+    - [x] `list.remove`.
     - [x] `list.clear`.
     - [x] `list.copy`.
     - [x] `list.count`.

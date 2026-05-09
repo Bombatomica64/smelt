@@ -429,6 +429,22 @@ index: int = values.index(2)
 }
 
 #[test]
+fn emits_python_list_remove_method() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2, 1]
+result: None = values.remove(2)
+"#,
+    );
+
+    assert!(source.contains("let mut"));
+    assert!(source.contains(".iter().position(|item| item == &2)"));
+    assert!(source.contains(".expect(\"list remove missing item\")"));
+    assert!(source.contains(".remove(remove_index);"));
+    assert!(source.contains("()"));
+}
+
+#[test]
 fn emits_python_dict_pop_method() {
     let source = source_for_py(
         r#"
