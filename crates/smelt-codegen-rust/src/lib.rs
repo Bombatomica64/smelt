@@ -1105,7 +1105,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
             }
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
+            Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
+            Rvalue::StringTrim(operand) => self.string_trim_text(operand),
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
@@ -1241,6 +1243,28 @@ impl<'mir> FunctionEmitter<'mir> {
             smelt_hir::StringCaseOp::Upper => "to_uppercase",
         };
         Ok(format!("{receiver_text}.{method_name}()"))
+    }
+
+    /// Converts a numeric absolute-value operation to Rust text.
+    fn numeric_abs_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("numeric abs operand must be numeric"));
+        }
+        Ok(format!("{}.abs()", self.operand_text(operand)?))
+    }
+
+    /// Converts a string trim operation to Rust text.
+    fn string_trim_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string trim operand must be a string"));
+        }
+        Ok(format!("{}.trim().to_owned()", self.operand_text(operand)?))
     }
 
     /// Converts a string containment operation to Rust text.
@@ -1928,6 +1952,18 @@ const letters = word.length;
     }
 
     #[test]
+    fn emits_math_abs_call() {
+        let source = source_for(
+            r#"
+const value = -5;
+const positive = Math.abs(value);
+"#,
+        );
+
+        assert!(source.contains(".abs();"));
+    }
+
+    #[test]
     fn emits_string_index_and_for_of() {
         let source = source_for(
             r#"
@@ -1957,6 +1993,18 @@ const upper = word.toUpperCase();
 
         assert!(source.contains(".to_lowercase();"));
         assert!(source.contains(".to_uppercase();"));
+    }
+
+    #[test]
+    fn emits_string_trim_method() {
+        let source = source_for(
+            r#"
+const word = " Smelt ";
+const trimmed = word.trim();
+"#,
+        );
+
+        assert!(source.contains(".trim().to_owned();"));
     }
 
     #[test]

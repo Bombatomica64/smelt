@@ -200,6 +200,28 @@ for (let ch: string of word) {
 }
 
 #[test]
+fn lowers_math_abs_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        r#"
+const value = -5;
+const positive = Math.abs(value);
+"#,
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericAbs { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_string_case_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -227,6 +249,28 @@ const upper = word.toUpperCase();
             ..
         }
     )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_trim_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        r#"
+const word = " Smelt ";
+const trimmed = word.trim();
+"#,
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringTrim { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

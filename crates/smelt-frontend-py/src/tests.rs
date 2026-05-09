@@ -428,6 +428,29 @@ letters: int = len(word)
 }
 
 #[test]
+fn abs_call_lowers() -> TestResult {
+    let source = r#"
+value: int = -5
+positive: int = abs(value)
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body_id = module
+        .body
+        .ok_or_else(|| "expected module body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericAbs { .. })),
+        "expected abs() lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn string_case_methods_lower() -> TestResult {
     let source = r#"
 word: str = "Smelt"
@@ -465,6 +488,29 @@ upper: str = word.upper()
             )
         }),
         "expected upper() lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn string_trim_method_lowers() -> TestResult {
+    let source = r#"
+word: str = " Smelt "
+trimmed: str = word.strip()
+"#;
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body_id = module
+        .body
+        .ok_or_else(|| "expected module body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringTrim { .. })),
+        "expected string trim lowering",
     )?;
     Ok(())
 }

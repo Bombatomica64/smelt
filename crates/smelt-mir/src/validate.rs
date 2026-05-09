@@ -166,9 +166,11 @@ fn validate_rvalue_exists(
                 validate_operand_exists(function, field_value, errors);
             }
         }
-        Rvalue::Len(operand) | Rvalue::StringCase { operand, .. } | Rvalue::Await(operand) => {
-            validate_operand_exists(function, operand, errors);
-        }
+        Rvalue::Len(operand)
+        | Rvalue::NumericAbs(operand)
+        | Rvalue::StringCase { operand, .. }
+        | Rvalue::StringTrim(operand)
+        | Rvalue::Await(operand) => validate_operand_exists(function, operand, errors),
         Rvalue::AsyncOp { args, .. } => {
             for arg in args {
                 validate_operand_exists(function, arg, errors);
@@ -392,9 +394,11 @@ fn validate_rvalue(
                 validate_operand(function, definitions, field_value, errors);
             }
         }
-        Rvalue::Len(operand) | Rvalue::StringCase { operand, .. } | Rvalue::Await(operand) => {
-            validate_operand(function, definitions, operand, errors);
-        }
+        Rvalue::Len(operand)
+        | Rvalue::NumericAbs(operand)
+        | Rvalue::StringCase { operand, .. }
+        | Rvalue::StringTrim(operand)
+        | Rvalue::Await(operand) => validate_operand(function, definitions, operand, errors),
         Rvalue::AsyncOp { args, .. } => {
             for arg in args {
                 validate_operand(function, definitions, arg, errors);

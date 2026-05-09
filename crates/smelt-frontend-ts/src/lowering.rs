@@ -1671,7 +1671,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.timer_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.math_abs_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_case_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.string_trim_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.list_contains_call(call, body)? {
@@ -2071,6 +2077,48 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
+    /// Lower direct TypeScript `Math.abs(...)` calls.
+    fn math_abs_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" || member.property.name != "abs" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.abs requires exactly one argument",
+            ));
+        }
+        let Some(argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.abs requires exactly one argument",
+            ));
+        };
+        let operand = self.argument(argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::Float) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.abs requires a number argument",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericAbs { operand },
+            ty: operand_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript string case methods.
     fn string_case_call(
         &mut self,
@@ -2101,6 +2149,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.span(call.span.start, call.span.end),
             "string case methods require a string receiver and no arguments",
         ))
+    }
+
+    /// Lower direct TypeScript string trimming.
+    fn string_trim_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "trim" {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string trim requires no arguments",
+            ));
+        }
+        let operand = self.expression(&member.object, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string trim requires a string receiver",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringTrim { operand },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower direct TypeScript string containment.

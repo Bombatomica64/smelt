@@ -2067,12 +2067,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.string_case_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_trim_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_split_call_expression(call, body)? {
             return Ok(expr);
         }
 
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {
+            if name.id.as_str() == "abs" {
+                return self.numeric_abs_call_expression(call, body);
+            }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);
                 let none_ty = self.intern_type(Type::None);
@@ -2181,6 +2187,43 @@ impl<'ctx> ModuleBuilder<'ctx> {
         ))
     }
 
+    /// Lower direct Python `abs(...)` calls for numeric values.
+    fn numeric_abs_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(call.range);
+        if call.arguments.args.len() != 1 {
+            return Err(SmeltError::unsupported(
+                span,
+                "abs() requires exactly one argument",
+            ));
+        }
+        let [operand_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "abs() requires exactly one argument",
+            ));
+        };
+        let operand = self.expression(operand_expr, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if !matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(SmeltError::unsupported(
+                span,
+                "abs() is only supported for int and float values",
+            ));
+        }
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::NumericAbs { operand },
+            ty: operand_ty,
+            span,
+        }))
+    }
+
     /// Lower direct Python string case methods.
     fn string_case_call_expression(
         &mut self,
@@ -2213,6 +2256,41 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.intern_type(Type::String);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringCase { op, operand },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python string trimming.
+    fn string_trim_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "strip" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.strip() currently supports no arguments",
+            ));
+        }
+        let operand = self.expression(&attr.value, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.strip() requires a str receiver",
+            ));
+        }
+        let ty = self.intern_type(Type::String);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringTrim { operand },
             ty,
             span,
         })))

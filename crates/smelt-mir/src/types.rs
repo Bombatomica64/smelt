@@ -363,6 +363,8 @@ pub enum Rvalue {
     },
     /// Compute the length of a value.
     Len(Operand),
+    /// Compute the absolute value of an integer or floating-point number.
+    NumericAbs(Operand),
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.
@@ -370,6 +372,8 @@ pub enum Rvalue {
         /// String operand to transform.
         operand: Operand,
     },
+    /// Trim leading and trailing whitespace from a string value.
+    StringTrim(Operand),
     /// Test whether one string contains another string.
     StringContains {
         /// String value to search in.

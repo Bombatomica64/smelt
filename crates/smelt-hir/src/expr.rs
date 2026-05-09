@@ -59,11 +59,21 @@ pub enum ExprKind {
         /// The value whose length is read.
         operand: ExprId,
     },
+    /// Absolute value of an integer or floating-point number.
+    NumericAbs {
+        /// The numeric value whose absolute value is computed.
+        operand: ExprId,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.
         op: StringCaseOp,
         /// The string value being transformed.
+        operand: ExprId,
+    },
+    /// Trim leading and trailing whitespace from a string value.
+    StringTrim {
+        /// The string value being trimmed.
         operand: ExprId,
     },
     /// Test whether one string contains another string.

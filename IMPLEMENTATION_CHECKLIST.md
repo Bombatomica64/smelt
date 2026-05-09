@@ -209,9 +209,13 @@ runtime errors.
     - [x] Python string `in` / `not in`.
     - [x] TypeScript string `split`.
     - [x] Python `str.split(separator)`.
+    - [x] TypeScript string `trim`.
+    - [x] Python `str.strip()`.
   - [ ] TypeScript `Math.*`, `Object.*`, `JSON.*`, `fetch`, and async timers.
+    - [x] TypeScript `Math.abs`.
   - [ ] Python builtins and common stdlib functions that map directly to Rust or external crates.
     - [x] Python list `in` / `not in`.
+    - [x] Python `abs(...)` for int/float values.
 
 ## Phase 6/TypeScript Next Coverage
 

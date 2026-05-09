@@ -934,6 +934,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::NumericAbs { operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericAbs(lowered_operand),
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringCase { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -943,6 +952,15 @@ impl<'hir> LoweringCtx<'hir> {
                         op: *op,
                         operand: lowered_operand,
                     },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::StringTrim { operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringTrim(lowered_operand),
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -1188,7 +1206,9 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::Call { .. }
             | ExprKind::Method { .. }
             | ExprKind::Len { .. }
+            | ExprKind::NumericAbs { .. }
             | ExprKind::StringCase { .. }
+            | ExprKind::StringTrim { .. }
             | ExprKind::StringContains { .. }
             | ExprKind::ListContains { .. }
             | ExprKind::StringSplit { .. }

@@ -176,9 +176,11 @@ fn rewrite_rvalue(
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
             rewrite_operand_except(value, aliases, dest) | changed
         }),
-        Rvalue::Len(operand) | Rvalue::StringCase { operand, .. } | Rvalue::Await(operand) => {
-            rewrite_operand_except(operand, aliases, dest)
-        }
+        Rvalue::Len(operand)
+        | Rvalue::NumericAbs(operand)
+        | Rvalue::StringCase { operand, .. }
+        | Rvalue::StringTrim(operand)
+        | Rvalue::Await(operand) => rewrite_operand_except(operand, aliases, dest),
         Rvalue::AsyncOp { args, .. } => args.iter_mut().fold(false, |changed, arg| {
             rewrite_operand_except(arg, aliases, dest) || changed
         }),

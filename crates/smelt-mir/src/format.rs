@@ -173,6 +173,7 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("struct{} {{{field_list}}}", class.0)
         }
         Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
+        Rvalue::NumericAbs(operand) => format!("numeric_abs {}", operand_text(operand)),
         Rvalue::StringCase { op, operand } => {
             let op_text = match op {
                 smelt_hir::StringCaseOp::Lower => "lower",
@@ -180,6 +181,7 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("string_{op_text} {}", operand_text(operand))
         }
+        Rvalue::StringTrim(operand) => format!("string_trim {}", operand_text(operand)),
         Rvalue::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",
