@@ -19,9 +19,9 @@ use oxc::syntax::operator::{
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
     FunctionOwner, Import, Interface, Item, Language, ListSearchOp, Literal, LocalDecl, MatchArm,
-    MethodSig, Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param,
-    ParamSig, Pattern, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
+    MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile, Span, Stmt, StringAffixOp,
+    StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1688,6 +1688,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.math_hypot_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.number_predicate_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.math_unary_func_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2341,6 +2344,50 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericHypot { args },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Number.isFinite` and `Number.isNaN` calls.
+    fn number_predicate_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Number" {
+            return Ok(None);
+        }
+        let op = match member.property.name.as_str() {
+            "isFinite" => NumericPredicateOp::IsFinite,
+            "isNaN" => NumericPredicateOp::IsNaN,
+            _ => return Ok(None),
+        };
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "Number.{} requires exactly one number argument",
+                    member.property.name
+                ),
+            ));
+        };
+        let operand = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("Number.{} requires a number argument", member.property.name),
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericPredicate { op, operand },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

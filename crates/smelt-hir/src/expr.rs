@@ -83,6 +83,13 @@ pub enum ExprKind {
         /// Numeric arguments to combine.
         args: Vec<ExprId>,
     },
+    /// Test a numeric value with a numeric predicate.
+    NumericPredicate {
+        /// Predicate to apply to the number.
+        op: NumericPredicateOp,
+        /// Numeric operand to test.
+        operand: ExprId,
+    },
     /// Apply a direct unary numeric function.
     NumericUnaryFunc {
         /// Operation to apply to the number.
@@ -338,6 +345,15 @@ pub enum NumericUnaryFuncOp {
     Cbrt,
     /// Numeric sign.
     Sign,
+}
+
+/// A directly lowered numeric predicate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NumericPredicateOp {
+    /// Test whether a number is finite.
+    IsFinite,
+    /// Test whether a number is NaN.
+    IsNaN,
 }
 
 /// Which side of a string trim operation is lowered.

@@ -1145,6 +1145,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand, dest_ty),
             Rvalue::NumericExtrema { op, args } => self.numeric_extrema_text(*op, args, dest_ty),
             Rvalue::NumericHypot { args } => self.numeric_hypot_text(args),
+            Rvalue::NumericPredicate { op, operand } => self.numeric_predicate_text(*op, operand),
             Rvalue::NumericUnaryFunc { op, operand } => self.numeric_unary_func_text(*op, operand),
             Rvalue::NumericPow { base, exponent } => self.numeric_pow_text(base, exponent),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
@@ -1425,6 +1426,29 @@ impl<'mir> FunctionEmitter<'mir> {
             rendered = format!("{rendered}.hypot({})", self.float_operand_text(arg)?);
         }
         Ok(rendered)
+    }
+
+    /// Converts a numeric predicate operation to Rust text.
+    fn numeric_predicate_text(
+        &self,
+        op: smelt_hir::NumericPredicateOp,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("numeric predicate operand must be numeric"));
+        }
+        let method_name = match op {
+            smelt_hir::NumericPredicateOp::IsFinite => "is_finite",
+            smelt_hir::NumericPredicateOp::IsNaN => "is_nan",
+        };
+        Ok(format!(
+            "{}.{}()",
+            self.float_operand_text(operand)?,
+            method_name
+        ))
     }
 
     /// Converts a direct unary numeric function to Rust text.
@@ -2743,6 +2767,20 @@ const distance = Math.hypot(value, 3);
         assert!(source.contains(".signum();"));
         assert!(source.contains("0.0f64.hypot("));
         assert!(source.contains(".hypot(3.0);"));
+    }
+
+    #[test]
+    fn emits_number_predicate_calls() {
+        let source = source_for(
+            r#"
+const value = 4;
+const finite = Number.isFinite(value);
+const nan = Number.isNaN(value);
+"#,
+        );
+
+        assert!(source.contains(".is_finite();"));
+        assert!(source.contains(".is_nan();"));
     }
 
     #[test]

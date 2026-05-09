@@ -384,6 +384,13 @@ pub enum Rvalue {
         /// Numeric operands to combine.
         args: Vec<Operand>,
     },
+    /// Test a numeric value with a numeric predicate.
+    NumericPredicate {
+        /// Predicate to apply.
+        op: smelt_hir::NumericPredicateOp,
+        /// Numeric operand to test.
+        operand: Operand,
+    },
     /// Apply a direct unary numeric function.
     NumericUnaryFunc {
         /// Operation to apply.

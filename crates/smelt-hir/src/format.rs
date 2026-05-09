@@ -310,6 +310,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("numeric_{op_name} {}", expr_list_text(args))
         }
         ExprKind::NumericHypot { args } => format!("numeric_hypot {}", expr_list_text(args)),
+        ExprKind::NumericPredicate { op, operand } => {
+            let op_name = match op {
+                crate::expr::NumericPredicateOp::IsFinite => "is_finite",
+                crate::expr::NumericPredicateOp::IsNaN => "is_nan",
+            };
+            format!("numeric_{op_name} {}", expr_ref(*operand))
+        }
         ExprKind::NumericUnaryFunc { op, operand } => {
             let op_name = match op {
                 crate::expr::NumericUnaryFuncOp::Sqrt => "sqrt",
@@ -538,6 +545,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::NumericRound { .. }
         | ExprKind::NumericExtrema { .. }
         | ExprKind::NumericHypot { .. }
+        | ExprKind::NumericPredicate { .. }
         | ExprKind::NumericUnaryFunc { .. }
         | ExprKind::NumericPow { .. }
         | ExprKind::StringCase { .. }

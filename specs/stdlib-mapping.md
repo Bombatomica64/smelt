@@ -61,6 +61,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `Math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numbers | Non-number or wrong arity | Uses Rust `f64`. |
 | `Math.hypot(...)` | `NumericHypot` | `NumericHypot` | `0.0f64.hypot(x).hypot(y)` | Any number of number args | Non-number args | Uses a left fold over Rust `f64::hypot`; this may not exactly match JS overflow/underflow edge handling. |
 | `Math.sign(x)` | `NumericUnaryFunc::Sign` | `NumericUnaryFunc::Sign` | `x.signum()` | One number | Non-number or wrong arity | JS `-0` and `NaN` edge semantics are not modeled yet. |
+| `Number.isFinite(x)` | `NumericPredicate::IsFinite` | `NumericPredicate::IsFinite` | `x.is_finite()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
+| `Number.isNaN(x)` | `NumericPredicate::IsNaN` | `NumericPredicate::IsNaN` | `x.is_nan()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
 
 ## Python Math And Builtins
 

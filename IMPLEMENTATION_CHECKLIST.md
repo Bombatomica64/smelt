@@ -347,6 +347,7 @@ runtime errors.
   - [ ] `Math.log`, `log10`, `log2`, and `exp`.
   - [ ] `Math.random` with an explicit randomness/backend policy.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
+    - [x] `Number.isFinite` and `Number.isNaN`.
   - [ ] Numeric formatting: `toString`, `toFixed`, `toPrecision`, and `toExponential`.
 - [ ] TypeScript object/record mappings:
   - [x] `Object.keys`.

@@ -246,6 +246,7 @@ fn validate_rvalue_exists(
         Rvalue::Len(operand)
         | Rvalue::NumericAbs(operand)
         | Rvalue::NumericRound { operand, .. }
+        | Rvalue::NumericPredicate { operand, .. }
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringTrim { operand, .. }
@@ -554,6 +555,7 @@ fn validate_rvalue(
         Rvalue::Len(operand)
         | Rvalue::NumericAbs(operand)
         | Rvalue::NumericRound { operand, .. }
+        | Rvalue::NumericPredicate { operand, .. }
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringTrim { operand, .. }

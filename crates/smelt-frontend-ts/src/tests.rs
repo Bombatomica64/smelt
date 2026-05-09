@@ -3,8 +3,8 @@
 use super::*;
 use smelt_hir::{
     DictProjectionOp, ExprKind, FileId, Function, Item, ListSearchOp, Literal, ModuleId,
-    NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp,
-    StringReplaceOp, StringSearchOp, StringTrimSide, Type,
+    NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Stmt, StringAffixOp,
+    StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -599,6 +599,28 @@ const distance = Math.hypot(value, 3);
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericHypot { .. }))
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_number_predicate_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const value = 4;
+const finite = Number.isFinite(value);
+const nan = Number.isNaN(value);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [NumericPredicateOp::IsFinite, NumericPredicateOp::IsNaN] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::NumericPredicate { op, .. } if op == expected)
+        ));
+    }
     Ok(())
 }
 

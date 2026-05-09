@@ -62,8 +62,8 @@ pub use body::{
 };
 pub use expr::{
     AsyncOp, BinOp, DictProjectionOp, Expr, ExprKind, ListSearchOp, Literal, NumericExtremaOp,
-    NumericRoundOp, NumericUnaryFuncOp, StringAffixOp, StringCaseOp, StringPredicateOp,
-    StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, bin_op_text,
+    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, StringAffixOp, StringCaseOp,
+    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{
