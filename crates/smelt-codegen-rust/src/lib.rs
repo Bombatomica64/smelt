@@ -1172,6 +1172,9 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::StringRepeat { operand, count } => self.string_repeat_text(operand, count),
             Rvalue::StringPredicate { op, operand } => self.string_predicate_text(*op, operand),
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
+            Rvalue::StringCharCodeAt { operand, index } => {
+                self.string_char_code_at_text(operand, index)
+            }
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
@@ -1660,6 +1663,30 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         Ok(format!(
             "{}.chars().nth({} as usize).map(|ch| ch.to_string()).unwrap_or_default()",
+            self.operand_text(operand)?,
+            self.operand_text(index)?
+        ))
+    }
+
+    /// Converts a string character-code lookup operation to Rust text.
+    fn string_char_code_at_text(
+        &self,
+        operand: &Operand,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(index)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "string charCodeAt requires a string receiver and numeric index",
+            ));
+        }
+        Ok(format!(
+            "{}.chars().nth({} as usize).map_or(f64::NAN, |ch| ch as u32 as f64)",
             self.operand_text(operand)?,
             self.operand_text(index)?
         ))
@@ -2664,6 +2691,7 @@ const repeated = word.repeat(3);
             r#"
 const word = "Smelt";
 const char = word.charAt(1);
+const code = word.charCodeAt(2);
 "#,
         );
 
@@ -2671,6 +2699,9 @@ const char = word.charAt(1);
             source.contains(
                 ".chars().nth(1.0 as usize).map(|ch| ch.to_string()).unwrap_or_default();"
             )
+        );
+        assert!(
+            source.contains(".chars().nth(2.0 as usize).map_or(f64::NAN, |ch| ch as u32 as f64);")
         );
     }
 

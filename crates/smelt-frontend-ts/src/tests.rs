@@ -447,6 +447,7 @@ fn lowers_string_char_at_method() -> Result<(), String> {
         ts!(r#"
 const word = "Smelt";
 const char = word.charAt(1);
+const code = word.charCodeAt(2);
 "#),
         &mut ctx,
     )?;
@@ -457,6 +458,11 @@ const char = word.charAt(1);
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::StringCharAt { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringCharCodeAt { .. }))
     );
     Ok(())
 }

@@ -194,6 +194,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(operand, aliases, dest)
                 | rewrite_operand_except(index, aliases, dest)
         }
+        Rvalue::StringCharCodeAt { operand, index } => {
+            rewrite_operand_except(operand, aliases, dest)
+                | rewrite_operand_except(index, aliases, dest)
+        }
         Rvalue::ListContains { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)

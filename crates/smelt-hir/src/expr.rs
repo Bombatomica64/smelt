@@ -165,6 +165,13 @@ pub enum ExprKind {
         /// Numeric character index.
         index: ExprId,
     },
+    /// Read a single character code from a string as a numeric value.
+    StringCharCodeAt {
+        /// The string value being indexed.
+        operand: ExprId,
+        /// Numeric character index.
+        index: ExprId,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// The string value being searched.

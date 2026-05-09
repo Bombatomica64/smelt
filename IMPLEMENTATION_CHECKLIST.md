@@ -331,6 +331,7 @@ runtime errors.
   - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
     - [x] `String.prototype.charAt`.
+    - [x] `String.prototype.charCodeAt`.
   - [x] `String.prototype.repeat`.
   - [ ] `String.prototype.padStart` and `padEnd`.
   - [ ] `String(...)`, `Number(...)`, and `Boolean(...)` constructors/conversions or explicit

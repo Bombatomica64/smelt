@@ -2705,7 +2705,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
-    /// Lower direct TypeScript `String.prototype.charAt`.
+    /// Lower direct TypeScript `String.prototype.charAt` and `charCodeAt`.
     fn string_char_at_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2714,13 +2714,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "charAt" {
-            return Ok(None);
-        }
+        let returns_code = match member.property.name.as_str() {
+            "charAt" => false,
+            "charCodeAt" => true,
+            _ => return Ok(None),
+        };
         let [index_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string charAt requires exactly one number argument",
+                "string charAt/charCodeAt requires exactly one number argument",
             ));
         };
         let operand = self.expression(&member.object, body)?;
@@ -2730,12 +2732,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string charAt requires a string receiver and number argument",
+                "string charAt/charCodeAt requires a string receiver and number argument",
             ));
         }
-        let ty = self.ctx.krate.types.intern(Type::String);
+        let ty = self.ctx.krate.types.intern(if returns_code {
+            Type::Float
+        } else {
+            Type::String
+        });
+        let kind = if returns_code {
+            ExprKind::StringCharCodeAt { operand, index }
+        } else {
+            ExprKind::StringCharAt { operand, index }
+        };
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::StringCharAt { operand, index },
+            kind,
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

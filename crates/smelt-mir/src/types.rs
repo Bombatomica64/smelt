@@ -466,6 +466,13 @@ pub enum Rvalue {
         /// Numeric character index.
         index: Operand,
     },
+    /// Read a single character code from a string as a numeric value.
+    StringCharCodeAt {
+        /// String value to index.
+        operand: Operand,
+        /// Numeric character index.
+        index: Operand,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// String value to search in.
