@@ -4,7 +4,7 @@ use super::*;
 use smelt_hir::{
     DictProjectionOp, ExprKind, FileId, Function, Item, ListSearchOp, Literal, ModuleId,
     NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Stmt, StringAffixOp,
-    StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
+    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -437,6 +437,30 @@ const repeated = word.repeat(3);
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::StringRepeat { .. }))
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_string_padding_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "7";
+const paddedStart = word.padStart(3, "0");
+const paddedEnd = word.padEnd(3);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [StringPadOp::Start, StringPadOp::End] {
+        ensure!(
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::StringPad { op, .. } if op == expected))
+        );
+    }
     Ok(())
 }
 

@@ -178,6 +178,16 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, operand, errors);
             validate_operand_exists(function, count, errors);
         }
+        Rvalue::StringPad {
+            operand,
+            target_len,
+            pad,
+            ..
+        } => {
+            validate_operand_exists(function, operand, errors);
+            validate_operand_exists(function, target_len, errors);
+            validate_operand_exists(function, pad, errors);
+        }
         Rvalue::StringCharAt { operand, index } => {
             validate_operand_exists(function, operand, errors);
             validate_operand_exists(function, index, errors);
@@ -598,6 +608,16 @@ fn validate_rvalue(
         Rvalue::StringRepeat { operand, count } => {
             validate_operand(function, definitions, operand, errors);
             validate_operand(function, definitions, count, errors);
+        }
+        Rvalue::StringPad {
+            operand,
+            target_len,
+            pad,
+            ..
+        } => {
+            validate_operand(function, definitions, operand, errors);
+            validate_operand(function, definitions, target_len, errors);
+            validate_operand(function, definitions, pad, errors);
         }
         Rvalue::StringCharAt { operand, index } => {
             validate_operand(function, definitions, operand, errors);

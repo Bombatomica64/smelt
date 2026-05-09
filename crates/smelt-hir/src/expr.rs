@@ -172,6 +172,17 @@ pub enum ExprKind {
         /// Number of repetitions.
         count: ExprId,
     },
+    /// Pad a string to a target length.
+    StringPad {
+        /// Padding side.
+        op: StringPadOp,
+        /// The string value being padded.
+        operand: ExprId,
+        /// Target string length.
+        target_len: ExprId,
+        /// Padding string.
+        pad: ExprId,
+    },
     /// Test whether every character in a string satisfies a predicate.
     StringPredicate {
         /// Predicate to apply.
@@ -595,6 +606,15 @@ pub enum StringReplaceOp {
     First,
     /// Replace every match.
     All,
+}
+
+/// A directly lowered string padding operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringPadOp {
+    /// Pad the start of the string.
+    Start,
+    /// Pad the end of the string.
+    End,
 }
 
 /// A directly lowered string character predicate.

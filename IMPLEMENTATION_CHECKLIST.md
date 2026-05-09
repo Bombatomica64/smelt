@@ -343,7 +343,7 @@ runtime errors.
     - [x] `String.prototype.charAt`.
     - [x] `String.prototype.charCodeAt`.
   - [x] `String.prototype.repeat`.
-  - [ ] `String.prototype.padStart` and `padEnd`.
+  - [x] `String.prototype.padStart` and `padEnd`.
   - [ ] `String(...)`, `Number(...)`, and `Boolean(...)` constructors/conversions or explicit
         rejection where JS coercion would be misleading.
 - [ ] TypeScript number and `Math` mappings:

@@ -315,6 +315,23 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(count)
             )
         }
+        Rvalue::StringPad {
+            op,
+            operand,
+            target_len,
+            pad,
+        } => {
+            let op_text = match op {
+                smelt_hir::StringPadOp::Start => "pad_start",
+                smelt_hir::StringPadOp::End => "pad_end",
+            };
+            format!(
+                "string_{op_text} {}, {}, {}",
+                operand_text(operand),
+                operand_text(target_len),
+                operand_text(pad)
+            )
+        }
         Rvalue::StringPredicate { op, operand } => {
             let op_text = match op {
                 smelt_hir::StringPredicateOp::IsDigit => "isdigit",

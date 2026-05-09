@@ -473,6 +473,17 @@ pub enum Rvalue {
         /// Number of repetitions.
         count: Operand,
     },
+    /// Pad a string to a target length.
+    StringPad {
+        /// Padding side.
+        op: smelt_hir::StringPadOp,
+        /// String value to pad.
+        operand: Operand,
+        /// Target string length.
+        target_len: Operand,
+        /// Padding string.
+        pad: Operand,
+    },
     /// Test whether every character in a string satisfies a predicate.
     StringPredicate {
         /// Predicate to apply.

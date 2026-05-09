@@ -1272,6 +1272,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 affix,
             } => self.string_remove_affix_text(*op, haystack, affix),
             Rvalue::StringRepeat { operand, count } => self.string_repeat_text(operand, count),
+            Rvalue::StringPad {
+                op,
+                operand,
+                target_len,
+                pad,
+            } => self.string_pad_text(*op, operand, target_len, pad),
             Rvalue::StringPredicate { op, operand } => self.string_predicate_text(*op, operand),
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
             Rvalue::StringCharCodeAt { operand, index } => {
@@ -1836,6 +1842,43 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.repeat({} as usize)",
             self.operand_text(operand)?,
             self.operand_text(count)?
+        ))
+    }
+
+    /// Converts a string padding operation to Rust text.
+    ///
+    /// The generated code counts Rust `char`s rather than JavaScript UTF-16 code units.
+    /// Exact Unicode indexing parity is tracked separately with the other string APIs.
+    fn string_pad_text(
+        &self,
+        op: smelt_hir::StringPadOp,
+        operand: &Operand,
+        target_len: &Operand,
+        pad: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(target_len)?),
+            Some(Type::Int | Type::Float)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(pad)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new(
+                "string padding requires string receiver, numeric target length, and string padding",
+            ));
+        }
+        let operand_text = self.operand_text(operand)?;
+        let target_len_text = self.operand_text(target_len)?;
+        let pad_text = self.operand_text(pad)?;
+        let result_text = match op {
+            smelt_hir::StringPadOp::Start => "format!(\"{}{}\", padding, value)",
+            smelt_hir::StringPadOp::End => "format!(\"{}{}\", value, padding)",
+        };
+        Ok(format!(
+            "{{ let value = &{operand_text}; let target_len = {target_len_text} as usize; let pad = &{pad_text}; let current_len = value.chars().count(); if current_len >= target_len || pad.is_empty() {{ value.to_owned() }} else {{ let needed = target_len - current_len; let padding: String = pad.chars().cycle().take(needed).collect(); {result_text} }} }}"
         ))
     }
 

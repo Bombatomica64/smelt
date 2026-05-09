@@ -23,7 +23,8 @@ use smelt_hir::{
     FunctionOwner, Import, Interface, Item, Language, ListSearchOp, Literal, LocalDecl, MatchArm,
     MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
     NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
+    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
+    Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1753,6 +1754,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_repeat_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.string_pad_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_char_at_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2942,6 +2946,66 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::StringRepeat { operand, count },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript string padding methods.
+    fn string_pad_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "padStart" => StringPadOp::Start,
+            "padEnd" => StringPadOp::End,
+            _ => return Ok(None),
+        };
+        if !(1..=2).contains(&call.arguments.len()) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string padding requires target length and optional string padding",
+            ));
+        }
+        let operand = self.expression(&member.object, body)?;
+        let Some(target_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string padding requires target length",
+            ));
+        };
+        let target_len = self.argument(target_argument, body)?;
+        let pad = if let Some(pad_argument) = call.arguments.get(1) {
+            self.argument(pad_argument, body)?
+        } else {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(" ".to_owned())),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })
+        };
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, target_len)) != Some(&Type::Float)
+            || self.ctx.krate.types.get(Self::expr_ty(body, pad)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string padding requires a string receiver, number target length, and string padding",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringPad {
+                op,
+                operand,
+                target_len,
+                pad,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

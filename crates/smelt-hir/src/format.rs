@@ -422,6 +422,23 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::StringRepeat { operand, count } => {
             format!("string_repeat {}, {}", expr_ref(*operand), expr_ref(*count))
         }
+        ExprKind::StringPad {
+            op,
+            operand,
+            target_len,
+            pad,
+        } => {
+            let op_text = match op {
+                crate::expr::StringPadOp::Start => "pad_start",
+                crate::expr::StringPadOp::End => "pad_end",
+            };
+            format!(
+                "string_{op_text} {}, {}, {}",
+                expr_ref(*operand),
+                expr_ref(*target_len),
+                expr_ref(*pad)
+            )
+        }
         ExprKind::StringPredicate { op, operand } => {
             let op_name = match op {
                 crate::expr::StringPredicateOp::IsDigit => "isdigit",
@@ -656,6 +673,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringReplace { .. }
         | ExprKind::StringRemoveAffix { .. }
         | ExprKind::StringRepeat { .. }
+        | ExprKind::StringPad { .. }
         | ExprKind::StringPredicate { .. }
         | ExprKind::StringCharAt { .. }
         | ExprKind::StringCharCodeAt { .. }

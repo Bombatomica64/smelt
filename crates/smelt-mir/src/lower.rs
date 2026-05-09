@@ -1152,6 +1152,27 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringPad {
+                op,
+                operand,
+                target_len,
+                pad,
+            } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let target_len_operand = self.lower_expr(*target_len)?;
+                let pad_operand = self.lower_expr(*pad)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringPad {
+                        op: *op,
+                        operand: lowered_operand,
+                        target_len: target_len_operand,
+                        pad: pad_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringPredicate { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1841,6 +1862,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringReplace { .. }
             | ExprKind::StringRemoveAffix { .. }
             | ExprKind::StringRepeat { .. }
+            | ExprKind::StringPad { .. }
             | ExprKind::StringPredicate { .. }
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringCharCodeAt { .. }

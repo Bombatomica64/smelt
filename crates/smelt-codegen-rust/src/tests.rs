@@ -212,6 +212,21 @@ const repeated = word.repeat(3);
 }
 
 #[test]
+fn emits_string_padding_methods() {
+    let source = source_for(
+        r#"
+const word = "7";
+const paddedStart = word.padStart(3, "0");
+const paddedEnd = word.padEnd(3);
+"#,
+    );
+
+    assert!(source.contains("pad.chars().cycle().take(needed).collect()"));
+    assert!(source.contains("format!(\"{}{}\", padding, value)"));
+    assert!(source.contains("format!(\"{}{}\", value, padding)"));
+}
+
+#[test]
 fn emits_string_char_at_method() {
     let source = source_for(
         r#"

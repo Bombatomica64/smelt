@@ -190,6 +190,16 @@ fn rewrite_rvalue(
             rewrite_operand_except(operand, aliases, dest)
                 | rewrite_operand_except(count, aliases, dest)
         }
+        Rvalue::StringPad {
+            operand,
+            target_len,
+            pad,
+            ..
+        } => {
+            rewrite_operand_except(operand, aliases, dest)
+                | rewrite_operand_except(target_len, aliases, dest)
+                | rewrite_operand_except(pad, aliases, dest)
+        }
         Rvalue::StringCharAt { operand, index } => {
             rewrite_operand_except(operand, aliases, dest)
                 | rewrite_operand_except(index, aliases, dest)
