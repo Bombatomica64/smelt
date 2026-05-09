@@ -360,6 +360,19 @@ dict_result: None = mapping.clear()
 }
 
 #[test]
+fn emits_python_list_copy_method() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2]
+copied: list[int] = values.copy()
+"#,
+    );
+
+    assert!(source.contains("let values: Vec<i64>"));
+    assert!(source.contains(".clone();"));
+}
+
+#[test]
 fn emits_python_dict_pop_method() {
     let source = source_for_py(
         r#"

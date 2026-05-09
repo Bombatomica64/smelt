@@ -1216,6 +1216,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListUnshift { list, items } => self.list_unshift_text(list, items, dest_ty),
             Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
             Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
+            Rvalue::ListCopy { list } => self.list_copy_text(list, dest_ty),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
@@ -2092,6 +2093,20 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let collection_text = self.local_name(*local)?;
         Ok(format!("{{ {collection_text}.clear(); () }}"))
+    }
+
+    /// Converts a list copy operation to Rust text.
+    fn list_copy_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+            return Err(EmitError::new("list copy receiver must be a list"));
+        }
+        if dest_ty != list_ty {
+            return Err(EmitError::new(
+                "list copy destination must match the receiver list type",
+            ));
+        }
+        Ok(format!("{}.clone()", self.operand_text(list)?))
     }
 
     /// Validates that an optional slice index is numeric.

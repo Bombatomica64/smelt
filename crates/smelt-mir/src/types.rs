@@ -557,6 +557,11 @@ pub enum Rvalue {
         /// List value to mutate.
         list: Operand,
     },
+    /// Return a shallow copy of a list.
+    ListCopy {
+        /// List value to copy.
+        list: Operand,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

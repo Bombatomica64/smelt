@@ -385,6 +385,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         ),
         Rvalue::ListReverse { list } => format!("list_reverse {}", operand_text(list)),
         Rvalue::ListClear { list } => format!("list_clear {}", operand_text(list)),
+        Rvalue::ListCopy { list } => format!("list_copy {}", operand_text(list)),
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
         Rvalue::TupleContains { tuple, item } => {

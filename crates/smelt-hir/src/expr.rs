@@ -256,6 +256,11 @@ pub enum ExprKind {
         /// List value to mutate.
         list: ExprId,
     },
+    /// Return a shallow copy of a list.
+    ListCopy {
+        /// List value to copy.
+        list: ExprId,
+    },
     /// Pop the last item from a list.
     ListPop {
         /// List value to mutate.

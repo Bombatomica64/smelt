@@ -424,6 +424,7 @@ runtime errors.
     - [x] `list.append`.
     - [x] `list.pop`.
     - [x] `list.clear`.
+    - [x] `list.copy`.
     - [x] `list.reverse`.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.

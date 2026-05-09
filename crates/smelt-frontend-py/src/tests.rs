@@ -758,6 +758,29 @@ dict_result: None = mapping.clear()
 }
 
 #[test]
+fn list_copy_method_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2]
+copied: list[int] = values.copy()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCopy { .. })),
+        "expected list copy lowering",
+    )
+}
+
+#[test]
 fn dict_pop_method_lowers() -> TestResult {
     let source = py!(r#"
 mapping: dict[str, int] = {"a": 1}
@@ -890,6 +913,24 @@ result: None = values.clear(1)
     ensure(
         error.message.contains("requires no arguments"),
         "expected clear arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_list_copy_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+copied: list[int] = values.copy(1)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("requires no arguments"),
+        "expected list copy arity diagnostic",
     )
 }
 
