@@ -1303,6 +1303,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
             Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
             Rvalue::ListBoolFold { op, list } => self.list_bool_fold_text(*op, list),
+            Rvalue::ListSorted { list } => self.list_sorted_text(list, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
             Rvalue::ListSort { list } => self.list_sort_text(list, dest_ty),
@@ -2381,6 +2382,35 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.iter().copied().{method_name}(|value| value)",
             self.operand_text(list)?
         ))
+    }
+
+    /// Converts a list sorted-copy operation to Rust text.
+    ///
+    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
+    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
+    /// until Python-compatible edge semantics are modeled explicitly.
+    fn list_sorted_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("sorted() argument must be a list"));
+        };
+        if dest_ty != list_ty {
+            return Err(EmitError::new(
+                "sorted() destination must match the input list type",
+            ));
+        }
+        let list_text = self.operand_text(list)?;
+        match self.mir.types.get(*item_ty) {
+            Some(Type::Bool | Type::Int | Type::String) => Ok(format!(
+                "{{ let mut sorted = {list_text}.clone(); sorted.sort(); sorted }}"
+            )),
+            Some(Type::Float) => Ok(format!(
+                "{{ let mut sorted = {list_text}.clone(); sorted.sort_by(|left, right| left.partial_cmp(right).expect(\"sorted incomparable float\")); sorted }}"
+            )),
+            _ => Err(EmitError::new(
+                "sorted() supports bool, int, float, and string lists",
+            )),
+        }
     }
 
     /// Converts a list index operation to Rust text.

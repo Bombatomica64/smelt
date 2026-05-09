@@ -606,6 +606,11 @@ pub enum Rvalue {
         /// Boolean list value to reduce.
         list: Operand,
     },
+    /// Return a sorted copy of a list.
+    ListSorted {
+        /// List value to copy and sort.
+        list: Operand,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

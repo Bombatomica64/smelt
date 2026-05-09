@@ -1534,6 +1534,39 @@ result: bool = any(values)
 }
 
 #[test]
+fn unsupported_builtin_sorted_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+ordered: list[int] = sorted(values, reverse=True)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("exactly one list"),
+        "expected sorted arity diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let non_sortable = lower_errors(
+        py!(r#"
+values: list[list[int]] = [[1], [2]]
+ordered: list[list[int]] = sorted(values)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&non_sortable)?
+            .message
+            .contains("sortable list"),
+        "expected sorted type diagnostic",
+    )
+}
+
+#[test]
 fn unsupported_dict_pop_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let missing_key = lower_errors(
@@ -2027,6 +2060,31 @@ any_values: bool = any(values)
             "expected bool fold lowering",
         )?;
     }
+    Ok(())
+}
+
+#[test]
+fn builtin_sorted_lower() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [2, 1]
+ordered: list[int] = sorted(values)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListSorted { .. })),
+        "expected sorted lowering",
+    )?;
     Ok(())
 }
 

@@ -406,6 +406,7 @@ runtime errors.
     - [x] `min(...)` and `max(...)` for all-int or all-float fixed argument lists.
   - [x] `all(...)` and `any(...)`.
   - [ ] `sorted(...)` and `reversed(...)`.
+    - [x] `sorted(...)` for plain sortable lists without `key` or `reverse`.
   - [ ] `list(...)`, `dict(...)`, `tuple(...)`, and `set(...)` constructors.
   - [ ] `isinstance(...)` and `issubclass(...)` where static types make them decidable.
   - [ ] `print(...)` formatting parity and stderr support if needed.

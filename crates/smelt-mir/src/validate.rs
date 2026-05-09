@@ -244,7 +244,9 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
         }
-        Rvalue::ListSum { list } | Rvalue::ListBoolFold { list, .. } => {
+        Rvalue::ListSum { list }
+        | Rvalue::ListBoolFold { list, .. }
+        | Rvalue::ListSorted { list } => {
             validate_operand_exists(function, list, errors);
         }
         Rvalue::ListIndex { list, item } => {
@@ -663,7 +665,9 @@ fn validate_rvalue(
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
         }
-        Rvalue::ListSum { list } | Rvalue::ListBoolFold { list, .. } => {
+        Rvalue::ListSum { list }
+        | Rvalue::ListBoolFold { list, .. }
+        | Rvalue::ListSorted { list } => {
             validate_operand(function, definitions, list, errors);
         }
         Rvalue::ListIndex { list, item } => {

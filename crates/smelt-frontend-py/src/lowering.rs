@@ -2190,6 +2190,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             {
                 return Ok(expr);
             }
+            if name.id.as_str() == "sorted"
+                && let Some(expr) = self.sorted_call_expression(call, body)?
+            {
+                return Ok(expr);
+            }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);
                 let none_ty = self.intern_type(Type::None);

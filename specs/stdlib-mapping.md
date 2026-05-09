@@ -91,6 +91,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `sum(values)` | `ListSum` | `ListSum` | `values.iter().copied().sum::<i64/f64>()` | One `list[int]` or `list[float]` argument | Start argument, iterables other than lists, non-numeric lists | Empty numeric lists use Rust's numeric zero identity. |
 | `all(values)` | `ListBoolFold::All` | `ListBoolFold::All` | `values.iter().copied().all(|value| value)` | One `list[bool]` argument | Iterables other than lists, non-bool lists | Python truthiness for arbitrary item types is not modeled. |
 | `any(values)` | `ListBoolFold::Any` | `ListBoolFold::Any` | `values.iter().copied().any(|value| value)` | One `list[bool]` argument | Iterables other than lists, non-bool lists | Python truthiness for arbitrary item types is not modeled. |
+| `sorted(values)` | `ListSorted` | `ListSorted` | Clone, sort, and return the clone | One sortable list argument | `key`, `reverse`, non-list iterables, nested/record items | Float sorting panics on unordered values such as NaN until Python edge semantics are modeled. |
 
 ## HTTP
 

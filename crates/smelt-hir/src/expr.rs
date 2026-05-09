@@ -305,6 +305,11 @@ pub enum ExprKind {
         /// Boolean list value to reduce.
         list: ExprId,
     },
+    /// Return a sorted copy of a list.
+    ListSorted {
+        /// List value to copy and sort.
+        list: ExprId,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

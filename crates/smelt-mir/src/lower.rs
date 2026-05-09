@@ -1395,6 +1395,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListSorted { list } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListSorted { list: list_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListIndex { list, item } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
@@ -1851,6 +1860,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListCount { .. }
             | ExprKind::ListSum { .. }
             | ExprKind::ListBoolFold { .. }
+            | ExprKind::ListSorted { .. }
             | ExprKind::ListIndex { .. }
             | ExprKind::ListRemove { .. }
             | ExprKind::ListSort { .. }

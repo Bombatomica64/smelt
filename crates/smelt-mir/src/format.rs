@@ -424,6 +424,7 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("list_{op_text} {}", operand_text(list))
         }
+        Rvalue::ListSorted { list } => format!("list_sorted {}", operand_text(list)),
         Rvalue::ListIndex { list, item } => {
             format!("list_index {}, {}", operand_text(list), operand_text(item))
         }

@@ -251,9 +251,9 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
         }
-        Rvalue::ListSum { list } | Rvalue::ListBoolFold { list, .. } => {
-            rewrite_operand_except(list, aliases, dest)
-        }
+        Rvalue::ListSum { list }
+        | Rvalue::ListBoolFold { list, .. }
+        | Rvalue::ListSorted { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListIndex { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)

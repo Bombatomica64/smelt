@@ -702,6 +702,23 @@ any_values: bool = any(values)
 }
 
 #[test]
+fn emits_python_sorted_builtin() {
+    let source = source_for_py(
+        r#"
+ints: list[int] = [2, 1]
+ordered_ints: list[int] = sorted(ints)
+floats: list[float] = [2.0, 1.0]
+ordered_floats: list[float] = sorted(floats)
+"#,
+    );
+
+    assert!(source.contains(".clone(); sorted.sort(); sorted"));
+    assert!(source.contains(
+        ".clone(); sorted.sort_by(|left, right| left.partial_cmp(right).expect(\"sorted incomparable float\")); sorted"
+    ));
+}
+
+#[test]
 fn emits_json_stringify_calls() {
     let ts_source = source_for(
         r#"

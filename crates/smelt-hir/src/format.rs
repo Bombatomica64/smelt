@@ -515,6 +515,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("list_{op_text} {}", expr_ref(*list))
         }
+        ExprKind::ListSorted { list } => format!("list_sorted {}", expr_ref(*list)),
         ExprKind::ListIndex { list, item } => {
             format!("list_index {}, {}", expr_ref(*list), expr_ref(*item))
         }
@@ -674,6 +675,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListCount { .. }
         | ExprKind::ListSum { .. }
         | ExprKind::ListBoolFold { .. }
+        | ExprKind::ListSorted { .. }
         | ExprKind::ListIndex { .. }
         | ExprKind::ListRemove { .. }
         | ExprKind::ListSort { .. }

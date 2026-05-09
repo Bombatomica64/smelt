@@ -145,6 +145,48 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `sorted(values)` calls for directly sortable lists.
+    pub(super) fn sorted_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if name.id.as_str() != "sorted" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "sorted() currently supports exactly one list argument and no keywords",
+            ));
+        }
+        let list = self.expression(&call.arguments.args[0], body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "sorted() argument must be a sortable list",
+            ));
+        };
+        if !matches!(
+            self.ctx.krate.types.get(*item_ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "sorted() argument must be a sortable list",
+            ));
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListSorted { list },
+            ty: list_ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.extend(other)` calls for same-typed lists.
     pub(super) fn list_extend_call_expression(
         &mut self,
