@@ -334,6 +334,8 @@ pub enum Rvalue {
     Use(Operand),
     /// Construct a list.
     List(Vec<Operand>),
+    /// Construct a set.
+    Set(Vec<Operand>),
     /// Construct a dictionary.
     Dict(Vec<(Operand, Operand)>),
     /// Construct a tuple.
@@ -525,6 +527,13 @@ pub enum Rvalue {
     ListContains {
         /// List value to search in.
         list: Operand,
+        /// Item to search for.
+        item: Operand,
+    },
+    /// Test whether a set contains an item.
+    SetContains {
+        /// Set value to search in.
+        set: Operand,
         /// Item to search for.
         item: Operand,
     },

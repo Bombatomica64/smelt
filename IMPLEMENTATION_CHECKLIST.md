@@ -430,6 +430,7 @@ runtime errors.
   - [ ] f-string lowering beyond the currently supported literal/string-concat subset, if needed.
 - [ ] Python list/tuple/set/dict mappings:
   - [x] List `in` / `not in`.
+  - [x] Set `in` / `not in`.
   - [x] Tuple `in` / `not in`.
   - [x] Dict key `in` / `not in`.
   - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
@@ -456,6 +457,7 @@ runtime errors.
     - [x] Dict `copy`.
   - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
         `difference`, and iteration.
+    - [x] Set literals and `in` / `not in`.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.
 - [ ] Python standard-library module mappings:
   - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,

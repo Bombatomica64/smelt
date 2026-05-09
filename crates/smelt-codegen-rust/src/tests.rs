@@ -697,6 +697,8 @@ nan_value: bool = math.isnan(value)
 sample: float = random.random()
 values: tuple[int, int] = (1, 2)
 has_tuple: bool = 2 in values
+unique: set[int] = {1, 2}
+has_set: bool = 1 in unique
 mapping: dict[str, int] = {"a": 1}
 has_key: bool = "a" in mapping
 "#,
@@ -712,6 +714,8 @@ has_key: bool = "a" in mapping
     assert!(source.contains(".is_nan();"));
     assert!(source.contains("rand::random::<f64>();"));
     assert!(source.contains(".0 == "));
+    assert!(source.contains("::std::collections::HashSet::from(["));
+    assert!(source.contains(".contains(&1)"));
     assert!(source.contains(".contains_key(&"));
 }
 

@@ -2113,6 +2113,41 @@ missing: bool = 4 not in values
 }
 
 #[test]
+fn set_literal_and_contains_comparison_lowers() -> TestResult {
+    let source = py!(r#"
+values: set[int] = {1, 2, 3}
+has: bool = 2 in values
+missing: bool = 4 not in values
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetLit(_))),
+        "expected set literal lowering",
+    )?;
+    ensure_eq(
+        &body
+            .exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::SetContains { .. }))
+            .count(),
+        &2,
+        "set contains count",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn tuple_contains_comparison_lowers() -> TestResult {
     let source = py!(r#"
 values: tuple[int, int] = (1, 2)

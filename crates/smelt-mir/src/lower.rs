@@ -884,6 +884,18 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::SetLit(items) => {
+                let lowered_items = items
+                    .iter()
+                    .map(|item| self.lower_expr(*item))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Set(lowered_items),
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DictLit(entries) => {
                 let lowered_entries = entries
                     .iter()
@@ -1251,6 +1263,19 @@ impl<'hir> LoweringCtx<'hir> {
                     dest,
                     value: Rvalue::ListContains {
                         list: list_operand,
+                        item: item_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::SetContains { set, item } => {
+                let set_operand = self.lower_expr(*set)?;
+                let item_operand = self.lower_expr(*item)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetContains {
+                        set: set_operand,
                         item: item_operand,
                     },
                 });
@@ -1744,7 +1769,7 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::Block(_) | ExprKind::Lambda { .. } | ExprKind::SetLit(_) => {
+            ExprKind::Block(_) | ExprKind::Lambda { .. } => {
                 return Err(self.error(
                     "expression kind is not implemented in MIR yet",
                     Some(expr.span),
@@ -1900,6 +1925,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringContains { .. }
             | ExprKind::StringSlice { .. }
             | ExprKind::ListContains { .. }
+            | ExprKind::SetContains { .. }
             | ExprKind::ListConcat { .. }
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }

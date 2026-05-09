@@ -1156,6 +1156,14 @@ impl<'mir> FunctionEmitter<'mir> {
                     .join(", ");
                 Ok(format!("vec![{items_text}]"))
             }
+            Rvalue::Set(items) => {
+                let items_text = items
+                    .iter()
+                    .map(|item| self.operand_text(item))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                Ok(format!("::std::collections::HashSet::from([{items_text}])"))
+            }
             Rvalue::Dict(entries) => {
                 let entries_text = entries
                     .iter()
@@ -1292,6 +1300,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 end,
             } => self.string_slice_text(operand, start.as_ref(), end.as_ref()),
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
+            Rvalue::SetContains { set, item } => self.set_contains_text(set, item),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
             Rvalue::ListCallback { op, list, callback } => {
@@ -2016,6 +2025,24 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(format!(
             "{}.contains(&{})",
             self.operand_text(list)?,
+            self.operand_text(item)?
+        ))
+    }
+
+    /// Converts a set containment operation to Rust text.
+    fn set_contains_text(&self, set: &Operand, item: &Operand) -> Result<String, EmitError> {
+        let set_ty = self.operand_ty(set)?;
+        let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
+            return Err(EmitError::new("set contains receiver must be a set"));
+        };
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(
+                "set contains item must match the set element type",
+            ));
+        }
+        Ok(format!(
+            "{}.contains(&{})",
+            self.operand_text(set)?,
             self.operand_text(item)?
         ))
     }
@@ -3439,6 +3466,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Type::String => Ok("String::new()".to_owned()),
             Type::None => Ok("()".to_owned()),
             Type::List(_) => Ok("Vec::new()".to_owned()),
+            Type::Set(_) => Ok("::std::collections::HashSet::new()".to_owned()),
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
             _ => Err(EmitError::new(
                 "default value codegen is not implemented for this field type",

@@ -227,6 +227,13 @@ pub enum ExprKind {
         /// The item to search for.
         item: ExprId,
     },
+    /// Test whether a set contains an item.
+    SetContains {
+        /// The set value being searched.
+        set: ExprId,
+        /// The item to search for.
+        item: ExprId,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.

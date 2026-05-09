@@ -481,6 +481,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListContains { list, item } => {
             format!("list_contains {}, {}", expr_ref(*list), expr_ref(*item))
         }
+        ExprKind::SetContains { set, item } => {
+            format!("set_contains {}, {}", expr_ref(*set), expr_ref(*item))
+        }
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
         }
@@ -699,6 +702,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringContains { .. }
         | ExprKind::StringSlice { .. }
         | ExprKind::ListContains { .. }
+        | ExprKind::SetContains { .. }
         | ExprKind::ListConcat { .. }
         | ExprKind::ListSearch { .. }
         | ExprKind::ListCallback { .. }

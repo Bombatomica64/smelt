@@ -2004,6 +2004,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 list: haystack,
                 item: needle,
             },
+            Some(Type::Set(item_ty)) if needle_ty == *item_ty => ExprKind::SetContains {
+                set: haystack,
+                item: needle,
+            },
             Some(Type::Tuple(items)) if items.iter().any(|item_ty| *item_ty == needle_ty) => {
                 ExprKind::TupleContains {
                     tuple: haystack,

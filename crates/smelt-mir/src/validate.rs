@@ -130,7 +130,7 @@ fn validate_rvalue_exists(
 ) {
     match value {
         Rvalue::Use(operand) => validate_operand_exists(function, operand, errors),
-        Rvalue::List(items) | Rvalue::Tuple(items) => {
+        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
             for item in items {
                 validate_operand_exists(function, item, errors);
             }
@@ -207,6 +207,10 @@ fn validate_rvalue_exists(
         }
         Rvalue::ListContains { list, item } => {
             validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, item, errors);
+        }
+        Rvalue::SetContains { set, item } => {
+            validate_operand_exists(function, set, errors);
             validate_operand_exists(function, item, errors);
         }
         Rvalue::ListConcat { left, right } => {
@@ -568,7 +572,7 @@ fn validate_rvalue(
 ) {
     match value {
         Rvalue::Use(operand) => validate_operand(function, definitions, operand, errors),
-        Rvalue::List(items) | Rvalue::Tuple(items) => {
+        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
             for item in items {
                 validate_operand(function, definitions, item, errors);
             }
@@ -645,6 +649,10 @@ fn validate_rvalue(
         }
         Rvalue::ListContains { list, item } => {
             validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::SetContains { set, item } => {
+            validate_operand(function, definitions, set, errors);
             validate_operand(function, definitions, item, errors);
         }
         Rvalue::ListConcat { left, right } => {

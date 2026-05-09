@@ -147,6 +147,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `stringArray.join(separator)` | `StringJoin` | `StringJoin` | `string_array.join(&separator)` | One string separator on `string[]` | Non-string separator or non-string arrays | JS element stringification is not modeled. |
 | `Array.isArray(x)` | `Literal(bool)` | `Use(Constant::Bool)` | `true` or `false` | One statically typed argument | Runtime structural checks for erased/dynamic values | Decided from static HIR type; no runtime guard or narrowing is emitted. |
 | `x in list` / `x not in list` | `ListContains` plus optional `UnaryOp::Not` | `ListContains` plus optional `Unary` | `list.contains(&x)` | Item matching element type | Mismatched types | Rust equality semantics are used. |
+| `x in set` / `x not in set` | `SetContains` plus optional `UnaryOp::Not` | `SetContains` plus optional `Unary` | `set.contains(&x)` | Item matching element type | Mismatched types | Rust `HashSet` equality and hashing semantics are used. |
+| Python set literal `{a, b}` | `SetLit` | `Set` | `HashSet::from([a, b])` | Same-typed literal elements or annotated target type | Mixed element types, empty set literal syntax | Python preserves unique values; generated Rust uses `HashSet`. |
 | `x in tuple` / `x not in tuple` | `TupleContains` plus optional `UnaryOp::Not` | `TupleContains` plus optional `Unary` | Equality chain over tuple fields | Item matching at least one tuple element type | Mismatched types | Rust equality semantics are used. |
 | `k in dict` / `k not in dict` | `DictContainsKey` plus optional `UnaryOp::Not` | `DictContainsKey` plus optional `Unary` | `dict.contains_key(&k)` | Key matching dict key type | Mismatched key type | Rust `HashMap` key semantics are used. |
 

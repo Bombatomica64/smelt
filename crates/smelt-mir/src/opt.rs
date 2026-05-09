@@ -144,7 +144,7 @@ fn rewrite_rvalue(
 ) -> bool {
     match value {
         Rvalue::Use(operand) => rewrite_operand_except(operand, aliases, dest),
-        Rvalue::List(items) | Rvalue::Tuple(items) => {
+        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
             items.iter_mut().fold(false, |changed, item| {
                 rewrite_operand_except(item, aliases, dest) | changed
             })
@@ -220,6 +220,9 @@ fn rewrite_rvalue(
         Rvalue::ListContains { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
+        }
+        Rvalue::SetContains { set, item } => {
+            rewrite_operand_except(set, aliases, dest) | rewrite_operand_except(item, aliases, dest)
         }
         Rvalue::ListConcat { left, right } => {
             rewrite_operand_except(left, aliases, dest)

@@ -129,6 +129,14 @@ fn rvalue_text(value: &Rvalue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Rvalue::Set(items) => format!(
+            "set{{{}}}",
+            items
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Rvalue::Dict(entries) => format!(
             "{{{}}}",
             entries
@@ -377,6 +385,9 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(list),
                 operand_text(item)
             )
+        }
+        Rvalue::SetContains { set, item } => {
+            format!("set_contains {}, {}", operand_text(set), operand_text(item))
         }
         Rvalue::ListConcat { left, right } => {
             format!(
