@@ -533,6 +533,13 @@ pub enum Rvalue {
         /// Exclusive end index, or omitted for collection length.
         end: Option<Operand>,
     },
+    /// Push one item into a list and return the new length.
+    ListPush {
+        /// List value to mutate.
+        list: Operand,
+        /// Item to append.
+        item: Operand,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// Tuple value to search in.

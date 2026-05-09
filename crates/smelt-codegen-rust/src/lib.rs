@@ -1200,6 +1200,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListSlice { list, start, end } => {
                 self.list_slice_text(list, start.as_ref(), end.as_ref())
             }
+            Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
@@ -1881,6 +1882,37 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a list push operation to Rust text.
+    fn list_push_text(
+        &self,
+        list: &Operand,
+        item: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list push receiver must be a list"));
+        };
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(
+                "list push item must match the list element type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Float)) {
+            return Err(EmitError::new("list push destination must be a number"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list push receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        Ok(format!(
+            "{{ {list_text}.push({}); {list_text}.len() as f64 }}",
+            self.operand_text(item)?
+        ))
+    }
+
     /// Validates that an optional slice index is numeric.
     fn validate_optional_numeric_index(
         &self,
@@ -2471,6 +2503,14 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
     let mut locals = HashSet::new();
     for block in &function.blocks {
         for statement in &block.statements {
+            if let Statement::Assign {
+                value: Rvalue::ListPush { list, .. },
+                ..
+            } = statement
+                && let Some(local) = operand_local(list)
+            {
+                locals.insert(local);
+            }
             if let Statement::AssignPlace {
                 place: Place::Local(local),
                 ..
@@ -2508,6 +2548,14 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
         }
     }
     locals
+}
+
+/// Extracts the local base from a direct local operand.
+fn operand_local(operand: &Operand) -> Option<LocalId> {
+    match operand {
+        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
+        Operand::Copy(_) | Operand::Move(_) | Operand::Const(_) => None,
+    }
 }
 
 /// Checks if a method mutates the `this` parameter (self).
@@ -3125,6 +3173,23 @@ const midText = word.slice(1, 4);
         assert!(source.contains(".chars().skip(0usize).take("));
         assert!(source.contains(".chars().skip((1.0 as usize)).take("));
         assert!(source.contains(".collect::<String>();"));
+    }
+
+    #[test]
+    fn emits_array_push_method() {
+        let source = source_for(
+            r#"
+let values: number[] = [1, 2];
+values.push(3);
+const length = values.push(4);
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains("Vec<f64>"));
+        assert!(source.contains(".push(3.0);"));
+        assert!(source.contains(".push(4.0);"));
+        assert!(source.contains(".len() as f64"));
     }
 
     #[test]

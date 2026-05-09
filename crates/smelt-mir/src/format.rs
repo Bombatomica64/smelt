@@ -371,6 +371,9 @@ fn rvalue_text(value: &Rvalue) -> String {
             optional_operand_text(start.as_ref()),
             optional_operand_text(end.as_ref())
         ),
+        Rvalue::ListPush { list, item } => {
+            format!("list_push {}, {}", operand_text(list), operand_text(item))
+        }
         Rvalue::TupleContains { tuple, item } => {
             format!(
                 "tuple_contains {}, {}",

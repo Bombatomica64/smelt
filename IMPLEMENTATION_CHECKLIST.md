@@ -231,7 +231,7 @@ runtime errors.
     - [x] Python tuple `in` / `not in`.
     - [x] Python dict key `in` / `not in`.
 - [ ] Batch B, mutation methods with existing place-assignment support:
-  - [ ] TypeScript `Array.prototype.push`.
+  - [x] TypeScript `Array.prototype.push`.
   - [ ] TypeScript `Array.prototype.pop`.
   - [ ] TypeScript `Array.prototype.reverse`.
   - [ ] Python `list.append`.
@@ -304,7 +304,7 @@ runtime errors.
   - [ ] `Array.prototype.findIndex`.
   - [ ] `Array.prototype.some`.
   - [ ] `Array.prototype.every`.
-  - [ ] `Array.prototype.push`.
+  - [x] `Array.prototype.push`.
   - [ ] `Array.prototype.pop`.
   - [ ] `Array.prototype.shift`.
   - [ ] `Array.prototype.unshift`.

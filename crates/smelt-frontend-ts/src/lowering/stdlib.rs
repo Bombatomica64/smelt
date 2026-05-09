@@ -8,6 +8,51 @@ use smelt_hir::{Body, Expr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower direct TypeScript `Array.prototype.push` calls.
+    pub(super) fn list_push_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "push" {
+            return Ok(None);
+        }
+        let Expression::Identifier(_) = &member.object else {
+            return Err(SmeltError::unsupported(
+                self.span(member.object.span().start, member.object.span().end),
+                "array push currently requires a local array receiver",
+            ));
+        };
+        let [item_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array push currently supports exactly one item argument",
+            ));
+        };
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *list_element_ty;
+        let item = self.argument(item_argument, body)?;
+        if Self::expr_ty(body, item) != element_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array push argument must match the array element type",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListPush { list, item },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Array.prototype.slice` and `String.prototype.slice` calls.
     pub(super) fn collection_slice_call(
         &mut self,

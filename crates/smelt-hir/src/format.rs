@@ -466,6 +466,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             optional_expr_ref(*start),
             optional_expr_ref(*end)
         ),
+        ExprKind::ListPush { list, item } => {
+            format!("list_push {}, {}", expr_ref(*list), expr_ref(*item))
+        }
         ExprKind::TupleContains { tuple, item } => {
             format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
         }
@@ -580,6 +583,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListConcat { .. }
         | ExprKind::ListSearch { .. }
         | ExprKind::ListSlice { .. }
+        | ExprKind::ListPush { .. }
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
         | ExprKind::DictProjection { .. }

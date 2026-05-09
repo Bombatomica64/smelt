@@ -571,6 +571,52 @@ const midText = word.slice(1, 4);
 }
 
 #[test]
+fn lowers_array_push_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.push(3);
+const length = values.push(4);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let pushes = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+        .count();
+    ensure_eq!(pushes, 2);
+    Ok(())
+}
+
+#[test]
+fn rejects_unsupported_array_push_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let wrong_type = lowering_errors(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.push("x");
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&wrong_type, "argument must match")?;
+
+    let mut ctx = HirCtx::new();
+    let too_many = lowering_errors(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.push(3, 4);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&too_many, "exactly one item argument")
+}
+
+#[test]
 fn rejects_unsupported_slice_argument_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let negative = lowering_errors(

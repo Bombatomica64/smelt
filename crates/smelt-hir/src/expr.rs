@@ -232,6 +232,13 @@ pub enum ExprKind {
         /// Exclusive end index, or omitted for collection length.
         end: Option<ExprId>,
     },
+    /// Push one item into a list and return the new length.
+    ListPush {
+        /// List value to mutate.
+        list: ExprId,
+        /// Item to append.
+        item: ExprId,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// The tuple value being searched.
