@@ -828,6 +828,22 @@ const empty: Set<string> = new Set();
 }
 
 #[test]
+fn emits_map_constructor_has_and_get_methods() {
+    let source = source_for(
+        r#"
+const mapping: Map<string, number> = new Map();
+const has = mapping.has("a");
+const value = mapping.get("a");
+"#,
+    );
+
+    assert!(source.contains("::std::collections::HashMap<String, f64>"));
+    assert!(source.contains("::std::collections::HashMap::from([]);"));
+    assert!(source.contains(".contains_key(&\"a\".to_owned());"));
+    assert!(source.contains(".get(&\"a\".to_owned()).cloned();"));
+}
+
+#[test]
 fn emits_string_split_method() {
     let source = source_for(
         r#"

@@ -1163,6 +1163,41 @@ const empty: Set<string> = new Set();
 }
 
 #[test]
+fn lowers_map_constructor_has_and_get_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const mapping: Map<string, number> = new Map();
+const has = mapping.has("a");
+const value = mapping.get("a");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
+        "Map constructor did not lower to DictLit"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. })),
+        "Map.has did not lower to DictContainsKey"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictGet { .. })),
+        "Map.get did not lower to DictGet"
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_string_split_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

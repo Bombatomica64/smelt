@@ -1712,6 +1712,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.object_has_own_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.map_has_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.map_get_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.array_is_array_call(call, body)? {
                     return Ok(expr);
                 }
@@ -1878,6 +1884,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             Expression::NewExpression(new_expr) => {
                 if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.map_constructor_expression(new_expr, body, type_hint)? {
                     return Ok(expr);
                 }
                 let Expression::Identifier(callee) = &new_expr.callee else {
@@ -3312,6 +3321,89 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
+    /// Lower direct TypeScript `Map.prototype.has`.
+    fn map_has_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "has" {
+            return Ok(None);
+        }
+        let [key_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Map.has requires exactly one key argument",
+            ));
+        };
+        let dict = self.expression(&member.object, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, _)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
+        let key_ty = *dict_key_ty;
+        let key = self.argument(key_argument, body)?;
+        if Self::expr_ty(body, key) != key_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Map.has key must match the map key type",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictContainsKey { dict, key },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Map.prototype.get`.
+    fn map_get_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "get" {
+            return Ok(None);
+        }
+        let [key_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Map.get requires exactly one key argument",
+            ));
+        };
+        let dict = self.expression(&member.object, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
+        let key_ty = *dict_key_ty;
+        let value_ty = *dict_value_ty;
+        let key = self.argument(key_argument, body)?;
+        if Self::expr_ty(body, key) != key_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Map.get key must match the map key type",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Optional(value_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictGet {
+                dict,
+                key,
+                default: None,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.
     fn list_concat_call(
         &mut self,
@@ -3862,6 +3954,44 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::SetLit(items),
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
+    /// Lower annotated empty `new Map()` to a dictionary literal.
+    fn map_constructor_expression(
+        &self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if callee.name != "Map" {
+            return Ok(None);
+        }
+        if !new_expr.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Map currently supports only an annotated empty constructor",
+            ));
+        }
+        let Some(ty) = type_hint else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "empty Map constructors require a Map<K, V> type annotation",
+            ));
+        };
+        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Map() requires a Map<K, V> type annotation",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
@@ -4574,6 +4704,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "only Record<string, T> is lowered for now",
                     ));
                 }
+                let lowered_value = self.ts_type_to_hir(value)?;
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Dict(lowered_key, lowered_value)))
+            }
+            ("Map", [key, value]) => {
+                let lowered_key = self.ts_type_to_hir(key)?;
                 let lowered_value = self.ts_type_to_hir(value)?;
                 Ok(self
                     .ctx

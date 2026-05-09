@@ -379,6 +379,7 @@ runtime errors.
 - [ ] TypeScript Map, Set, Date, RegExp, URL, and Error mappings:
   - [ ] `Map` construction, `get`, `set`, `has`, `delete`, `clear`, `size`, `keys`, `values`,
         `entries`, and iteration.
+    - [x] `Map<K, V>` type reference, annotated empty `new Map()`, `Map.has`, and `Map.get`.
   - [ ] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
     - [x] `Set<T>` type reference, `new Set([literal values])`, annotated `new Set()`, and `Set.has`.
   - [ ] `Date.now`, construction from timestamp/string, `toISOString`, and basic getters, or
