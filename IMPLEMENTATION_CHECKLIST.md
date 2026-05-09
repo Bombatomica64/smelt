@@ -380,6 +380,7 @@ runtime errors.
   - [ ] `Map` construction, `get`, `set`, `has`, `delete`, `clear`, `size`, `keys`, `values`,
         `entries`, and iteration.
   - [ ] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
+    - [x] `Set<T>` type reference, `new Set([literal values])`, annotated `new Set()`, and `Set.has`.
   - [ ] `Date.now`, construction from timestamp/string, `toISOString`, and basic getters, or
         explicitly defer Date support.
   - [ ] `RegExp.test`, `String.match`, and regex-backed `replace` using the Rust `regex` crate, or

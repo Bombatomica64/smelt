@@ -1778,6 +1778,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.list_contains_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.set_contains_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_contains_call(call, body)? {
                     return Ok(expr);
                 }
@@ -1874,6 +1877,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ))
             }
             Expression::NewExpression(new_expr) => {
+                if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
+                    return Ok(expr);
+                }
                 let Expression::Identifier(callee) = &new_expr.callee else {
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
@@ -3267,6 +3273,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
+    /// Lower direct TypeScript `Set.prototype.has`.
+    fn set_contains_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "has" {
+            return Ok(None);
+        }
+        let [item_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Set.has requires exactly one argument",
+            ));
+        };
+        let set = self.expression(&member.object, body)?;
+        let set_ty = Self::expr_ty(body, set);
+        let Some(Type::Set(set_element_ty)) = self.ctx.krate.types.get(set_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *set_element_ty;
+        let item = self.argument(item_argument, body)?;
+        if Self::expr_ty(body, item) != element_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Set.has argument must match the set element type",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::SetContains { set, item },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.
     fn list_concat_call(
         &mut self,
@@ -3752,6 +3797,74 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 _ => self.array_element(element, body),
             })
             .collect()
+    }
+
+    /// Lower `new Set(...)` from an array literal or annotated empty constructor.
+    fn set_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if callee.name != "Set" {
+            return Ok(None);
+        }
+        let (items, ty) = match new_expr.arguments.as_slice() {
+            [] => {
+                let Some(hint) = type_hint else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "empty Set constructors require a Set<T> type annotation",
+                    ));
+                };
+                if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "new Set() requires a Set<T> type annotation",
+                    ));
+                }
+                (Vec::new(), hint)
+            }
+            [Argument::ArrayExpression(array)] => {
+                let items = array
+                    .elements
+                    .iter()
+                    .map(|element| self.array_element(element, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = if let Some(hint) = type_hint {
+                    if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
+                        return Err(SmeltError::unsupported(
+                            self.span(new_expr.span.start, new_expr.span.end),
+                            "new Set([...]) requires a Set<T> type annotation when annotated",
+                        ));
+                    }
+                    hint
+                } else if let Some(first_item) = items.first().copied() {
+                    let item_ty = Self::expr_ty(body, first_item);
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "empty Set array literals require a Set<T> type annotation",
+                    ));
+                };
+                (items, ty)
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Set currently supports no arguments or one array literal argument",
+                ));
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::SetLit(items),
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
     }
 
     /// Lower an array element.
@@ -4448,6 +4561,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ("Array", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::List(lowered_item)))
+            }
+            ("Set", [item]) => {
+                let lowered_item = self.ts_type_to_hir(item)?;
+                Ok(self.ctx.krate.types.intern(Type::Set(lowered_item)))
             }
             ("Record", [key, value]) => {
                 let lowered_key = self.ts_type_to_hir(key)?;

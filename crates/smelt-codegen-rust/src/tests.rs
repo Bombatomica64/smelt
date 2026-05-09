@@ -812,6 +812,22 @@ const has = values.includes(2);
 }
 
 #[test]
+fn emits_set_constructor_and_has_method() {
+    let source = source_for(
+        r#"
+const values: Set<number> = new Set([1, 2, 3]);
+const has = values.has(2);
+const empty: Set<string> = new Set();
+"#,
+    );
+
+    assert!(source.contains("::std::collections::HashSet<f64>"));
+    assert!(source.contains("::std::collections::HashSet::from(["));
+    assert!(source.contains(".contains(&2.0);"));
+    assert!(source.contains("::std::collections::HashSet::from([]);"));
+}
+
+#[test]
 fn emits_string_split_method() {
     let source = source_for(
         r#"

@@ -1134,6 +1134,35 @@ const has = values.includes(2);
 }
 
 #[test]
+fn lowers_set_constructor_and_has_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: Set<number> = new Set([1, 2, 3]);
+const has = values.has(2);
+const empty: Set<string> = new Set();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetLit(_))),
+        "Set constructor did not lower to SetLit"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetContains { .. })),
+        "Set.has did not lower to SetContains"
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_string_split_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
