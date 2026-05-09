@@ -586,6 +586,15 @@ pub enum Rvalue {
         /// Dictionary value to mutate.
         dict: Operand,
     },
+    /// Remove a dictionary key and return its value.
+    DictPop {
+        /// Dictionary value to mutate.
+        dict: Operand,
+        /// Key to remove.
+        key: Operand,
+        /// Optional default value for missing keys.
+        default: Option<Operand>,
+    },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {
         /// Projection to apply.

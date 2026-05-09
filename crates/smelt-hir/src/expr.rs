@@ -285,6 +285,15 @@ pub enum ExprKind {
         /// Dictionary value to mutate.
         dict: ExprId,
     },
+    /// Remove a dictionary key and return its value.
+    DictPop {
+        /// Dictionary value to mutate.
+        dict: ExprId,
+        /// Key to remove.
+        key: ExprId,
+        /// Optional default value for missing keys.
+        default: Option<ExprId>,
+    },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {
         /// Projection to apply.

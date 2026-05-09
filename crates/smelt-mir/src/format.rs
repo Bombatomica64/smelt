@@ -402,6 +402,12 @@ fn rvalue_text(value: &Rvalue) -> String {
             )
         }
         Rvalue::DictClear { dict } => format!("dict_clear {}", operand_text(dict)),
+        Rvalue::DictPop { dict, key, default } => format!(
+            "dict_pop {}, {}, {}",
+            operand_text(dict),
+            operand_text(key),
+            optional_operand_text(default.as_ref())
+        ),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {
                 smelt_hir::DictProjectionOp::Keys => "keys",

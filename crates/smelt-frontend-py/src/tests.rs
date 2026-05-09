@@ -758,6 +758,30 @@ dict_result: None = mapping.clear()
 }
 
 #[test]
+fn dict_pop_method_lowers() -> TestResult {
+    let source = py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.pop("a")
+fallback: int = mapping.pop("b", 0)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    let pops = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::DictPop { .. }))
+        .count();
+    ensure_eq(&pops, &2, "dict pop count")
+}
+
+#[test]
 fn unsupported_list_append_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_type = lower_errors(
@@ -819,6 +843,50 @@ result: None = values.clear(1)
     ensure(
         error.message.contains("requires no arguments"),
         "expected clear arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_dict_pop_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let missing_key = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.pop()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&missing_key)?
+            .message
+            .contains("key and optional default"),
+        "expected missing key diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_key = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.pop(1)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_key)?.message.contains("key type"),
+        "expected wrong key diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_default = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.pop("a", "x")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_default)?.message.contains("value type"),
+        "expected wrong default diagnostic",
     )
 }
 

@@ -1356,6 +1356,24 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DictPop { dict, key, default } => {
+                let dict_operand = self.lower_expr(*dict)?;
+                let key_operand = self.lower_expr(*key)?;
+                let default_operand = default
+                    .as_ref()
+                    .map(|default_expr| self.lower_expr(*default_expr))
+                    .transpose()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictPop {
+                        dict: dict_operand,
+                        key: key_operand,
+                        default: default_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DictProjection { op, dict } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1638,6 +1656,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::TupleContains { .. }
             | ExprKind::DictContainsKey { .. }
             | ExprKind::DictClear { .. }
+            | ExprKind::DictPop { .. }
             | ExprKind::DictProjection { .. }
             | ExprKind::StringSplit { .. }
             | ExprKind::StringJoin { .. }

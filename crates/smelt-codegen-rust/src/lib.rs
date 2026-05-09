@@ -1221,6 +1221,9 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictClear { dict } => self.collection_clear_text(dict, dest_ty, "dict"),
+            Rvalue::DictPop { dict, key, default } => {
+                self.dict_pop_text(dict, key, default.as_ref(), dest_ty)
+            }
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
                 haystack,
@@ -2174,6 +2177,52 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a dictionary pop operation to Rust text.
+    fn dict_pop_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        default: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict pop receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new("dict pop key must match the dict key type"));
+        }
+        if dest_ty != *value_ty {
+            return Err(EmitError::new(
+                "dict pop destination must match the dict value type",
+            ));
+        }
+        if let Some(default_operand) = default
+            && self.operand_ty(default_operand)? != *value_ty
+        {
+            return Err(EmitError::new(
+                "dict pop default must match the dict value type",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict pop receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let key_text = self.operand_text(key)?;
+        if let Some(default_operand) = default {
+            let default_text = self.operand_text(default_operand)?;
+            Ok(format!(
+                "{dict_text}.remove(&{key_text}).unwrap_or({default_text})"
+            ))
+        } else {
+            Ok(format!(
+                "{dict_text}.remove(&{key_text}).expect(\"dict pop missing key\")"
+            ))
+        }
+    }
+
     /// Converts a dictionary projection operation to Rust text.
     fn dict_projection_text(
         &self,
@@ -2687,7 +2736,8 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     | Rvalue::ListClear { list }
                     | Rvalue::ListPop { list }
                     | Rvalue::ListShift { list }
-                    | Rvalue::DictClear { dict: list },
+                    | Rvalue::DictClear { dict: list }
+                    | Rvalue::DictPop { dict: list, .. },
                 ..
             } = statement
                 && let Some(local) = operand_local(list)
@@ -3145,6 +3195,22 @@ dict_result: None = mapping.clear()
         assert!(source.contains("let mut"));
         assert!(source.matches(".clear();").count() >= 2);
         assert!(source.matches("()").count() >= 2);
+    }
+
+    #[test]
+    fn emits_python_dict_pop_method() {
+        let source = source_for_py(
+            r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.pop("a")
+fallback: int = mapping.pop("b", 0)
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains(".remove(&"));
+        assert!(source.contains(".expect(\"dict pop missing key\")"));
+        assert!(source.contains(".unwrap_or(0)"));
     }
 
     #[test]

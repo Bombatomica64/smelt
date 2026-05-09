@@ -239,7 +239,7 @@ runtime errors.
   - [x] Python `list.clear`.
   - [x] Python `list.reverse`.
   - [ ] Python `dict.update`.
-  - [ ] Python `dict.pop`.
+  - [x] Python `dict.pop`.
   - [x] Python `dict.clear`.
 - [ ] Batch C, collection projection methods:
   - [x] TypeScript `Object.keys`, `Object.values`, and `Object.entries`.
@@ -428,6 +428,7 @@ runtime errors.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
     - [x] Dict `keys`, `values`, and `items`.
+    - [x] Dict `pop`.
     - [x] Dict `clear`.
   - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
         `difference`, and iteration.

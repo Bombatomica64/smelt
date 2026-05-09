@@ -245,6 +245,11 @@ fn validate_rvalue_exists(
         Rvalue::DictClear { dict } => {
             validate_operand_exists(function, dict, errors);
         }
+        Rvalue::DictPop { dict, key, default } => {
+            validate_operand_exists(function, dict, errors);
+            validate_operand_exists(function, key, errors);
+            validate_optional_operand_exists(function, default.as_ref(), errors);
+        }
         Rvalue::DictProjection { dict, .. } => {
             validate_operand_exists(function, dict, errors);
         }
@@ -603,6 +608,11 @@ fn validate_rvalue(
         }
         Rvalue::DictClear { dict } => {
             validate_operand(function, definitions, dict, errors);
+        }
+        Rvalue::DictPop { dict, key, default } => {
+            validate_operand(function, definitions, dict, errors);
+            validate_operand(function, definitions, key, errors);
+            validate_optional_operand(function, definitions, default.as_ref(), errors);
         }
         Rvalue::DictProjection { dict, .. } => {
             validate_operand(function, definitions, dict, errors);

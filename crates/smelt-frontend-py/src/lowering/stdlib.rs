@@ -7,6 +7,59 @@ use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower Python `dict.pop(key[, default])` calls.
+    pub(super) fn dict_pop_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "pop" {
+            return Ok(None);
+        }
+        if call.arguments.args.is_empty() || call.arguments.args.len() > 2 {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "dict.pop() requires a key and optional default",
+            ));
+        }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
+        let key_ty = *dict_key_ty;
+        let value_ty = *dict_value_ty;
+        let key = self.expression(&call.arguments.args[0], body)?;
+        if Self::expr_ty(body, key) != key_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "dict.pop() key must match the dict key type",
+            ));
+        }
+        let default = call
+            .arguments
+            .args
+            .get(1)
+            .map(|default| self.expression(default, body))
+            .transpose()?;
+        if let Some(default_expr) = default
+            && Self::expr_ty(body, default_expr) != value_ty
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[1].range()),
+                "dict.pop() default must match the dict value type",
+            ));
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::DictPop { dict, key, default },
+            ty: value_ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.clear()` and `dict.clear()` calls.
     pub(super) fn collection_clear_call_expression(
         &mut self,
@@ -52,17 +105,17 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "pop" {
             return Ok(None);
         }
+        let list = self.expression(&attr.value, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
         if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.range),
                 "list.pop() index arguments are not supported yet",
             ));
         }
-        let list = self.expression(&attr.value, body)?;
-        let list_ty = Self::expr_ty(body, list);
-        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
-            return Ok(None);
-        };
         let ty = *list_element_ty;
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::ListPop { list },
