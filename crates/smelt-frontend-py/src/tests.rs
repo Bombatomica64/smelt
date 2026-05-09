@@ -1792,6 +1792,7 @@ tan_value: float = math.tan(value)
 asin_value: float = math.asin(value)
 acos_value: float = math.acos(value)
 atan_value: float = math.atan(value)
+atan2_value: float = math.atan2(value, 2.0)
 log_value: float = math.log(value)
 log10_value: float = math.log10(value)
 log2_value: float = math.log2(value)
@@ -1834,6 +1835,12 @@ whole: int = math.trunc(value)
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericPow { .. })),
         "expected math.pow lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericAtan2 { .. })),
+        "expected math.atan2 lowering",
     )?;
     ensure(
         body.exprs.iter().any(|expr| {

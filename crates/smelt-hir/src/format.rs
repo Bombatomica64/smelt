@@ -338,6 +338,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::NumericPow { base, exponent } => {
             format!("numeric_pow {}, {}", expr_ref(*base), expr_ref(*exponent))
         }
+        ExprKind::NumericAtan2 { y, x } => {
+            format!("numeric_atan2 {}, {}", expr_ref(*y), expr_ref(*x))
+        }
         ExprKind::StringCase { op, operand } => {
             let op_name = match op {
                 crate::expr::StringCaseOp::Lower => "lower",
@@ -635,6 +638,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::NumericPredicate { .. }
         | ExprKind::NumericUnaryFunc { .. }
         | ExprKind::NumericPow { .. }
+        | ExprKind::NumericAtan2 { .. }
         | ExprKind::StringCase { .. }
         | ExprKind::StringTrim { .. }
         | ExprKind::StringAffix { .. }

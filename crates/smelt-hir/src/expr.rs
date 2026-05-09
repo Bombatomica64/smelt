@@ -104,6 +104,13 @@ pub enum ExprKind {
         /// Exponent operand.
         exponent: ExprId,
     },
+    /// Compute the arctangent of two numeric coordinates.
+    NumericAtan2 {
+        /// Y coordinate.
+        y: ExprId,
+        /// X coordinate.
+        x: ExprId,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.

@@ -242,6 +242,7 @@ const tangent = Math.tan(value);
 const arcsine = Math.asin(value);
 const arccosine = Math.acos(value);
 const arctangent = Math.atan(value);
+const arctangentTwo = Math.atan2(value, 2);
 const logged = Math.log(value);
 const logTen = Math.log10(value);
 const logTwo = Math.log2(value);
@@ -260,6 +261,7 @@ const distance = Math.hypot(value, 3);
     assert!(source.contains(".asin();"));
     assert!(source.contains(".acos();"));
     assert!(source.contains(".atan();"));
+    assert!(source.contains(".atan2("));
     assert!(source.contains(".ln();"));
     assert!(source.contains(".log10();"));
     assert!(source.contains(".log2();"));
@@ -640,6 +642,7 @@ import math
 value: float = 4.0
 root: float = math.sqrt(value)
 raised: float = math.pow(value, 2.0)
+angle: float = math.atan2(value, 2.0)
 whole: int = math.trunc(value)
 values: tuple[int, int] = (1, 2)
 has_tuple: bool = 2 in values
@@ -650,6 +653,7 @@ has_key: bool = "a" in mapping
 
     assert!(source.contains(".sqrt();"));
     assert!(source.contains(".powf("));
+    assert!(source.contains(".atan2("));
     assert!(source.contains(".trunc() as i64;"));
     assert!(source.contains(".0 == "));
     assert!(source.contains(".contains_key(&"));

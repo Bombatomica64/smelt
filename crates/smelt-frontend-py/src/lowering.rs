@@ -2410,6 +2410,36 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span,
                 })))
             }
+            "atan2" => {
+                if call.arguments.args.len() != 2 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.atan2() requires exactly two arguments",
+                    ));
+                }
+                let y_coord = self.expression(&call.arguments.args[0], body)?;
+                let x_coord = self.expression(&call.arguments.args[1], body)?;
+                if [y_coord, x_coord].iter().any(|arg| {
+                    !matches!(
+                        self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
+                        Some(Type::Int | Type::Float)
+                    )
+                }) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "math.atan2() requires numeric arguments",
+                    ));
+                }
+                let ty = self.intern_type(Type::Float);
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::NumericAtan2 {
+                        y: y_coord,
+                        x: x_coord,
+                    },
+                    ty,
+                    span,
+                })))
+            }
             "trunc" => {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(

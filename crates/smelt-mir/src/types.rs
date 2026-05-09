@@ -405,6 +405,13 @@ pub enum Rvalue {
         /// Exponent operand.
         exponent: Operand,
     },
+    /// Compute the arctangent of two numeric coordinates.
+    NumericAtan2 {
+        /// Y coordinate.
+        y: Operand,
+        /// X coordinate.
+        x: Operand,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.

@@ -1699,6 +1699,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.math_pow_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.math_atan2_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.object_projection_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2521,6 +2524,55 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericPow { base, exponent },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Math.atan2` calls.
+    fn math_atan2_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" || member.property.name != "atan2" {
+            return Ok(None);
+        }
+        if call.arguments.len() != 2 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.atan2 requires exactly two arguments",
+            ));
+        }
+        let [y_argument, x_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.atan2 requires exactly two arguments",
+            ));
+        };
+        let y_coord = self.argument(y_argument, body)?;
+        let x_coord = self.argument(x_argument, body)?;
+        if [y_coord, x_coord]
+            .iter()
+            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.atan2 requires number arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericAtan2 {
+                y: y_coord,
+                x: x_coord,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

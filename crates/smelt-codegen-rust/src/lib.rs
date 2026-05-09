@@ -1202,6 +1202,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::NumericPredicate { op, operand } => self.numeric_predicate_text(*op, operand),
             Rvalue::NumericUnaryFunc { op, operand } => self.numeric_unary_func_text(*op, operand),
             Rvalue::NumericPow { base, exponent } => self.numeric_pow_text(base, exponent),
+            Rvalue::NumericAtan2 { y, x } => self.numeric_atan2_text(y, x),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
             Rvalue::StringAffix {
@@ -1591,6 +1592,26 @@ impl<'mir> FunctionEmitter<'mir> {
         let base_text = self.float_operand_text(base)?;
         let exponent_text = self.float_operand_text(exponent)?;
         Ok(format!("{base_text}.powf({exponent_text})"))
+    }
+
+    /// Converts a two-argument arctangent operation to Rust text.
+    fn numeric_atan2_text(
+        &self,
+        y_operand: &Operand,
+        x_operand: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(y_operand)?),
+            Some(Type::Int | Type::Float)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(x_operand)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("numeric atan2 operands must be numeric"));
+        }
+        let y_text = self.float_operand_text(y_operand)?;
+        let x_text = self.float_operand_text(x_operand)?;
+        Ok(format!("{y_text}.atan2({x_text})"))
     }
 
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.

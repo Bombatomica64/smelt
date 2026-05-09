@@ -317,6 +317,9 @@ fn rewrite_rvalue(
             rewrite_operand_except(base, aliases, dest)
                 | rewrite_operand_except(exponent, aliases, dest)
         }
+        Rvalue::NumericAtan2 { y, x } => {
+            rewrite_operand_except(y, aliases, dest) | rewrite_operand_except(x, aliases, dest)
+        }
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
             rewrite_operand_except(value, aliases, dest) | changed

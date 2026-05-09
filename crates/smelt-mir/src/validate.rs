@@ -331,6 +331,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, base, errors);
             validate_operand_exists(function, exponent, errors);
         }
+        Rvalue::NumericAtan2 { y, x } => {
+            validate_operand_exists(function, y, errors);
+            validate_operand_exists(function, x, errors);
+        }
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {
@@ -744,6 +748,10 @@ fn validate_rvalue(
         Rvalue::NumericPow { base, exponent } => {
             validate_operand(function, definitions, base, errors);
             validate_operand(function, definitions, exponent, errors);
+        }
+        Rvalue::NumericAtan2 { y, x } => {
+            validate_operand(function, definitions, y, errors);
+            validate_operand(function, definitions, x, errors);
         }
         Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
         Rvalue::Struct { fields, .. } => {

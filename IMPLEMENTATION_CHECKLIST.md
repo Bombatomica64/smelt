@@ -351,8 +351,9 @@ runtime errors.
   - [ ] `Math.pow`, `sqrt`, `cbrt`, `hypot`, and exponentiation alignment.
     - [x] `Math.pow`, `Math.sqrt`, `Math.cbrt`, and `Math.hypot`.
   - [x] `Math.sign`.
-  - [ ] `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and `atan2`.
+  - [x] `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and `atan2`.
     - [x] `Math.sin`, `cos`, `tan`, `asin`, `acos`, and `atan`.
+    - [x] `Math.atan2`.
   - [x] `Math.log`, `log10`, `log2`, and `exp`.
   - [ ] `Math.random` with an explicit randomness/backend policy.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
@@ -456,6 +457,7 @@ runtime errors.
   - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,
         `isnan`, constants `pi`, `e`, and `tau`.
     - [x] `math.sin`, `cos`, `tan`, `asin`, `acos`, and `atan`.
+    - [x] `math.atan2`.
     - [x] `math.log`, `log10`, `log2`, and `exp`.
   - [ ] `json`: `loads`, `dumps`, `load`, and `dump` with `serde_json`.
     - [x] `json.dumps`.

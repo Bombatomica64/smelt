@@ -819,6 +819,7 @@ const tangent = Math.tan(value);
 const arcsine = Math.asin(value);
 const arccosine = Math.acos(value);
 const arctangent = Math.atan(value);
+const arctangentTwo = Math.atan2(value, 2);
 const logged = Math.log(value);
 const logTen = Math.log10(value);
 const logTwo = Math.log2(value);
@@ -854,6 +855,11 @@ const distance = Math.hypot(value, 3);
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericPow { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericAtan2 { .. }))
     );
     ensure!(
         body.exprs
