@@ -1222,6 +1222,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
             Rvalue::ListCopy { list } => self.list_copy_text(list, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
+            Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
             Rvalue::ListSort { list } => self.list_sort_text(list, dest_ty),
@@ -2218,6 +2219,30 @@ impl<'mir> FunctionEmitter<'mir> {
             self.operand_text(list)?,
             self.operand_text(item)?
         ))
+    }
+
+    /// Converts a numeric list sum operation to Rust text.
+    fn list_sum_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list sum receiver must be a list"));
+        };
+        if dest_ty != *item_ty {
+            return Err(EmitError::new(
+                "list sum destination must match the list element type",
+            ));
+        }
+        match self.mir.types.get(*item_ty) {
+            Some(Type::Int) => Ok(format!(
+                "{}.iter().copied().sum::<i64>()",
+                self.operand_text(list)?
+            )),
+            Some(Type::Float) => Ok(format!(
+                "{}.iter().copied().sum::<f64>()",
+                self.operand_text(list)?
+            )),
+            _ => Err(EmitError::new("list sum supports int and float lists")),
+        }
     }
 
     /// Converts a list index operation to Rust text.

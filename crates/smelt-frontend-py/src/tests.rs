@@ -1415,6 +1415,38 @@ value: int = mapping.setdefault("b")
 }
 
 #[test]
+fn unsupported_builtin_sum_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+total: int = sum()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("exactly one list"),
+        "expected sum arity diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let non_numeric = lower_errors(
+        py!(r#"
+values: list[str] = ["a", "b"]
+total: str = sum(values)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&non_numeric)?
+            .message
+            .contains("int or float list"),
+        "expected sum type diagnostic",
+    )
+}
+
+#[test]
 fn unsupported_dict_pop_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let missing_key = lower_errors(
@@ -1770,6 +1802,31 @@ lowest: int = min(first, second)
         )?;
     }
     Ok(())
+}
+
+#[test]
+fn builtin_sum_lower() -> TestResult {
+    let source = py!(r#"
+ints: list[int] = [1, 2]
+int_total: int = sum(ints)
+floats: list[float] = [1.0, 2.0]
+float_total: float = sum(floats)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    let sums = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListSum { .. }))
+        .count();
+    ensure_eq(&sums, &2, "list sum count")
 }
 
 #[test]

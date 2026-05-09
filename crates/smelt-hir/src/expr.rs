@@ -284,6 +284,11 @@ pub enum ExprKind {
         /// Item to count.
         item: ExprId,
     },
+    /// Sum numeric items in a list.
+    ListSum {
+        /// List value to reduce.
+        list: ExprId,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

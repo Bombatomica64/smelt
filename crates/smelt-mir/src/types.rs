@@ -585,6 +585,11 @@ pub enum Rvalue {
         /// Item to count.
         item: Operand,
     },
+    /// Sum numeric items in a list.
+    ListSum {
+        /// List value to reduce.
+        list: Operand,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

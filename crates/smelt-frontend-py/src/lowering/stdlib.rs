@@ -7,6 +7,48 @@ use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower Python `sum(values)` calls for int and float lists.
+    pub(super) fn numeric_sum_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if name.id.as_str() != "sum" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "sum() currently supports exactly one list argument",
+            ));
+        }
+        let list = self.expression(&call.arguments.args[0], body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "sum() argument must be an int or float list",
+            ));
+        };
+        if !matches!(
+            self.ctx.krate.types.get(*item_ty),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "sum() argument must be an int or float list",
+            ));
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListSum { list },
+            ty: *item_ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.extend(other)` calls for same-typed lists.
     pub(super) fn list_extend_call_expression(
         &mut self,

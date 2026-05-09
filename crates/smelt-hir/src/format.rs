@@ -493,6 +493,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListCount { list, item } => {
             format!("list_count {}, {}", expr_ref(*list), expr_ref(*item))
         }
+        ExprKind::ListSum { list } => format!("list_sum {}", expr_ref(*list)),
         ExprKind::ListIndex { list, item } => {
             format!("list_index {}, {}", expr_ref(*list), expr_ref(*item))
         }
@@ -647,6 +648,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListClear { .. }
         | ExprKind::ListCopy { .. }
         | ExprKind::ListCount { .. }
+        | ExprKind::ListSum { .. }
         | ExprKind::ListIndex { .. }
         | ExprKind::ListRemove { .. }
         | ExprKind::ListSort { .. }

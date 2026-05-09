@@ -636,6 +636,21 @@ has_key: bool = "a" in mapping
 }
 
 #[test]
+fn emits_python_sum_builtin() {
+    let source = source_for_py(
+        r#"
+ints: list[int] = [1, 2]
+int_total: int = sum(ints)
+floats: list[float] = [1.0, 2.0]
+float_total: float = sum(floats)
+"#,
+    );
+
+    assert!(source.contains(".iter().copied().sum::<i64>()"));
+    assert!(source.contains(".iter().copied().sum::<f64>()"));
+}
+
+#[test]
 fn emits_string_includes_method() {
     let source = source_for(
         r#"

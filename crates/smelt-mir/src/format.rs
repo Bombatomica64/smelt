@@ -402,6 +402,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListCount { list, item } => {
             format!("list_count {}, {}", operand_text(list), operand_text(item))
         }
+        Rvalue::ListSum { list } => format!("list_sum {}", operand_text(list)),
         Rvalue::ListIndex { list, item } => {
             format!("list_index {}, {}", operand_text(list), operand_text(item))
         }

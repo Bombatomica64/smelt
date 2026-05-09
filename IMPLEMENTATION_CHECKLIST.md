@@ -395,6 +395,7 @@ runtime errors.
   - [ ] `enumerate(...)`.
   - [ ] `zip(...)`.
   - [ ] `sum(...)`, `min(...)`, and `max(...)`.
+    - [x] `sum(...)` for int and float lists.
     - [x] `min(...)` and `max(...)` for all-int or all-float fixed argument lists.
   - [ ] `all(...)` and `any(...)`.
   - [ ] `sorted(...)` and `reversed(...)`.

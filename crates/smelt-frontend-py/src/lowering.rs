@@ -2174,6 +2174,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if matches!(name.id.as_str(), "max" | "min") {
                 return self.numeric_extrema_call_expression(call, body);
             }
+            if name.id.as_str() == "sum"
+                && let Some(expr) = self.numeric_sum_call_expression(call, body)?
+            {
+                return Ok(expr);
+            }
             if name.id.as_str() == "print" {
                 let print_item = self.ensure_print_item(span);
                 let none_ty = self.intern_type(Type::None);
