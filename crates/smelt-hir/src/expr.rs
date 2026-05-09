@@ -151,6 +151,13 @@ pub enum ExprKind {
         /// Number of repetitions.
         count: ExprId,
     },
+    /// Test whether every character in a string satisfies a predicate.
+    StringPredicate {
+        /// Predicate to apply.
+        op: StringPredicateOp,
+        /// The string value being tested.
+        operand: ExprId,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// The string value being searched.
@@ -318,6 +325,17 @@ pub enum StringReplaceOp {
     First,
     /// Replace every match.
     All,
+}
+
+/// A directly lowered string character predicate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringPredicateOp {
+    /// Test for digit characters.
+    IsDigit,
+    /// Test for alphabetic characters.
+    IsAlpha,
+    /// Test for alphanumeric characters.
+    IsAlnum,
 }
 
 /// Runtime-backed async operation represented in HIR.

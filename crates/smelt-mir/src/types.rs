@@ -452,6 +452,13 @@ pub enum Rvalue {
         /// Number of repetitions.
         count: Operand,
     },
+    /// Test whether every character in a string satisfies a predicate.
+    StringPredicate {
+        /// Predicate to apply.
+        op: smelt_hir::StringPredicateOp,
+        /// String value to test.
+        operand: Operand,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// String value to search in.

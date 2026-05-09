@@ -37,6 +37,9 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `s.replace(x, y)` | `StringReplace::All` | `StringReplace::All` | `s.replace(&x, &y)` | Two string arguments | Optional count argument | Rust literal replacement semantics are used. |
 | `s.removeprefix(x)` | `StringRemoveAffix::StartsWith` | `StringRemoveAffix::StartsWith` | `s.strip_prefix(&x).unwrap_or(&s).to_owned()` | One string argument | Non-string argument | Rust prefix matching is used. |
 | `s.removesuffix(x)` | `StringRemoveAffix::EndsWith` | `StringRemoveAffix::EndsWith` | `s.strip_suffix(&x).unwrap_or(&s).to_owned()` | One string argument | Non-string argument | Rust suffix matching is used. |
+| `s.isdigit()` | `StringPredicate::IsDigit` | `StringPredicate::IsDigit` | `!s.is_empty() && s.chars().all(char::is_ascii_digit)` | No arguments | Any arguments | ASCII digit semantics are used for now. |
+| `s.isalpha()` | `StringPredicate::IsAlpha` | `StringPredicate::IsAlpha` | `!s.is_empty() && s.chars().all(char::is_alphabetic)` | No arguments | Any arguments | Rust Unicode alphabetic semantics are used. |
+| `s.isalnum()` | `StringPredicate::IsAlnum` | `StringPredicate::IsAlnum` | `!s.is_empty() && s.chars().all(char::is_alphanumeric)` | No arguments | Any arguments | Rust Unicode alphanumeric semantics are used. |
 | `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Default whitespace split and maxsplit | Rust split semantics are used. |
 
 ## TypeScript Math

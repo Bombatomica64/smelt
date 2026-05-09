@@ -4,7 +4,7 @@ use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, ExprKind, FileId, Item, ItemId, Language, Module, ModuleId,
     NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Pattern, PatternId, Stmt, StringAffixOp,
-    StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
+    StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -672,6 +672,39 @@ without_suffix: str = word.removesuffix("-suf")
                 |expr| matches!(expr.kind, ExprKind::StringRemoveAffix { op, .. } if op == expected),
             ),
             "expected string remove-affix lowering",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn string_predicate_methods_lower() -> TestResult {
+    let source = py!(r#"
+word: str = "abc123"
+digits: bool = word.isdigit()
+letters: bool = word.isalpha()
+alnum: bool = word.isalnum()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [
+        StringPredicateOp::IsDigit,
+        StringPredicateOp::IsAlpha,
+        StringPredicateOp::IsAlnum,
+    ] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringPredicate { op, .. } if op == expected),
+            ),
+            "expected string predicate lowering",
         )?;
     }
     Ok(())

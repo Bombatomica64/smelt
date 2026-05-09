@@ -408,6 +408,7 @@ runtime errors.
   - [ ] `str.join()`.
   - [x] `str.removeprefix()` and `removesuffix()`.
   - [ ] `str.isdigit()`, `isalpha()`, `isalnum()`, and related predicates.
+    - [x] `str.isdigit()`, `str.isalpha()`, and `str.isalnum()`.
   - [ ] f-string lowering beyond the currently supported literal/string-concat subset, if needed.
 - [ ] Python list/tuple/set/dict mappings:
   - [x] List `in` / `not in`.

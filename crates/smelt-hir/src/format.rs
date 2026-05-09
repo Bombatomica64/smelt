@@ -399,6 +399,14 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::StringRepeat { operand, count } => {
             format!("string_repeat {}, {}", expr_ref(*operand), expr_ref(*count))
         }
+        ExprKind::StringPredicate { op, operand } => {
+            let op_name = match op {
+                crate::expr::StringPredicateOp::IsDigit => "isdigit",
+                crate::expr::StringPredicateOp::IsAlpha => "isalpha",
+                crate::expr::StringPredicateOp::IsAlnum => "isalnum",
+            };
+            format!("string_{op_name} {}", expr_ref(*operand))
+        }
         ExprKind::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",
@@ -501,6 +509,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringReplace { .. }
         | ExprKind::StringRemoveAffix { .. }
         | ExprKind::StringRepeat { .. }
+        | ExprKind::StringPredicate { .. }
         | ExprKind::StringContains { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::TupleContains { .. }

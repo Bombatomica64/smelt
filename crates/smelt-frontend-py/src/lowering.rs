@@ -18,7 +18,8 @@ use smelt_hir::{
     FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal, LocalDecl, MatchArm,
     Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param,
     Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
-    StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
+    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId,
+    UnaryOp, Visibility,
 };
 
 use crate::helpers::{
@@ -2093,6 +2094,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.string_remove_affix_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_predicate_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_split_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -2649,6 +2653,43 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 haystack,
                 affix,
             },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python string character predicates.
+    fn string_predicate_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match attr.attr.as_str() {
+            "isdigit" => StringPredicateOp::IsDigit,
+            "isalpha" => StringPredicateOp::IsAlpha,
+            "isalnum" => StringPredicateOp::IsAlnum,
+            _ => return Ok(None),
+        };
+        let span = self.span(call.range);
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.isdigit()/isalpha()/isalnum() require no arguments",
+            ));
+        }
+        let operand = self.expression(&attr.value, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.isdigit()/isalpha()/isalnum() require a str receiver",
+            ));
+        }
+        let ty = self.intern_type(Type::Bool);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringPredicate { op, operand },
             ty,
             span,
         })))

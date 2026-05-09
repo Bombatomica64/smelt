@@ -1107,6 +1107,18 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringPredicate { op, operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringPredicate {
+                        op: *op,
+                        operand: lowered_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringContains { haystack, needle } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let needle_operand = self.lower_expr(*needle)?;
@@ -1396,6 +1408,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringReplace { .. }
             | ExprKind::StringRemoveAffix { .. }
             | ExprKind::StringRepeat { .. }
+            | ExprKind::StringPredicate { .. }
             | ExprKind::StringContains { .. }
             | ExprKind::ListContains { .. }
             | ExprKind::TupleContains { .. }

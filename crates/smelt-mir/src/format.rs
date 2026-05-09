@@ -289,6 +289,14 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(count)
             )
         }
+        Rvalue::StringPredicate { op, operand } => {
+            let op_text = match op {
+                smelt_hir::StringPredicateOp::IsDigit => "isdigit",
+                smelt_hir::StringPredicateOp::IsAlpha => "isalpha",
+                smelt_hir::StringPredicateOp::IsAlnum => "isalnum",
+            };
+            format!("string_{op_text} {}", operand_text(operand))
+        }
         Rvalue::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",

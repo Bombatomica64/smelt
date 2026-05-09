@@ -221,6 +221,7 @@ fn validate_rvalue_exists(
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringTrim { operand, .. }
+        | Rvalue::StringPredicate { operand, .. }
         | Rvalue::Await(operand) => validate_operand_exists(function, operand, errors),
         Rvalue::AsyncOp { args, .. } => {
             for arg in args {
@@ -500,6 +501,7 @@ fn validate_rvalue(
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringTrim { operand, .. }
+        | Rvalue::StringPredicate { operand, .. }
         | Rvalue::Await(operand) => validate_operand(function, definitions, operand, errors),
         Rvalue::AsyncOp { args, .. } => {
             for arg in args {

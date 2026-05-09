@@ -1170,6 +1170,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 affix,
             } => self.string_remove_affix_text(*op, haystack, affix),
             Rvalue::StringRepeat { operand, count } => self.string_repeat_text(operand, count),
+            Rvalue::StringPredicate { op, operand } => self.string_predicate_text(*op, operand),
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
@@ -1613,6 +1614,29 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.repeat({} as usize)",
             self.operand_text(operand)?,
             self.operand_text(count)?
+        ))
+    }
+
+    /// Converts a string character predicate operation to Rust text.
+    fn string_predicate_text(
+        &self,
+        op: smelt_hir::StringPredicateOp,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string predicate operand must be a string"));
+        }
+        let method_name = match op {
+            smelt_hir::StringPredicateOp::IsDigit => "is_ascii_digit",
+            smelt_hir::StringPredicateOp::IsAlpha => "is_alphabetic",
+            smelt_hir::StringPredicateOp::IsAlnum => "is_alphanumeric",
+        };
+        let operand_text = self.operand_text(operand)?;
+        Ok(format!(
+            "!{operand_text}.is_empty() && {operand_text}.chars().all(char::{method_name})"
         ))
     }
 
@@ -2574,6 +2598,22 @@ without_suffix: str = word.removesuffix("-suf")
         assert!(source.contains(".strip_prefix(&"));
         assert!(source.contains(".strip_suffix(&"));
         assert!(source.contains(".to_owned();"));
+    }
+
+    #[test]
+    fn emits_python_string_predicate_methods() {
+        let source = source_for_py(
+            r#"
+word: str = "abc123"
+digits: bool = word.isdigit()
+letters: bool = word.isalpha()
+alnum: bool = word.isalnum()
+"#,
+        );
+
+        assert!(source.contains("char::is_ascii_digit"));
+        assert!(source.contains("char::is_alphabetic"));
+        assert!(source.contains("char::is_alphanumeric"));
     }
 
     #[test]
