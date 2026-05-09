@@ -316,7 +316,7 @@ runtime errors.
   - [ ] `Array.prototype.at`.
   - [ ] `Array.prototype.reverse`.
   - [ ] `Array.prototype.sort` with comparator support or explicit rejection.
-  - [ ] `Array.isArray` as a typed no-op/guard where static types make it decidable.
+  - [x] `Array.isArray` as a typed no-op/guard where static types make it decidable.
 - [ ] TypeScript string mappings:
   - [x] `String.prototype.toLowerCase`.
   - [x] `String.prototype.toUpperCase`.

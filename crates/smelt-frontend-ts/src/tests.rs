@@ -2,9 +2,9 @@
 
 use super::*;
 use smelt_hir::{
-    DictProjectionOp, ExprKind, FileId, Function, Item, ListSearchOp, ModuleId, NumericExtremaOp,
-    NumericRoundOp, NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Type,
+    DictProjectionOp, ExprKind, FileId, Function, Item, ListSearchOp, Literal, ModuleId,
+    NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp,
+    StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -533,6 +533,33 @@ const last = values.lastIndexOf(2);
                 .any(|expr| matches!(expr.kind, ExprKind::ListSearch { op, .. } if op == expected))
         );
     }
+    Ok(())
+}
+
+#[test]
+fn lowers_array_is_array_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const yes = Array.isArray(values);
+const no = Array.isArray(1);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(true))))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(false))))
+    );
     Ok(())
 }
 

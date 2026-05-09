@@ -2937,6 +2937,20 @@ const last = values.lastIndexOf(2);
     }
 
     #[test]
+    fn emits_array_is_array_as_static_boolean() {
+        let source = source_for(
+            r#"
+const values: number[] = [1, 2, 3];
+const yes = Array.isArray(values);
+const no = Array.isArray(1);
+"#,
+        );
+
+        assert!(source.contains(" = true;"));
+        assert!(source.contains(" = false;"));
+    }
+
+    #[test]
     fn emits_object_projection_methods() {
         let source = source_for(
             r#"

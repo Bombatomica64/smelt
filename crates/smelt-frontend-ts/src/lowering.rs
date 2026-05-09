@@ -1697,6 +1697,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.object_projection_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.array_is_array_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_case_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2497,6 +2500,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictProjection { op, dict },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Array.isArray` calls using static HIR types.
+    fn array_is_array_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Array" || member.property.name != "isArray" {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Array.isArray requires exactly one argument",
+            ));
+        };
+        let value = self.argument(argument, body)?;
+        let is_array = matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::List(_))
+        );
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(is_array)),
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
