@@ -191,6 +191,15 @@ pub enum ExprKind {
         /// The substring to search for.
         needle: ExprId,
     },
+    /// Take a substring slice from a string.
+    StringSlice {
+        /// String value to slice.
+        operand: ExprId,
+        /// Inclusive start index, or omitted for zero.
+        start: Option<ExprId>,
+        /// Exclusive end index, or omitted for string length.
+        end: Option<ExprId>,
+    },
     /// Test whether a list contains an item.
     ListContains {
         /// The list value being searched.
@@ -213,6 +222,15 @@ pub enum ExprKind {
         list: ExprId,
         /// Item to search for.
         item: ExprId,
+    },
+    /// Take a shallow slice from a list.
+    ListSlice {
+        /// List value to slice.
+        list: ExprId,
+        /// Inclusive start index, or omitted for zero.
+        start: Option<ExprId>,
+        /// Exclusive end index, or omitted for collection length.
+        end: Option<ExprId>,
     },
     /// Test whether a tuple contains an item.
     TupleContains {

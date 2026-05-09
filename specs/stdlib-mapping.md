@@ -20,6 +20,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `s.repeat(n)` | `StringRepeat` | `StringRepeat` | `s.repeat(n as usize)` | One number argument | Negative, infinite, or range-error parity | Count is cast directly to `usize`; JS range/error semantics are deferred. |
 | `s.charAt(n)` | `StringCharAt` | `StringCharAt` | `s.chars().nth(n as usize).map(...).unwrap_or_default()` | One number argument | Default index coercion, negative/infinite edge parity | Uses Rust Unicode scalar indexes, not JS UTF-16 code-unit indexes. |
 | `s.charCodeAt(n)` | `StringCharCodeAt` | `StringCharCodeAt` | `s.chars().nth(n as usize).map_or(f64::NAN, ...)` | One number argument | Default index coercion, negative/infinite edge parity | Uses Rust Unicode scalar values, not JS UTF-16 code units. |
+| `s.slice()` / `s.slice(start, end)` | `StringSlice` | `StringSlice` | `s.chars().skip(...).take(...).collect::<String>()` | Omitted, start, or start/end numeric args | Negative indexes, third arg, `substring` | Uses Rust Unicode scalar indexes, not JS UTF-16 code-unit indexes; dynamic negative values are not guarded at runtime yet. |
 | `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Regex separators and limit | Rust split semantics are used. |
 
 ## Python Strings
@@ -89,6 +90,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `array.includes(x)` | `ListContains` | `ListContains` | `array.contains(&x)` | One item matching element type | Optional `fromIndex` | Rust equality semantics are used. |
 | `array.indexOf(x)` | `ListSearch::Find` | `ListSearch::Find` | `array.iter().position(...).map_or(-1.0, ...)` | One item matching element type | Optional `fromIndex` | Rust equality semantics are used. |
 | `array.lastIndexOf(x)` | `ListSearch::RFind` | `ListSearch::RFind` | `array.iter().rposition(...).map_or(-1.0, ...)` | One item matching element type | Optional `fromIndex` | Rust equality semantics are used. |
+| `array.slice()` / `array.slice(start, end)` | `ListSlice` | `ListSlice` | `array.iter().skip(...).take(...).cloned().collect()` | Omitted, start, or start/end numeric args | Negative indexes, third arg | Rust `usize` slice positions are used; dynamic negative values are not guarded at runtime yet. |
 | `array.concat(other)` | `ListConcat` | `ListConcat` | `array.iter().cloned().chain(other.iter().cloned()).collect()` | One same-typed array argument | Multiple arrays and non-array values | JS sparse-array and value-spreading semantics are not modeled. |
 | `stringArray.join()` | `StringJoin` | `StringJoin` | `string_array.join(&",".to_owned())` | No arguments on `string[]` | Non-string arrays | Default comma separator is used. |
 | `stringArray.join(separator)` | `StringJoin` | `StringJoin` | `string_array.join(&separator)` | One string separator on `string[]` | Non-string separator or non-string arrays | JS element stringification is not modeled. |

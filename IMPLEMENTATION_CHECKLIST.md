@@ -249,8 +249,8 @@ runtime errors.
   - [x] TypeScript `Array.prototype.concat`.
   - [ ] Python `list.extend`.
 - [ ] Batch D, slicing/indexing semantics:
-  - [ ] TypeScript `Array.prototype.slice` with omitted and positive indexes.
-  - [ ] TypeScript `String.prototype.slice` with omitted and positive indexes.
+  - [x] TypeScript `Array.prototype.slice` with omitted and positive indexes.
+  - [x] TypeScript `String.prototype.slice` with omitted and positive indexes.
   - [ ] Python list slicing with positive indexes.
   - [ ] Python tuple slicing with positive indexes.
   - [ ] Python string slicing with positive indexes.
@@ -309,6 +309,7 @@ runtime errors.
   - [ ] `Array.prototype.shift`.
   - [ ] `Array.prototype.unshift`.
   - [ ] `Array.prototype.slice` with positive, omitted, and negative indexes.
+    - [x] Positive and omitted indexes.
   - [ ] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
   - [x] `Array.prototype.concat`.
   - [x] `Array.prototype.join`.
@@ -327,6 +328,7 @@ runtime errors.
   - [x] `String.prototype.startsWith` and `endsWith`.
   - [x] `String.prototype.indexOf` and `lastIndexOf`.
   - [ ] `String.prototype.slice` and `substring`, including Unicode/index semantics decision.
+    - [x] `String.prototype.slice` with positive and omitted indexes.
   - [x] `String.prototype.replace` for literal strings.
   - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.

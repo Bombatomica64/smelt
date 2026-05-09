@@ -1182,6 +1182,25 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringSlice {
+                operand,
+                start,
+                end,
+            } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
+                let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringSlice {
+                        operand: lowered_operand,
+                        start: start_operand,
+                        end: end_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListContains { list, item } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
@@ -1218,6 +1237,21 @@ impl<'hir> LoweringCtx<'hir> {
                         op: *op,
                         list: list_operand,
                         item: item_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListSlice { list, start, end } => {
+                let list_operand = self.lower_expr(*list)?;
+                let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
+                let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListSlice {
+                        list: list_operand,
+                        start: start_operand,
+                        end: end_operand,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -1516,9 +1550,11 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringCharCodeAt { .. }
             | ExprKind::StringContains { .. }
+            | ExprKind::StringSlice { .. }
             | ExprKind::ListContains { .. }
             | ExprKind::ListConcat { .. }
             | ExprKind::ListSearch { .. }
+            | ExprKind::ListSlice { .. }
             | ExprKind::TupleContains { .. }
             | ExprKind::DictContainsKey { .. }
             | ExprKind::DictProjection { .. }

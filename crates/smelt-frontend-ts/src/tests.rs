@@ -537,6 +537,63 @@ const last = values.lastIndexOf(2);
 }
 
 #[test]
+fn lowers_array_and_string_slice_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3, 4];
+const allValues = values.slice();
+const tailValues = values.slice(1);
+const midValues = values.slice(1, 3);
+const word = "smelting";
+const allText = word.slice();
+const tailText = word.slice(1);
+const midText = word.slice(1, 4);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let list_slices = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListSlice { .. }))
+        .count();
+    let string_slices = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
+        .count();
+    ensure_eq!(list_slices, 3);
+    ensure_eq!(string_slices, 3);
+    Ok(())
+}
+
+#[test]
+fn rejects_unsupported_slice_argument_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let negative = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const bad = values.slice(-1);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&negative, "negative indexes")?;
+
+    let mut ctx = HirCtx::new();
+    let too_many = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const bad = values.slice(0, 1, 2);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&too_many, "omitted, start, and end arguments")
+}
+
+#[test]
 fn lowers_array_is_array_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -1,5 +1,7 @@
 //! TypeScript AST lowering into Smelt HIR.
 
+mod stdlib;
+
 use std::collections::HashMap;
 
 use crate::{HirCtx, SmeltError, camel_to_snake};
@@ -1719,6 +1721,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.string_replace_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.collection_slice_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.string_repeat_call(call, body)? {

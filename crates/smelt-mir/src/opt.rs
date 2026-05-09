@@ -198,6 +198,15 @@ fn rewrite_rvalue(
             rewrite_operand_except(operand, aliases, dest)
                 | rewrite_operand_except(index, aliases, dest)
         }
+        Rvalue::StringSlice {
+            operand,
+            start,
+            end,
+        } => {
+            rewrite_operand_except(operand, aliases, dest)
+                | rewrite_optional_operand_except(start, aliases, dest)
+                | rewrite_optional_operand_except(end, aliases, dest)
+        }
         Rvalue::ListContains { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
@@ -209,6 +218,11 @@ fn rewrite_rvalue(
         Rvalue::ListSearch { list, item, .. } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
+        }
+        Rvalue::ListSlice { list, start, end } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_optional_operand_except(start, aliases, dest)
+                | rewrite_optional_operand_except(end, aliases, dest)
         }
         Rvalue::TupleContains { tuple, item } => {
             rewrite_operand_except(tuple, aliases, dest)
@@ -324,4 +338,15 @@ fn rewrite_operand_except(
     }
     *local = resolved;
     true
+}
+
+/// Rewrites an optional operand using alias mappings, except for a specific local ID.
+fn rewrite_optional_operand_except(
+    maybe_operand: &mut Option<Operand>,
+    aliases: &HashMap<LocalId, LocalId>,
+    except: Option<LocalId>,
+) -> bool {
+    maybe_operand
+        .as_mut()
+        .is_some_and(|inner| rewrite_operand_except(inner, aliases, except))
 }

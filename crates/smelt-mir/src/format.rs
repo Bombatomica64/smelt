@@ -330,6 +330,16 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(needle)
             )
         }
+        Rvalue::StringSlice {
+            operand,
+            start,
+            end,
+        } => format!(
+            "string_slice {}, {}, {}",
+            operand_text(operand),
+            optional_operand_text(start.as_ref()),
+            optional_operand_text(end.as_ref())
+        ),
         Rvalue::ListContains { list, item } => {
             format!(
                 "list_contains {}, {}",
@@ -355,6 +365,12 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(item)
             )
         }
+        Rvalue::ListSlice { list, start, end } => format!(
+            "list_slice {}, {}, {}",
+            operand_text(list),
+            optional_operand_text(start.as_ref()),
+            optional_operand_text(end.as_ref())
+        ),
         Rvalue::TupleContains { tuple, item } => {
             format!(
                 "tuple_contains {}, {}",
@@ -489,6 +505,11 @@ fn operand_text(operand: &Operand) -> String {
         Operand::Move(place) => format!("move {}", place_text(place)),
         Operand::Const(constant) => constant_text(constant),
     }
+}
+
+/// Formats an optional operand to human-readable text.
+fn optional_operand_text(operand: Option<&Operand>) -> String {
+    operand.map_or_else(|| "_".to_owned(), operand_text)
 }
 
 /// Formats a place to human-readable text.

@@ -1,0 +1,104 @@
+//! Focused TypeScript standard-library lowering helpers.
+
+use oxc::ast::ast::{Argument, CallExpression, Expression};
+use oxc::span::GetSpan;
+use oxc::syntax::operator::UnaryOperator;
+use smelt_hir::{Body, Expr, ExprKind, Type};
+
+use super::{ModuleBuilder, SmeltError};
+
+impl ModuleBuilder<'_> {
+    /// Lower direct TypeScript `Array.prototype.slice` and `String.prototype.slice` calls.
+    pub(super) fn collection_slice_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "slice" {
+            return Ok(None);
+        }
+        if call.arguments.len() > 2 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "slice currently supports only omitted, start, and end arguments",
+            ));
+        }
+        for argument in &call.arguments {
+            if is_negative_numeric_literal(argument) {
+                return Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    "slice negative indexes are not supported yet",
+                ));
+            }
+        }
+
+        let operand = self.expression(&member.object, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        let start = call
+            .arguments
+            .first()
+            .map(|argument| self.slice_index_argument(argument, body))
+            .transpose()?;
+        let end = call
+            .arguments
+            .get(1)
+            .map(|argument| self.slice_index_argument(argument, body))
+            .transpose()?;
+
+        match self.ctx.krate.types.get(operand_ty) {
+            Some(Type::String) => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::StringSlice {
+                        operand,
+                        start,
+                        end,
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            Some(Type::List(_)) => Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListSlice {
+                    list: operand,
+                    start,
+                    end,
+                },
+                ty: operand_ty,
+                span: self.span(call.span.start, call.span.end),
+            }))),
+            _ => Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "slice requires a string or array receiver",
+            )),
+        }
+    }
+
+    /// Lower and validate a slice index argument.
+    fn slice_index_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let index = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, index)) != Some(&Type::Float) {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "slice indexes must be numbers",
+            ));
+        }
+        Ok(index)
+    }
+}
+
+/// Return true for syntactic negative numeric literal arguments.
+fn is_negative_numeric_literal(argument: &Argument<'_>) -> bool {
+    let Argument::UnaryExpression(unary) = argument else {
+        return false;
+    };
+    unary.operator == UnaryOperator::UnaryNegation
+        && matches!(unary.argument, Expression::NumericLiteral(_))
+}

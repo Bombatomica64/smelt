@@ -492,6 +492,15 @@ pub enum Rvalue {
         /// Substring to search for.
         needle: Operand,
     },
+    /// Take a substring slice from a string.
+    StringSlice {
+        /// String value to slice.
+        operand: Operand,
+        /// Inclusive start index, or omitted for zero.
+        start: Option<Operand>,
+        /// Exclusive end index, or omitted for string length.
+        end: Option<Operand>,
+    },
     /// Test whether a list contains an item.
     ListContains {
         /// List value to search in.
@@ -514,6 +523,15 @@ pub enum Rvalue {
         list: Operand,
         /// Item to search for.
         item: Operand,
+    },
+    /// Take a shallow slice from a list.
+    ListSlice {
+        /// List value to slice.
+        list: Operand,
+        /// Inclusive start index, or omitted for zero.
+        start: Option<Operand>,
+        /// Exclusive end index, or omitted for collection length.
+        end: Option<Operand>,
     },
     /// Test whether a tuple contains an item.
     TupleContains {

@@ -186,6 +186,15 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, operand, errors);
             validate_operand_exists(function, index, errors);
         }
+        Rvalue::StringSlice {
+            operand,
+            start,
+            end,
+        } => {
+            validate_operand_exists(function, operand, errors);
+            validate_optional_operand_exists(function, start.as_ref(), errors);
+            validate_optional_operand_exists(function, end.as_ref(), errors);
+        }
         Rvalue::ListContains { list, item } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
@@ -197,6 +206,11 @@ fn validate_rvalue_exists(
         Rvalue::ListSearch { list, item, .. } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
+        }
+        Rvalue::ListSlice { list, start, end } => {
+            validate_operand_exists(function, list, errors);
+            validate_optional_operand_exists(function, start.as_ref(), errors);
+            validate_optional_operand_exists(function, end.as_ref(), errors);
         }
         Rvalue::TupleContains { tuple, item } => {
             validate_operand_exists(function, tuple, errors);
@@ -271,6 +285,17 @@ fn validate_operand_exists(
             validate_place_exists(function, place, errors);
         }
         Operand::Const(_) => {}
+    }
+}
+
+/// Validate that an optional operand points to existing MIR entities when present.
+fn validate_optional_operand_exists(
+    function: &MirFunction,
+    maybe_operand: Option<&Operand>,
+    errors: &mut Vec<ValidationError>,
+) {
+    if let Some(inner) = maybe_operand {
+        validate_operand_exists(function, inner, errors);
     }
 }
 
@@ -495,6 +520,15 @@ fn validate_rvalue(
             validate_operand(function, definitions, operand, errors);
             validate_operand(function, definitions, index, errors);
         }
+        Rvalue::StringSlice {
+            operand,
+            start,
+            end,
+        } => {
+            validate_operand(function, definitions, operand, errors);
+            validate_optional_operand(function, definitions, start.as_ref(), errors);
+            validate_optional_operand(function, definitions, end.as_ref(), errors);
+        }
         Rvalue::ListContains { list, item } => {
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
@@ -506,6 +540,11 @@ fn validate_rvalue(
         Rvalue::ListSearch { list, item, .. } => {
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::ListSlice { list, start, end } => {
+            validate_operand(function, definitions, list, errors);
+            validate_optional_operand(function, definitions, start.as_ref(), errors);
+            validate_optional_operand(function, definitions, end.as_ref(), errors);
         }
         Rvalue::TupleContains { tuple, item } => {
             validate_operand(function, definitions, tuple, errors);
@@ -581,6 +620,18 @@ fn validate_operand(
             validate_place(function, definitions, place, errors);
         }
         Operand::Const(_) => {}
+    }
+}
+
+/// Validate type constraints for one optional operand.
+fn validate_optional_operand(
+    function: &MirFunction,
+    definitions: &HashSet<LocalId>,
+    maybe_operand: Option<&Operand>,
+    errors: &mut Vec<ValidationError>,
+) {
+    if let Some(inner) = maybe_operand {
+        validate_operand(function, definitions, inner, errors);
     }
 }
 

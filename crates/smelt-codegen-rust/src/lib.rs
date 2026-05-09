@@ -319,6 +319,15 @@ struct FunctionEmitter<'mir> {
     none_ty: TypeId,
 }
 
+/// How to compute the default end bound for a slice.
+#[derive(Clone, Copy)]
+enum SliceLenKind {
+    /// Use `.len()`.
+    Len,
+    /// Use `.chars().count()`.
+    Chars,
+}
+
 impl<'mir> FunctionEmitter<'mir> {
     /// Creates a new function emitter for the given MIR and function.
     fn new(mir: &'mir Mir, function: &'mir MirFunction) -> Result<Self, EmitError> {
@@ -1180,9 +1189,17 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
+            Rvalue::StringSlice {
+                operand,
+                start,
+                end,
+            } => self.string_slice_text(operand, start.as_ref(), end.as_ref()),
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
+            Rvalue::ListSlice { list, start, end } => {
+                self.list_slice_text(list, start.as_ref(), end.as_ref())
+            }
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
@@ -1757,6 +1774,29 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a string slice operation to Rust text.
+    fn string_slice_text(
+        &self,
+        operand: &Operand,
+        start: Option<&Operand>,
+        end: Option<&Operand>,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string slice receiver must be a string"));
+        }
+        self.validate_optional_numeric_index(start, "string slice start index")?;
+        self.validate_optional_numeric_index(end, "string slice end index")?;
+        let operand_text = self.operand_text(operand)?;
+        let start_text = self.slice_start_text(start)?;
+        let len_text = self.slice_len_text(&operand_text, start, end, SliceLenKind::Chars)?;
+        Ok(format!(
+            "{operand_text}.chars().skip({start_text}).take({len_text}).collect::<String>()"
+        ))
+    }
+
     /// Converts a list containment operation to Rust text.
     fn list_contains_text(&self, list: &Operand, item: &Operand) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
@@ -1818,6 +1858,71 @@ impl<'mir> FunctionEmitter<'mir> {
             self.operand_text(list)?,
             self.operand_text(item)?
         ))
+    }
+
+    /// Converts a list slice operation to Rust text.
+    fn list_slice_text(
+        &self,
+        list: &Operand,
+        start: Option<&Operand>,
+        end: Option<&Operand>,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+            return Err(EmitError::new("list slice receiver must be a list"));
+        }
+        self.validate_optional_numeric_index(start, "list slice start index")?;
+        self.validate_optional_numeric_index(end, "list slice end index")?;
+        let list_text = self.operand_text(list)?;
+        let start_text = self.slice_start_text(start)?;
+        let len_text = self.slice_len_text(&list_text, start, end, SliceLenKind::Len)?;
+        Ok(format!(
+            "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
+        ))
+    }
+
+    /// Validates that an optional slice index is numeric.
+    fn validate_optional_numeric_index(
+        &self,
+        maybe_operand: Option<&Operand>,
+        context: &str,
+    ) -> Result<(), EmitError> {
+        if let Some(inner) = maybe_operand
+            && !matches!(
+                self.mir.types.get(self.operand_ty(inner)?),
+                Some(Type::Int | Type::Float)
+            )
+        {
+            return Err(EmitError::new(format!("{context} must be numeric")));
+        }
+        Ok(())
+    }
+
+    /// Converts an optional slice start to a Rust `usize` expression.
+    fn slice_start_text(&self, maybe_start: Option<&Operand>) -> Result<String, EmitError> {
+        maybe_start.map_or_else(
+            || Ok("0usize".to_owned()),
+            |bound| Ok(format!("({} as usize)", self.operand_text(bound)?)),
+        )
+    }
+
+    /// Converts optional slice bounds to a Rust `take` length expression.
+    fn slice_len_text(
+        &self,
+        receiver_text: &str,
+        maybe_start: Option<&Operand>,
+        maybe_end: Option<&Operand>,
+        kind: SliceLenKind,
+    ) -> Result<String, EmitError> {
+        let start_text = self.slice_start_text(maybe_start)?;
+        let end_text = match maybe_end {
+            Some(bound) => format!("({} as usize)", self.operand_text(bound)?),
+            None => match kind {
+                SliceLenKind::Len => format!("{receiver_text}.len()"),
+                SliceLenKind::Chars => format!("{receiver_text}.chars().count()"),
+            },
+        };
+        Ok(format!("{end_text}.saturating_sub({start_text})"))
     }
 
     /// Converts a tuple containment operation to Rust text.
@@ -2972,6 +3077,30 @@ const last = values.lastIndexOf(2);
 
         assert!(source.contains(".iter().position(|item| item == &2.0).map_or(-1.0"));
         assert!(source.contains(".iter().rposition(|item| item == &2.0).map_or(-1.0"));
+    }
+
+    #[test]
+    fn emits_array_and_string_slice_methods() {
+        let source = source_for(
+            r#"
+const values: number[] = [1, 2, 3, 4];
+const allValues = values.slice();
+const tailValues = values.slice(1);
+const midValues = values.slice(1, 3);
+const word = "smelting";
+const allText = word.slice();
+const tailText = word.slice(1);
+const midText = word.slice(1, 4);
+"#,
+        );
+
+        assert!(source.contains(".iter().skip(0usize).take("));
+        assert!(source.contains(".iter().skip((1.0 as usize)).take("));
+        assert!(source.contains(".take((3.0 as usize).saturating_sub((1.0 as usize)))"));
+        assert!(source.contains(".cloned().collect::<Vec<_>>();"));
+        assert!(source.contains(".chars().skip(0usize).take("));
+        assert!(source.contains(".chars().skip((1.0 as usize)).take("));
+        assert!(source.contains(".collect::<String>();"));
     }
 
     #[test]

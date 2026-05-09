@@ -437,6 +437,16 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*needle)
             )
         }
+        ExprKind::StringSlice {
+            operand,
+            start,
+            end,
+        } => format!(
+            "string_slice {}, {}, {}",
+            expr_ref(*operand),
+            optional_expr_ref(*start),
+            optional_expr_ref(*end)
+        ),
         ExprKind::ListContains { list, item } => {
             format!("list_contains {}, {}", expr_ref(*list), expr_ref(*item))
         }
@@ -450,6 +460,12 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("list_{op_name} {}, {}", expr_ref(*list), expr_ref(*item))
         }
+        ExprKind::ListSlice { list, start, end } => format!(
+            "list_slice {}, {}, {}",
+            expr_ref(*list),
+            optional_expr_ref(*start),
+            optional_expr_ref(*end)
+        ),
         ExprKind::TupleContains { tuple, item } => {
             format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
         }
@@ -559,9 +575,11 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringCharAt { .. }
         | ExprKind::StringCharCodeAt { .. }
         | ExprKind::StringContains { .. }
+        | ExprKind::StringSlice { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::ListConcat { .. }
         | ExprKind::ListSearch { .. }
+        | ExprKind::ListSlice { .. }
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
         | ExprKind::DictProjection { .. }
@@ -839,4 +857,9 @@ fn local_ref(local: LocalId) -> String {
 /// Formats an expression reference as text.
 fn expr_ref(expr: ExprId) -> String {
     format!("#{}", expr.0)
+}
+
+/// Formats an optional expression reference as text.
+fn optional_expr_ref(expr: Option<ExprId>) -> String {
+    expr.map_or_else(|| "_".to_owned(), expr_ref)
 }
