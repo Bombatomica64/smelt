@@ -244,8 +244,8 @@ runtime errors.
 - [ ] Batch C, collection projection methods:
   - [ ] TypeScript `Object.keys`, `Object.values`, and `Object.entries`.
   - [ ] Python `dict.keys`, `dict.values`, and `dict.items`.
-  - [ ] TypeScript `Array.prototype.join`.
-  - [ ] Python `str.join`.
+  - [x] TypeScript `Array.prototype.join`.
+  - [x] Python `str.join`.
   - [ ] TypeScript `Array.prototype.concat`.
   - [ ] Python `list.extend`.
 - [ ] Batch D, slicing/indexing semantics:
@@ -311,7 +311,7 @@ runtime errors.
   - [ ] `Array.prototype.slice` with positive, omitted, and negative indexes.
   - [ ] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
   - [ ] `Array.prototype.concat`.
-  - [ ] `Array.prototype.join`.
+  - [x] `Array.prototype.join`.
   - [ ] `Array.prototype.indexOf` and `lastIndexOf`.
   - [ ] `Array.prototype.at`.
   - [ ] `Array.prototype.reverse`.
@@ -406,7 +406,7 @@ runtime errors.
     - [x] `str.find()` and `str.rfind()`.
     - [ ] `str.index()` and `str.rindex()` remain unsupported because missing-value exception semantics are not modeled yet.
   - [x] `str.replace()`.
-  - [ ] `str.join()`.
+  - [x] `str.join()`.
   - [x] `str.removeprefix()` and `removesuffix()`.
   - [ ] `str.isdigit()`, `isalpha()`, `isalnum()`, and related predicates.
     - [x] `str.isdigit()`, `str.isalpha()`, and `str.isalnum()`.

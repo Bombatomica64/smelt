@@ -201,6 +201,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, separator, errors);
         }
+        Rvalue::StringJoin { items, separator } => {
+            validate_operand_exists(function, items, errors);
+            validate_operand_exists(function, separator, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand_exists(function, url, errors);
         }
@@ -483,6 +487,10 @@ fn validate_rvalue(
             separator,
         } => {
             validate_operand(function, definitions, haystack, errors);
+            validate_operand(function, definitions, separator, errors);
+        }
+        Rvalue::StringJoin { items, separator } => {
+            validate_operand(function, definitions, items, errors);
             validate_operand(function, definitions, separator, errors);
         }
         Rvalue::HttpGetText { url } => {

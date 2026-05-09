@@ -342,6 +342,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(separator)
             )
         }
+        Rvalue::StringJoin { items, separator } => {
+            format!(
+                "string_join {}, {}",
+                operand_text(items),
+                operand_text(separator)
+            )
+        }
         Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {

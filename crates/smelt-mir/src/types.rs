@@ -501,6 +501,13 @@ pub enum Rvalue {
         /// Separator string.
         separator: Operand,
     },
+    /// Join a list of strings with a separator string.
+    StringJoin {
+        /// String items to join.
+        items: Operand,
+        /// Separator string.
+        separator: Operand,
+    },
     /// Perform a blocking HTTP GET request and return response text.
     HttpGetText {
         /// URL to request.

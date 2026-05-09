@@ -1200,6 +1200,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringJoin { items, separator } => {
+                let items_operand = self.lower_expr(*items)?;
+                let separator_operand = self.lower_expr(*separator)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringJoin {
+                        items: items_operand,
+                        separator: separator_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::HttpGetText { url } => {
                 let url_operand = self.lower_expr(*url)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1428,6 +1441,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::TupleContains { .. }
             | ExprKind::DictContainsKey { .. }
             | ExprKind::StringSplit { .. }
+            | ExprKind::StringJoin { .. }
             | ExprKind::HttpGetText { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }

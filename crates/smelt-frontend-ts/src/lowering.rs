@@ -1712,6 +1712,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_char_at_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.string_join_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.list_contains_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2666,6 +2669,57 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::StringCharAt { operand, index },
             ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Array.prototype.join` for string arrays.
+    fn string_join_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "join" {
+            return Ok(None);
+        }
+        let items = self.expression(&member.object, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let items_ty = Self::expr_ty(body, items);
+        if self.ctx.krate.types.get(items_ty) != Some(&Type::List(string_ty)) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array join currently requires a string[] receiver",
+            ));
+        }
+        let separator = match call.arguments.as_slice() {
+            [] => body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(",".to_owned())),
+                ty: string_ty,
+                span: self.span(call.span.start, call.span.end),
+            }),
+            [separator_argument] => {
+                let separator = self.argument(separator_argument, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, separator)) != Some(&Type::String) {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "array join separator must be a string",
+                    ));
+                }
+                separator
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array join supports zero or one string separator argument",
+                ));
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringJoin { items, separator },
+            ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }

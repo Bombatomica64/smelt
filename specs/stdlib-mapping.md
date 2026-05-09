@@ -41,6 +41,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `s.isdigit()` | `StringPredicate::IsDigit` | `StringPredicate::IsDigit` | `!s.is_empty() && s.chars().all(char::is_ascii_digit)` | No arguments | Any arguments | ASCII digit semantics are used for now. |
 | `s.isalpha()` | `StringPredicate::IsAlpha` | `StringPredicate::IsAlpha` | `!s.is_empty() && s.chars().all(char::is_alphabetic)` | No arguments | Any arguments | Rust Unicode alphabetic semantics are used. |
 | `s.isalnum()` | `StringPredicate::IsAlnum` | `StringPredicate::IsAlnum` | `!s.is_empty() && s.chars().all(char::is_alphanumeric)` | No arguments | Any arguments | Rust Unicode alphanumeric semantics are used. |
+| `separator.join(items)` | `StringJoin` | `StringJoin` | `items.join(&separator)` | `list[str]` argument and string receiver | Arbitrary iterable arguments | Rust `Vec<String>` join semantics are used. |
 | `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Default whitespace split and maxsplit | Rust split semantics are used. |
 
 ## TypeScript Math
@@ -81,6 +82,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
 | --- | --- | --- | --- | --- | --- | --- |
 | `array.includes(x)` | `ListContains` | `ListContains` | `array.contains(&x)` | One item matching element type | Optional `fromIndex` | Rust equality semantics are used. |
+| `stringArray.join()` | `StringJoin` | `StringJoin` | `string_array.join(&",".to_owned())` | No arguments on `string[]` | Non-string arrays | Default comma separator is used. |
+| `stringArray.join(separator)` | `StringJoin` | `StringJoin` | `string_array.join(&separator)` | One string separator on `string[]` | Non-string separator or non-string arrays | JS element stringification is not modeled. |
 | `x in list` / `x not in list` | `ListContains` plus optional `UnaryOp::Not` | `ListContains` plus optional `Unary` | `list.contains(&x)` | Item matching element type | Mismatched types | Rust equality semantics are used. |
 | `x in tuple` / `x not in tuple` | `TupleContains` plus optional `UnaryOp::Not` | `TupleContains` plus optional `Unary` | Equality chain over tuple fields | Item matching at least one tuple element type | Mismatched types | Rust equality semantics are used. |
 | `k in dict` / `k not in dict` | `DictContainsKey` plus optional `UnaryOp::Not` | `DictContainsKey` plus optional `Unary` | `dict.contains_key(&k)` | Key matching dict key type | Mismatched key type | Rust `HashMap` key semantics are used. |

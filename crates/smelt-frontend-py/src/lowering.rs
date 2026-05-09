@@ -2100,6 +2100,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.string_split_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_join_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.requests_get_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -2740,6 +2743,43 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 separator,
             },
             ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python separator string join for lists of strings.
+    fn string_join_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "join" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        let [items_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.join() requires exactly one list[str] argument",
+            ));
+        };
+        let separator = self.expression(&attr.value, body)?;
+        let items = self.expression(items_expr, body)?;
+        let string_ty = self.intern_type(Type::String);
+        if self.ctx.krate.types.get(Self::expr_ty(body, separator)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, items)) != Some(&Type::List(string_ty))
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.join() requires str receiver and list[str] argument",
+            ));
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringJoin { items, separator },
+            ty: string_ty,
             span,
         })))
     }

@@ -1182,6 +1182,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 haystack,
                 separator,
             } => self.string_split_text(haystack, separator),
+            Rvalue::StringJoin { items, separator } => self.string_join_text(items, separator),
             Rvalue::HttpGetText { url } => self.http_get_text(url),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
@@ -1760,6 +1761,26 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(format!(
             "{}.split(&{}).map(str::to_owned).collect::<Vec<_>>()",
             self.operand_text(haystack)?,
+            self.operand_text(separator)?
+        ))
+    }
+
+    /// Converts a string join operation to Rust text.
+    fn string_join_text(&self, items: &Operand, separator: &Operand) -> Result<String, EmitError> {
+        let items_ty = self.operand_ty(items)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(items_ty) else {
+            return Err(EmitError::new("string join items must be a list"));
+        };
+        if self.mir.types.get(*item_ty) != Some(&Type::String)
+            || self.mir.types.get(self.operand_ty(separator)?) != Some(&Type::String)
+        {
+            return Err(EmitError::new(
+                "string join requires a list of strings and string separator",
+            ));
+        }
+        Ok(format!(
+            "{}.join(&{})",
+            self.operand_text(items)?,
             self.operand_text(separator)?
         ))
     }
@@ -2654,6 +2675,18 @@ alnum: bool = word.isalnum()
     }
 
     #[test]
+    fn emits_python_string_join_method() {
+        let source = source_for_py(
+            r#"
+parts: list[str] = ["a", "b", "c"]
+joined: str = "-".join(parts)
+"#,
+        );
+
+        assert!(source.contains(".join(&\"-\".to_owned());"));
+    }
+
+    #[test]
     fn emits_python_math_and_contains_helpers() {
         let source = source_for_py(
             r#"
@@ -2712,6 +2745,20 @@ const parts = word.split(",");
         assert!(
             source.contains(".split(&\",\".to_owned()).map(str::to_owned).collect::<Vec<_>>();")
         );
+    }
+
+    #[test]
+    fn emits_array_join_method() {
+        let source = source_for(
+            r#"
+const words: string[] = ["a", "b", "c"];
+const joined = words.join("-");
+const comma = words.join();
+"#,
+        );
+
+        assert!(source.contains(".join(&\"-\".to_owned());"));
+        assert!(source.contains(".join(&\",\".to_owned());"));
     }
 
     #[test]

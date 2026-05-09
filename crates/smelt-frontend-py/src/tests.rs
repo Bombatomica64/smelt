@@ -711,6 +711,31 @@ alnum: bool = word.isalnum()
 }
 
 #[test]
+fn string_join_method_lowers() -> TestResult {
+    let source = py!(r#"
+parts: list[str] = ["a", "b", "c"]
+joined: str = "-".join(parts)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringJoin { .. })),
+        "expected string join lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn math_numeric_functions_lower() -> TestResult {
     let source = py!(r#"
 import math

@@ -200,6 +200,13 @@ pub enum ExprKind {
         /// The separator string.
         separator: ExprId,
     },
+    /// Join a list of strings with a separator string.
+    StringJoin {
+        /// String items to join.
+        items: ExprId,
+        /// Separator string.
+        separator: ExprId,
+    },
     /// Perform a blocking HTTP GET request and return the response body as text.
     HttpGetText {
         /// The URL to request.

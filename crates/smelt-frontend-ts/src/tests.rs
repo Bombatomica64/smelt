@@ -462,6 +462,29 @@ const char = word.charAt(1);
 }
 
 #[test]
+fn lowers_array_join_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const words: string[] = ["a", "b", "c"];
+const joined = words.join("-");
+const comma = words.join();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let join_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::StringJoin { .. }))
+        .count();
+    ensure_eq!(join_count, 2);
+    Ok(())
+}
+
+#[test]
 fn lowers_math_sqrt_pow_sign() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -440,6 +440,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*separator)
             )
         }
+        ExprKind::StringJoin { items, separator } => {
+            format!("string_join {}, {}", expr_ref(*items), expr_ref(*separator))
+        }
         ExprKind::HttpGetText { url } => format!("http_get_text {}", expr_ref(*url)),
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
@@ -523,6 +526,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
         | ExprKind::StringSplit { .. }
+        | ExprKind::StringJoin { .. }
         | ExprKind::HttpGetText { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. }
