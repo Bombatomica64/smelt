@@ -445,6 +445,13 @@ pub enum Rvalue {
         /// Affix to remove.
         affix: Operand,
     },
+    /// Repeat a string a numeric number of times.
+    StringRepeat {
+        /// String value to repeat.
+        operand: Operand,
+        /// Number of repetitions.
+        count: Operand,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// String value to search in.

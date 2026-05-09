@@ -144,6 +144,13 @@ pub enum ExprKind {
         /// The affix to remove.
         affix: ExprId,
     },
+    /// Repeat a string a numeric number of times.
+    StringRepeat {
+        /// The string value being repeated.
+        operand: ExprId,
+        /// Number of repetitions.
+        count: ExprId,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// The string value being searched.

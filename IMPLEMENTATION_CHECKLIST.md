@@ -330,7 +330,7 @@ runtime errors.
   - [x] `String.prototype.replace` for literal strings.
   - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
-  - [ ] `String.prototype.repeat`.
+  - [x] `String.prototype.repeat`.
   - [ ] `String.prototype.padStart` and `padEnd`.
   - [ ] `String(...)`, `Number(...)`, and `Boolean(...)` constructors/conversions or explicit
         rejection where JS coercion would be misleading.

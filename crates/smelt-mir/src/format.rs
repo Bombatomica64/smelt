@@ -282,6 +282,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(affix)
             )
         }
+        Rvalue::StringRepeat { operand, count } => {
+            format!(
+                "string_repeat {}, {}",
+                operand_text(operand),
+                operand_text(count)
+            )
+        }
         Rvalue::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",

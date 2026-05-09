@@ -174,6 +174,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, affix, errors);
         }
+        Rvalue::StringRepeat { operand, count } => {
+            validate_operand_exists(function, operand, errors);
+            validate_operand_exists(function, count, errors);
+        }
         Rvalue::ListContains { list, item } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
@@ -448,6 +452,10 @@ fn validate_rvalue(
         } => {
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, affix, errors);
+        }
+        Rvalue::StringRepeat { operand, count } => {
+            validate_operand(function, definitions, operand, errors);
+            validate_operand(function, definitions, count, errors);
         }
         Rvalue::ListContains { list, item } => {
             validate_operand(function, definitions, list, errors);

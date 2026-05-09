@@ -1169,6 +1169,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 haystack,
                 affix,
             } => self.string_remove_affix_text(*op, haystack, affix),
+            Rvalue::StringRepeat { operand, count } => self.string_repeat_text(operand, count),
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
@@ -1592,6 +1593,26 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         Ok(format!(
             "{haystack_text}.{method_name}(&{affix_text}).unwrap_or(&{haystack_text}).to_owned()"
+        ))
+    }
+
+    /// Converts a string repeat operation to Rust text.
+    fn string_repeat_text(&self, operand: &Operand, count: &Operand) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(count)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "string repeat requires a string receiver and numeric count",
+            ));
+        }
+        Ok(format!(
+            "{}.repeat({} as usize)",
+            self.operand_text(operand)?,
+            self.operand_text(count)?
         ))
     }
 
@@ -2483,6 +2504,18 @@ const replaced = word.replace("hello", "hi");
 
         assert!(source.contains(".replacen(&"));
         assert!(source.contains(", 1);"));
+    }
+
+    #[test]
+    fn emits_string_repeat_method() {
+        let source = source_for(
+            r#"
+const word = "ha";
+const repeated = word.repeat(3);
+"#,
+        );
+
+        assert!(source.contains(".repeat(3.0 as usize);"));
     }
 
     #[test]

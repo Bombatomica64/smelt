@@ -420,6 +420,27 @@ const replaced = word.replace("hello", "hi");
 }
 
 #[test]
+fn lowers_string_repeat_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "ha";
+const repeated = word.repeat(3);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringRepeat { .. }))
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_math_sqrt_pow_sign() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
