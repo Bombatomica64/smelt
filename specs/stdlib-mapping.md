@@ -16,6 +16,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `s.endsWith(x)` | `StringAffix::EndsWith` | `StringAffix::EndsWith` | `s.ends_with(&x)` | One string argument | Optional length | Rust suffix matching is used. |
 | `s.indexOf(x)` | `StringSearch::Find` | `StringSearch::Find` | `s.find(&x).map_or(-1.0, ...)` | One string argument | Optional `fromIndex` | Returns Rust byte offsets for now, not JS UTF-16 code-unit indexes. |
 | `s.lastIndexOf(x)` | `StringSearch::RFind` | `StringSearch::RFind` | `s.rfind(&x).map_or(-1.0, ...)` | One string argument | Optional `fromIndex` | Returns Rust byte offsets for now, not JS UTF-16 code-unit indexes. |
+| `s.replace(x, y)` | `StringReplace::First` | `StringReplace::First` | `s.replacen(&x, &y, 1)` | Two string arguments | Regex patterns and replacement callbacks | JS replacement-substitution patterns like `$1` are not modeled. |
 | `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Regex separators and limit | Rust split semantics are used. |
 
 ## Python Strings
@@ -32,6 +33,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `s.endswith(x)` | `StringAffix::EndsWith` | `StringAffix::EndsWith` | `s.ends_with(&x)` | One string argument | Tuple suffixes, start/end arguments | Rust suffix matching is used. |
 | `s.find(x)` | `StringSearch::Find` | `StringSearch::Find` | `s.find(&x).map_or(-1, ...)` | One string argument | Optional start/end arguments | Returns Rust byte offsets for now, not Python code-point indexes. |
 | `s.rfind(x)` | `StringSearch::RFind` | `StringSearch::RFind` | `s.rfind(&x).map_or(-1, ...)` | One string argument | Optional start/end arguments | Returns Rust byte offsets for now, not Python code-point indexes. |
+| `s.replace(x, y)` | `StringReplace::All` | `StringReplace::All` | `s.replace(&x, &y)` | Two string arguments | Optional count argument | Rust literal replacement semantics are used. |
 | `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Default whitespace split and maxsplit | Rust split semantics are used. |
 
 ## TypeScript Math

@@ -4,7 +4,7 @@ use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, ExprKind, FileId, Item, ItemId, Language, Module, ModuleId,
     NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Pattern, PatternId, Stmt, StringAffixOp,
-    StringCaseOp, StringSearchOp, StringTrimSide, Symbol, Type,
+    StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -615,6 +615,37 @@ last: int = word.rfind("t")
             "expected string search lowering",
         )?;
     }
+    Ok(())
+}
+
+#[test]
+fn string_replace_method_lowers() -> TestResult {
+    let source = py!(r#"
+word: str = "hello hello"
+replaced: str = word.replace("hello", "hi")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::StringReplace {
+                    op: StringReplaceOp::All,
+                    ..
+                }
+            )
+        }),
+        "expected string replace lowering",
+    )?;
     Ok(())
 }
 

@@ -2439,6 +2439,19 @@ const last = word.lastIndexOf("t");
     }
 
     #[test]
+    fn emits_string_replace_method() {
+        let source = source_for(
+            r#"
+const word = "hello hello";
+const replaced = word.replace("hello", "hi");
+"#,
+        );
+
+        assert!(source.contains(".replacen(&"));
+        assert!(source.contains(", 1);"));
+    }
+
+    #[test]
     fn emits_math_sqrt_pow_sign() {
         let source = source_for(
             r#"
@@ -2467,6 +2480,18 @@ last: int = word.rfind("t")
         assert!(source.contains(".find(&"));
         assert!(source.contains(".rfind(&"));
         assert!(source.contains(".map_or(-1,"));
+    }
+
+    #[test]
+    fn emits_python_string_replace_method() {
+        let source = source_for_py(
+            r#"
+word: str = "hello hello"
+replaced: str = word.replace("hello", "hi")
+"#,
+        );
+
+        assert!(source.contains(".replace(&"));
     }
 
     #[test]

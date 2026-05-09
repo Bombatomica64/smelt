@@ -18,7 +18,7 @@ use smelt_hir::{
     FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal, LocalDecl, MatchArm,
     Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param,
     Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
-    StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
+    StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
 };
 
 use crate::helpers::{
@@ -2087,6 +2087,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.string_search_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_replace_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_split_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -2555,6 +2558,50 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 op,
                 haystack,
                 needle,
+            },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python literal string replacement.
+    fn string_replace_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "replace" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        let [pattern_expr, replacement_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.replace() requires exactly pattern and replacement string arguments; count is not supported yet",
+            ));
+        };
+        let haystack = self.expression(&attr.value, body)?;
+        let pattern = self.expression(pattern_expr, body)?;
+        let replacement = self.expression(replacement_expr, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.replace() requires str receiver, pattern, and replacement",
+            ));
+        }
+        let ty = self.intern_type(Type::String);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringReplace {
+                op: StringReplaceOp::All,
+                haystack,
+                pattern,
+                replacement,
             },
             ty,
             span,

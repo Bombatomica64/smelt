@@ -20,8 +20,8 @@ use smelt_hir::{
     AsyncOp, BinOp, Body, Class, Expr, ExprKind, Field, FileId, Function, FunctionOwner, Import,
     Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId,
     NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile,
-    Span, Stmt, StringAffixOp, StringCaseOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
-    Visibility,
+    Span, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
+    UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1703,6 +1703,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_search_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.string_replace_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.list_contains_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2540,6 +2543,49 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 op,
                 haystack,
                 needle,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript literal string replacement.
+    fn string_replace_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "replace" {
+            return Ok(None);
+        }
+        let [pattern_argument, replacement_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string replace requires exactly two string arguments",
+            ));
+        };
+        let haystack = self.expression(&member.object, body)?;
+        let pattern = self.argument(pattern_argument, body)?;
+        let replacement = self.argument(replacement_argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string replace requires string receiver, pattern, and replacement",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringReplace {
+                op: StringReplaceOp::First,
+                haystack,
+                pattern,
+                replacement,
             },
             ty,
             span: self.span(call.span.start, call.span.end),

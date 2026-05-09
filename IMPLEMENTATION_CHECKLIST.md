@@ -220,9 +220,9 @@ runtime errors.
     - [x] TypeScript `indexOf` and `lastIndexOf`.
     - [x] Python `str.find()` and `str.rfind()`.
     - [x] Current Rust output returns Rust byte offsets; Unicode user-index parity is deferred.
-  - [ ] String replace literal:
-    - [ ] TypeScript `replace` for literal string pattern.
-    - [ ] Python `str.replace()` for string pattern/replacement.
+  - [x] String replace literal:
+    - [x] TypeScript `replace` for literal string pattern.
+    - [x] Python `str.replace()` for string pattern/replacement.
   - [x] Numeric predicates and math:
     - [x] TypeScript `Math.trunc`, `Math.sign`, `Math.sqrt`, `Math.pow`, `Math.max`, and `Math.min`.
     - [x] Python `math.trunc`, `math.sqrt`, `math.pow`, `max(...)`, and `min(...)`.
@@ -327,7 +327,7 @@ runtime errors.
   - [x] `String.prototype.startsWith` and `endsWith`.
   - [x] `String.prototype.indexOf` and `lastIndexOf`.
   - [ ] `String.prototype.slice` and `substring`, including Unicode/index semantics decision.
-  - [ ] `String.prototype.replace` for literal strings.
+  - [x] `String.prototype.replace` for literal strings.
   - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
   - [ ] `String.prototype.repeat`.
@@ -404,7 +404,7 @@ runtime errors.
   - [ ] `str.find()`, `index()`, `rfind()`, and `rindex()`.
     - [x] `str.find()` and `str.rfind()`.
     - [ ] `str.index()` and `str.rindex()` remain unsupported because missing-value exception semantics are not modeled yet.
-  - [ ] `str.replace()`.
+  - [x] `str.replace()`.
   - [ ] `str.join()`.
   - [ ] `str.removeprefix()` and `removesuffix()`.
   - [ ] `str.isdigit()`, `isalpha()`, `isalnum()`, and related predicates.

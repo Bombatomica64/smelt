@@ -3,7 +3,8 @@
 use super::*;
 use smelt_hir::{
     ExprKind, FileId, Function, Item, ModuleId, NumericExtremaOp, NumericRoundOp,
-    NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp, StringSearchOp, StringTrimSide, Type,
+    NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -392,6 +393,29 @@ const last = word.lastIndexOf("t");
             )
         );
     }
+    Ok(())
+}
+
+#[test]
+fn lowers_string_replace_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "hello hello";
+const replaced = word.replace("hello", "hi");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringReplace {
+            op: StringReplaceOp::First,
+            ..
+        }
+    )));
     Ok(())
 }
 
