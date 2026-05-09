@@ -974,6 +974,19 @@ const entries = Object.entries(mapping);
 }
 
 #[test]
+fn emits_object_has_own_methods() {
+    let source = source_for(
+        r#"
+const mapping: Record<string, number> = { a: 1, b: 2 };
+const first = Object.hasOwn(mapping, "a");
+const second = mapping.hasOwnProperty("b");
+"#,
+    );
+
+    assert!(source.contains(".contains_key(&"));
+}
+
+#[test]
 fn emits_static_function_with_params_and_return_value() {
     let source = source_for(
         "function add(a: number, b: number): number {

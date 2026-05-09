@@ -1709,6 +1709,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.object_projection_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.object_has_own_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.array_is_array_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2668,6 +2671,72 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictProjection { op, dict },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript object key ownership checks.
+    fn object_has_own_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if let Expression::Identifier(object) = &member.object
+            && object.name == "Object"
+            && member.property.name == "hasOwn"
+        {
+            let [dict_argument, key_argument] = call.arguments.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Object.hasOwn requires record and key arguments",
+                ));
+            };
+            let dict = self.argument(dict_argument, body)?;
+            let key = self.argument(key_argument, body)?;
+            return self.object_has_own_expr(call, body, dict, key);
+        }
+        if member.property.name == "hasOwnProperty" {
+            let [key_argument] = call.arguments.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "hasOwnProperty requires exactly one key argument",
+                ));
+            };
+            let dict = self.expression(&member.object, body)?;
+            let key = self.argument(key_argument, body)?;
+            return self.object_has_own_expr(call, body, dict, key);
+        }
+        Ok(None)
+    }
+
+    /// Build a HIR expression for a TypeScript record key ownership check.
+    fn object_has_own_expr(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        dict: smelt_hir::ExprId,
+        key: smelt_hir::ExprId,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(dict_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "object key ownership checks require a record receiver",
+            ));
+        };
+        if Self::expr_ty(body, key) != *key_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "object key ownership checks require a key matching the record key type",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictContainsKey { dict, key },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

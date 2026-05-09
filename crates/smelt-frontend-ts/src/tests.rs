@@ -949,6 +949,30 @@ const entries = Object.entries(mapping);
 }
 
 #[test]
+fn lowers_object_has_own_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const mapping: Record<string, number> = { a: 1, b: 2 };
+const first = Object.hasOwn(mapping, "a");
+const second = mapping.hasOwnProperty("b");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+            .count()
+            == 2
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_json_stringify_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

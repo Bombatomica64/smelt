@@ -368,7 +368,7 @@ runtime errors.
   - [ ] `Object.fromEntries`.
   - [ ] `Object.assign`.
   - [ ] Object spread/rest once frontend object spread support lands.
-  - [ ] `hasOwnProperty` / `Object.hasOwn` for record-like values.
+  - [x] `hasOwnProperty` / `Object.hasOwn` for record-like values.
   - [ ] `delete obj[key]` or explicit rejection with mutation semantics documented.
 - [ ] TypeScript JSON mappings:
   - [x] `JSON.stringify` with `serde_json` dependency injection.

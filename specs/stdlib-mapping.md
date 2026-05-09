@@ -149,6 +149,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `Object.keys(record)` | `DictProjection::Keys` | `DictProjection::Keys` | `record.keys().cloned().collect()` | One record argument | Non-record objects | Rust `HashMap` iteration order is used. |
 | `Object.values(record)` | `DictProjection::Values` | `DictProjection::Values` | `record.values().cloned().collect()` | One record argument | Non-record objects | Rust `HashMap` iteration order is used. |
 | `Object.entries(record)` | `DictProjection::Entries` | `DictProjection::Entries` | `record.iter().map(...).collect()` | One record argument | Non-record objects | Rust `HashMap` iteration order is used. |
+| `Object.hasOwn(record, key)` / `record.hasOwnProperty(key)` | `DictContainsKey` | `DictContainsKey` | `record.contains_key(&key)` | Record plus matching key type | Prototype-chain/object semantics | Static record key containment only. |
 | `dict.keys()` | `DictProjection::Keys` | `DictProjection::Keys` | `dict.keys().cloned().collect()` | No arguments | View object behavior | Returns a list, not a live Python view. |
 | `dict.values()` | `DictProjection::Values` | `DictProjection::Values` | `dict.values().cloned().collect()` | No arguments | View object behavior | Returns a list, not a live Python view. |
 | `dict.items()` | `DictProjection::Entries` | `DictProjection::Entries` | `dict.iter().map(...).collect()` | No arguments | View object behavior | Returns a list of tuples, not a live Python view. |
