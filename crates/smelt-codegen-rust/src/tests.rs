@@ -317,6 +317,22 @@ result: None = values.append(3)
 }
 
 #[test]
+fn emits_python_list_extend_method() {
+    let source = source_for_py(
+        r#"
+left: list[int] = [1, 2]
+right: list[int] = [3, 4]
+result: None = left.extend(right)
+"#,
+    );
+
+    assert!(source.contains("let mut"));
+    assert!(source.contains(".extend("));
+    assert!(source.contains(".iter().cloned());"));
+    assert!(source.contains("()"));
+}
+
+#[test]
 fn emits_python_list_reverse_method() {
     let source = source_for_py(
         r#"

@@ -681,6 +681,30 @@ result: None = values.append(3)
 }
 
 #[test]
+fn list_extend_method_lowers() -> TestResult {
+    let source = py!(r#"
+left: list[int] = [1, 2]
+right: list[int] = [3, 4]
+result: None = left.extend(right)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListExtend { .. })),
+        "expected list extend lowering",
+    )
+}
+
+#[test]
 fn list_reverse_method_lowers() -> TestResult {
     let source = py!(r#"
 values: list[int] = [1, 2]
@@ -925,6 +949,40 @@ result: None = values.append(3, 4)
     ensure(
         error.message.contains("exactly one item"),
         "expected append arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_list_extend_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_type = lower_errors(
+        py!(r#"
+left: list[int] = [1, 2]
+right: list[str] = ["x"]
+result: None = left.extend(right)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_type)?
+            .message
+            .contains("receiver list type"),
+        "expected list extend type diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+left: list[int] = [1, 2]
+result: None = left.extend()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("exactly one list"),
+        "expected list extend arity diagnostic",
     )
 }
 

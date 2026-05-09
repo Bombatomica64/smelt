@@ -1269,6 +1269,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListExtend { list, other } => {
+                let list_operand = self.lower_expr(*list)?;
+                let other_operand = self.lower_expr(*other)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListExtend {
+                        list: list_operand,
+                        other: other_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListUnshift { list, items } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operands = items
@@ -1705,6 +1718,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListSearch { .. }
             | ExprKind::ListSlice { .. }
             | ExprKind::ListPush { .. }
+            | ExprKind::ListExtend { .. }
             | ExprKind::ListUnshift { .. }
             | ExprKind::ListReverse { .. }
             | ExprKind::ListClear { .. }

@@ -228,6 +228,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
         }
+        Rvalue::ListExtend { list, other } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(other, aliases, dest)
+        }
         Rvalue::ListUnshift { list, items } => {
             let mut changed = rewrite_operand_except(list, aliases, dest);
             for item in items {

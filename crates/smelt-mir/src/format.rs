@@ -374,6 +374,13 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListPush { list, item } => {
             format!("list_push {}, {}", operand_text(list), operand_text(item))
         }
+        Rvalue::ListExtend { list, other } => {
+            format!(
+                "list_extend {}, {}",
+                operand_text(list),
+                operand_text(other)
+            )
+        }
         Rvalue::ListUnshift { list, items } => format!(
             "list_unshift {} [{}]",
             operand_text(list),

@@ -1213,6 +1213,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.list_slice_text(list, start.as_ref(), end.as_ref())
             }
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
+            Rvalue::ListExtend { list, other } => self.list_extend_text(list, other, dest_ty),
             Rvalue::ListUnshift { list, items } => self.list_unshift_text(list, items, dest_ty),
             Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
             Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
@@ -1947,6 +1948,37 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             Ok(format!("{{ {list_text}.push({item_text}); () }}"))
         }
+    }
+
+    /// Converts a list extend operation to Rust text.
+    fn list_extend_text(
+        &self,
+        list: &Operand,
+        other: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+            return Err(EmitError::new("list extend receiver must be a list"));
+        }
+        if self.operand_ty(other)? != list_ty {
+            return Err(EmitError::new(
+                "list extend argument must match the receiver list type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new("list extend destination must be None"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list extend receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        let other_text = self.operand_text(other)?;
+        Ok(format!(
+            "{{ {list_text}.extend({other_text}.iter().cloned()); () }}"
+        ))
     }
 
     /// Converts a list unshift operation to Rust text.
@@ -2847,6 +2879,7 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
             if let Statement::Assign {
                 value:
                     Rvalue::ListPush { list, .. }
+                    | Rvalue::ListExtend { list, .. }
                     | Rvalue::ListUnshift { list, .. }
                     | Rvalue::ListReverse { list }
                     | Rvalue::ListClear { list }

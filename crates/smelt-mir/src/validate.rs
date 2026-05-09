@@ -216,6 +216,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
         }
+        Rvalue::ListExtend { list, other } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, other, errors);
+        }
         Rvalue::ListUnshift { list, items } => {
             validate_operand_exists(function, list, errors);
             for item in items {
@@ -597,6 +601,10 @@ fn validate_rvalue(
         Rvalue::ListPush { list, item } => {
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::ListExtend { list, other } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, other, errors);
         }
         Rvalue::ListUnshift { list, items } => {
             validate_operand(function, definitions, list, errors);

@@ -540,6 +540,13 @@ pub enum Rvalue {
         /// Item to append.
         item: Operand,
     },
+    /// Extend a list with items from another list and return `None`.
+    ListExtend {
+        /// List value to mutate.
+        list: Operand,
+        /// List supplying items to copy.
+        other: Operand,
+    },
     /// Insert zero or more items at the front of a list and return the new length.
     ListUnshift {
         /// List value to mutate.

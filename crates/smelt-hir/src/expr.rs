@@ -239,6 +239,13 @@ pub enum ExprKind {
         /// Item to append.
         item: ExprId,
     },
+    /// Extend a list with items from another list and return `None`.
+    ListExtend {
+        /// List value to mutate.
+        list: ExprId,
+        /// List supplying items to copy.
+        other: ExprId,
+    },
     /// Insert zero or more items at the front of a list and return the new length.
     ListUnshift {
         /// List value to mutate.

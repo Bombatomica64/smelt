@@ -247,7 +247,7 @@ runtime errors.
   - [x] TypeScript `Array.prototype.join`.
   - [x] Python `str.join`.
   - [x] TypeScript `Array.prototype.concat`.
-  - [ ] Python `list.extend`.
+  - [x] Python `list.extend`.
 - [ ] Batch D, slicing/indexing semantics:
   - [x] TypeScript `Array.prototype.slice` with omitted and positive indexes.
   - [x] TypeScript `String.prototype.slice` with omitted and positive indexes.
@@ -422,6 +422,7 @@ runtime errors.
   - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
         `reverse`, and `sort`.
     - [x] `list.append`.
+    - [x] `list.extend`.
     - [x] `list.pop`.
     - [x] `list.clear`.
     - [x] `list.copy`.
