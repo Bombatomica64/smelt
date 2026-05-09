@@ -657,6 +657,61 @@ mid_text: str = word[1:4]
 }
 
 #[test]
+fn list_append_method_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2]
+result: None = values.append(3)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListPush { .. })),
+        "expected list append lowering",
+    )
+}
+
+#[test]
+fn unsupported_list_append_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_type = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.append("x")
+"#),
+        &mut ctx,
+    )?;
+    let error = first_error(&wrong_type)?;
+    ensure(
+        error.message.contains("argument must match"),
+        "expected append type diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let too_many = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.append(3, 4)
+"#),
+        &mut ctx,
+    )?;
+    let error = first_error(&too_many)?;
+    ensure(
+        error.message.contains("exactly one item"),
+        "expected append arity diagnostic",
+    )
+}
+
+#[test]
 fn unsupported_slice_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let negative = lower_errors(

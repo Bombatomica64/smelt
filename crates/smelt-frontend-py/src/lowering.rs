@@ -2111,6 +2111,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.dict_projection_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.list_append_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.requests_get_call_expression(call, body)? {
             return Ok(expr);
         }

@@ -1898,19 +1898,29 @@ impl<'mir> FunctionEmitter<'mir> {
                 "list push item must match the list element type",
             ));
         }
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::Float)) {
-            return Err(EmitError::new("list push destination must be a number"));
-        }
+        let returns_length = match self.mir.types.get(dest_ty) {
+            Some(Type::Float) => true,
+            Some(Type::None) => false,
+            _ => {
+                return Err(EmitError::new(
+                    "list push destination must be number or None",
+                ));
+            }
+        };
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list push receiver must be a mutable local for now",
             ));
         };
         let list_text = self.local_name(*local)?;
-        Ok(format!(
-            "{{ {list_text}.push({}); {list_text}.len() as f64 }}",
-            self.operand_text(item)?
-        ))
+        let item_text = self.operand_text(item)?;
+        if returns_length {
+            Ok(format!(
+                "{{ {list_text}.push({item_text}); {list_text}.len() as f64 }}"
+            ))
+        } else {
+            Ok(format!("{{ {list_text}.push({item_text}); () }}"))
+        }
     }
 
     /// Validates that an optional slice index is numeric.
@@ -2973,6 +2983,21 @@ mid_text: str = word[1:4]
         assert!(source.contains(".chars().skip(0usize).take("));
         assert!(source.contains(".chars().skip((1 as usize)).take("));
         assert!(source.contains(".collect::<String>();"));
+    }
+
+    #[test]
+    fn emits_python_list_append_method() {
+        let source = source_for_py(
+            r#"
+values: list[int] = [1, 2]
+result: None = values.append(3)
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains("Vec<i64>"));
+        assert!(source.contains(".push(3);"));
+        assert!(source.contains("()"));
     }
 
     #[test]

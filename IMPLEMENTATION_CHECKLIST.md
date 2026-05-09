@@ -234,7 +234,7 @@ runtime errors.
   - [x] TypeScript `Array.prototype.push`.
   - [ ] TypeScript `Array.prototype.pop`.
   - [ ] TypeScript `Array.prototype.reverse`.
-  - [ ] Python `list.append`.
+  - [x] Python `list.append`.
   - [ ] Python `list.pop`.
   - [ ] Python `list.clear`.
   - [ ] Python `list.reverse`.
@@ -421,6 +421,7 @@ runtime errors.
   - [x] Dict key `in` / `not in`.
   - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
         `reverse`, and `sort`.
+    - [x] `list.append`.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
     - [x] Dict `keys`, `values`, and `items`.
