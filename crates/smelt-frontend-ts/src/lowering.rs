@@ -2303,7 +2303,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
-    /// Lower direct TypeScript `Math.sqrt` and `Math.sign` calls.
+    /// Lower direct TypeScript `Math.sqrt`, `Math.cbrt`, and `Math.sign` calls.
     fn math_unary_func_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2320,6 +2320,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let op = match member.property.name.as_str() {
             "sqrt" => NumericUnaryFuncOp::Sqrt,
+            "cbrt" => NumericUnaryFuncOp::Cbrt,
             "sign" => NumericUnaryFuncOp::Sign,
             _ => return Ok(None),
         };

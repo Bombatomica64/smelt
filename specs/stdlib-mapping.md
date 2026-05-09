@@ -57,6 +57,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `Math.max(...)` | `NumericExtrema::Max` | `NumericExtrema::Max` | Chained `.max(...)` or `f64::NEG_INFINITY` | Any number of number args | Non-number args | Zero args use JS-compatible identity. |
 | `Math.min(...)` | `NumericExtrema::Min` | `NumericExtrema::Min` | Chained `.min(...)` or `f64::INFINITY` | Any number of number args | Non-number args | Zero args use JS-compatible identity. |
 | `Math.sqrt(x)` | `NumericUnaryFunc::Sqrt` | `NumericUnaryFunc::Sqrt` | `x.sqrt()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
+| `Math.cbrt(x)` | `NumericUnaryFunc::Cbrt` | `NumericUnaryFunc::Cbrt` | `x.cbrt()` | One number | Non-number or wrong arity | Uses Rust `f64`. |
 | `Math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numbers | Non-number or wrong arity | Uses Rust `f64`. |
 | `Math.sign(x)` | `NumericUnaryFunc::Sign` | `NumericUnaryFunc::Sign` | `x.signum()` | One number | Non-number or wrong arity | JS `-0` and `NaN` edge semantics are not modeled yet. |
 

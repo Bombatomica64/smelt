@@ -543,6 +543,7 @@ fn lowers_math_sqrt_pow_sign() -> Result<(), String> {
         ts!(r#"
 const value = 4;
 const root = Math.sqrt(value);
+const cubeRoot = Math.cbrt(value);
 const signed = Math.sign(value);
 const raised = Math.pow(value, 2);
 "#),
@@ -551,7 +552,11 @@ const raised = Math.pow(value, 2);
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    for expected in [NumericUnaryFuncOp::Sqrt, NumericUnaryFuncOp::Sign] {
+    for expected in [
+        NumericUnaryFuncOp::Sqrt,
+        NumericUnaryFuncOp::Cbrt,
+        NumericUnaryFuncOp::Sign,
+    ] {
         ensure!(body.exprs.iter().any(
             |expr| matches!(expr.kind, ExprKind::NumericUnaryFunc { op, .. } if op == expected)
         ));

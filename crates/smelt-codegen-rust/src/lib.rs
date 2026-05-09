@@ -1425,6 +1425,7 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         let method_name = match op {
             smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
+            smelt_hir::NumericUnaryFuncOp::Cbrt => "cbrt",
             smelt_hir::NumericUnaryFuncOp::Sign => "signum",
         };
         let operand_text = self.float_operand_text(operand)?;
@@ -2711,12 +2712,14 @@ const code = word.charCodeAt(2);
             r#"
 const value = 4;
 const root = Math.sqrt(value);
+const cubeRoot = Math.cbrt(value);
 const raised = Math.pow(value, 2);
 const signed = Math.sign(value);
 "#,
         );
 
         assert!(source.contains(".sqrt();"));
+        assert!(source.contains(".cbrt();"));
         assert!(source.contains(".powf("));
         assert!(source.contains(".signum();"));
     }

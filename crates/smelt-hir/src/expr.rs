@@ -329,6 +329,8 @@ pub enum NumericExtremaOp {
 pub enum NumericUnaryFuncOp {
     /// Square root.
     Sqrt,
+    /// Cube root.
+    Cbrt,
     /// Numeric sign.
     Sign,
 }

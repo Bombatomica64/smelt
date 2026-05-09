@@ -312,6 +312,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::NumericUnaryFunc { op, operand } => {
             let op_name = match op {
                 crate::expr::NumericUnaryFuncOp::Sqrt => "sqrt",
+                crate::expr::NumericUnaryFuncOp::Cbrt => "cbrt",
                 crate::expr::NumericUnaryFuncOp::Sign => "sign",
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))

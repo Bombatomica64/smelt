@@ -194,6 +194,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::NumericUnaryFunc { op, operand } => {
             let op_text = match op {
                 smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
+                smelt_hir::NumericUnaryFuncOp::Cbrt => "cbrt",
                 smelt_hir::NumericUnaryFuncOp::Sign => "sign",
             };
             format!("numeric_{op_text} {}", operand_text(operand))

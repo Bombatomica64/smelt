@@ -341,7 +341,7 @@ runtime errors.
   - [x] `Math.floor`, `ceil`, `round`, and `trunc`.
   - [x] `Math.max` and `min` for fixed argument lists.
   - [ ] `Math.pow`, `sqrt`, `cbrt`, `hypot`, and exponentiation alignment.
-    - [x] `Math.pow` and `Math.sqrt`.
+    - [x] `Math.pow`, `Math.sqrt`, and `Math.cbrt`.
   - [x] `Math.sign`.
   - [ ] `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and `atan2`.
   - [ ] `Math.log`, `log10`, `log2`, and `exp`.
