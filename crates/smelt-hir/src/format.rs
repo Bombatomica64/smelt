@@ -495,6 +495,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             expr_ref(*key),
             optional_expr_ref(*default)
         ),
+        ExprKind::DictUpdate { dict, other } => {
+            format!("dict_update {}, {}", expr_ref(*dict), expr_ref(*other))
+        }
         ExprKind::DictProjection { op, dict } => {
             let op_name = match op {
                 crate::expr::DictProjectionOp::Keys => "keys",
@@ -613,6 +616,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::DictContainsKey { .. }
         | ExprKind::DictClear { .. }
         | ExprKind::DictPop { .. }
+        | ExprKind::DictUpdate { .. }
         | ExprKind::DictProjection { .. }
         | ExprKind::StringSplit { .. }
         | ExprKind::StringJoin { .. }

@@ -1374,6 +1374,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DictUpdate { dict, other } => {
+                let dict_operand = self.lower_expr(*dict)?;
+                let other_operand = self.lower_expr(*other)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictUpdate {
+                        dict: dict_operand,
+                        other: other_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DictProjection { op, dict } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1657,6 +1670,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::DictContainsKey { .. }
             | ExprKind::DictClear { .. }
             | ExprKind::DictPop { .. }
+            | ExprKind::DictUpdate { .. }
             | ExprKind::DictProjection { .. }
             | ExprKind::StringSplit { .. }
             | ExprKind::StringJoin { .. }

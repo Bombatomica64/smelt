@@ -782,6 +782,30 @@ fallback: int = mapping.pop("b", 0)
 }
 
 #[test]
+fn dict_update_method_lowers() -> TestResult {
+    let source = py!(r#"
+left: dict[str, int] = {"a": 1}
+right: dict[str, int] = {"b": 2}
+result: None = left.update(right)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictUpdate { .. })),
+        "expected dict update lowering",
+    )
+}
+
+#[test]
 fn unsupported_list_append_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_type = lower_errors(
@@ -887,6 +911,40 @@ value: int = mapping.pop("a", "x")
     ensure(
         first_error(&wrong_default)?.message.contains("value type"),
         "expected wrong default diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_dict_update_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let missing = lower_errors(
+        py!(r#"
+left: dict[str, int] = {"a": 1}
+result: None = left.update()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&missing)?
+            .message
+            .contains("exactly one dict argument"),
+        "expected dict update arity diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_type = lower_errors(
+        py!(r#"
+left: dict[str, int] = {"a": 1}
+right: dict[str, str] = {"b": "x"}
+result: None = left.update(right)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_type)?
+            .message
+            .contains("receiver dict type"),
+        "expected dict update type diagnostic",
     )
 }
 

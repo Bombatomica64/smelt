@@ -1224,6 +1224,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::DictPop { dict, key, default } => {
                 self.dict_pop_text(dict, key, default.as_ref(), dest_ty)
             }
+            Rvalue::DictUpdate { dict, other } => self.dict_update_text(dict, other, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
                 haystack,
@@ -2223,6 +2224,37 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Converts a dictionary update operation to Rust text.
+    fn dict_update_text(
+        &self,
+        dict: &Operand,
+        other: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Err(EmitError::new("dict update receiver must be a dict"));
+        }
+        if self.operand_ty(other)? != dict_ty {
+            return Err(EmitError::new(
+                "dict update argument must match the receiver dict type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new("dict update destination must be None"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict update receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let other_text = self.operand_text(other)?;
+        Ok(format!(
+            "{{ {dict_text}.extend({other_text}.iter().map(|(key, value)| (key.clone(), value.clone()))); () }}"
+        ))
+    }
+
     /// Converts a dictionary projection operation to Rust text.
     fn dict_projection_text(
         &self,
@@ -2737,7 +2769,8 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     | Rvalue::ListPop { list }
                     | Rvalue::ListShift { list }
                     | Rvalue::DictClear { dict: list }
-                    | Rvalue::DictPop { dict: list, .. },
+                    | Rvalue::DictPop { dict: list, .. }
+                    | Rvalue::DictUpdate { dict: list, .. },
                 ..
             } = statement
                 && let Some(local) = operand_local(list)

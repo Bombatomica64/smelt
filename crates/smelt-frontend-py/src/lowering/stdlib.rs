@@ -7,6 +7,44 @@ use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower Python `dict.update(other)` calls for same-typed dictionaries.
+    pub(super) fn dict_update_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "update" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "dict.update() requires exactly one dict argument",
+            ));
+        }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        if !matches!(self.ctx.krate.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Ok(None);
+        }
+        let other = self.expression(&call.arguments.args[0], body)?;
+        if Self::expr_ty(body, other) != dict_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "dict.update() argument must match the receiver dict type",
+            ));
+        }
+        let ty = self.intern_type(Type::None);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::DictUpdate { dict, other },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `dict.pop(key[, default])` calls.
     pub(super) fn dict_pop_call_expression(
         &mut self,

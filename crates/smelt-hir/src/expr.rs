@@ -294,6 +294,13 @@ pub enum ExprKind {
         /// Optional default value for missing keys.
         default: Option<ExprId>,
     },
+    /// Extend a dictionary with entries from another dictionary and return `None`.
+    DictUpdate {
+        /// Dictionary value to mutate.
+        dict: ExprId,
+        /// Dictionary supplying entries to copy.
+        other: ExprId,
+    },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {
         /// Projection to apply.

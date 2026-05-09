@@ -252,6 +252,10 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(key, aliases, dest)
                 | rewrite_optional_operand_except(default, aliases, dest)
         }
+        Rvalue::DictUpdate { dict, other } => {
+            rewrite_operand_except(dict, aliases, dest)
+                | rewrite_operand_except(other, aliases, dest)
+        }
         Rvalue::DictProjection { dict, .. } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::StringSplit {
             haystack,

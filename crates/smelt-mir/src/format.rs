@@ -408,6 +408,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             operand_text(key),
             optional_operand_text(default.as_ref())
         ),
+        Rvalue::DictUpdate { dict, other } => {
+            format!(
+                "dict_update {}, {}",
+                operand_text(dict),
+                operand_text(other)
+            )
+        }
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {
                 smelt_hir::DictProjectionOp::Keys => "keys",

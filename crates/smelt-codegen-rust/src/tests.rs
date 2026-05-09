@@ -1,4 +1,3 @@
-
 use super::*;
 use smelt_frontend_py as py_frontend;
 use smelt_frontend_ts::{HirCtx, to_hir};
@@ -374,6 +373,22 @@ fallback: int = mapping.pop("b", 0)
     assert!(source.contains(".remove(&"));
     assert!(source.contains(".expect(\"dict pop missing key\")"));
     assert!(source.contains(".unwrap_or(0)"));
+}
+
+#[test]
+fn emits_python_dict_update_method() {
+    let source = source_for_py(
+        r#"
+left: dict[str, int] = {"a": 1}
+right: dict[str, int] = {"b": 2}
+result: None = left.update(right)
+"#,
+    );
+
+    assert!(source.contains("let mut"));
+    assert!(source.contains(".extend("));
+    assert!(source.contains(".iter().map(|(key, value)| (key.clone(), value.clone()))"));
+    assert!(source.contains("()"));
 }
 
 #[test]

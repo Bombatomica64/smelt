@@ -595,6 +595,13 @@ pub enum Rvalue {
         /// Optional default value for missing keys.
         default: Option<Operand>,
     },
+    /// Extend a dictionary with entries from another dictionary and return `None`.
+    DictUpdate {
+        /// Dictionary value to mutate.
+        dict: Operand,
+        /// Dictionary supplying entries to copy.
+        other: Operand,
+    },
     /// Project keys, values, or entries from a dictionary.
     DictProjection {
         /// Projection to apply.
