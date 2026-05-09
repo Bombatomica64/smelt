@@ -365,6 +365,13 @@ pub enum Rvalue {
     Len(Operand),
     /// Compute the absolute value of an integer or floating-point number.
     NumericAbs(Operand),
+    /// Round a floating-point value with a standard numeric operation.
+    NumericRound {
+        /// Operation to apply.
+        op: smelt_hir::NumericRoundOp,
+        /// Numeric operand to round.
+        operand: Operand,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.

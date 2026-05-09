@@ -174,6 +174,14 @@ fn rvalue_text(value: &Rvalue) -> String {
         }
         Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
         Rvalue::NumericAbs(operand) => format!("numeric_abs {}", operand_text(operand)),
+        Rvalue::NumericRound { op, operand } => {
+            let op_text = match op {
+                smelt_hir::NumericRoundOp::Floor => "floor",
+                smelt_hir::NumericRoundOp::Ceil => "ceil",
+                smelt_hir::NumericRoundOp::Round => "round",
+            };
+            format!("numeric_{op_text} {}", operand_text(operand))
+        }
         Rvalue::StringCase { op, operand } => {
             let op_text = match op {
                 smelt_hir::StringCaseOp::Lower => "lower",

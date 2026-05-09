@@ -198,24 +198,182 @@ runtime errors.
   - [x] TypeScript `Array.prototype.length`.
   - [x] TypeScript `String.prototype.length`.
   - [x] Python `len(...)` for list/dict/tuple/string values.
-- [ ] Follow-up direct mappings:
-  - [ ] TypeScript array methods: `map`, `filter`, `reduce`, `forEach`, `find`, `includes`, `push`,
-        and `slice`.
-    - [x] TypeScript array `includes`.
-  - [ ] TypeScript string methods: `split`, `toLowerCase`, and `toUpperCase`.
-    - [x] TypeScript `toLowerCase` and `toUpperCase`.
-    - [x] Python `str.lower()` and `str.upper()`.
-    - [x] TypeScript string `includes`.
-    - [x] Python string `in` / `not in`.
-    - [x] TypeScript string `split`.
-    - [x] Python `str.split(separator)`.
-    - [x] TypeScript string `trim`.
-    - [x] Python `str.strip()`.
-  - [ ] TypeScript `Math.*`, `Object.*`, `JSON.*`, `fetch`, and async timers.
-    - [x] TypeScript `Math.abs`.
-  - [ ] Python builtins and common stdlib functions that map directly to Rust or external crates.
-    - [x] Python list `in` / `not in`.
-    - [x] Python `abs(...)` for int/float values.
+- [ ] Mapping infrastructure and shared semantics:
+  - [ ] Add a typed stdlib mapping registry shared by frontend lowering and Rust codegen.
+  - [ ] Represent mapping rules with receiver kind, receiver type, function/member name, argument
+        shape, return type, side-effect behavior, and required backend dependencies.
+  - [ ] Produce a dedicated unsupported-stdlib diagnostic that names the source API and nearest
+        supported alternatives.
+  - [ ] Add golden tests for every supported mapping across HIR, MIR, generated Rust, and runtime
+        stdout where applicable.
+  - [ ] Document each mapping in `specs/stdlib-mapping.md` with source semantics, Rust output, and
+        known semantic differences.
+  - [ ] Add dependency-injection plumbing for mappings that need crates such as `serde_json`,
+        `reqwest`, `chrono`, `regex`, `url`, `ndarray`, or `numpy` bindings.
+- [ ] TypeScript array/list mappings:
+  - [x] `Array.prototype.includes`.
+  - [ ] `Array.prototype.map` with capture-free callbacks.
+  - [ ] `Array.prototype.map` with captured closures once closure captures land.
+  - [ ] `Array.prototype.filter`.
+  - [ ] `Array.prototype.reduce` with explicit initial value.
+  - [ ] `Array.prototype.reduce` without initial value, including empty-array rejection/semantics.
+  - [ ] `Array.prototype.forEach`.
+  - [ ] `Array.prototype.find` returning nullable/optional result.
+  - [ ] `Array.prototype.findIndex`.
+  - [ ] `Array.prototype.some`.
+  - [ ] `Array.prototype.every`.
+  - [ ] `Array.prototype.push`.
+  - [ ] `Array.prototype.pop`.
+  - [ ] `Array.prototype.shift`.
+  - [ ] `Array.prototype.unshift`.
+  - [ ] `Array.prototype.slice` with positive, omitted, and negative indexes.
+  - [ ] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
+  - [ ] `Array.prototype.concat`.
+  - [ ] `Array.prototype.join`.
+  - [ ] `Array.prototype.indexOf` and `lastIndexOf`.
+  - [ ] `Array.prototype.at`.
+  - [ ] `Array.prototype.reverse`.
+  - [ ] `Array.prototype.sort` with comparator support or explicit rejection.
+  - [ ] `Array.isArray` as a typed no-op/guard where static types make it decidable.
+- [ ] TypeScript string mappings:
+  - [x] `String.prototype.toLowerCase`.
+  - [x] `String.prototype.toUpperCase`.
+  - [x] `String.prototype.includes`.
+  - [x] `String.prototype.split(separator)`.
+  - [x] `String.prototype.trim`.
+  - [ ] `String.prototype.trimStart` and `trimEnd`.
+  - [ ] `String.prototype.startsWith` and `endsWith`.
+  - [ ] `String.prototype.indexOf` and `lastIndexOf`.
+  - [ ] `String.prototype.slice` and `substring`, including Unicode/index semantics decision.
+  - [ ] `String.prototype.replace` for literal strings.
+  - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
+  - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
+  - [ ] `String.prototype.repeat`.
+  - [ ] `String.prototype.padStart` and `padEnd`.
+  - [ ] `String(...)`, `Number(...)`, and `Boolean(...)` constructors/conversions or explicit
+        rejection where JS coercion would be misleading.
+- [ ] TypeScript number and `Math` mappings:
+  - [x] `Math.abs`.
+  - [ ] `Math.floor`, `ceil`, `round`, and `trunc`.
+    - [x] `Math.floor`, `Math.ceil`, and `Math.round`.
+  - [ ] `Math.max` and `min` for fixed argument lists.
+  - [ ] `Math.pow`, `sqrt`, `cbrt`, `hypot`, and exponentiation alignment.
+  - [ ] `Math.sign`.
+  - [ ] `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and `atan2`.
+  - [ ] `Math.log`, `log10`, `log2`, and `exp`.
+  - [ ] `Math.random` with an explicit randomness/backend policy.
+  - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
+  - [ ] Numeric formatting: `toString`, `toFixed`, `toPrecision`, and `toExponential`.
+- [ ] TypeScript object/record mappings:
+  - [ ] `Object.keys`.
+  - [ ] `Object.values`.
+  - [ ] `Object.entries`.
+  - [ ] `Object.fromEntries`.
+  - [ ] `Object.assign`.
+  - [ ] Object spread/rest once frontend object spread support lands.
+  - [ ] `hasOwnProperty` / `Object.hasOwn` for record-like values.
+  - [ ] `delete obj[key]` or explicit rejection with mutation semantics documented.
+- [ ] TypeScript JSON mappings:
+  - [ ] `JSON.stringify` with `serde_json` dependency injection.
+  - [ ] `JSON.parse<T>` with typed deserialization strategy.
+  - [ ] Unsupported replacer/reviver/spacing forms produce targeted diagnostics.
+  - [ ] Decide and document how classes/interfaces map to serialized shapes.
+- [ ] TypeScript Map, Set, Date, RegExp, URL, and Error mappings:
+  - [ ] `Map` construction, `get`, `set`, `has`, `delete`, `clear`, `size`, `keys`, `values`,
+        `entries`, and iteration.
+  - [ ] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
+  - [ ] `Date.now`, construction from timestamp/string, `toISOString`, and basic getters, or
+        explicitly defer Date support.
+  - [ ] `RegExp.test`, `String.match`, and regex-backed `replace` using the Rust `regex` crate, or
+        explicitly defer regex support.
+  - [ ] `URL` construction and field access through the `url` crate, or explicitly defer URL
+        support.
+  - [ ] `Error` construction, message access, and throw/catch mapping policy.
+- [ ] TypeScript platform and async mappings:
+  - [ ] `console.log`, `console.error`, and `console.warn` formatting policy.
+  - [ ] `setTimeout`, `clearTimeout`, `setInterval`, and `clearInterval` in async contexts.
+  - [ ] `fetch` with `reqwest` dependency injection.
+  - [ ] `Response.text`, `json`, `status`, `ok`, and headers access.
+  - [ ] `Promise.resolve`, `Promise.reject`, `then`, `catch`, and `finally`, or explicit rejection
+        in favor of `async`/`await`.
+- [ ] Python builtin mappings:
+  - [x] `len(...)` for `list`, `dict`, `tuple`, and `str`.
+  - [x] `abs(...)` for `int` and `float`.
+  - [ ] `str(...)`, `int(...)`, `float(...)`, and `bool(...)` conversions with strict semantic
+        differences documented.
+  - [ ] `range(...)` for `for` loops and materialized lists.
+  - [ ] `enumerate(...)`.
+  - [ ] `zip(...)`.
+  - [ ] `sum(...)`, `min(...)`, and `max(...)`.
+  - [ ] `all(...)` and `any(...)`.
+  - [ ] `sorted(...)` and `reversed(...)`.
+  - [ ] `list(...)`, `dict(...)`, `tuple(...)`, and `set(...)` constructors.
+  - [ ] `isinstance(...)` and `issubclass(...)` where static types make them decidable.
+  - [ ] `print(...)` formatting parity and stderr support if needed.
+- [ ] Python string mappings:
+  - [x] `str.lower()`.
+  - [x] `str.upper()`.
+  - [x] `str.strip()` with no arguments.
+  - [x] `str.split(separator)`.
+  - [x] String `in` / `not in`.
+  - [ ] `str.lstrip()` and `str.rstrip()`.
+  - [ ] `str.startswith()` and `str.endswith()`.
+  - [ ] `str.find()`, `index()`, `rfind()`, and `rindex()`.
+  - [ ] `str.replace()`.
+  - [ ] `str.join()`.
+  - [ ] `str.removeprefix()` and `removesuffix()`.
+  - [ ] `str.isdigit()`, `isalpha()`, `isalnum()`, and related predicates.
+  - [ ] f-string lowering beyond the currently supported literal/string-concat subset, if needed.
+- [ ] Python list/tuple/set/dict mappings:
+  - [x] List `in` / `not in`.
+  - [ ] Tuple `in` / `not in`.
+  - [ ] Dict key `in` / `not in`.
+  - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
+        `reverse`, and `sort`.
+  - [ ] Tuple indexing/slicing parity with Python negative indexes.
+  - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
+  - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
+        `difference`, and iteration.
+  - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.
+- [ ] Python standard-library module mappings:
+  - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,
+        `isnan`, constants `pi`, `e`, and `tau`.
+  - [ ] `json`: `loads`, `dumps`, `load`, and `dump` with `serde_json`.
+  - [ ] `re`: `compile`, `search`, `match`, `fullmatch`, `sub`, and `split`, or explicitly defer
+        regex support.
+  - [ ] `datetime`: `datetime`, `date`, `timedelta`, `now`, `utcnow`, parsing, and formatting, or
+        explicitly defer datetime support.
+  - [ ] `pathlib` / `os.path`: path join, basename/name/stem/suffix, exists, is_file, is_dir.
+  - [ ] `os`: environment reads/writes, cwd, mkdir, makedirs, remove, and rename.
+  - [ ] `sys`: argv, stdin/stdout/stderr basics.
+  - [ ] `random`: random, randint, choice, shuffle with an explicit RNG policy.
+  - [ ] `collections`: `defaultdict`, `Counter`, and `deque`, or targeted rejection.
+  - [ ] `itertools`: `chain`, `islice`, `count`, `repeat`, `product`, and `zip_longest`, or
+        targeted rejection.
+  - [ ] `functools`: `partial`, `reduce`, `lru_cache`, or targeted rejection.
+  - [ ] `typing`: runtime no-op handling for `cast`, `assert_never`, `TypeGuard`, and aliases.
+- [ ] Python IO and networking mappings:
+  - [ ] `open(...)` read/write text mode.
+  - [ ] `open(...)` binary mode.
+  - [ ] Context-manager lowering for files.
+  - [ ] `requests` or `urllib` support decision; prefer explicit crate-backed mappings over a
+        broad compatibility shim.
+  - [ ] Async HTTP mapping compatible with the Phase 5 runtime model.
+- [ ] Python native/data-library mappings:
+  - [ ] NumPy array construction and dtype model.
+  - [ ] NumPy shape, ndim, size, indexing, slicing, reshape, transpose, and astype.
+  - [ ] NumPy elementwise arithmetic, comparisons, reductions, and broadcasting policy.
+  - [ ] NumPy `zeros`, `ones`, `empty`, `arange`, `linspace`, `concatenate`, `stack`, and `where`.
+  - [ ] Decide per NumPy operation whether it lowers to Rust-native arrays/crates, C ABI calls, or
+        a deliberately hybrid backend.
+  - [ ] Pandas support decision: explicit defer unless a concrete mapping plan exists.
+- [ ] Phase 6 exit criteria:
+  - [ ] Every checked mapping has unit tests in the relevant frontend crate.
+  - [ ] Every checked mapping has MIR lowering coverage.
+  - [ ] Every checked mapping has Rust codegen coverage.
+  - [ ] End-to-end fixtures cover at least 30 stdlib cases across TypeScript and Python.
+  - [ ] Unsupported stdlib calls produce source-located diagnostics rather than generic call errors.
+  - [ ] `cargo test`, `cargo check`, and `cargo clippy` pass after each completed stdlib slice.
 
 ## Phase 6/TypeScript Next Coverage
 

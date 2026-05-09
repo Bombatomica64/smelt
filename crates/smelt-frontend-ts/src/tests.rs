@@ -1,7 +1,9 @@
 //! Tests for TypeScript frontend lowering.
 
 use super::*;
-use smelt_hir::{ExprKind, FileId, Function, Item, ModuleId, Stmt, StringCaseOp, Type};
+use smelt_hir::{
+    ExprKind, FileId, Function, Item, ModuleId, NumericRoundOp, Stmt, StringCaseOp, Type,
+};
 
 /// Fail the current test with a formatted message when `cond` is false.
 macro_rules! ensure {
@@ -217,6 +219,36 @@ const positive = Math.abs(value);
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericAbs { .. }))
     );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_math_rounding_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        r#"
+const value = 5.5;
+const floor = Math.floor(value);
+const ceil = Math.ceil(value);
+const round = Math.round(value);
+"#,
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        NumericRoundOp::Floor,
+        NumericRoundOp::Ceil,
+        NumericRoundOp::Round,
+    ] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::NumericRound { op, .. } if op == expected)
+            )
+        );
+    }
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

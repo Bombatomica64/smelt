@@ -18,8 +18,9 @@ use oxc::syntax::operator::{
 };
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, Expr, ExprKind, Field, FileId, Function, FunctionOwner, Import,
-    Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, Param,
-    ParamSig, Pattern, SourceFile, Span, Stmt, StringCaseOp, Type, UnaryOp, Visibility,
+    Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId,
+    NumericRoundOp, Param, ParamSig, Pattern, SourceFile, Span, Stmt, StringCaseOp, Type, UnaryOp,
+    Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1674,6 +1675,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.math_abs_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.math_round_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_case_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2114,6 +2118,60 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericAbs { operand },
+            ty: operand_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Math.floor`, `Math.ceil`, and `Math.round` calls.
+    fn math_round_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" {
+            return Ok(None);
+        }
+        let op = match member.property.name.as_str() {
+            "floor" => NumericRoundOp::Floor,
+            "ceil" => NumericRoundOp::Ceil,
+            "round" => NumericRoundOp::Round,
+            _ => return Ok(None),
+        };
+        if call.arguments.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "Math.{} requires exactly one argument",
+                    member.property.name
+                ),
+            ));
+        }
+        let Some(argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "Math.{} requires exactly one argument",
+                    member.property.name
+                ),
+            ));
+        };
+        let operand = self.argument(argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) != Some(&Type::Float) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("Math.{} requires a number argument", member.property.name),
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericRound { op, operand },
             ty: operand_ty,
             span: self.span(call.span.start, call.span.end),
         })))

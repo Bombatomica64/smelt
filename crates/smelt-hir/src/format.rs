@@ -293,6 +293,14 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::Len { operand } => format!("len {}", expr_ref(*operand)),
         ExprKind::NumericAbs { operand } => format!("numeric_abs {}", expr_ref(*operand)),
+        ExprKind::NumericRound { op, operand } => {
+            let op_name = match op {
+                crate::expr::NumericRoundOp::Floor => "floor",
+                crate::expr::NumericRoundOp::Ceil => "ceil",
+                crate::expr::NumericRoundOp::Round => "round",
+            };
+            format!("numeric_{op_name} {}", expr_ref(*operand))
+        }
         ExprKind::StringCase { op, operand } => {
             let op_name = match op {
                 crate::expr::StringCaseOp::Lower => "lower",
@@ -384,6 +392,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::Index { .. }
         | ExprKind::Len { .. }
         | ExprKind::NumericAbs { .. }
+        | ExprKind::NumericRound { .. }
         | ExprKind::StringCase { .. }
         | ExprKind::StringTrim { .. }
         | ExprKind::StringContains { .. }

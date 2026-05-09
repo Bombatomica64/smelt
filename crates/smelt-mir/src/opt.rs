@@ -178,6 +178,7 @@ fn rewrite_rvalue(
         }),
         Rvalue::Len(operand)
         | Rvalue::NumericAbs(operand)
+        | Rvalue::NumericRound { operand, .. }
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringTrim(operand)
         | Rvalue::Await(operand) => rewrite_operand_except(operand, aliases, dest),

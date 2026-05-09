@@ -64,6 +64,13 @@ pub enum ExprKind {
         /// The numeric value whose absolute value is computed.
         operand: ExprId,
     },
+    /// Round a floating-point number with a standard numeric operation.
+    NumericRound {
+        /// Operation to apply to the number.
+        op: NumericRoundOp,
+        /// The numeric value being rounded.
+        operand: ExprId,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.
@@ -155,6 +162,17 @@ pub enum StringCaseOp {
     Lower,
     /// Convert a string to upper case.
     Upper,
+}
+
+/// A directly lowered numeric rounding operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum NumericRoundOp {
+    /// Round toward negative infinity.
+    Floor,
+    /// Round toward positive infinity.
+    Ceil,
+    /// Round to the nearest integer value.
+    Round,
 }
 
 /// Runtime-backed async operation represented in HIR.

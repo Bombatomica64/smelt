@@ -1106,6 +1106,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
             Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
+            Rvalue::NumericRound { op, operand } => self.numeric_round_text(*op, operand),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
             Rvalue::StringTrim(operand) => self.string_trim_text(operand),
             Rvalue::StringContains { haystack, needle } => {
@@ -1254,6 +1255,26 @@ impl<'mir> FunctionEmitter<'mir> {
             return Err(EmitError::new("numeric abs operand must be numeric"));
         }
         Ok(format!("{}.abs()", self.operand_text(operand)?))
+    }
+
+    /// Converts a numeric rounding operation to Rust text.
+    fn numeric_round_text(
+        &self,
+        op: smelt_hir::NumericRoundOp,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Float)
+        ) {
+            return Err(EmitError::new("numeric round operand must be a float"));
+        }
+        let method_name = match op {
+            smelt_hir::NumericRoundOp::Floor => "floor",
+            smelt_hir::NumericRoundOp::Ceil => "ceil",
+            smelt_hir::NumericRoundOp::Round => "round",
+        };
+        Ok(format!("{}.{}()", self.operand_text(operand)?, method_name))
     }
 
     /// Converts a string trim operation to Rust text.
@@ -1961,6 +1982,22 @@ const positive = Math.abs(value);
         );
 
         assert!(source.contains(".abs();"));
+    }
+
+    #[test]
+    fn emits_math_rounding_calls() {
+        let source = source_for(
+            r#"
+const value = 5.5;
+const floor = Math.floor(value);
+const ceil = Math.ceil(value);
+const round = Math.round(value);
+"#,
+        );
+
+        assert!(source.contains(".floor();"));
+        assert!(source.contains(".ceil();"));
+        assert!(source.contains(".round();"));
     }
 
     #[test]
