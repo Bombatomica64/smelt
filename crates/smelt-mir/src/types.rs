@@ -540,6 +540,11 @@ pub enum Rvalue {
         /// Item to append.
         item: Operand,
     },
+    /// Reverse a list in place and return the language-specific result.
+    ListReverse {
+        /// List value to mutate.
+        list: Operand,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// Tuple value to search in.

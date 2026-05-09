@@ -239,6 +239,11 @@ pub enum ExprKind {
         /// Item to append.
         item: ExprId,
     },
+    /// Reverse a list in place and return the language-specific result.
+    ListReverse {
+        /// List value to mutate.
+        list: ExprId,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// The tuple value being searched.

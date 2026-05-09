@@ -8,6 +8,36 @@ use smelt_hir::{Body, Expr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower direct TypeScript `Array.prototype.reverse` calls.
+    pub(super) fn list_reverse_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "reverse" {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array reverse requires no arguments",
+            ));
+        }
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        if !matches!(self.ctx.krate.types.get(list_ty), Some(Type::List(_))) {
+            return Ok(None);
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListReverse { list },
+            ty: list_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Array.prototype.push` calls.
     pub(super) fn list_push_call(
         &mut self,

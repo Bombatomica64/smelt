@@ -233,11 +233,11 @@ runtime errors.
 - [ ] Batch B, mutation methods with existing place-assignment support:
   - [x] TypeScript `Array.prototype.push`.
   - [ ] TypeScript `Array.prototype.pop`.
-  - [ ] TypeScript `Array.prototype.reverse`.
+  - [x] TypeScript `Array.prototype.reverse`.
   - [x] Python `list.append`.
   - [ ] Python `list.pop`.
   - [ ] Python `list.clear`.
-  - [ ] Python `list.reverse`.
+  - [x] Python `list.reverse`.
   - [ ] Python `dict.update`.
   - [ ] Python `dict.pop`.
   - [ ] Python `dict.clear`.
@@ -315,7 +315,7 @@ runtime errors.
   - [x] `Array.prototype.join`.
   - [x] `Array.prototype.indexOf` and `lastIndexOf`.
   - [ ] `Array.prototype.at`.
-  - [ ] `Array.prototype.reverse`.
+  - [x] `Array.prototype.reverse`.
   - [ ] `Array.prototype.sort` with comparator support or explicit rejection.
   - [x] `Array.isArray` as a typed no-op/guard where static types make it decidable.
 - [ ] TypeScript string mappings:
@@ -422,6 +422,7 @@ runtime errors.
   - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
         `reverse`, and `sort`.
     - [x] `list.append`.
+    - [x] `list.reverse`.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
     - [x] Dict `keys`, `values`, and `items`.

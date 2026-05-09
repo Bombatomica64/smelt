@@ -1201,6 +1201,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.list_slice_text(list, start.as_ref(), end.as_ref())
             }
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
+            Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
@@ -1923,6 +1924,34 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Converts a list reverse operation to Rust text.
+    fn list_reverse_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+            return Err(EmitError::new("list reverse receiver must be a list"));
+        }
+        let returns_list = if dest_ty == list_ty {
+            true
+        } else if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            false
+        } else {
+            return Err(EmitError::new(
+                "list reverse destination must be list or None",
+            ));
+        };
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list reverse receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        if returns_list {
+            Ok(format!("{{ {list_text}.reverse(); {list_text}.clone() }}"))
+        } else {
+            Ok(format!("{{ {list_text}.reverse(); () }}"))
+        }
+    }
+
     /// Validates that an optional slice index is numeric.
     fn validate_optional_numeric_index(
         &self,
@@ -2514,7 +2543,7 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
     for block in &function.blocks {
         for statement in &block.statements {
             if let Statement::Assign {
-                value: Rvalue::ListPush { list, .. },
+                value: Rvalue::ListPush { list, .. } | Rvalue::ListReverse { list },
                 ..
             } = statement
                 && let Some(local) = operand_local(list)
@@ -3001,6 +3030,20 @@ result: None = values.append(3)
     }
 
     #[test]
+    fn emits_python_list_reverse_method() {
+        let source = source_for_py(
+            r#"
+values: list[int] = [1, 2]
+result: None = values.reverse()
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains(".reverse();"));
+        assert!(source.contains("()"));
+    }
+
+    #[test]
     fn emits_python_string_replace_method() {
         let source = source_for_py(
             r#"
@@ -3215,6 +3258,21 @@ const length = values.push(4);
         assert!(source.contains(".push(3.0);"));
         assert!(source.contains(".push(4.0);"));
         assert!(source.contains(".len() as f64"));
+    }
+
+    #[test]
+    fn emits_array_reverse_method() {
+        let source = source_for(
+            r#"
+let values: number[] = [1, 2];
+values.reverse();
+const reversed = values.reverse();
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains(".reverse();"));
+        assert!(source.contains(".clone()"));
     }
 
     #[test]

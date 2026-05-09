@@ -594,6 +594,28 @@ const length = values.push(4);
 }
 
 #[test]
+fn lowers_array_reverse_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.reverse();
+const reversed = values.reverse();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let reverses = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListReverse { .. }))
+        .count();
+    ensure_eq!(reverses, 2);
+    Ok(())
+}
+
+#[test]
 fn rejects_unsupported_array_push_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let wrong_type = lowering_errors(

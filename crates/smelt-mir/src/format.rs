@@ -374,6 +374,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListPush { list, item } => {
             format!("list_push {}, {}", operand_text(list), operand_text(item))
         }
+        Rvalue::ListReverse { list } => format!("list_reverse {}", operand_text(list)),
         Rvalue::TupleContains { tuple, item } => {
             format!(
                 "tuple_contains {}, {}",

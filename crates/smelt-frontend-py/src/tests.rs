@@ -681,6 +681,29 @@ result: None = values.append(3)
 }
 
 #[test]
+fn list_reverse_method_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2]
+result: None = values.reverse()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListReverse { .. })),
+        "expected list reverse lowering",
+    )
+}
+
+#[test]
 fn unsupported_list_append_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let wrong_type = lower_errors(
