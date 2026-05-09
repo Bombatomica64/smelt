@@ -45,6 +45,55 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `list.insert(index, item)` calls with integer indexes.
+    pub(super) fn list_insert_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "insert" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 2 {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "list.insert() requires index and item arguments",
+            ));
+        }
+        let list = self.expression(&attr.value, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *list_element_ty;
+        let index = self.expression(&call.arguments.args[0], body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, index)),
+            Some(Type::Int)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "list.insert() index must be int",
+            ));
+        }
+        let item = self.expression(&call.arguments.args[1], body)?;
+        if Self::expr_ty(body, item) != element_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[1].range()),
+                "list.insert() item must match the list element type",
+            ));
+        }
+        let ty = self.intern_type(Type::None);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListInsert { list, index, item },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.index(item)` calls without start or stop arguments.
     pub(super) fn list_index_call_expression(
         &mut self,

@@ -1214,6 +1214,9 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::ListExtend { list, other } => self.list_extend_text(list, other, dest_ty),
+            Rvalue::ListInsert { list, index, item } => {
+                self.list_insert_text(list, index, item, dest_ty)
+            }
             Rvalue::ListUnshift { list, items } => self.list_unshift_text(list, items, dest_ty),
             Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
             Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
@@ -1978,6 +1981,46 @@ impl<'mir> FunctionEmitter<'mir> {
         let other_text = self.operand_text(other)?;
         Ok(format!(
             "{{ {list_text}.extend({other_text}.iter().cloned()); () }}"
+        ))
+    }
+
+    /// Converts a list insert operation to Rust text.
+    ///
+    /// Python accepts negative indexes with insertion-before-end behavior. This
+    /// direct mapping intentionally rejects negative indexes at runtime until
+    /// Python-compatible negative-index lowering is modeled explicitly.
+    fn list_insert_text(
+        &self,
+        list: &Operand,
+        index: &Operand,
+        item: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list insert receiver must be a list"));
+        };
+        if !matches!(self.mir.types.get(self.operand_ty(index)?), Some(Type::Int)) {
+            return Err(EmitError::new("list insert index must be int"));
+        }
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(
+                "list insert item must match the list element type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new("list insert destination must be None"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list insert receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        let index_text = self.operand_text(index)?;
+        let item_text = self.operand_text(item)?;
+        Ok(format!(
+            "{{ let insert_index = usize::try_from({index_text}).expect(\"list insert negative index\"); {list_text}.insert(insert_index, {item_text}); () }}"
         ))
     }
 
@@ -2880,6 +2923,7 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                 value:
                     Rvalue::ListPush { list, .. }
                     | Rvalue::ListExtend { list, .. }
+                    | Rvalue::ListInsert { list, .. }
                     | Rvalue::ListUnshift { list, .. }
                     | Rvalue::ListReverse { list }
                     | Rvalue::ListClear { list }

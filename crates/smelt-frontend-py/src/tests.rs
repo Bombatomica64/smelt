@@ -705,6 +705,29 @@ result: None = left.extend(right)
 }
 
 #[test]
+fn list_insert_method_lowers() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2]
+result: None = values.insert(1, 0)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListInsert { .. })),
+        "expected list insert lowering",
+    )
+}
+
+#[test]
 fn list_reverse_method_lowers() -> TestResult {
     let source = py!(r#"
 values: list[int] = [1, 2]
@@ -1097,6 +1120,52 @@ index: int = values.index(1, 0)
             .message
             .contains("exactly one item"),
         "expected list index bounds diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_list_insert_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_index = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.insert("1", 0)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_index)?
+            .message
+            .contains("index must be int"),
+        "expected list insert index diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_item = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.insert(1, "x")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_item)?.message.contains("element type"),
+        "expected list insert item diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2]
+result: None = values.insert(1)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("index and item"),
+        "expected list insert arity diagnostic",
     )
 }
 

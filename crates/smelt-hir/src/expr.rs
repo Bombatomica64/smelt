@@ -246,6 +246,15 @@ pub enum ExprKind {
         /// List supplying items to copy.
         other: ExprId,
     },
+    /// Insert one item into a list at an integer index and return `None`.
+    ListInsert {
+        /// List value to mutate.
+        list: ExprId,
+        /// Integer index where the item is inserted.
+        index: ExprId,
+        /// Item to insert.
+        item: ExprId,
+    },
     /// Insert zero or more items at the front of a list and return the new length.
     ListUnshift {
         /// List value to mutate.

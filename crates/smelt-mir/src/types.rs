@@ -547,6 +547,15 @@ pub enum Rvalue {
         /// List supplying items to copy.
         other: Operand,
     },
+    /// Insert one item into a list at an integer index and return `None`.
+    ListInsert {
+        /// List value to mutate.
+        list: Operand,
+        /// Integer index where the item is inserted.
+        index: Operand,
+        /// Item to insert.
+        item: Operand,
+    },
     /// Insert zero or more items at the front of a list and return the new length.
     ListUnshift {
         /// List value to mutate.

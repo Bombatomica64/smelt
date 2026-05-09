@@ -238,6 +238,7 @@ runtime errors.
   - [x] Python `list.pop`.
   - [x] Python `list.clear`.
   - [x] Python `list.reverse`.
+  - [x] Python `list.insert`.
   - [x] Python `dict.update`.
   - [x] Python `dict.pop`.
   - [x] Python `dict.clear`.
@@ -423,6 +424,7 @@ runtime errors.
         `reverse`, and `sort`.
     - [x] `list.append`.
     - [x] `list.extend`.
+    - [x] `list.insert`.
     - [x] `list.pop`.
     - [x] `list.clear`.
     - [x] `list.copy`.

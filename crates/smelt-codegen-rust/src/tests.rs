@@ -333,6 +333,21 @@ result: None = left.extend(right)
 }
 
 #[test]
+fn emits_python_list_insert_method() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2]
+result: None = values.insert(1, 0)
+"#,
+    );
+
+    assert!(source.contains("let mut"));
+    assert!(source.contains("let insert_index = usize::try_from(1)"));
+    assert!(source.contains(".insert(insert_index, 0);"));
+    assert!(source.contains("()"));
+}
+
+#[test]
 fn emits_python_list_reverse_method() {
     let source = source_for_py(
         r#"

@@ -381,6 +381,12 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(other)
             )
         }
+        Rvalue::ListInsert { list, index, item } => format!(
+            "list_insert {}, {}, {}",
+            operand_text(list),
+            operand_text(index),
+            operand_text(item)
+        ),
         Rvalue::ListUnshift { list, items } => format!(
             "list_unshift {} [{}]",
             operand_text(list),

@@ -472,6 +472,12 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListExtend { list, other } => {
             format!("list_extend {}, {}", expr_ref(*list), expr_ref(*other))
         }
+        ExprKind::ListInsert { list, index, item } => format!(
+            "list_insert {}, {}, {}",
+            expr_ref(*list),
+            expr_ref(*index),
+            expr_ref(*item)
+        ),
         ExprKind::ListUnshift { list, items } => format!(
             "list_unshift {} [{}]",
             expr_ref(*list),
@@ -619,6 +625,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListSlice { .. }
         | ExprKind::ListPush { .. }
         | ExprKind::ListExtend { .. }
+        | ExprKind::ListInsert { .. }
         | ExprKind::ListUnshift { .. }
         | ExprKind::ListReverse { .. }
         | ExprKind::ListClear { .. }
