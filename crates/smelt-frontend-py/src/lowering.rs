@@ -14,10 +14,10 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, Class, ClassKind, Expr as HirExpr, ExprKind, Field, FileId, Function,
-    FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal, LocalDecl, MatchArm,
-    Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param,
-    Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
+    AsyncOp, BinOp, Body, Class, ClassKind, DictProjectionOp, Expr as HirExpr, ExprKind, Field,
+    FileId, Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal,
+    LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp,
+    Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
     StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId,
     UnaryOp, Visibility,
 };
@@ -2103,6 +2103,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.string_join_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.dict_projection_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.requests_get_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -2780,6 +2783,53 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::StringJoin { items, separator },
             ty: string_ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python dictionary projection methods.
+    fn dict_projection_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match attr.attr.as_str() {
+            "keys" => DictProjectionOp::Keys,
+            "values" => DictProjectionOp::Values,
+            "items" => DictProjectionOp::Entries,
+            _ => return Ok(None),
+        };
+        let span = self.span(call.range);
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "dict keys/values/items methods require no arguments",
+            ));
+        }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(key_type, value_type)) = self.ctx.krate.types.get(dict_ty) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "dict keys/values/items methods require a dict receiver",
+            ));
+        };
+        let key_ty = *key_type;
+        let value_ty = *value_type;
+        let ty = match op {
+            DictProjectionOp::Keys => self.intern_type(Type::List(key_ty)),
+            DictProjectionOp::Values => self.intern_type(Type::List(value_ty)),
+            DictProjectionOp::Entries => {
+                let entry_ty = self.intern_type(Type::Tuple(vec![key_ty, value_ty]));
+                self.intern_type(Type::List(entry_ty))
+            }
+        };
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::DictProjection { op, dict },
+            ty,
             span,
         })))
     }

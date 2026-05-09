@@ -205,6 +205,7 @@ fn rewrite_rvalue(
         Rvalue::DictContainsKey { dict, key } => {
             rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
         }
+        Rvalue::DictProjection { dict, .. } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::StringSplit {
             haystack,
             separator,

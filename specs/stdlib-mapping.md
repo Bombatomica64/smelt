@@ -87,3 +87,14 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `x in list` / `x not in list` | `ListContains` plus optional `UnaryOp::Not` | `ListContains` plus optional `Unary` | `list.contains(&x)` | Item matching element type | Mismatched types | Rust equality semantics are used. |
 | `x in tuple` / `x not in tuple` | `TupleContains` plus optional `UnaryOp::Not` | `TupleContains` plus optional `Unary` | Equality chain over tuple fields | Item matching at least one tuple element type | Mismatched types | Rust equality semantics are used. |
 | `k in dict` / `k not in dict` | `DictContainsKey` plus optional `UnaryOp::Not` | `DictContainsKey` plus optional `Unary` | `dict.contains_key(&k)` | Key matching dict key type | Mismatched key type | Rust `HashMap` key semantics are used. |
+
+## Dictionary Projections
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Object.keys(record)` | `DictProjection::Keys` | `DictProjection::Keys` | `record.keys().cloned().collect()` | One record argument | Non-record objects | Rust `HashMap` iteration order is used. |
+| `Object.values(record)` | `DictProjection::Values` | `DictProjection::Values` | `record.values().cloned().collect()` | One record argument | Non-record objects | Rust `HashMap` iteration order is used. |
+| `Object.entries(record)` | `DictProjection::Entries` | `DictProjection::Entries` | `record.iter().map(...).collect()` | One record argument | Non-record objects | Rust `HashMap` iteration order is used. |
+| `dict.keys()` | `DictProjection::Keys` | `DictProjection::Keys` | `dict.keys().cloned().collect()` | No arguments | View object behavior | Returns a list, not a live Python view. |
+| `dict.values()` | `DictProjection::Values` | `DictProjection::Values` | `dict.values().cloned().collect()` | No arguments | View object behavior | Returns a list, not a live Python view. |
+| `dict.items()` | `DictProjection::Entries` | `DictProjection::Entries` | `dict.iter().map(...).collect()` | No arguments | View object behavior | Returns a list of tuples, not a live Python view. |

@@ -61,9 +61,9 @@ pub use body::{
     MatchArm, Pattern, Stmt,
 };
 pub use expr::{
-    AsyncOp, BinOp, Expr, ExprKind, Literal, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp,
-    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, UnaryOp, bin_op_text,
+    AsyncOp, BinOp, DictProjectionOp, Expr, ExprKind, Literal, NumericExtremaOp, NumericRoundOp,
+    NumericUnaryFuncOp, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, UnaryOp, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{

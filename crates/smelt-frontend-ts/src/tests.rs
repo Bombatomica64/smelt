@@ -2,7 +2,7 @@
 
 use super::*;
 use smelt_hir::{
-    ExprKind, FileId, Function, Item, ModuleId, NumericExtremaOp, NumericRoundOp,
+    DictProjectionOp, ExprKind, FileId, Function, Item, ModuleId, NumericExtremaOp, NumericRoundOp,
     NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp, StringSearchOp,
     StringTrimSide, Type,
 };
@@ -509,6 +509,33 @@ const raised = Math.pow(value, 2);
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericPow { .. }))
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_object_projection_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const mapping: Record<string, number> = { a: 1, b: 2 };
+const keys = Object.keys(mapping);
+const values = Object.values(mapping);
+const entries = Object.entries(mapping);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        DictProjectionOp::Keys,
+        DictProjectionOp::Values,
+        DictProjectionOp::Entries,
+    ] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::DictProjection { op, .. } if op == expected)
+        ));
+    }
     Ok(())
 }
 

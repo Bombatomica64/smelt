@@ -1178,6 +1178,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
+            Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
                 haystack,
                 separator,
@@ -1741,6 +1742,32 @@ impl<'mir> FunctionEmitter<'mir> {
             self.operand_text(dict)?,
             self.operand_text(key)?
         ))
+    }
+
+    /// Converts a dictionary projection operation to Rust text.
+    fn dict_projection_text(
+        &self,
+        op: smelt_hir::DictProjectionOp,
+        dict: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(dict)?),
+            Some(Type::Dict(_, _))
+        ) {
+            return Err(EmitError::new("dict projection receiver must be a dict"));
+        }
+        let dict_text = self.operand_text(dict)?;
+        match op {
+            smelt_hir::DictProjectionOp::Keys => {
+                Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
+            }
+            smelt_hir::DictProjectionOp::Values => {
+                Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
+            }
+            smelt_hir::DictProjectionOp::Entries => Ok(format!(
+                "{dict_text}.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+            )),
+        }
     }
 
     /// Converts a string split operation to Rust text.
@@ -2687,6 +2714,24 @@ joined: str = "-".join(parts)
     }
 
     #[test]
+    fn emits_python_dict_projection_methods() {
+        let source = source_for_py(
+            r#"
+mapping: dict[str, int] = {"a": 1, "b": 2}
+keys: list[str] = mapping.keys()
+values: list[int] = mapping.values()
+items: list[tuple[str, int]] = mapping.items()
+"#,
+        );
+
+        assert!(source.contains(".keys().cloned().collect::<Vec<_>>();"));
+        assert!(source.contains(".values().cloned().collect::<Vec<_>>();"));
+        assert!(source.contains(
+            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();"
+        ));
+    }
+
+    #[test]
     fn emits_python_math_and_contains_helpers() {
         let source = source_for_py(
             r#"
@@ -2759,6 +2804,24 @@ const comma = words.join();
 
         assert!(source.contains(".join(&\"-\".to_owned());"));
         assert!(source.contains(".join(&\",\".to_owned());"));
+    }
+
+    #[test]
+    fn emits_object_projection_methods() {
+        let source = source_for(
+            r#"
+const mapping: Record<string, number> = { a: 1, b: 2 };
+const keys = Object.keys(mapping);
+const values = Object.values(mapping);
+const entries = Object.entries(mapping);
+"#,
+        );
+
+        assert!(source.contains(".keys().cloned().collect::<Vec<_>>();"));
+        assert!(source.contains(".values().cloned().collect::<Vec<_>>();"));
+        assert!(source.contains(
+            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();"
+        ));
     }
 
     #[test]

@@ -430,6 +430,14 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DictContainsKey { dict, key } => {
             format!("dict_contains_key {}, {}", expr_ref(*dict), expr_ref(*key))
         }
+        ExprKind::DictProjection { op, dict } => {
+            let op_name = match op {
+                crate::expr::DictProjectionOp::Keys => "keys",
+                crate::expr::DictProjectionOp::Values => "values",
+                crate::expr::DictProjectionOp::Entries => "entries",
+            };
+            format!("dict_{op_name} {}", expr_ref(*dict))
+        }
         ExprKind::StringSplit {
             haystack,
             separator,
@@ -525,6 +533,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListContains { .. }
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
+        | ExprKind::DictProjection { .. }
         | ExprKind::StringSplit { .. }
         | ExprKind::StringJoin { .. }
         | ExprKind::HttpGetText { .. }

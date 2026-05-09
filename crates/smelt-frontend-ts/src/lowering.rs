@@ -17,11 +17,11 @@ use oxc::syntax::operator::{
     AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
 };
 use smelt_hir::{
-    AsyncOp, BinOp, Body, Class, Expr, ExprKind, Field, FileId, Function, FunctionOwner, Import,
-    Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId,
-    NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile,
-    Span, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
-    UnaryOp, Visibility,
+    AsyncOp, BinOp, Body, Class, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
+    FunctionOwner, Import, Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig,
+    Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig,
+    Pattern, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Type, UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1691,6 +1691,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.math_pow_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.object_projection_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_case_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2388,6 +2391,65 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericPow { base, exponent },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Object.keys`, `Object.values`, and `Object.entries` calls.
+    fn object_projection_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object" {
+            return Ok(None);
+        }
+        let op = match member.property.name.as_str() {
+            "keys" => DictProjectionOp::Keys,
+            "values" => DictProjectionOp::Values,
+            "entries" => DictProjectionOp::Entries,
+            _ => return Ok(None),
+        };
+        let [dict_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "Object.{} requires exactly one record argument",
+                    member.property.name
+                ),
+            ));
+        };
+        let dict = self.argument(dict_argument, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(key_type, value_type)) = self.ctx.krate.types.get(dict_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("Object.{} requires a record argument", member.property.name),
+            ));
+        };
+        let key_ty = *key_type;
+        let value_ty = *value_type;
+        let ty = match op {
+            DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
+            DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
+            DictProjectionOp::Entries => {
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![key_ty, value_ty]));
+                self.ctx.krate.types.intern(Type::List(entry_ty))
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictProjection { op, dict },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

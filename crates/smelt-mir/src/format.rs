@@ -332,6 +332,14 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(key)
             )
         }
+        Rvalue::DictProjection { op, dict } => {
+            let op_text = match op {
+                smelt_hir::DictProjectionOp::Keys => "keys",
+                smelt_hir::DictProjectionOp::Values => "values",
+                smelt_hir::DictProjectionOp::Entries => "entries",
+            };
+            format!("dict_{op_text} {}", operand_text(dict))
+        }
         Rvalue::StringSplit {
             haystack,
             separator,

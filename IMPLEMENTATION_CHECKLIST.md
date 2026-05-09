@@ -242,8 +242,8 @@ runtime errors.
   - [ ] Python `dict.pop`.
   - [ ] Python `dict.clear`.
 - [ ] Batch C, collection projection methods:
-  - [ ] TypeScript `Object.keys`, `Object.values`, and `Object.entries`.
-  - [ ] Python `dict.keys`, `dict.values`, and `dict.items`.
+  - [x] TypeScript `Object.keys`, `Object.values`, and `Object.entries`.
+  - [x] Python `dict.keys`, `dict.values`, and `dict.items`.
   - [x] TypeScript `Array.prototype.join`.
   - [x] Python `str.join`.
   - [ ] TypeScript `Array.prototype.concat`.
@@ -348,9 +348,9 @@ runtime errors.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
   - [ ] Numeric formatting: `toString`, `toFixed`, `toPrecision`, and `toExponential`.
 - [ ] TypeScript object/record mappings:
-  - [ ] `Object.keys`.
-  - [ ] `Object.values`.
-  - [ ] `Object.entries`.
+  - [x] `Object.keys`.
+  - [x] `Object.values`.
+  - [x] `Object.entries`.
   - [ ] `Object.fromEntries`.
   - [ ] `Object.assign`.
   - [ ] Object spread/rest once frontend object spread support lands.
@@ -419,6 +419,7 @@ runtime errors.
         `reverse`, and `sort`.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
+    - [x] Dict `keys`, `values`, and `items`.
   - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
         `difference`, and iteration.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.

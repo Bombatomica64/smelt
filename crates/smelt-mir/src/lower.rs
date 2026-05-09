@@ -1184,6 +1184,18 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DictProjection { op, dict } => {
+                let dict_operand = self.lower_expr(*dict)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictProjection {
+                        op: *op,
+                        dict: dict_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringSplit {
                 haystack,
                 separator,
@@ -1440,6 +1452,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListContains { .. }
             | ExprKind::TupleContains { .. }
             | ExprKind::DictContainsKey { .. }
+            | ExprKind::DictProjection { .. }
             | ExprKind::StringSplit { .. }
             | ExprKind::StringJoin { .. }
             | ExprKind::HttpGetText { .. }

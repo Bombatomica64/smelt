@@ -194,6 +194,9 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, key, errors);
         }
+        Rvalue::DictProjection { dict, .. } => {
+            validate_operand_exists(function, dict, errors);
+        }
         Rvalue::StringSplit {
             haystack,
             separator,
@@ -481,6 +484,9 @@ fn validate_rvalue(
         Rvalue::DictContainsKey { dict, key } => {
             validate_operand(function, definitions, dict, errors);
             validate_operand(function, definitions, key, errors);
+        }
+        Rvalue::DictProjection { dict, .. } => {
+            validate_operand(function, definitions, dict, errors);
         }
         Rvalue::StringSplit {
             haystack,

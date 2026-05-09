@@ -193,6 +193,13 @@ pub enum ExprKind {
         /// The key to search for.
         key: ExprId,
     },
+    /// Project keys, values, or entries from a dictionary.
+    DictProjection {
+        /// Projection to apply.
+        op: DictProjectionOp,
+        /// Dictionary value to project.
+        dict: ExprId,
+    },
     /// Split a string into a list of strings.
     StringSplit {
         /// The string value being split.
@@ -350,6 +357,17 @@ pub enum StringPredicateOp {
     IsAlpha,
     /// Test for alphanumeric characters.
     IsAlnum,
+}
+
+/// A directly lowered dictionary projection operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DictProjectionOp {
+    /// Project dictionary keys.
+    Keys,
+    /// Project dictionary values.
+    Values,
+    /// Project dictionary key-value entries.
+    Entries,
 }
 
 /// Runtime-backed async operation represented in HIR.

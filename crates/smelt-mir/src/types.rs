@@ -494,6 +494,13 @@ pub enum Rvalue {
         /// Key to search for.
         key: Operand,
     },
+    /// Project keys, values, or entries from a dictionary.
+    DictProjection {
+        /// Projection to apply.
+        op: smelt_hir::DictProjectionOp,
+        /// Dictionary value to project.
+        dict: Operand,
+    },
     /// Split a string into a list of strings.
     StringSplit {
         /// String value to split.

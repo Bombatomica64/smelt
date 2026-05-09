@@ -2,9 +2,10 @@
 
 use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
-    AsyncOp, Body, BodyId, ExprKind, FileId, Item, ItemId, Language, Module, ModuleId,
-    NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Pattern, PatternId, Stmt, StringAffixOp,
-    StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
+    AsyncOp, Body, BodyId, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language, Module,
+    ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Pattern, PatternId, Stmt,
+    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -732,6 +733,39 @@ joined: str = "-".join(parts)
             .any(|expr| matches!(expr.kind, ExprKind::StringJoin { .. })),
         "expected string join lowering",
     )?;
+    Ok(())
+}
+
+#[test]
+fn dict_projection_methods_lower() -> TestResult {
+    let source = py!(r#"
+mapping: dict[str, int] = {"a": 1, "b": 2}
+keys: list[str] = mapping.keys()
+values: list[int] = mapping.values()
+items: list[tuple[str, int]] = mapping.items()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [
+        DictProjectionOp::Keys,
+        DictProjectionOp::Values,
+        DictProjectionOp::Entries,
+    ] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::DictProjection { op, .. } if op == expected),
+            ),
+            "expected dict projection lowering",
+        )?;
+    }
     Ok(())
 }
 
