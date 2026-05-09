@@ -2,9 +2,10 @@
 
 use super::*;
 use smelt_hir::{
-    DictProjectionOp, ExprKind, FileId, Function, Item, ListSearchOp, Literal, ModuleId,
-    NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
+    DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp, Literal,
+    ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Stmt,
+    StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide,
+    Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -558,6 +559,71 @@ const last = values.lastIndexOf(2);
         );
     }
     Ok(())
+}
+
+#[test]
+fn lowers_array_callback_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const mapped = values.map(value => value + 1);
+const filtered = values.filter(value => value > 1);
+const found = values.find(value => value > 1);
+const foundIndex = values.findIndex(value => value > 1);
+const hasAny = values.some(value => value > 1);
+const hasEvery = values.every(value => value > 0);
+values.forEach(value => value + 1);
+const total = values.reduce((acc, value) => acc + value, 0);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        ListCallbackOp::Map,
+        ListCallbackOp::Filter,
+        ListCallbackOp::Find,
+        ListCallbackOp::FindIndex,
+        ListCallbackOp::Some,
+        ListCallbackOp::Every,
+        ListCallbackOp::ForEach,
+    ] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::ListCallback { op, .. } if op == expected)
+            ),
+            "missing callback op {expected:?}"
+        );
+    }
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListReduce { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_array_callback_captures() {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const minimum = 1;
+const filtered = values.filter(value => value > minimum);
+"#),
+        &mut ctx,
+    )
+    .expect("expected callback capture diagnostic");
+
+    assert!(
+        errors.iter().any(|err| err
+            .message
+            .contains("callback captures are not supported yet")),
+        "{errors:?}"
+    );
 }
 
 #[test]

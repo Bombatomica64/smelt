@@ -1283,6 +1283,37 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListCallback { op, list, callback } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListCallback {
+                        op: *op,
+                        list: list_operand,
+                        callback: callback.clone(),
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListReduce {
+                list,
+                initial,
+                callback,
+            } => {
+                let list_operand = self.lower_expr(*list)?;
+                let initial_operand = self.lower_expr(*initial)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListReduce {
+                        list: list_operand,
+                        initial: initial_operand,
+                        callback: callback.clone(),
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListSlice { list, start, end } => {
                 let list_operand = self.lower_expr(*list)?;
                 let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
@@ -1871,6 +1902,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListContains { .. }
             | ExprKind::ListConcat { .. }
             | ExprKind::ListSearch { .. }
+            | ExprKind::ListCallback { .. }
+            | ExprKind::ListReduce { .. }
             | ExprKind::ListSlice { .. }
             | ExprKind::ListPush { .. }
             | ExprKind::ListExtend { .. }

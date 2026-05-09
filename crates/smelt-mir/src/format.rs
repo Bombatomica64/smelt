@@ -396,6 +396,23 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(item)
             )
         }
+        Rvalue::ListCallback { op, list, .. } => {
+            let op_text = match op {
+                smelt_hir::ListCallbackOp::Map => "map",
+                smelt_hir::ListCallbackOp::Filter => "filter",
+                smelt_hir::ListCallbackOp::Find => "find_callback",
+                smelt_hir::ListCallbackOp::FindIndex => "find_index",
+                smelt_hir::ListCallbackOp::Some => "some",
+                smelt_hir::ListCallbackOp::Every => "every",
+                smelt_hir::ListCallbackOp::ForEach => "for_each",
+            };
+            format!("list_{op_text} {} <callback>", operand_text(list))
+        }
+        Rvalue::ListReduce { list, initial, .. } => format!(
+            "list_reduce {}, {} <callback>",
+            operand_text(list),
+            operand_text(initial)
+        ),
         Rvalue::ListSlice { list, start, end } => format!(
             "list_slice {}, {}, {}",
             operand_text(list),

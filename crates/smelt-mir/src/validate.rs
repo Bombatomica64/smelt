@@ -217,6 +217,13 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
         }
+        Rvalue::ListCallback { list, .. } => {
+            validate_operand_exists(function, list, errors);
+        }
+        Rvalue::ListReduce { list, initial, .. } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, initial, errors);
+        }
         Rvalue::ListSlice { list, start, end } => {
             validate_operand_exists(function, list, errors);
             validate_optional_operand_exists(function, start.as_ref(), errors);
@@ -647,6 +654,13 @@ fn validate_rvalue(
         Rvalue::ListSearch { list, item, .. } => {
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::ListCallback { list, .. } => {
+            validate_operand(function, definitions, list, errors);
+        }
+        Rvalue::ListReduce { list, initial, .. } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, initial, errors);
         }
         Rvalue::ListSlice { list, start, end } => {
             validate_operand(function, definitions, list, errors);

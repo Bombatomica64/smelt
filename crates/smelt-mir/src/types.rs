@@ -544,6 +544,24 @@ pub enum Rvalue {
         /// Item to search for.
         item: Operand,
     },
+    /// Apply a capture-free callback to a list operation.
+    ListCallback {
+        /// List callback operation to apply.
+        op: smelt_hir::ListCallbackOp,
+        /// List value to process.
+        list: Operand,
+        /// Capture-free callback expression.
+        callback: smelt_hir::CallbackExpr,
+    },
+    /// Reduce a list with a capture-free reducer callback and initial value.
+    ListReduce {
+        /// List value to reduce.
+        list: Operand,
+        /// Initial accumulator value.
+        initial: Operand,
+        /// Capture-free reducer callback expression.
+        callback: smelt_hir::CallbackExpr,
+    },
     /// Take a shallow slice from a list.
     ListSlice {
         /// List value to slice.

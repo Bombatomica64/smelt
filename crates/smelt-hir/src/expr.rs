@@ -243,6 +243,24 @@ pub enum ExprKind {
         /// Item to search for.
         item: ExprId,
     },
+    /// Apply a capture-free callback to an array-like list operation.
+    ListCallback {
+        /// List callback operation to apply.
+        op: ListCallbackOp,
+        /// List value to process.
+        list: ExprId,
+        /// Capture-free callback expression.
+        callback: CallbackExpr,
+    },
+    /// Reduce a list with a capture-free two-argument callback and initial value.
+    ListReduce {
+        /// List value to reduce.
+        list: ExprId,
+        /// Initial accumulator value.
+        initial: ExprId,
+        /// Capture-free reducer callback expression.
+        callback: CallbackExpr,
+    },
     /// Take a shallow slice from a list.
     ListSlice {
         /// List value to slice.
@@ -648,6 +666,59 @@ pub enum ListSearchOp {
     RFind,
 }
 
+/// A directly lowered callback-heavy list operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListCallbackOp {
+    /// Transform each item into a new list.
+    Map,
+    /// Keep items where the callback returns true.
+    Filter,
+    /// Return the first item where the callback returns true.
+    Find,
+    /// Return the first index where the callback returns true, or -1.
+    FindIndex,
+    /// Return true if any item satisfies the callback.
+    Some,
+    /// Return true if every item satisfies the callback.
+    Every,
+    /// Evaluate the callback for each item and return `None`.
+    ForEach,
+}
+
+/// A capture-free callback expression tree.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallbackExpr {
+    /// Callback expression kind.
+    pub kind: CallbackExprKind,
+    /// Callback expression type.
+    pub ty: TypeId,
+}
+
+/// The kind of a capture-free callback expression.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum CallbackExprKind {
+    /// A callback parameter reference by zero-based position.
+    Param(usize),
+    /// A literal value.
+    Literal(Literal),
+    /// A unary operation.
+    Unary {
+        /// Operation to apply.
+        op: UnaryOp,
+        /// Operand expression.
+        operand: Box<CallbackExpr>,
+    },
+    /// A binary operation.
+    Binary {
+        /// Operation to apply.
+        op: BinOp,
+        /// Left operand.
+        lhs: Box<CallbackExpr>,
+        /// Right operand.
+        rhs: Box<CallbackExpr>,
+    },
+}
+
 /// Runtime-backed async operation represented in HIR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AsyncOp {
@@ -668,7 +739,7 @@ pub enum AsyncOp {
 }
 
 /// A literal value.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Literal {
     /// A boolean literal.
     Bool(bool),

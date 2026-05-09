@@ -19,12 +19,12 @@ use oxc::syntax::operator::{
     AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
 };
 use smelt_hir::{
-    AsyncOp, BinOp, Body, Class, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
-    FunctionOwner, Import, Interface, Item, Language, ListSearchOp, Literal, LocalDecl, MatchArm,
-    MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
-    Visibility,
+    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, Class, DictProjectionOp, Expr, ExprKind,
+    Field, FileId, Function, FunctionOwner, Import, Interface, Item, Language, ListCallbackOp,
+    ListSearchOp, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
+    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile,
+    Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Type, UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1727,6 +1727,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_affix_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.list_callback_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.list_reduce_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.list_search_call(call, body)? {
                     return Ok(expr);
                 }
@@ -3300,6 +3306,342 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower capture-free callback-heavy TypeScript array methods.
+    fn list_callback_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "map" => ListCallbackOp::Map,
+            "filter" => ListCallbackOp::Filter,
+            "find" => ListCallbackOp::Find,
+            "findIndex" => ListCallbackOp::FindIndex,
+            "some" => ListCallbackOp::Some,
+            "every" => ListCallbackOp::Every,
+            "forEach" => ListCallbackOp::ForEach,
+            _ => return Ok(None),
+        };
+        let [callback_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array callback methods require exactly one callback argument",
+            ));
+        };
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array callback method receiver must be an array",
+            ));
+        };
+        let element_ty = *list_element_ty;
+        let callback = self.capture_free_arrow_callback(callback_argument, &[element_ty])?;
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let ty = match op {
+            ListCallbackOp::Map => self.ctx.krate.types.intern(Type::List(callback.ty)),
+            ListCallbackOp::Filter => {
+                self.require_callback_ty(callback.ty, bool_ty, call, "array filter")?;
+                list_ty
+            }
+            ListCallbackOp::Find => {
+                self.require_callback_ty(callback.ty, bool_ty, call, "array find")?;
+                self.ctx.krate.types.intern(Type::Optional(element_ty))
+            }
+            ListCallbackOp::FindIndex => {
+                self.require_callback_ty(callback.ty, bool_ty, call, "array findIndex")?;
+                self.ctx.krate.types.intern(Type::Float)
+            }
+            ListCallbackOp::Some => {
+                self.require_callback_ty(callback.ty, bool_ty, call, "array some")?;
+                bool_ty
+            }
+            ListCallbackOp::Every => {
+                self.require_callback_ty(callback.ty, bool_ty, call, "array every")?;
+                bool_ty
+            }
+            ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListCallback { op, list, callback },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower `Array.prototype.reduce` with an explicit initial value.
+    fn list_reduce_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "reduce" {
+            return Ok(None);
+        }
+        let [callback_argument, initial_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array reduce currently requires callback and explicit initial value",
+            ));
+        };
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array reduce receiver must be an array",
+            ));
+        };
+        let element_ty = *list_element_ty;
+        let initial = self.argument(initial_argument, body)?;
+        let initial_ty = Self::expr_ty(body, initial);
+        let callback =
+            self.capture_free_arrow_callback(callback_argument, &[initial_ty, element_ty])?;
+        self.require_callback_ty(callback.ty, initial_ty, call, "array reduce")?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListReduce {
+                list,
+                initial,
+                callback,
+            },
+            ty: initial_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Validate the inferred callback return type for an array method.
+    fn require_callback_ty(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        context: &'static str,
+    ) -> Result<(), SmeltError> {
+        if actual == expected {
+            Ok(())
+        } else {
+            Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{context} callback returns an unsupported type"),
+            ))
+        }
+    }
+
+    /// Lower a simple capture-free arrow callback to a typed expression tree.
+    fn capture_free_arrow_callback(
+        &mut self,
+        argument: &Argument<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+    ) -> Result<CallbackExpr, SmeltError> {
+        let Argument::ArrowFunctionExpression(arrow) = argument else {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "array callback methods currently require arrow function callbacks",
+            ));
+        };
+        if arrow.r#async || arrow.type_parameters.is_some() || arrow.params.rest.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "async, generic, and rest-parameter callbacks are not supported yet",
+            ));
+        }
+        if arrow.params.items.len() != expected_param_tys.len() {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "array callback parameter count is not supported for this method",
+            ));
+        }
+        let mut params = HashMap::new();
+        for (index, param) in arrow.params.items.iter().enumerate() {
+            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "destructured callback parameters are not supported yet",
+                ));
+            };
+            let Some(expected_ty) = expected_param_tys.get(index).copied() else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "array callback parameter count is not supported for this method",
+                ));
+            };
+            params.insert(binding.name.as_str(), (index, expected_ty));
+        }
+        let expression = if arrow.expression {
+            let [Statement::ExpressionStatement(statement)] = arrow.body.statements.as_slice()
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(arrow.body.span.start, arrow.body.span.end),
+                    "expression-bodied callbacks must contain one expression",
+                ));
+            };
+            &statement.expression
+        } else {
+            let [Statement::ReturnStatement(statement)] = arrow.body.statements.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(arrow.body.span.start, arrow.body.span.end),
+                    "block-bodied callbacks currently require a single return statement",
+                ));
+            };
+            statement.argument.as_ref().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(statement.span.start, statement.span.end),
+                    "callback return statements must return a value",
+                )
+            })?
+        };
+        self.callback_expression(expression, &params)
+    }
+
+    /// Lower a supported callback expression and reject captures explicitly.
+    fn callback_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        params: &HashMap<&str, (usize, smelt_hir::TypeId)>,
+    ) -> Result<CallbackExpr, SmeltError> {
+        match expression {
+            Expression::Identifier(identifier) => {
+                let Some((index, ty)) = params.get(identifier.name.as_str()).copied() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(identifier.span.start, identifier.span.end),
+                        "callback captures are not supported yet",
+                    ));
+                };
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty,
+                })
+            }
+            Expression::NumericLiteral(literal) => Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::Float(literal.value)),
+                ty: self.ctx.krate.types.intern(Type::Float),
+            }),
+            Expression::StringLiteral(literal) => Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::String(literal.value.to_string())),
+                ty: self.ctx.krate.types.intern(Type::String),
+            }),
+            Expression::BooleanLiteral(literal) => Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::Bool(literal.value)),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            }),
+            Expression::NullLiteral(_) => Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::None),
+                ty: self.ctx.krate.types.intern(Type::None),
+            }),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.callback_expression(&parenthesized.expression, params)
+            }
+            Expression::UnaryExpression(unary) => {
+                let op = match unary.operator {
+                    UnaryOperator::LogicalNot => UnaryOp::Not,
+                    UnaryOperator::UnaryNegation => UnaryOp::Neg,
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(unary.span.start, unary.span.end),
+                            format!(
+                                "callback unary operator is not supported yet: {:?}",
+                                unary.operator
+                            ),
+                        ));
+                    }
+                };
+                let operand = self.callback_expression(&unary.argument, params)?;
+                let ty = if matches!(op, UnaryOp::Not) {
+                    self.ctx.krate.types.intern(Type::Bool)
+                } else {
+                    operand.ty
+                };
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Unary {
+                        op,
+                        operand: Box::new(operand),
+                    },
+                    ty,
+                })
+            }
+            Expression::BinaryExpression(binary) => {
+                let op =
+                    self.callback_binary_op(binary.operator, binary.span.start, binary.span.end)?;
+                let lhs = self.callback_expression(&binary.left, params)?;
+                let rhs = self.callback_expression(&binary.right, params)?;
+                let ty = if matches!(
+                    op,
+                    BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
+                ) {
+                    self.ctx.krate.types.intern(Type::Bool)
+                } else {
+                    lhs.ty
+                };
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    ty,
+                })
+            }
+            Expression::LogicalExpression(logical) => {
+                let op = match logical.operator {
+                    LogicalOperator::And => BinOp::And,
+                    LogicalOperator::Or => BinOp::Or,
+                    LogicalOperator::Coalesce => {
+                        return Err(SmeltError::unsupported(
+                            self.span(logical.span.start, logical.span.end),
+                            "callback nullish coalescing is not supported yet",
+                        ));
+                    }
+                };
+                let lhs = self.callback_expression(&logical.left, params)?;
+                let rhs = self.callback_expression(&logical.right, params)?;
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    ty: self.ctx.krate.types.intern(Type::Bool),
+                })
+            }
+            _ => Err(SmeltError::unsupported(
+                self.expression_span(expression),
+                "callback expression kind is not supported yet",
+            )),
+        }
+    }
+
+    /// Maps supported TypeScript callback binary operators to HIR operators.
+    fn callback_binary_op(
+        &self,
+        operator: BinaryOperator,
+        start: u32,
+        end: u32,
+    ) -> Result<BinOp, SmeltError> {
+        match operator {
+            BinaryOperator::Addition => Ok(BinOp::Add),
+            BinaryOperator::Subtraction => Ok(BinOp::Sub),
+            BinaryOperator::Multiplication => Ok(BinOp::Mul),
+            BinaryOperator::Division => Ok(BinOp::Div),
+            BinaryOperator::StrictEquality => Ok(BinOp::Eq),
+            BinaryOperator::StrictInequality => Ok(BinOp::NotEq),
+            BinaryOperator::LessThan => Ok(BinOp::Lt),
+            BinaryOperator::LessEqualThan => Ok(BinOp::Lte),
+            BinaryOperator::GreaterThan => Ok(BinOp::Gt),
+            BinaryOperator::GreaterEqualThan => Ok(BinOp::Gte),
+            _ => Err(SmeltError::unsupported(
+                self.span(start, end),
+                "callback binary operator is not supported yet",
+            )),
+        }
     }
 
     /// Lower direct TypeScript `Array.prototype.indexOf` and `lastIndexOf`.

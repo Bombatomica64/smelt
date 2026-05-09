@@ -259,12 +259,13 @@ runtime errors.
   - [x] Python string slicing with positive indexes.
   - [ ] Decide one shared policy for negative indexes before enabling negative-index forms.
 - [ ] Batch E, callback-heavy methods after closure support:
-  - [ ] TypeScript `Array.prototype.map`.
-  - [ ] TypeScript `Array.prototype.filter`.
-  - [ ] TypeScript `Array.prototype.reduce`.
-  - [ ] TypeScript `Array.prototype.forEach`.
-  - [ ] TypeScript `Array.prototype.find` and `findIndex`.
-  - [ ] TypeScript `Array.prototype.some` and `every`.
+  - [x] TypeScript `Array.prototype.map` with capture-free expression callbacks.
+  - [x] TypeScript `Array.prototype.filter` with capture-free expression callbacks.
+  - [x] TypeScript `Array.prototype.reduce` with explicit initial value and capture-free expression callback.
+  - [x] TypeScript `Array.prototype.forEach` with capture-free expression callbacks.
+  - [x] TypeScript `Array.prototype.find` and `findIndex` with capture-free expression callbacks.
+  - [x] TypeScript `Array.prototype.some` and `every` with capture-free expression callbacks.
+  - [ ] TypeScript callback methods with captured closures, callback function values, and index/array parameters.
   - [ ] Python `map`, `filter`, and callback-style `sorted(key=...)` if supported.
 - [ ] Batch F, dependency-backed mappings:
   - [ ] `serde_json` dependency injection, then TypeScript `JSON.stringify` / `JSON.parse` and
@@ -302,16 +303,16 @@ runtime errors.
         `reqwest`, `chrono`, `regex`, `url`, `ndarray`, or `numpy` bindings.
 - [ ] TypeScript array/list mappings:
   - [x] `Array.prototype.includes`.
-  - [ ] `Array.prototype.map` with capture-free callbacks.
+  - [x] `Array.prototype.map` with capture-free callbacks.
   - [ ] `Array.prototype.map` with captured closures once closure captures land.
-  - [ ] `Array.prototype.filter`.
-  - [ ] `Array.prototype.reduce` with explicit initial value.
+  - [x] `Array.prototype.filter` with capture-free callbacks.
+  - [x] `Array.prototype.reduce` with explicit initial value and capture-free callback.
   - [ ] `Array.prototype.reduce` without initial value, including empty-array rejection/semantics.
-  - [ ] `Array.prototype.forEach`.
-  - [ ] `Array.prototype.find` returning nullable/optional result.
-  - [ ] `Array.prototype.findIndex`.
-  - [ ] `Array.prototype.some`.
-  - [ ] `Array.prototype.every`.
+  - [x] `Array.prototype.forEach` with capture-free callbacks.
+  - [x] `Array.prototype.find` returning nullable/optional result with capture-free callbacks.
+  - [x] `Array.prototype.findIndex` with capture-free callbacks.
+  - [x] `Array.prototype.some` with capture-free callbacks.
+  - [x] `Array.prototype.every` with capture-free callbacks.
   - [x] `Array.prototype.push`.
   - [x] `Array.prototype.pop`.
   - [x] `Array.prototype.shift`.

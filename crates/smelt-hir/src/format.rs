@@ -491,6 +491,25 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("list_{op_name} {}, {}", expr_ref(*list), expr_ref(*item))
         }
+        ExprKind::ListCallback { op, list, .. } => {
+            let op_name = match op {
+                crate::expr::ListCallbackOp::Map => "map",
+                crate::expr::ListCallbackOp::Filter => "filter",
+                crate::expr::ListCallbackOp::Find => "find_callback",
+                crate::expr::ListCallbackOp::FindIndex => "find_index",
+                crate::expr::ListCallbackOp::Some => "some",
+                crate::expr::ListCallbackOp::Every => "every",
+                crate::expr::ListCallbackOp::ForEach => "for_each",
+            };
+            format!("list_{op_name} {} <callback>", expr_ref(*list))
+        }
+        ExprKind::ListReduce { list, initial, .. } => {
+            format!(
+                "list_reduce {}, {} <callback>",
+                expr_ref(*list),
+                expr_ref(*initial)
+            )
+        }
         ExprKind::ListSlice { list, start, end } => format!(
             "list_slice {}, {}, {}",
             expr_ref(*list),
@@ -682,6 +701,8 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListContains { .. }
         | ExprKind::ListConcat { .. }
         | ExprKind::ListSearch { .. }
+        | ExprKind::ListCallback { .. }
+        | ExprKind::ListReduce { .. }
         | ExprKind::ListSlice { .. }
         | ExprKind::ListPush { .. }
         | ExprKind::ListExtend { .. }

@@ -61,10 +61,10 @@ pub use body::{
     MatchArm, Pattern, Stmt,
 };
 pub use expr::{
-    AsyncOp, BinOp, BoolFoldOp, DictProjectionOp, Expr, ExprKind, ListSearchOp, Literal,
-    NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, StringAffixOp,
-    StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide,
-    UnaryOp, bin_op_text,
+    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, CallbackExprKind, DictProjectionOp, Expr, ExprKind,
+    ListCallbackOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp,
+    StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{

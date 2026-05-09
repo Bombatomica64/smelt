@@ -110,6 +110,34 @@ const lowest = Math.min(first, second, -1);
 }
 
 #[test]
+fn emits_array_callback_methods() {
+    let source = source_for(
+        r#"
+const values: number[] = [1, 2, 3];
+const mapped = values.map(value => value + 1);
+const filtered = values.filter(value => value > 1);
+const found = values.find(value => value > 1);
+const foundIndex = values.findIndex(value => value > 1);
+const hasAny = values.some(value => value > 1);
+const hasEvery = values.every(value => value > 0);
+values.forEach(value => value + 1);
+const total = values.reduce((acc, value) => acc + value, 0);
+"#,
+    );
+
+    assert!(source.contains(".iter().map(|item|"));
+    assert!(source.contains(".iter().filter(|item|"));
+    assert!(source.contains(".iter().find(|item|"));
+    assert!(source.contains(".iter().position(|item|"));
+    assert!(source.contains(".iter().any(|item|"));
+    assert!(source.contains(".iter().all(|item|"));
+    assert!(source.contains(".iter().for_each(|item|"));
+    assert!(source.contains(".iter().fold("));
+    assert!(source.contains(".collect::<Vec<_>>()"));
+    assert!(source.contains(".map_or(-1.0"));
+}
+
+#[test]
 fn emits_string_index_and_for_of() {
     let source = source_for(
         r#"

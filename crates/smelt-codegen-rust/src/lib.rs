@@ -1294,6 +1294,14 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
+            Rvalue::ListCallback { op, list, callback } => {
+                self.list_callback_text(*op, list, callback, dest_ty)
+            }
+            Rvalue::ListReduce {
+                list,
+                initial,
+                callback,
+            } => self.list_reduce_text(list, initial, callback, dest_ty),
             Rvalue::ListSlice { list, start, end } => {
                 self.list_slice_text(list, start.as_ref(), end.as_ref())
             }
@@ -2055,6 +2063,158 @@ impl<'mir> FunctionEmitter<'mir> {
             self.operand_text(list)?,
             self.operand_text(item)?
         ))
+    }
+
+    /// Converts a capture-free callback list operation to Rust iterator text.
+    fn list_callback_text(
+        &self,
+        op: smelt_hir::ListCallbackOp,
+        list: &Operand,
+        callback: &smelt_hir::CallbackExpr,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list callback receiver must be a list"));
+        };
+        let element_ty = *list_element_ty;
+        let list_text = self.operand_text(list)?;
+        let callback_text = Self::callback_expr_text(callback, &["item"])?;
+        let closure = format!("|item| {{ let item = (*item).clone(); {callback_text} }}");
+        let ref_closure = format!("|item| {{ let item = (**item).clone(); {callback_text} }}");
+        match op {
+            smelt_hir::ListCallbackOp::Map => {
+                if self.mir.types.get(dest_ty) != Some(&Type::List(callback.ty)) {
+                    return Err(EmitError::new("array map destination must be a list"));
+                }
+                Ok(format!(
+                    "{list_text}.iter().map({closure}).collect::<Vec<_>>()"
+                ))
+            }
+            smelt_hir::ListCallbackOp::Filter => {
+                self.validate_bool_callback(callback, "array filter")?;
+                if dest_ty != list_ty {
+                    return Err(EmitError::new(
+                        "array filter destination must match the receiver list type",
+                    ));
+                }
+                Ok(format!(
+                    "{list_text}.iter().filter({ref_closure}).cloned().collect::<Vec<_>>()"
+                ))
+            }
+            smelt_hir::ListCallbackOp::Find => {
+                self.validate_bool_callback(callback, "array find")?;
+                if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
+                    return Err(EmitError::new(
+                        "array find destination must be optional element type",
+                    ));
+                }
+                Ok(format!("{list_text}.iter().find({ref_closure}).cloned()"))
+            }
+            smelt_hir::ListCallbackOp::FindIndex => {
+                self.validate_bool_callback(callback, "array findIndex")?;
+                if self.mir.types.get(dest_ty) != Some(&Type::Float) {
+                    return Err(EmitError::new(
+                        "array findIndex destination must be a number",
+                    ));
+                }
+                Ok(format!(
+                    "{list_text}.iter().position({closure}).map_or(-1.0, |idx| idx as f64)"
+                ))
+            }
+            smelt_hir::ListCallbackOp::Some => {
+                self.validate_bool_callback(callback, "array some")?;
+                if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
+                    return Err(EmitError::new("array some destination must be boolean"));
+                }
+                Ok(format!("{list_text}.iter().any({closure})"))
+            }
+            smelt_hir::ListCallbackOp::Every => {
+                self.validate_bool_callback(callback, "array every")?;
+                if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
+                    return Err(EmitError::new("array every destination must be boolean"));
+                }
+                Ok(format!("{list_text}.iter().all({closure})"))
+            }
+            smelt_hir::ListCallbackOp::ForEach => {
+                if dest_ty != self.none_ty {
+                    return Err(EmitError::new("array forEach destination must be none"));
+                }
+                Ok(format!(
+                    "{{ {list_text}.iter().for_each(|item| {{ let item = (*item).clone(); let _ = {callback_text}; }}); () }}"
+                ))
+            }
+        }
+    }
+
+    /// Converts a capture-free array reduce callback into Rust `fold` text.
+    fn list_reduce_text(
+        &self,
+        list: &Operand,
+        initial: &Operand,
+        callback: &smelt_hir::CallbackExpr,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+            return Err(EmitError::new("array reduce receiver must be a list"));
+        }
+        if self.operand_ty(initial)? != dest_ty || callback.ty != dest_ty {
+            return Err(EmitError::new(
+                "array reduce initial value and callback result must match the destination type",
+            ));
+        }
+        let list_text = self.operand_text(list)?;
+        let initial_text = self.operand_text(initial)?;
+        let callback_text = Self::callback_expr_text(callback, &["acc", "item"])?;
+        Ok(format!(
+            "{list_text}.iter().fold({initial_text}, |acc, item| {{ let item = (*item).clone(); {callback_text} }})"
+        ))
+    }
+
+    /// Validates that a lowered callback expression returns a boolean.
+    fn validate_bool_callback(
+        &self,
+        callback: &smelt_hir::CallbackExpr,
+        context: &'static str,
+    ) -> Result<(), EmitError> {
+        if self.mir.types.get(callback.ty) == Some(&Type::Bool) {
+            Ok(())
+        } else {
+            Err(EmitError::new(format!(
+                "{context} callback must return boolean"
+            )))
+        }
+    }
+
+    /// Converts a capture-free callback expression tree to Rust source text.
+    fn callback_expr_text(
+        expr: &smelt_hir::CallbackExpr,
+        params: &[&str],
+    ) -> Result<String, EmitError> {
+        match &expr.kind {
+            smelt_hir::CallbackExprKind::Param(index) => params
+                .get(*index)
+                .map(|param| (*param).to_owned())
+                .ok_or_else(|| EmitError::new("callback parameter index is out of bounds")),
+            smelt_hir::CallbackExprKind::Literal(literal) => Ok(hir_literal_text(literal)),
+            smelt_hir::CallbackExprKind::Unary { op, operand } => {
+                let op_text = match op {
+                    smelt_hir::UnaryOp::Not => "!",
+                    smelt_hir::UnaryOp::Neg => "-",
+                };
+                Ok(format!(
+                    "{op_text}({})",
+                    Self::callback_expr_text(operand, params)?
+                ))
+            }
+            smelt_hir::CallbackExprKind::Binary { op, lhs, rhs } => Ok(format!(
+                "({} {} {})",
+                Self::callback_expr_text(lhs, params)?,
+                smelt_hir::bin_op_text(*op),
+                Self::callback_expr_text(rhs, params)?
+            )),
+        }
     }
 
     /// Converts a list slice operation to Rust text.
@@ -3338,6 +3498,23 @@ fn constant_text(constant: &Constant) -> String {
         }
         Constant::String(value) => RustExpr::string_literal(value).into_string(),
         Constant::None => "()".to_owned(),
+    }
+}
+
+/// Converts a HIR literal used inside callback trees to Rust source text.
+fn hir_literal_text(literal: &smelt_hir::Literal) -> String {
+    match literal {
+        smelt_hir::Literal::Bool(value) => value.to_string(),
+        smelt_hir::Literal::Int(value) => value.to_string(),
+        smelt_hir::Literal::Float(value) => {
+            if value.fract() == 0.0 {
+                format!("{value:.1}")
+            } else {
+                value.to_string()
+            }
+        }
+        smelt_hir::Literal::String(value) => RustExpr::string_literal(value).into_string(),
+        smelt_hir::Literal::None => "()".to_owned(),
     }
 }
 

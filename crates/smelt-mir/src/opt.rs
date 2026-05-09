@@ -229,6 +229,11 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
         }
+        Rvalue::ListCallback { list, .. } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListReduce { list, initial, .. } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(initial, aliases, dest)
+        }
         Rvalue::ListSlice { list, start, end } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_optional_operand_except(start, aliases, dest)
