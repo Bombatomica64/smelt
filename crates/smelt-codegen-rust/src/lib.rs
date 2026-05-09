@@ -1562,6 +1562,16 @@ impl<'mir> FunctionEmitter<'mir> {
             smelt_hir::NumericUnaryFuncOp::Sqrt => "sqrt",
             smelt_hir::NumericUnaryFuncOp::Cbrt => "cbrt",
             smelt_hir::NumericUnaryFuncOp::Sign => "signum",
+            smelt_hir::NumericUnaryFuncOp::Sin => "sin",
+            smelt_hir::NumericUnaryFuncOp::Cos => "cos",
+            smelt_hir::NumericUnaryFuncOp::Tan => "tan",
+            smelt_hir::NumericUnaryFuncOp::Asin => "asin",
+            smelt_hir::NumericUnaryFuncOp::Acos => "acos",
+            smelt_hir::NumericUnaryFuncOp::Atan => "atan",
+            smelt_hir::NumericUnaryFuncOp::Log => "ln",
+            smelt_hir::NumericUnaryFuncOp::Log10 => "log10",
+            smelt_hir::NumericUnaryFuncOp::Log2 => "log2",
+            smelt_hir::NumericUnaryFuncOp::Exp => "exp",
         };
         let operand_text = self.float_operand_text(operand)?;
         Ok(format!("{operand_text}.{method_name}()"))

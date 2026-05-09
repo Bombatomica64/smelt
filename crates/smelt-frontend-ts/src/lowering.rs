@@ -2416,7 +2416,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
-    /// Lower direct TypeScript `Math.sqrt`, `Math.cbrt`, and `Math.sign` calls.
+    /// Lower direct TypeScript unary `Math.*` numeric calls.
     fn math_unary_func_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -2435,6 +2435,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
             "sqrt" => NumericUnaryFuncOp::Sqrt,
             "cbrt" => NumericUnaryFuncOp::Cbrt,
             "sign" => NumericUnaryFuncOp::Sign,
+            "sin" => NumericUnaryFuncOp::Sin,
+            "cos" => NumericUnaryFuncOp::Cos,
+            "tan" => NumericUnaryFuncOp::Tan,
+            "asin" => NumericUnaryFuncOp::Asin,
+            "acos" => NumericUnaryFuncOp::Acos,
+            "atan" => NumericUnaryFuncOp::Atan,
+            "log" => NumericUnaryFuncOp::Log,
+            "log10" => NumericUnaryFuncOp::Log10,
+            "log2" => NumericUnaryFuncOp::Log2,
+            "exp" => NumericUnaryFuncOp::Exp,
             _ => return Ok(None),
         };
         if call.arguments.len() != 1 {

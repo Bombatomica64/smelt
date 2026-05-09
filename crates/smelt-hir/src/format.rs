@@ -322,6 +322,16 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::NumericUnaryFuncOp::Sqrt => "sqrt",
                 crate::expr::NumericUnaryFuncOp::Cbrt => "cbrt",
                 crate::expr::NumericUnaryFuncOp::Sign => "sign",
+                crate::expr::NumericUnaryFuncOp::Sin => "sin",
+                crate::expr::NumericUnaryFuncOp::Cos => "cos",
+                crate::expr::NumericUnaryFuncOp::Tan => "tan",
+                crate::expr::NumericUnaryFuncOp::Asin => "asin",
+                crate::expr::NumericUnaryFuncOp::Acos => "acos",
+                crate::expr::NumericUnaryFuncOp::Atan => "atan",
+                crate::expr::NumericUnaryFuncOp::Log => "log",
+                crate::expr::NumericUnaryFuncOp::Log10 => "log10",
+                crate::expr::NumericUnaryFuncOp::Log2 => "log2",
+                crate::expr::NumericUnaryFuncOp::Exp => "exp",
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))
         }

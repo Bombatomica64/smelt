@@ -352,7 +352,8 @@ runtime errors.
     - [x] `Math.pow`, `Math.sqrt`, `Math.cbrt`, and `Math.hypot`.
   - [x] `Math.sign`.
   - [ ] `Math.sin`, `cos`, `tan`, `asin`, `acos`, `atan`, and `atan2`.
-  - [ ] `Math.log`, `log10`, `log2`, and `exp`.
+    - [x] `Math.sin`, `cos`, `tan`, `asin`, `acos`, and `atan`.
+  - [x] `Math.log`, `log10`, `log2`, and `exp`.
   - [ ] `Math.random` with an explicit randomness/backend policy.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
     - [x] `Number.isFinite` and `Number.isNaN`.
@@ -454,6 +455,8 @@ runtime errors.
 - [ ] Python standard-library module mappings:
   - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,
         `isnan`, constants `pi`, `e`, and `tau`.
+    - [x] `math.sin`, `cos`, `tan`, `asin`, `acos`, and `atan`.
+    - [x] `math.log`, `log10`, `log2`, and `exp`.
   - [ ] `json`: `loads`, `dumps`, `load`, and `dump` with `serde_json`.
     - [x] `json.dumps`.
   - [ ] `re`: `compile`, `search`, `match`, `fullmatch`, `sub`, and `split`, or explicitly defer

@@ -1786,6 +1786,16 @@ fn math_numeric_functions_lower() -> TestResult {
 import math
 value: float = 4.0
 root: float = math.sqrt(value)
+sin_value: float = math.sin(value)
+cos_value: float = math.cos(value)
+tan_value: float = math.tan(value)
+asin_value: float = math.asin(value)
+acos_value: float = math.acos(value)
+atan_value: float = math.atan(value)
+log_value: float = math.log(value)
+log10_value: float = math.log10(value)
+log2_value: float = math.log2(value)
+exp_value: float = math.exp(value)
 raised: float = math.pow(value, 2.0)
 whole: int = math.trunc(value)
 "#);
@@ -1799,18 +1809,26 @@ whole: int = math.trunc(value)
             .ok_or_else(|| "expected module body".to_owned())?,
     )?;
 
-    ensure(
-        body.exprs.iter().any(|expr| {
-            matches!(
-                expr.kind,
-                ExprKind::NumericUnaryFunc {
-                    op: NumericUnaryFuncOp::Sqrt,
-                    ..
-                }
-            )
-        }),
-        "expected math.sqrt lowering",
-    )?;
+    for expected in [
+        NumericUnaryFuncOp::Sqrt,
+        NumericUnaryFuncOp::Sin,
+        NumericUnaryFuncOp::Cos,
+        NumericUnaryFuncOp::Tan,
+        NumericUnaryFuncOp::Asin,
+        NumericUnaryFuncOp::Acos,
+        NumericUnaryFuncOp::Atan,
+        NumericUnaryFuncOp::Log,
+        NumericUnaryFuncOp::Log10,
+        NumericUnaryFuncOp::Log2,
+        NumericUnaryFuncOp::Exp,
+    ] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::NumericUnaryFunc { op, .. } if op == expected),
+            ),
+            "expected math unary lowering",
+        )?;
+    }
     ensure(
         body.exprs
             .iter()

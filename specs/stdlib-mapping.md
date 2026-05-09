@@ -63,6 +63,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `Math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numbers | Non-number or wrong arity | Uses Rust `f64`. |
 | `Math.hypot(...)` | `NumericHypot` | `NumericHypot` | `0.0f64.hypot(x).hypot(y)` | Any number of number args | Non-number args | Uses a left fold over Rust `f64::hypot`; this may not exactly match JS overflow/underflow edge handling. |
 | `Math.sign(x)` | `NumericUnaryFunc::Sign` | `NumericUnaryFunc::Sign` | `x.signum()` | One number | Non-number or wrong arity | JS `-0` and `NaN` edge semantics are not modeled yet. |
+| `Math.sin/cos/tan/asin/acos/atan(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.sin()` / equivalent | One number | Non-number or wrong arity | Uses Rust `f64` behavior directly. |
+| `Math.log/log10/log2/exp(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.ln()` / equivalent | One number | Non-number or wrong arity | Uses Rust `f64` behavior directly. |
 | `Number.isFinite(x)` | `NumericPredicate::IsFinite` | `NumericPredicate::IsFinite` | `x.is_finite()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
 | `Number.isNaN(x)` | `NumericPredicate::IsNaN` | `NumericPredicate::IsNaN` | `x.is_nan()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
 
@@ -74,6 +76,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `math.sqrt(x)` | `NumericUnaryFunc::Sqrt` | `NumericUnaryFunc::Sqrt` | `x.sqrt()` | One numeric argument | Non-numeric or wrong arity | Codegen currently emits direct floating-point Rust. |
 | `math.pow(x, y)` | `NumericPow` | `NumericPow` | `x.powf(y)` | Two numeric arguments | Non-numeric or wrong arity | Codegen currently emits direct floating-point Rust. |
 | `math.trunc(x)` | `NumericRound::Trunc` | `NumericRound::Trunc` | `x.trunc() as i64` | One float argument | Non-float or wrong arity | Python arbitrary-size integer behavior is not modeled. |
+| `math.sin/cos/tan/asin/acos/atan(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.sin()` / equivalent | One numeric argument | Non-numeric or wrong arity | Uses Rust `f64` behavior directly. |
+| `math.log/log10/log2/exp(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.ln()` / equivalent | One numeric argument | Non-numeric or wrong arity | Uses Rust `f64` behavior directly. |
 | `max(...)` | `NumericExtrema::Max` | `NumericExtrema::Max` | Chained `.max(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
 | `min(...)` | `NumericExtrema::Min` | `NumericExtrema::Min` | Chained `.min(...)` | At least one all-int or all-float argument list | Zero args, mixed numeric types, iterables, key/default | Python ordering and keyword arguments are not modeled. |
 | `sum(values)` | `ListSum` | `ListSum` | `values.iter().copied().sum::<i64/f64>()` | One `list[int]` or `list[float]` argument | Start argument, iterables other than lists, non-numeric lists | Empty numeric lists use Rust's numeric zero identity. |

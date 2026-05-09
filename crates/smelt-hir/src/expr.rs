@@ -498,6 +498,26 @@ pub enum NumericUnaryFuncOp {
     Cbrt,
     /// Numeric sign.
     Sign,
+    /// Sine.
+    Sin,
+    /// Cosine.
+    Cos,
+    /// Tangent.
+    Tan,
+    /// Arcsine.
+    Asin,
+    /// Arccosine.
+    Acos,
+    /// Arctangent.
+    Atan,
+    /// Natural logarithm.
+    Log,
+    /// Base-10 logarithm.
+    Log10,
+    /// Base-2 logarithm.
+    Log2,
+    /// Exponential function.
+    Exp,
 }
 
 /// A directly lowered numeric predicate.

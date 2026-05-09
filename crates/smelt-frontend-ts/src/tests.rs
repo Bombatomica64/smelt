@@ -813,6 +813,16 @@ const value = 4;
 const root = Math.sqrt(value);
 const cubeRoot = Math.cbrt(value);
 const signed = Math.sign(value);
+const sine = Math.sin(value);
+const cosine = Math.cos(value);
+const tangent = Math.tan(value);
+const arcsine = Math.asin(value);
+const arccosine = Math.acos(value);
+const arctangent = Math.atan(value);
+const logged = Math.log(value);
+const logTen = Math.log10(value);
+const logTwo = Math.log2(value);
+const exponent = Math.exp(value);
 const raised = Math.pow(value, 2);
 const distance = Math.hypot(value, 3);
 "#),
@@ -825,6 +835,16 @@ const distance = Math.hypot(value, 3);
         NumericUnaryFuncOp::Sqrt,
         NumericUnaryFuncOp::Cbrt,
         NumericUnaryFuncOp::Sign,
+        NumericUnaryFuncOp::Sin,
+        NumericUnaryFuncOp::Cos,
+        NumericUnaryFuncOp::Tan,
+        NumericUnaryFuncOp::Asin,
+        NumericUnaryFuncOp::Acos,
+        NumericUnaryFuncOp::Atan,
+        NumericUnaryFuncOp::Log,
+        NumericUnaryFuncOp::Log10,
+        NumericUnaryFuncOp::Log2,
+        NumericUnaryFuncOp::Exp,
     ] {
         ensure!(body.exprs.iter().any(
             |expr| matches!(expr.kind, ExprKind::NumericUnaryFunc { op, .. } if op == expected)

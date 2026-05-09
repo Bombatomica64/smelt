@@ -2344,11 +2344,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let span = self.span(call.range);
         match attr.attr.as_str() {
-            "sqrt" => {
+            "sqrt" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "log" | "log10"
+            | "log2" | "exp" => {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
-                        "math.sqrt() requires exactly one argument",
+                        format!("math.{}() requires exactly one argument", attr.attr),
                     ));
                 }
                 let operand = self.expression(&call.arguments.args[0], body)?;
@@ -2358,15 +2359,26 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ) {
                     return Err(SmeltError::unsupported(
                         span,
-                        "math.sqrt() requires a numeric argument",
+                        format!("math.{}() requires a numeric argument", attr.attr),
                     ));
                 }
+                let op = match attr.attr.as_str() {
+                    "sqrt" => NumericUnaryFuncOp::Sqrt,
+                    "sin" => NumericUnaryFuncOp::Sin,
+                    "cos" => NumericUnaryFuncOp::Cos,
+                    "tan" => NumericUnaryFuncOp::Tan,
+                    "asin" => NumericUnaryFuncOp::Asin,
+                    "acos" => NumericUnaryFuncOp::Acos,
+                    "atan" => NumericUnaryFuncOp::Atan,
+                    "log" => NumericUnaryFuncOp::Log,
+                    "log10" => NumericUnaryFuncOp::Log10,
+                    "log2" => NumericUnaryFuncOp::Log2,
+                    "exp" => NumericUnaryFuncOp::Exp,
+                    _ => return Ok(None),
+                };
                 let ty = self.intern_type(Type::Float);
                 Ok(Some(body.push_expr(HirExpr {
-                    kind: ExprKind::NumericUnaryFunc {
-                        op: NumericUnaryFuncOp::Sqrt,
-                        operand,
-                    },
+                    kind: ExprKind::NumericUnaryFunc { op, operand },
                     ty,
                     span,
                 })))
