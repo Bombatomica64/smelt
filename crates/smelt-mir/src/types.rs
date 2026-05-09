@@ -412,6 +412,8 @@ pub enum Rvalue {
         /// X coordinate.
         x: Operand,
     },
+    /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
+    NumericRandom,
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.

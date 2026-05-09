@@ -153,12 +153,7 @@ pub fn emit_crate(
     fs::create_dir_all(&src_dir)?;
     fs::write(
         output_dir.join("Cargo.toml"),
-        cargo_toml(
-            options,
-            needs_tokio(mir),
-            needs_reqwest(mir),
-            needs_serde_json(mir),
-        ),
+        cargo_toml(options, &generated_deps(mir)),
     )?;
     fs::write(src_dir.join("main.rs"), emit_source(mir)?)?;
     Ok(())
@@ -248,29 +243,78 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
     Ok(out)
 }
 
-/// Generates Cargo.toml content for the given emission options.
-fn cargo_toml(
-    options: &EmitOptions,
-    needs_tokio: bool,
-    needs_reqwest: bool,
-    needs_serde_json: bool,
-) -> String {
+/// Dependency required by a generated Rust crate.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GeneratedDep {
+    /// Tokio for generated async entrypoints and timers.
+    Tokio,
+    /// Reqwest for generated HTTP calls.
+    Reqwest,
+    /// Serde JSON for generated JSON serialization.
+    SerdeJson,
+    /// Rand for generated random number calls.
+    Rand,
+}
+
+/// Generates Cargo.toml content for the given emission options and dependencies.
+fn cargo_toml(options: &EmitOptions, deps_needed: &[GeneratedDep]) -> String {
     let mut deps = String::new();
-    if needs_tokio {
+    if deps_needed.contains(&GeneratedDep::Tokio) {
         deps.push_str(
             "tokio = { version = \"1\", features = [\"macros\", \"rt-multi-thread\", \"time\"] }\n",
         );
     }
-    if needs_reqwest {
+    if deps_needed.contains(&GeneratedDep::Reqwest) {
         deps.push_str("reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n");
     }
-    if needs_serde_json {
+    if deps_needed.contains(&GeneratedDep::SerdeJson) {
         deps.push_str("serde_json = \"1\"\n");
+    }
+    if deps_needed.contains(&GeneratedDep::Rand) {
+        deps.push_str("rand = \"0.9\"\n");
     }
     format!(
         "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}",
         options.crate_name
     )
+}
+
+/// Collects the dependency list required by generated Rust code.
+fn generated_deps(mir: &Mir) -> Vec<GeneratedDep> {
+    let mut deps = Vec::new();
+    if needs_tokio(mir) {
+        deps.push(GeneratedDep::Tokio);
+    }
+    if needs_reqwest(mir) {
+        deps.push(GeneratedDep::Reqwest);
+    }
+    if needs_serde_json(mir) {
+        deps.push(GeneratedDep::SerdeJson);
+    }
+    if needs_rand(mir) {
+        deps.push(GeneratedDep::Rand);
+    }
+    deps
+}
+
+/// Returns true when generated Rust uses Rand APIs.
+fn needs_rand(mir: &Mir) -> bool {
+    mir.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    Statement::Assign {
+                        value: Rvalue::NumericRandom,
+                        ..
+                    } | Statement::AssignPlace {
+                        value: Rvalue::NumericRandom,
+                        ..
+                    }
+                )
+            })
+        })
+    })
 }
 
 /// Returns true when generated Rust uses Serde JSON APIs.
@@ -1203,6 +1247,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::NumericUnaryFunc { op, operand } => self.numeric_unary_func_text(*op, operand),
             Rvalue::NumericPow { base, exponent } => self.numeric_pow_text(base, exponent),
             Rvalue::NumericAtan2 { y, x } => self.numeric_atan2_text(y, x),
+            Rvalue::NumericRandom => Ok("rand::random::<f64>()".to_owned()),
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
             Rvalue::StringAffix {

@@ -355,7 +355,7 @@ runtime errors.
     - [x] `Math.sin`, `cos`, `tan`, `asin`, `acos`, and `atan`.
     - [x] `Math.atan2`.
   - [x] `Math.log`, `log10`, `log2`, and `exp`.
-  - [ ] `Math.random` with an explicit randomness/backend policy.
+  - [x] `Math.random` with an explicit randomness/backend policy.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
     - [x] `Number.isFinite` and `Number.isNaN`.
   - [ ] Numeric formatting: `toString`, `toFixed`, `toPrecision`, and `toExponential`.

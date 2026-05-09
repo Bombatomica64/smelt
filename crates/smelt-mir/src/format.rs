@@ -230,6 +230,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::NumericAtan2 { y, x } => {
             format!("numeric_atan2 {}, {}", operand_text(y), operand_text(x))
         }
+        Rvalue::NumericRandom => "numeric_random".to_owned(),
         Rvalue::StringCase { op, operand } => {
             let op_text = match op {
                 smelt_hir::StringCaseOp::Lower => "lower",

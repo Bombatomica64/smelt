@@ -335,6 +335,7 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, y, errors);
             validate_operand_exists(function, x, errors);
         }
+        Rvalue::NumericRandom => {}
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {
@@ -753,6 +754,7 @@ fn validate_rvalue(
             validate_operand(function, definitions, y, errors);
             validate_operand(function, definitions, x, errors);
         }
+        Rvalue::NumericRandom => {}
         Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {

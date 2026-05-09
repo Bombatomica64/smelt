@@ -248,6 +248,7 @@ const logTen = Math.log10(value);
 const logTwo = Math.log2(value);
 const exponent = Math.exp(value);
 const distance = Math.hypot(value, 3);
+const sample = Math.random();
 "#,
     );
 
@@ -268,6 +269,7 @@ const distance = Math.hypot(value, 3);
     assert!(source.contains(".exp();"));
     assert!(source.contains("0.0f64.hypot("));
     assert!(source.contains(".hypot(3.0);"));
+    assert!(source.contains("rand::random::<f64>();"));
 }
 
 #[test]
@@ -1082,7 +1084,10 @@ fn emits_python_requests_get_as_blocking_reqwest_text() {
 
 #[test]
 fn injects_reqwest_dependency_for_http_mapping() {
-    let manifest = cargo_toml(&EmitOptions::default(), true, true, false);
+    let manifest = cargo_toml(
+        &EmitOptions::default(),
+        &[GeneratedDep::Tokio, GeneratedDep::Reqwest],
+    );
 
     assert!(manifest.contains("tokio = { version = \"1\""));
     assert!(manifest.contains("reqwest = { version = \"0.12\""));
@@ -1090,9 +1095,16 @@ fn injects_reqwest_dependency_for_http_mapping() {
 
 #[test]
 fn injects_serde_json_dependency_for_json_mapping() {
-    let manifest = cargo_toml(&EmitOptions::default(), false, false, true);
+    let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::SerdeJson]);
 
     assert!(manifest.contains("serde_json = \"1\""));
+}
+
+#[test]
+fn injects_rand_dependency_for_random_mapping() {
+    let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::Rand]);
+
+    assert!(manifest.contains("rand = \"0.9\""));
 }
 
 #[test]

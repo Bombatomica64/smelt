@@ -66,6 +66,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `Math.sin/cos/tan/asin/acos/atan(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.sin()` / equivalent | One number | Non-number or wrong arity | Uses Rust `f64` behavior directly. |
 | `Math.atan2(y, x)` | `NumericAtan2` | `NumericAtan2` | `y.atan2(x)` | Two numbers | Non-number or wrong arity | Uses Rust `f64` behavior directly. |
 | `Math.log/log10/log2/exp(x)` | `NumericUnaryFunc` | `NumericUnaryFunc` | `x.ln()` / equivalent | One number | Non-number or wrong arity | Uses Rust `f64` behavior directly. |
+| `Math.random()` | `NumericRandom` | `NumericRandom` | `rand::random::<f64>()` | No arguments | Any arguments | Uses the Rust `rand` crate; exact JS PRNG behavior is not modeled. |
 | `Number.isFinite(x)` | `NumericPredicate::IsFinite` | `NumericPredicate::IsFinite` | `x.is_finite()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
 | `Number.isNaN(x)` | `NumericPredicate::IsNaN` | `NumericPredicate::IsNaN` | `x.is_nan()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
 

@@ -1696,6 +1696,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.math_unary_func_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.math_random_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.math_pow_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2478,6 +2481,35 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericUnaryFunc { op, operand },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Math.random` calls.
+    fn math_random_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Math" || member.property.name != "random" {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.random requires no arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::NumericRandom,
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

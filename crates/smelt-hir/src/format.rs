@@ -341,6 +341,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::NumericAtan2 { y, x } => {
             format!("numeric_atan2 {}, {}", expr_ref(*y), expr_ref(*x))
         }
+        ExprKind::NumericRandom => "numeric_random".to_owned(),
         ExprKind::StringCase { op, operand } => {
             let op_name = match op {
                 crate::expr::StringCaseOp::Lower => "lower",
@@ -639,6 +640,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::NumericUnaryFunc { .. }
         | ExprKind::NumericPow { .. }
         | ExprKind::NumericAtan2 { .. }
+        | ExprKind::NumericRandom
         | ExprKind::StringCase { .. }
         | ExprKind::StringTrim { .. }
         | ExprKind::StringAffix { .. }

@@ -826,6 +826,7 @@ const logTwo = Math.log2(value);
 const exponent = Math.exp(value);
 const raised = Math.pow(value, 2);
 const distance = Math.hypot(value, 3);
+const sample = Math.random();
 "#),
         &mut ctx,
     )?;
@@ -865,6 +866,11 @@ const distance = Math.hypot(value, 3);
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericHypot { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericRandom))
     );
     Ok(())
 }
