@@ -1203,6 +1203,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
+            Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
@@ -1981,6 +1982,29 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Converts a list shift operation to Rust text.
+    fn list_shift_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list shift receiver must be a list"));
+        };
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == *item_ty)
+        {
+            return Err(EmitError::new(
+                "list shift destination must be an optional item",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list shift receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        Ok(format!(
+            "if {list_text}.is_empty() {{ None }} else {{ Some({list_text}.remove(0)) }}"
+        ))
+    }
+
     /// Validates that an optional slice index is numeric.
     fn validate_optional_numeric_index(
         &self,
@@ -2575,7 +2599,8 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                 value:
                     Rvalue::ListPush { list, .. }
                     | Rvalue::ListReverse { list }
-                    | Rvalue::ListPop { list },
+                    | Rvalue::ListPop { list }
+                    | Rvalue::ListShift { list },
                 ..
             } = statement
                 && let Some(local) = operand_local(list)
@@ -3333,6 +3358,23 @@ const item = values.pop();
         assert!(source.contains("let mut"));
         assert!(source.contains("Option<f64>"));
         assert!(source.contains(".pop();"));
+    }
+
+    #[test]
+    fn emits_array_shift_method() {
+        let source = source_for(
+            r#"
+let values: string[] = ["a", "b"];
+values.shift();
+const item = values.shift();
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains("Option<String>"));
+        assert!(source.contains(".is_empty()"));
+        assert!(source.contains("Some("));
+        assert!(source.contains(".remove(0)"));
     }
 
     #[test]

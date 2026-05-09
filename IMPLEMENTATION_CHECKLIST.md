@@ -306,7 +306,7 @@ runtime errors.
   - [ ] `Array.prototype.every`.
   - [x] `Array.prototype.push`.
   - [x] `Array.prototype.pop`.
-  - [ ] `Array.prototype.shift`.
+  - [x] `Array.prototype.shift`.
   - [ ] `Array.prototype.unshift`.
   - [ ] `Array.prototype.slice` with positive, omitted, and negative indexes.
     - [x] Positive and omitted indexes.

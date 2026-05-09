@@ -638,6 +638,28 @@ const item = values.pop();
 }
 
 #[test]
+fn lowers_array_shift_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: string[] = ["a", "b"];
+values.shift();
+const item = values.shift();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let shifts = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListShift { .. }))
+        .count();
+    ensure_eq!(shifts, 2);
+    Ok(())
+}
+
+#[test]
 fn rejects_unsupported_array_push_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let wrong_type = lowering_errors(
@@ -667,6 +689,19 @@ fn rejects_unsupported_array_pop_forms() -> Result<(), String> {
         ts!(r#"
 let values: number[] = [1, 2];
 values.pop(0);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "requires no arguments")
+}
+
+#[test]
+fn rejects_unsupported_array_shift_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.shift(0);
 "#),
         &mut ctx,
     )?;

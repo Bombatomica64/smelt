@@ -96,6 +96,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `array.push(x)` | `ListPush` | `ListPush` | `{ array.push(x); array.len() as f64 }` | One item matching element type on a local array | Multiple args, mismatched item type, non-local receiver | JS returns the new length; generated Rust mutates the local `Vec`. |
 | `list.append(x)` | `ListPush` | `ListPush` | `{ list.push(x); () }` | One item matching element type | Multiple args, mismatched item type | Python returns `None`; generated Rust mutates the local `Vec`. |
 | `array.pop()` | `ListPop` | `ListPop` | `array.pop()` | No args | Arguments | TypeScript `undefined` on empty arrays is represented as `Option<T>`. |
+| `array.shift()` | `ListShift` | `ListShift` | `if array.is_empty() { None } else { Some(array.remove(0)) }` | No args | Arguments | TypeScript `undefined` on empty arrays is represented as `Option<T>`; Rust removal from the front of a `Vec` is linear time. |
 | `list.pop()` | `ListPop` | `ListPop` | `list.pop().expect("pop from empty list")` | No args | Index argument | Empty-list `IndexError` is modeled as a generated panic for now. |
 | `array.reverse()` | `ListReverse` | `ListReverse` | `{ array.reverse(); array.clone() }` | No args on a local array | Arguments, non-local receiver | JS returns the same array object; generated Rust returns a clone because alias identity is not modeled. |
 | `list.reverse()` | `ListReverse` | `ListReverse` | `{ list.reverse(); () }` | No args | Arguments | Python returns `None`; generated Rust mutates the local `Vec`. |

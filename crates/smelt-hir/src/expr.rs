@@ -249,6 +249,11 @@ pub enum ExprKind {
         /// List value to mutate.
         list: ExprId,
     },
+    /// Remove and return the first item from a list.
+    ListShift {
+        /// List value to mutate.
+        list: ExprId,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// The tuple value being searched.

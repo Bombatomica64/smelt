@@ -8,6 +8,38 @@ use smelt_hir::{Body, Expr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower direct TypeScript `Array.prototype.shift` calls.
+    pub(super) fn list_shift_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "shift" {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array shift requires no arguments",
+            ));
+        }
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *list_element_ty;
+        let ty = self.ctx.krate.types.intern(Type::Optional(element_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListShift { list },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Array.prototype.pop` calls.
     pub(super) fn list_pop_call(
         &mut self,

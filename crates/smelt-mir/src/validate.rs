@@ -222,6 +222,9 @@ fn validate_rvalue_exists(
         Rvalue::ListPop { list } => {
             validate_operand_exists(function, list, errors);
         }
+        Rvalue::ListShift { list } => {
+            validate_operand_exists(function, list, errors);
+        }
         Rvalue::TupleContains { tuple, item } => {
             validate_operand_exists(function, tuple, errors);
             validate_operand_exists(function, item, errors);
@@ -564,6 +567,9 @@ fn validate_rvalue(
             validate_operand(function, definitions, list, errors);
         }
         Rvalue::ListPop { list } => {
+            validate_operand(function, definitions, list, errors);
+        }
+        Rvalue::ListShift { list } => {
             validate_operand(function, definitions, list, errors);
         }
         Rvalue::TupleContains { tuple, item } => {

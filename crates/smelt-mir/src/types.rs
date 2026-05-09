@@ -550,6 +550,11 @@ pub enum Rvalue {
         /// List value to mutate.
         list: Operand,
     },
+    /// Remove and return the first item from a list.
+    ListShift {
+        /// List value to mutate.
+        list: Operand,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// Tuple value to search in.

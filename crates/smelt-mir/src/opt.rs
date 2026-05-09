@@ -230,6 +230,7 @@ fn rewrite_rvalue(
         }
         Rvalue::ListReverse { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListPop { list } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListShift { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::TupleContains { tuple, item } => {
             rewrite_operand_except(tuple, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
