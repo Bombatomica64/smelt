@@ -2,9 +2,9 @@
 
 use super::*;
 use smelt_hir::{
-    DictProjectionOp, ExprKind, FileId, Function, Item, ModuleId, NumericExtremaOp, NumericRoundOp,
-    NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Type,
+    DictProjectionOp, ExprKind, FileId, Function, Item, ListSearchOp, ModuleId, NumericExtremaOp,
+    NumericRoundOp, NumericUnaryFuncOp, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -503,6 +503,30 @@ const merged = left.concat(right);
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_search_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3, 2];
+const first = values.indexOf(2);
+const last = values.lastIndexOf(2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [ListSearchOp::Find, ListSearchOp::RFind] {
+        ensure!(
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::ListSearch { op, .. } if op == expected))
+        );
+    }
     Ok(())
 }
 

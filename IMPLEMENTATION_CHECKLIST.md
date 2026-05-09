@@ -312,7 +312,7 @@ runtime errors.
   - [ ] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
   - [x] `Array.prototype.concat`.
   - [x] `Array.prototype.join`.
-  - [ ] `Array.prototype.indexOf` and `lastIndexOf`.
+  - [x] `Array.prototype.indexOf` and `lastIndexOf`.
   - [ ] `Array.prototype.at`.
   - [ ] `Array.prototype.reverse`.
   - [ ] `Array.prototype.sort` with comparator support or explicit rejection.

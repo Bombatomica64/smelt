@@ -325,6 +325,17 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::ListSearch { op, list, item } => {
+            let op_text = match op {
+                smelt_hir::ListSearchOp::Find => "find",
+                smelt_hir::ListSearchOp::RFind => "rfind",
+            };
+            format!(
+                "list_{op_text} {}, {}",
+                operand_text(list),
+                operand_text(item)
+            )
+        }
         Rvalue::TupleContains { tuple, item } => {
             format!(
                 "tuple_contains {}, {}",

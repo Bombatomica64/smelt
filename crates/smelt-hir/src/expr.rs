@@ -186,6 +186,15 @@ pub enum ExprKind {
         /// Right list value.
         right: ExprId,
     },
+    /// Find an item index in a list, returning -1 when absent.
+    ListSearch {
+        /// Search direction.
+        op: ListSearchOp,
+        /// List value to search.
+        list: ExprId,
+        /// Item to search for.
+        item: ExprId,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// The tuple value being searched.
@@ -375,6 +384,15 @@ pub enum DictProjectionOp {
     Values,
     /// Project dictionary key-value entries.
     Entries,
+}
+
+/// A directly lowered list search operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListSearchOp {
+    /// Find the first matching item.
+    Find,
+    /// Find the last matching item.
+    RFind,
 }
 
 /// Runtime-backed async operation represented in HIR.

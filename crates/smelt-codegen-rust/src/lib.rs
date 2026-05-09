@@ -1177,6 +1177,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
+            Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
@@ -1719,6 +1720,33 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
             self.operand_text(left)?,
             self.operand_text(right)?
+        ))
+    }
+
+    /// Converts a list search operation to Rust text.
+    fn list_search_text(
+        &self,
+        op: smelt_hir::ListSearchOp,
+        list: &Operand,
+        item: &Operand,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list search receiver must be a list"));
+        };
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(
+                "list search item must match the list element type",
+            ));
+        }
+        let method_name = match op {
+            smelt_hir::ListSearchOp::Find => "position",
+            smelt_hir::ListSearchOp::RFind => "rposition",
+        };
+        Ok(format!(
+            "{}.iter().{method_name}(|item| item == &{}).map_or(-1.0, |idx| idx as f64)",
+            self.operand_text(list)?,
+            self.operand_text(item)?
         ))
     }
 
@@ -2837,6 +2865,20 @@ const merged = left.concat(right);
 
         assert!(source.contains(".iter().cloned().chain("));
         assert!(source.contains(".collect::<Vec<_>>();"));
+    }
+
+    #[test]
+    fn emits_array_search_methods() {
+        let source = source_for(
+            r#"
+const values: number[] = [1, 2, 3, 2];
+const first = values.indexOf(2);
+const last = values.lastIndexOf(2);
+"#,
+        );
+
+        assert!(source.contains(".iter().position(|item| item == &2.0).map_or(-1.0"));
+        assert!(source.contains(".iter().rposition(|item| item == &2.0).map_or(-1.0"));
     }
 
     #[test]

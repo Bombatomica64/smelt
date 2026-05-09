@@ -18,10 +18,10 @@ use oxc::syntax::operator::{
 };
 use smelt_hir::{
     AsyncOp, BinOp, Body, Class, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
-    FunctionOwner, Import, Interface, Item, Language, Literal, LocalDecl, MatchArm, MethodSig,
-    Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig,
-    Pattern, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Type, UnaryOp, Visibility,
+    FunctionOwner, Import, Interface, Item, Language, ListSearchOp, Literal, LocalDecl, MatchArm,
+    MethodSig, Module, ModuleId, NumericExtremaOp, NumericRoundOp, NumericUnaryFuncOp, Param,
+    ParamSig, Pattern, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1703,6 +1703,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_affix_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.list_search_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_search_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2908,6 +2911,47 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListConcat { left, right },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Array.prototype.indexOf` and `lastIndexOf`.
+    fn list_search_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "indexOf" => ListSearchOp::Find,
+            "lastIndexOf" => ListSearchOp::RFind,
+            _ => return Ok(None),
+        };
+        let [item_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array indexOf/lastIndexOf currently require exactly one item argument",
+            ));
+        };
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let item_ty = *element_ty;
+        let item = self.argument(item_argument, body)?;
+        if Self::expr_ty(body, item) != item_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array indexOf/lastIndexOf argument must match the array element type",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListSearch { op, list, item },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

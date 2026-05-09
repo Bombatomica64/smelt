@@ -202,6 +202,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
         }
+        Rvalue::ListSearch { list, item, .. } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(item, aliases, dest)
+        }
         Rvalue::TupleContains { tuple, item } => {
             rewrite_operand_except(tuple, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)

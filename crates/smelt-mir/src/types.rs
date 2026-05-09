@@ -487,6 +487,15 @@ pub enum Rvalue {
         /// Right list value.
         right: Operand,
     },
+    /// Find an item index in a list, returning -1 when absent.
+    ListSearch {
+        /// Search direction.
+        op: smelt_hir::ListSearchOp,
+        /// List value to search.
+        list: Operand,
+        /// Item to search for.
+        item: Operand,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// Tuple value to search in.

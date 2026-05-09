@@ -427,6 +427,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
         }
+        ExprKind::ListSearch { op, list, item } => {
+            let op_name = match op {
+                crate::expr::ListSearchOp::Find => "find",
+                crate::expr::ListSearchOp::RFind => "rfind",
+            };
+            format!("list_{op_name} {}, {}", expr_ref(*list), expr_ref(*item))
+        }
         ExprKind::TupleContains { tuple, item } => {
             format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
         }
@@ -535,6 +542,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringContains { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::ListConcat { .. }
+        | ExprKind::ListSearch { .. }
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
         | ExprKind::DictProjection { .. }
