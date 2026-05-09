@@ -2117,6 +2117,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.list_reverse_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.list_pop_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.requests_get_call_expression(call, body)? {
             return Ok(expr);
         }

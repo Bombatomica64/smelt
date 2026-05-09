@@ -7,6 +7,37 @@ use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower Python `list.pop()` calls without an index argument.
+    pub(super) fn list_pop_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "pop" {
+            return Ok(None);
+        }
+        if !call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "list.pop() index arguments are not supported yet",
+            ));
+        }
+        let list = self.expression(&attr.value, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let ty = *list_element_ty;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListPop { list },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.reverse()` calls.
     pub(super) fn list_reverse_call_expression(
         &mut self,

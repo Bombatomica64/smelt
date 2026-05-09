@@ -1202,6 +1202,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
+            Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
@@ -1952,6 +1953,34 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Converts a list pop operation to Rust text.
+    fn list_pop_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list pop receiver must be a list"));
+        };
+        let returns_optional = match self.mir.types.get(dest_ty) {
+            Some(Type::Optional(inner)) if *inner == *item_ty => true,
+            _ if dest_ty == *item_ty => false,
+            _ => {
+                return Err(EmitError::new(
+                    "list pop destination must be item or optional item",
+                ));
+            }
+        };
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new(
+                "list pop receiver must be a mutable local for now",
+            ));
+        };
+        let list_text = self.local_name(*local)?;
+        if returns_optional {
+            Ok(format!("{list_text}.pop()"))
+        } else {
+            Ok(format!("{list_text}.pop().expect(\"pop from empty list\")"))
+        }
+    }
+
     /// Validates that an optional slice index is numeric.
     fn validate_optional_numeric_index(
         &self,
@@ -2543,7 +2572,10 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
     for block in &function.blocks {
         for statement in &block.statements {
             if let Statement::Assign {
-                value: Rvalue::ListPush { list, .. } | Rvalue::ListReverse { list },
+                value:
+                    Rvalue::ListPush { list, .. }
+                    | Rvalue::ListReverse { list }
+                    | Rvalue::ListPop { list },
                 ..
             } = statement
                 && let Some(local) = operand_local(list)
@@ -3044,6 +3076,19 @@ result: None = values.reverse()
     }
 
     #[test]
+    fn emits_python_list_pop_method() {
+        let source = source_for_py(
+            r#"
+values: list[int] = [1, 2]
+item: int = values.pop()
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains(".pop().expect(\"pop from empty list\")"));
+    }
+
+    #[test]
     fn emits_python_string_replace_method() {
         let source = source_for_py(
             r#"
@@ -3273,6 +3318,21 @@ const reversed = values.reverse();
         assert!(source.contains("let mut"));
         assert!(source.contains(".reverse();"));
         assert!(source.contains(".clone()"));
+    }
+
+    #[test]
+    fn emits_array_pop_method() {
+        let source = source_for(
+            r#"
+let values: number[] = [1, 2];
+values.pop();
+const item = values.pop();
+"#,
+        );
+
+        assert!(source.contains("let mut"));
+        assert!(source.contains("Option<f64>"));
+        assert!(source.contains(".pop();"));
     }
 
     #[test]

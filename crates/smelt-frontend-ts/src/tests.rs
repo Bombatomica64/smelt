@@ -616,6 +616,28 @@ const reversed = values.reverse();
 }
 
 #[test]
+fn lowers_array_pop_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.pop();
+const item = values.pop();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let pops = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListPop { .. }))
+        .count();
+    ensure_eq!(pops, 2);
+    Ok(())
+}
+
+#[test]
 fn rejects_unsupported_array_push_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let wrong_type = lowering_errors(
@@ -636,6 +658,19 @@ values.push(3, 4);
         &mut ctx,
     )?;
     assert_unsupported_ts(&too_many, "exactly one item argument")
+}
+
+#[test]
+fn rejects_unsupported_array_pop_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.pop(0);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "requires no arguments")
 }
 
 #[test]

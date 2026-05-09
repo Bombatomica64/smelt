@@ -545,6 +545,11 @@ pub enum Rvalue {
         /// List value to mutate.
         list: Operand,
     },
+    /// Pop the last item from a list.
+    ListPop {
+        /// List value to mutate.
+        list: Operand,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// Tuple value to search in.

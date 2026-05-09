@@ -244,6 +244,11 @@ pub enum ExprKind {
         /// List value to mutate.
         list: ExprId,
     },
+    /// Pop the last item from a list.
+    ListPop {
+        /// List value to mutate.
+        list: ExprId,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// The tuple value being searched.

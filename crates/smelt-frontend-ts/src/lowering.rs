@@ -1732,6 +1732,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.list_reverse_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.list_pop_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_repeat_call(call, body)? {
                     return Ok(expr);
                 }

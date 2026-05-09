@@ -232,10 +232,10 @@ runtime errors.
     - [x] Python dict key `in` / `not in`.
 - [ ] Batch B, mutation methods with existing place-assignment support:
   - [x] TypeScript `Array.prototype.push`.
-  - [ ] TypeScript `Array.prototype.pop`.
+  - [x] TypeScript `Array.prototype.pop`.
   - [x] TypeScript `Array.prototype.reverse`.
   - [x] Python `list.append`.
-  - [ ] Python `list.pop`.
+  - [x] Python `list.pop`.
   - [ ] Python `list.clear`.
   - [x] Python `list.reverse`.
   - [ ] Python `dict.update`.
@@ -305,7 +305,7 @@ runtime errors.
   - [ ] `Array.prototype.some`.
   - [ ] `Array.prototype.every`.
   - [x] `Array.prototype.push`.
-  - [ ] `Array.prototype.pop`.
+  - [x] `Array.prototype.pop`.
   - [ ] `Array.prototype.shift`.
   - [ ] `Array.prototype.unshift`.
   - [ ] `Array.prototype.slice` with positive, omitted, and negative indexes.
@@ -422,6 +422,7 @@ runtime errors.
   - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
         `reverse`, and `sort`.
     - [x] `list.append`.
+    - [x] `list.pop`.
     - [x] `list.reverse`.
   - [ ] Tuple indexing/slicing parity with Python negative indexes.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
