@@ -1227,6 +1227,9 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
+            Rvalue::DictGet { dict, key, default } => {
+                self.dict_get_text(dict, key, default.as_ref(), dest_ty)
+            }
             Rvalue::DictClear { dict } => self.collection_clear_text(dict, dest_ty, "dict"),
             Rvalue::DictPop { dict, key, default } => {
                 self.dict_pop_text(dict, key, default.as_ref(), dest_ty)
@@ -2318,6 +2321,52 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         Ok(format!(
             "{}.contains_key(&{})",
+            self.operand_text(dict)?,
+            self.operand_text(key)?
+        ))
+    }
+
+    /// Converts a dictionary get operation to Rust text.
+    fn dict_get_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        default: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict get receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new("dict get key must match the dict key type"));
+        }
+        if let Some(default_operand) = default {
+            if self.operand_ty(default_operand)? != *value_ty {
+                return Err(EmitError::new(
+                    "dict get default must match the dict value type",
+                ));
+            }
+            if dest_ty != *value_ty {
+                return Err(EmitError::new(
+                    "dict get destination with default must match the dict value type",
+                ));
+            }
+            return Ok(format!(
+                "{}.get(&{}).cloned().unwrap_or({})",
+                self.operand_text(dict)?,
+                self.operand_text(key)?,
+                self.operand_text(default_operand)?
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == *value_ty)
+        {
+            return Err(EmitError::new(
+                "dict get destination without default must be optional value",
+            ));
+        }
+        Ok(format!(
+            "{}.get(&{}).cloned()",
             self.operand_text(dict)?,
             self.operand_text(key)?
         ))

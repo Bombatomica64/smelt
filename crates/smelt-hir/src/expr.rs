@@ -315,6 +315,15 @@ pub enum ExprKind {
         /// The key to search for.
         key: ExprId,
     },
+    /// Look up a dictionary key and return an optional value or default.
+    DictGet {
+        /// Dictionary value to read.
+        dict: ExprId,
+        /// Key to look up.
+        key: ExprId,
+        /// Optional default value for missing keys.
+        default: Option<ExprId>,
+    },
     /// Clear all entries from a dictionary and return `None`.
     DictClear {
         /// Dictionary value to mutate.

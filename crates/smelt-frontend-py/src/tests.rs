@@ -898,6 +898,30 @@ fallback: int = mapping.pop("b", 0)
 }
 
 #[test]
+fn dict_get_method_lowers() -> TestResult {
+    let source = py!(r#"
+mapping: dict[str, int] = {"a": 1}
+maybe: int | None = mapping.get("a")
+fallback: int = mapping.get("b", 0)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    let gets = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::DictGet { .. }))
+        .count();
+    ensure_eq(&gets, &2, "dict get count")
+}
+
+#[test]
 fn dict_update_method_lowers() -> TestResult {
     let source = py!(r#"
 left: dict[str, int] = {"a": 1}
@@ -1166,6 +1190,50 @@ result: None = values.insert(1)
             .message
             .contains("index and item"),
         "expected list insert arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_dict_get_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_key = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int | None = mapping.get(1)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_key)?.message.contains("key type"),
+        "expected dict get key diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_default = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.get("a", "fallback")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_default)?.message.contains("value type"),
+        "expected dict get default diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int | None = mapping.get()
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("key and optional default"),
+        "expected dict get arity diagnostic",
     )
 }
 

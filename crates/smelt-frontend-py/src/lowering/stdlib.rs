@@ -323,6 +323,62 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `dict.get(key[, default])` calls.
+    pub(super) fn dict_get_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "get" {
+            return Ok(None);
+        }
+        if call.arguments.args.is_empty() || call.arguments.args.len() > 2 {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "dict.get() requires a key and optional default",
+            ));
+        }
+        let dict = self.expression(&attr.value, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
+        let key_ty = *dict_key_ty;
+        let value_ty = *dict_value_ty;
+        let key = self.expression(&call.arguments.args[0], body)?;
+        if Self::expr_ty(body, key) != key_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "dict.get() key must match the dict key type",
+            ));
+        }
+        let default = call
+            .arguments
+            .args
+            .get(1)
+            .map(|default| self.expression(default, body))
+            .transpose()?;
+        let ty = if let Some(default_expr) = default {
+            if Self::expr_ty(body, default_expr) != value_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(call.arguments.args[1].range()),
+                    "dict.get() default must match the dict value type",
+                ));
+            }
+            value_ty
+        } else {
+            self.intern_type(Type::Optional(value_ty))
+        };
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::DictGet { dict, key, default },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `list.clear()` and `dict.clear()` calls.
     pub(super) fn collection_clear_call_expression(
         &mut self,

@@ -445,6 +445,21 @@ fallback: int = mapping.pop("b", 0)
 }
 
 #[test]
+fn emits_python_dict_get_method() {
+    let source = source_for_py(
+        r#"
+mapping: dict[str, int] = {"a": 1}
+maybe: int | None = mapping.get("a")
+fallback: int = mapping.get("b", 0)
+"#,
+    );
+
+    assert!(source.contains("let maybe: Option<i64>"));
+    assert!(source.contains(".get(&\"a\".to_owned()).cloned();"));
+    assert!(source.contains(".get(&\"b\".to_owned()).cloned().unwrap_or(0);"));
+}
+
+#[test]
 fn emits_python_dict_update_method() {
     let source = source_for_py(
         r#"

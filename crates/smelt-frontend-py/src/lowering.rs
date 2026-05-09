@@ -2141,13 +2141,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.dict_pop_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.requests_get_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.dict_get_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.dict_update_call_expression(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.dict_copy_call_expression(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.requests_get_call_expression(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.math_module_call_expression(call, body)? {

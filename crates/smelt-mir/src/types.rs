@@ -616,6 +616,15 @@ pub enum Rvalue {
         /// Key to search for.
         key: Operand,
     },
+    /// Look up a dictionary key and return an optional value or default.
+    DictGet {
+        /// Dictionary value to read.
+        dict: Operand,
+        /// Key to look up.
+        key: Operand,
+        /// Optional default value for missing keys.
+        default: Option<Operand>,
+    },
     /// Clear all entries from a dictionary and return `None`.
     DictClear {
         /// Dictionary value to mutate.

@@ -421,6 +421,12 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(key)
             )
         }
+        Rvalue::DictGet { dict, key, default } => format!(
+            "dict_get {}, {}, {}",
+            operand_text(dict),
+            operand_text(key),
+            optional_operand_text(default.as_ref())
+        ),
         Rvalue::DictClear { dict } => format!("dict_clear {}", operand_text(dict)),
         Rvalue::DictPop { dict, key, default } => format!(
             "dict_pop {}, {}, {}",

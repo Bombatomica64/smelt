@@ -262,6 +262,11 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, key, errors);
         }
+        Rvalue::DictGet { dict, key, default } => {
+            validate_operand_exists(function, dict, errors);
+            validate_operand_exists(function, key, errors);
+            validate_optional_operand_exists(function, default.as_ref(), errors);
+        }
         Rvalue::DictClear { dict } => {
             validate_operand_exists(function, dict, errors);
         }
@@ -652,6 +657,11 @@ fn validate_rvalue(
         Rvalue::DictContainsKey { dict, key } => {
             validate_operand(function, definitions, dict, errors);
             validate_operand(function, definitions, key, errors);
+        }
+        Rvalue::DictGet { dict, key, default } => {
+            validate_operand(function, definitions, dict, errors);
+            validate_operand(function, definitions, key, errors);
+            validate_optional_operand(function, definitions, default.as_ref(), errors);
         }
         Rvalue::DictClear { dict } => {
             validate_operand(function, definitions, dict, errors);
