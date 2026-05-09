@@ -180,6 +180,12 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(pattern, aliases, dest)
                 | rewrite_operand_except(replacement, aliases, dest)
         }
+        Rvalue::StringRemoveAffix {
+            haystack, affix, ..
+        } => {
+            rewrite_operand_except(haystack, aliases, dest)
+                | rewrite_operand_except(affix, aliases, dest)
+        }
         Rvalue::ListContains { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)

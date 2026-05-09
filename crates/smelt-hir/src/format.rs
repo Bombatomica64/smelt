@@ -381,6 +381,21 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*replacement)
             )
         }
+        ExprKind::StringRemoveAffix {
+            op,
+            haystack,
+            affix,
+        } => {
+            let op_name = match op {
+                crate::expr::StringAffixOp::StartsWith => "remove_prefix",
+                crate::expr::StringAffixOp::EndsWith => "remove_suffix",
+            };
+            format!(
+                "string_{op_name} {}, {}",
+                expr_ref(*haystack),
+                expr_ref(*affix)
+            )
+        }
         ExprKind::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",
@@ -481,6 +496,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringAffix { .. }
         | ExprKind::StringSearch { .. }
         | ExprKind::StringReplace { .. }
+        | ExprKind::StringRemoveAffix { .. }
         | ExprKind::StringContains { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::TupleContains { .. }

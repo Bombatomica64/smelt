@@ -168,6 +168,12 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, pattern, errors);
             validate_operand_exists(function, replacement, errors);
         }
+        Rvalue::StringRemoveAffix {
+            haystack, affix, ..
+        } => {
+            validate_operand_exists(function, haystack, errors);
+            validate_operand_exists(function, affix, errors);
+        }
         Rvalue::ListContains { list, item } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
@@ -436,6 +442,12 @@ fn validate_rvalue(
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, pattern, errors);
             validate_operand(function, definitions, replacement, errors);
+        }
+        Rvalue::StringRemoveAffix {
+            haystack, affix, ..
+        } => {
+            validate_operand(function, definitions, haystack, errors);
+            validate_operand(function, definitions, affix, errors);
         }
         Rvalue::ListContains { list, item } => {
             validate_operand(function, definitions, list, errors);

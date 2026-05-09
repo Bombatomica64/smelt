@@ -406,7 +406,7 @@ runtime errors.
     - [ ] `str.index()` and `str.rindex()` remain unsupported because missing-value exception semantics are not modeled yet.
   - [x] `str.replace()`.
   - [ ] `str.join()`.
-  - [ ] `str.removeprefix()` and `removesuffix()`.
+  - [x] `str.removeprefix()` and `removesuffix()`.
   - [ ] `str.isdigit()`, `isalpha()`, `isalnum()`, and related predicates.
   - [ ] f-string lowering beyond the currently supported literal/string-concat subset, if needed.
 - [ ] Python list/tuple/set/dict mappings:

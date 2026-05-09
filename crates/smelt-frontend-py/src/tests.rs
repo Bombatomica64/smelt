@@ -650,6 +650,34 @@ replaced: str = word.replace("hello", "hi")
 }
 
 #[test]
+fn string_remove_affix_methods_lower() -> TestResult {
+    let source = py!(r#"
+word: str = "pre-value-suf"
+without_prefix: str = word.removeprefix("pre-")
+without_suffix: str = word.removesuffix("-suf")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [StringAffixOp::StartsWith, StringAffixOp::EndsWith] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringRemoveAffix { op, .. } if op == expected),
+            ),
+            "expected string remove-affix lowering",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
 fn math_numeric_functions_lower() -> TestResult {
     let source = py!(r#"
 import math

@@ -1164,6 +1164,11 @@ impl<'mir> FunctionEmitter<'mir> {
                 pattern,
                 replacement,
             } => self.string_replace_text(*op, haystack, pattern, replacement),
+            Rvalue::StringRemoveAffix {
+                op,
+                haystack,
+                affix,
+            } => self.string_remove_affix_text(*op, haystack, affix),
             Rvalue::StringContains { haystack, needle } => {
                 self.string_contains_text(haystack, needle)
             }
@@ -1559,6 +1564,35 @@ impl<'mir> FunctionEmitter<'mir> {
                 "{haystack_text}.replace(&{pattern_text}, &{replacement_text})"
             )),
         }
+    }
+
+    /// Converts a string remove-prefix/remove-suffix operation to Rust text.
+    fn string_remove_affix_text(
+        &self,
+        op: smelt_hir::StringAffixOp,
+        haystack: &Operand,
+        affix: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(affix)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new(
+                "string remove-affix operands must be strings",
+            ));
+        }
+        let haystack_text = self.operand_text(haystack)?;
+        let affix_text = self.operand_text(affix)?;
+        let method_name = match op {
+            smelt_hir::StringAffixOp::StartsWith => "strip_prefix",
+            smelt_hir::StringAffixOp::EndsWith => "strip_suffix",
+        };
+        Ok(format!(
+            "{haystack_text}.{method_name}(&{affix_text}).unwrap_or(&{haystack_text}).to_owned()"
+        ))
     }
 
     /// Converts a string containment operation to Rust text.
@@ -2492,6 +2526,21 @@ replaced: str = word.replace("hello", "hi")
         );
 
         assert!(source.contains(".replace(&"));
+    }
+
+    #[test]
+    fn emits_python_string_remove_affix_methods() {
+        let source = source_for_py(
+            r#"
+word: str = "pre-value-suf"
+without_prefix: str = word.removeprefix("pre-")
+without_suffix: str = word.removesuffix("-suf")
+"#,
+        );
+
+        assert!(source.contains(".strip_prefix(&"));
+        assert!(source.contains(".strip_suffix(&"));
+        assert!(source.contains(".to_owned();"));
     }
 
     #[test]

@@ -267,6 +267,21 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(replacement)
             )
         }
+        Rvalue::StringRemoveAffix {
+            op,
+            haystack,
+            affix,
+        } => {
+            let op_text = match op {
+                smelt_hir::StringAffixOp::StartsWith => "remove_prefix",
+                smelt_hir::StringAffixOp::EndsWith => "remove_suffix",
+            };
+            format!(
+                "string_{op_text} {}, {}",
+                operand_text(haystack),
+                operand_text(affix)
+            )
+        }
         Rvalue::StringContains { haystack, needle } => {
             format!(
                 "string_contains {}, {}",

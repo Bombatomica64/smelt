@@ -2090,6 +2090,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.string_replace_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_remove_affix_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_split_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -2602,6 +2605,49 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 haystack,
                 pattern,
                 replacement,
+            },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower direct Python remove-prefix and remove-suffix string methods.
+    fn string_remove_affix_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match attr.attr.as_str() {
+            "removeprefix" => StringAffixOp::StartsWith,
+            "removesuffix" => StringAffixOp::EndsWith,
+            _ => return Ok(None),
+        };
+        let span = self.span(call.range);
+        let [affix_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.removeprefix()/removesuffix() require exactly one str argument",
+            ));
+        };
+        let haystack = self.expression(&attr.value, body)?;
+        let affix = self.expression(affix_expr, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, affix)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                span,
+                "str.removeprefix()/removesuffix() require str receiver and argument",
+            ));
+        }
+        let ty = self.intern_type(Type::String);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::StringRemoveAffix {
+                op,
+                haystack,
+                affix,
             },
             ty,
             span,

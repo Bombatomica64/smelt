@@ -135,6 +135,15 @@ pub enum ExprKind {
         /// The literal replacement value.
         replacement: ExprId,
     },
+    /// Remove a literal string prefix or suffix when it is present.
+    StringRemoveAffix {
+        /// Affix side to remove.
+        op: StringAffixOp,
+        /// The string value being transformed.
+        haystack: ExprId,
+        /// The affix to remove.
+        affix: ExprId,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// The string value being searched.

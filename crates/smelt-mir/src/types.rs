@@ -436,6 +436,15 @@ pub enum Rvalue {
         /// Literal replacement value.
         replacement: Operand,
     },
+    /// Remove a literal string prefix or suffix when it is present.
+    StringRemoveAffix {
+        /// Affix side to remove.
+        op: smelt_hir::StringAffixOp,
+        /// String value to transform.
+        haystack: Operand,
+        /// Affix to remove.
+        affix: Operand,
+    },
     /// Test whether one string contains another string.
     StringContains {
         /// String value to search in.

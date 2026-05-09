@@ -34,6 +34,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `s.find(x)` | `StringSearch::Find` | `StringSearch::Find` | `s.find(&x).map_or(-1, ...)` | One string argument | Optional start/end arguments | Returns Rust byte offsets for now, not Python code-point indexes. |
 | `s.rfind(x)` | `StringSearch::RFind` | `StringSearch::RFind` | `s.rfind(&x).map_or(-1, ...)` | One string argument | Optional start/end arguments | Returns Rust byte offsets for now, not Python code-point indexes. |
 | `s.replace(x, y)` | `StringReplace::All` | `StringReplace::All` | `s.replace(&x, &y)` | Two string arguments | Optional count argument | Rust literal replacement semantics are used. |
+| `s.removeprefix(x)` | `StringRemoveAffix::StartsWith` | `StringRemoveAffix::StartsWith` | `s.strip_prefix(&x).unwrap_or(&s).to_owned()` | One string argument | Non-string argument | Rust prefix matching is used. |
+| `s.removesuffix(x)` | `StringRemoveAffix::EndsWith` | `StringRemoveAffix::EndsWith` | `s.strip_suffix(&x).unwrap_or(&s).to_owned()` | One string argument | Non-string argument | Rust suffix matching is used. |
 | `s.split(x)` | `StringSplit` | `StringSplit` | `s.split(&x).map(str::to_owned).collect()` | One string separator | Default whitespace split and maxsplit | Rust split semantics are used. |
 
 ## TypeScript Math
