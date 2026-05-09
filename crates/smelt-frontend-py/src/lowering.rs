@@ -4,6 +4,8 @@
     reason = "the crate root constructs the lowering builder"
 )]
 
+mod stdlib;
+
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
@@ -1715,6 +1717,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
             // --- Subscript: `obj[index]` ---
             Expr::Subscript(sub) => {
+                if let Some(slice) = self.slice_subscript(sub, body)? {
+                    return Ok(slice);
+                }
                 let receiver = self.expression(&sub.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
                 let index_ty = self.index_type(receiver_ty)?;

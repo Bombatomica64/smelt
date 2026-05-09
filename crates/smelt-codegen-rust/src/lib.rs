@@ -2904,6 +2904,30 @@ last: int = word.rfind("t")
     }
 
     #[test]
+    fn emits_python_list_and_string_slices() {
+        let source = source_for_py(
+            r#"
+values: list[int] = [1, 2, 3, 4]
+all_values: list[int] = values[:]
+tail_values: list[int] = values[1:]
+mid_values: list[int] = values[1:3]
+word: str = "smelting"
+all_text: str = word[:]
+tail_text: str = word[1:]
+mid_text: str = word[1:4]
+"#,
+        );
+
+        assert!(source.contains(".iter().skip(0usize).take("));
+        assert!(source.contains(".iter().skip((1 as usize)).take("));
+        assert!(source.contains(".take((3 as usize).saturating_sub((1 as usize)))"));
+        assert!(source.contains(".cloned().collect::<Vec<_>>();"));
+        assert!(source.contains(".chars().skip(0usize).take("));
+        assert!(source.contains(".chars().skip((1 as usize)).take("));
+        assert!(source.contains(".collect::<String>();"));
+    }
+
+    #[test]
     fn emits_python_string_replace_method() {
         let source = source_for_py(
             r#"

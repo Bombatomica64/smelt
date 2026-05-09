@@ -251,9 +251,9 @@ runtime errors.
 - [ ] Batch D, slicing/indexing semantics:
   - [x] TypeScript `Array.prototype.slice` with omitted and positive indexes.
   - [x] TypeScript `String.prototype.slice` with omitted and positive indexes.
-  - [ ] Python list slicing with positive indexes.
+  - [x] Python list slicing with positive indexes.
   - [ ] Python tuple slicing with positive indexes.
-  - [ ] Python string slicing with positive indexes.
+  - [x] Python string slicing with positive indexes.
   - [ ] Decide one shared policy for negative indexes before enabling negative-index forms.
 - [ ] Batch E, callback-heavy methods after closure support:
   - [ ] TypeScript `Array.prototype.map`.

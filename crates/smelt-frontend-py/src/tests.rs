@@ -620,6 +620,74 @@ last: int = word.rfind("t")
 }
 
 #[test]
+fn list_and_string_slices_lower() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2, 3, 4]
+all_values: list[int] = values[:]
+tail_values: list[int] = values[1:]
+mid_values: list[int] = values[1:3]
+word: str = "smelting"
+all_text: str = word[:]
+tail_text: str = word[1:]
+mid_text: str = word[1:4]
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    let list_slices = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListSlice { .. }))
+        .count();
+    let string_slices = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
+        .count();
+    ensure_eq(&list_slices, &3, "list slice count")?;
+    ensure_eq(&string_slices, &3, "string slice count")?;
+    Ok(())
+}
+
+#[test]
+fn unsupported_slice_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let negative = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2, 3]
+bad: list[int] = values[-1:]
+"#),
+        &mut ctx,
+    )?;
+    let error = first_error(&negative)?;
+    ensure(
+        error.message.contains("negative indexes"),
+        "expected negative index diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let step = lower_errors(
+        py!(r#"
+values: list[int] = [1, 2, 3]
+bad: list[int] = values[0:2:1]
+"#),
+        &mut ctx,
+    )?;
+    let error = first_error(&step)?;
+    ensure(
+        error.message.contains("steps"),
+        "expected slice step diagnostic",
+    )
+}
+
+#[test]
 fn string_replace_method_lowers() -> TestResult {
     let source = py!(r#"
 word: str = "hello hello"
