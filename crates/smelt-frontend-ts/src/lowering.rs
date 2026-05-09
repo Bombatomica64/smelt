@@ -1718,6 +1718,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_join_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.list_concat_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.list_contains_call(call, body)? {
                     return Ok(expr);
                 }
@@ -2864,6 +2867,47 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListContains { list, item },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.
+    fn list_concat_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "concat" {
+            return Ok(None);
+        }
+        let [right_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array concat currently requires exactly one array argument",
+            ));
+        };
+        let left = self.expression(&member.object, body)?;
+        let right = self.argument(right_argument, body)?;
+        let ty = Self::expr_ty(body, left);
+        if self
+            .ctx
+            .krate
+            .types
+            .get(ty)
+            .is_none_or(|ty| !matches!(ty, Type::List(_)))
+            || Self::expr_ty(body, right) != ty
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array concat requires same-typed array receiver and argument",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListConcat { left, right },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

@@ -1176,6 +1176,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.string_contains_text(haystack, needle)
             }
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
+            Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
@@ -1700,6 +1701,24 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.contains(&{})",
             self.operand_text(list)?,
             self.operand_text(item)?
+        ))
+    }
+
+    /// Converts a list concatenation operation to Rust text.
+    fn list_concat_text(&self, left: &Operand, right: &Operand) -> Result<String, EmitError> {
+        let left_ty = self.operand_ty(left)?;
+        if self.mir.types.get(left_ty) != self.mir.types.get(self.operand_ty(right)?) {
+            return Err(EmitError::new(
+                "list concat operands must have the same list type",
+            ));
+        }
+        if !matches!(self.mir.types.get(left_ty), Some(Type::List(_))) {
+            return Err(EmitError::new("list concat operands must be lists"));
+        }
+        Ok(format!(
+            "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
+            self.operand_text(left)?,
+            self.operand_text(right)?
         ))
     }
 
@@ -2804,6 +2823,20 @@ const comma = words.join();
 
         assert!(source.contains(".join(&\"-\".to_owned());"));
         assert!(source.contains(".join(&\",\".to_owned());"));
+    }
+
+    #[test]
+    fn emits_array_concat_method() {
+        let source = source_for(
+            r#"
+const left: number[] = [1, 2];
+const right: number[] = [3, 4];
+const merged = left.concat(right);
+"#,
+        );
+
+        assert!(source.contains(".iter().cloned().chain("));
+        assert!(source.contains(".collect::<Vec<_>>();"));
     }
 
     #[test]

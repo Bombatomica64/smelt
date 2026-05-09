@@ -246,7 +246,7 @@ runtime errors.
   - [x] Python `dict.keys`, `dict.values`, and `dict.items`.
   - [x] TypeScript `Array.prototype.join`.
   - [x] Python `str.join`.
-  - [ ] TypeScript `Array.prototype.concat`.
+  - [x] TypeScript `Array.prototype.concat`.
   - [ ] Python `list.extend`.
 - [ ] Batch D, slicing/indexing semantics:
   - [ ] TypeScript `Array.prototype.slice` with omitted and positive indexes.
@@ -310,7 +310,7 @@ runtime errors.
   - [ ] `Array.prototype.unshift`.
   - [ ] `Array.prototype.slice` with positive, omitted, and negative indexes.
   - [ ] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
-  - [ ] `Array.prototype.concat`.
+  - [x] `Array.prototype.concat`.
   - [x] `Array.prototype.join`.
   - [ ] `Array.prototype.indexOf` and `lastIndexOf`.
   - [ ] `Array.prototype.at`.

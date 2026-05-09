@@ -485,6 +485,28 @@ const comma = words.join();
 }
 
 #[test]
+fn lowers_array_concat_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const left: number[] = [1, 2];
+const right: number[] = [3, 4];
+const merged = left.concat(right);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_math_sqrt_pow_sign() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

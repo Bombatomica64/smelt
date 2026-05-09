@@ -1158,6 +1158,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListConcat { left, right } => {
+                let left_operand = self.lower_expr(*left)?;
+                let right_operand = self.lower_expr(*right)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListConcat {
+                        left: left_operand,
+                        right: right_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::TupleContains { tuple, item } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
                 let item_operand = self.lower_expr(*item)?;
@@ -1450,6 +1463,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringContains { .. }
             | ExprKind::ListContains { .. }
+            | ExprKind::ListConcat { .. }
             | ExprKind::TupleContains { .. }
             | ExprKind::DictContainsKey { .. }
             | ExprKind::DictProjection { .. }

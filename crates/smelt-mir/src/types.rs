@@ -480,6 +480,13 @@ pub enum Rvalue {
         /// Item to search for.
         item: Operand,
     },
+    /// Concatenate two lists into a new list.
+    ListConcat {
+        /// Left list value.
+        left: Operand,
+        /// Right list value.
+        right: Operand,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// Tuple value to search in.

@@ -82,6 +82,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
 | --- | --- | --- | --- | --- | --- | --- |
 | `array.includes(x)` | `ListContains` | `ListContains` | `array.contains(&x)` | One item matching element type | Optional `fromIndex` | Rust equality semantics are used. |
+| `array.concat(other)` | `ListConcat` | `ListConcat` | `array.iter().cloned().chain(other.iter().cloned()).collect()` | One same-typed array argument | Multiple arrays and non-array values | JS sparse-array and value-spreading semantics are not modeled. |
 | `stringArray.join()` | `StringJoin` | `StringJoin` | `string_array.join(&",".to_owned())` | No arguments on `string[]` | Non-string arrays | Default comma separator is used. |
 | `stringArray.join(separator)` | `StringJoin` | `StringJoin` | `string_array.join(&separator)` | One string separator on `string[]` | Non-string separator or non-string arrays | JS element stringification is not modeled. |
 | `x in list` / `x not in list` | `ListContains` plus optional `UnaryOp::Not` | `ListContains` plus optional `Unary` | `list.contains(&x)` | Item matching element type | Mismatched types | Rust equality semantics are used. |

@@ -179,6 +179,13 @@ pub enum ExprKind {
         /// The item to search for.
         item: ExprId,
     },
+    /// Concatenate two lists into a new list.
+    ListConcat {
+        /// Left list value.
+        left: ExprId,
+        /// Right list value.
+        right: ExprId,
+    },
     /// Test whether a tuple contains an item.
     TupleContains {
         /// The tuple value being searched.

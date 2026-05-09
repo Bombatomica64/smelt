@@ -318,6 +318,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(item)
             )
         }
+        Rvalue::ListConcat { left, right } => {
+            format!(
+                "list_concat {}, {}",
+                operand_text(left),
+                operand_text(right)
+            )
+        }
         Rvalue::TupleContains { tuple, item } => {
             format!(
                 "tuple_contains {}, {}",
