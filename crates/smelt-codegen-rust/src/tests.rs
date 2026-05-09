@@ -476,6 +476,21 @@ fallback: int = mapping.get("b", 0)
 }
 
 #[test]
+fn emits_python_dict_setdefault_method() {
+    let source = source_for_py(
+        r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.setdefault("b", 2)
+"#,
+    );
+
+    assert!(source.contains("let mut"));
+    assert!(source.contains(".entry(\"b\".to_owned())"));
+    assert!(source.contains(".or_insert(2)"));
+    assert!(source.contains(".clone()"));
+}
+
+#[test]
 fn emits_python_dict_update_method() {
     let source = source_for_py(
         r#"

@@ -632,6 +632,15 @@ pub enum Rvalue {
         /// Optional default value for missing keys.
         default: Option<Operand>,
     },
+    /// Return an existing dictionary value or insert and return a default.
+    DictSetDefault {
+        /// Dictionary value to mutate.
+        dict: Operand,
+        /// Key to look up or insert.
+        key: Operand,
+        /// Default value to insert for a missing key.
+        default: Operand,
+    },
     /// Clear all entries from a dictionary and return `None`.
     DictClear {
         /// Dictionary value to mutate.

@@ -1231,6 +1231,9 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::DictGet { dict, key, default } => {
                 self.dict_get_text(dict, key, default.as_ref(), dest_ty)
             }
+            Rvalue::DictSetDefault { dict, key, default } => {
+                self.dict_setdefault_text(dict, key, default, dest_ty)
+            }
             Rvalue::DictClear { dict } => self.collection_clear_text(dict, dest_ty, "dict"),
             Rvalue::DictPop { dict, key, default } => {
                 self.dict_pop_text(dict, key, default.as_ref(), dest_ty)
@@ -2404,6 +2407,50 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a dictionary setdefault operation to Rust text.
+    ///
+    /// This mapping supports the explicit-default form only, so generated Rust
+    /// can preserve the dictionary value type without inventing a `None`
+    /// default for non-optional values.
+    fn dict_setdefault_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        default: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict setdefault receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new(
+                "dict setdefault key must match the dict key type",
+            ));
+        }
+        if self.operand_ty(default)? != *value_ty {
+            return Err(EmitError::new(
+                "dict setdefault default must match the dict value type",
+            ));
+        }
+        if dest_ty != *value_ty {
+            return Err(EmitError::new(
+                "dict setdefault destination must match the dict value type",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict setdefault receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let key_text = self.operand_text(key)?;
+        let default_text = self.operand_text(default)?;
+        Ok(format!(
+            "{{ {dict_text}.entry({key_text}).or_insert({default_text}).clone() }}"
+        ))
+    }
+
     /// Converts a dictionary pop operation to Rust text.
     fn dict_pop_text(
         &self,
@@ -3013,6 +3060,7 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     | Rvalue::ListShift { list }
                     | Rvalue::DictClear { dict: list }
                     | Rvalue::DictPop { dict: list, .. }
+                    | Rvalue::DictSetDefault { dict: list, .. }
                     | Rvalue::DictUpdate { dict: list, .. },
                 ..
             } = statement

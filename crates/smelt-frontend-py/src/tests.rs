@@ -945,6 +945,29 @@ fallback: int = mapping.get("b", 0)
 }
 
 #[test]
+fn dict_setdefault_method_lowers() -> TestResult {
+    let source = py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.setdefault("b", 2)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictSetDefault { .. })),
+        "expected dict setdefault lowering",
+    )
+}
+
+#[test]
 fn dict_update_method_lowers() -> TestResult {
     let source = py!(r#"
 left: dict[str, int] = {"a": 1}
@@ -1288,6 +1311,50 @@ value: int | None = mapping.get()
             .message
             .contains("key and optional default"),
         "expected dict get arity diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_dict_setdefault_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let wrong_key = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.setdefault(1, 2)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_key)?.message.contains("key type"),
+        "expected dict setdefault key diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_default = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.setdefault("b", "fallback")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_default)?.message.contains("value type"),
+        "expected dict setdefault default diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let wrong_arity = lower_errors(
+        py!(r#"
+mapping: dict[str, int] = {"a": 1}
+value: int = mapping.setdefault("b")
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&wrong_arity)?
+            .message
+            .contains("key and default"),
+        "expected dict setdefault arity diagnostic",
     )
 }
 

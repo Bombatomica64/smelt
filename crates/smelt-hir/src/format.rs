@@ -513,6 +513,12 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             expr_ref(*key),
             optional_expr_ref(*default)
         ),
+        ExprKind::DictSetDefault { dict, key, default } => format!(
+            "dict_setdefault {}, {}, {}",
+            expr_ref(*dict),
+            expr_ref(*key),
+            expr_ref(*default)
+        ),
         ExprKind::DictClear { dict } => format!("dict_clear {}", expr_ref(*dict)),
         ExprKind::DictPop { dict, key, default } => format!(
             "dict_pop {}, {}, {}",
@@ -647,6 +653,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
         | ExprKind::DictGet { .. }
+        | ExprKind::DictSetDefault { .. }
         | ExprKind::DictClear { .. }
         | ExprKind::DictPop { .. }
         | ExprKind::DictUpdate { .. }

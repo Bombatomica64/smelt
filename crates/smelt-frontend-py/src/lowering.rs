@@ -2150,6 +2150,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.dict_get_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.dict_setdefault_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.dict_update_call_expression(call, body)? {
             return Ok(expr);
         }

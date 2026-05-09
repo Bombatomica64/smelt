@@ -331,6 +331,15 @@ pub enum ExprKind {
         /// Optional default value for missing keys.
         default: Option<ExprId>,
     },
+    /// Return an existing dictionary value or insert and return a default.
+    DictSetDefault {
+        /// Dictionary value to mutate.
+        dict: ExprId,
+        /// Key to look up or insert.
+        key: ExprId,
+        /// Default value to insert for a missing key.
+        default: ExprId,
+    },
     /// Clear all entries from a dictionary and return `None`.
     DictClear {
         /// Dictionary value to mutate.
