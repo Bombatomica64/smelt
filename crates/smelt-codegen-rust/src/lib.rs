@@ -153,7 +153,12 @@ pub fn emit_crate(
     fs::create_dir_all(&src_dir)?;
     fs::write(
         output_dir.join("Cargo.toml"),
-        cargo_toml(options, needs_tokio(mir), needs_reqwest(mir)),
+        cargo_toml(
+            options,
+            needs_tokio(mir),
+            needs_reqwest(mir),
+            needs_serde_json(mir),
+        ),
     )?;
     fs::write(src_dir.join("main.rs"), emit_source(mir)?)?;
     Ok(())
@@ -244,7 +249,12 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
 }
 
 /// Generates Cargo.toml content for the given emission options.
-fn cargo_toml(options: &EmitOptions, needs_tokio: bool, needs_reqwest: bool) -> String {
+fn cargo_toml(
+    options: &EmitOptions,
+    needs_tokio: bool,
+    needs_reqwest: bool,
+    needs_serde_json: bool,
+) -> String {
     let mut deps = String::new();
     if needs_tokio {
         deps.push_str(
@@ -254,10 +264,33 @@ fn cargo_toml(options: &EmitOptions, needs_tokio: bool, needs_reqwest: bool) -> 
     if needs_reqwest {
         deps.push_str("reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n");
     }
+    if needs_serde_json {
+        deps.push_str("serde_json = \"1\"\n");
+    }
     format!(
         "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}",
         options.crate_name
     )
+}
+
+/// Returns true when generated Rust uses Serde JSON APIs.
+fn needs_serde_json(mir: &Mir) -> bool {
+    mir.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    Statement::Assign {
+                        value: Rvalue::JsonStringify { .. },
+                        ..
+                    } | Statement::AssignPlace {
+                        value: Rvalue::JsonStringify { .. },
+                        ..
+                    }
+                )
+            })
+        })
+    })
 }
 
 /// Returns true when generated Rust uses Tokio APIs.
@@ -1248,6 +1281,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 separator,
             } => self.string_split_text(haystack, separator),
             Rvalue::StringJoin { items, separator } => self.string_join_text(items, separator),
+            Rvalue::JsonStringify { value: json_value } => {
+                self.json_stringify_text(json_value, dest_ty)
+            }
             Rvalue::HttpGetText { url } => self.http_get_text(url),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
@@ -2666,6 +2702,44 @@ impl<'mir> FunctionEmitter<'mir> {
             self.operand_text(items)?,
             self.operand_text(separator)?
         ))
+    }
+
+    /// Converts a JSON serialization operation to Rust text.
+    ///
+    /// The Serde JSON backend is intentionally confined to this helper and
+    /// Cargo dependency injection, making it replaceable without changing HIR
+    /// or frontend lowering.
+    fn json_stringify_text(&self, value: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::String)) {
+            return Err(EmitError::new("JSON stringify destination must be string"));
+        }
+        if !self.is_json_serializable_type(self.operand_ty(value)?) {
+            return Err(EmitError::new(
+                "JSON stringify value must be JSON-serializable",
+            ));
+        }
+        Ok(format!(
+            "serde_json::to_string(&{}).expect(\"JSON serialization failed\")",
+            self.operand_text(value)?
+        ))
+    }
+
+    /// Returns whether a type is supported by the current JSON serializer path.
+    fn is_json_serializable_type(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+                self.is_json_serializable_type(*item)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
+            Some(Type::Dict(key, value)) => {
+                matches!(self.mir.types.get(*key), Some(Type::String))
+                    && self.is_json_serializable_type(*value)
+            }
+            _ => false,
+        }
     }
 
     /// Converts a blocking HTTP GET operation to Rust text.

@@ -85,6 +85,13 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `fetch(url)` | `AsyncOp::HttpGetText` | `AsyncOp::HttpGetText` | `reqwest::get(url).await...text().await...` | One string URL | Options object, response object APIs | Returns response text directly. |
 | `requests.get(url)` | `HttpGetText` | `HttpGetText` | `reqwest::blocking::get(url)...text()...` | One string URL | Headers/options, response object APIs | Returns response text directly. |
 
+## JSON
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `JSON.stringify(value)` | `JsonStringify` | `JsonStringify` | `serde_json::to_string(&value).expect(...)` | One JSON-compatible primitive/list/tuple/string-keyed dict value | Replacer, spacing, class values, non-string dict keys | Serde JSON is isolated behind codegen dependency injection; class/interface serialization is not modeled yet. |
+| `json.dumps(value)` | `JsonStringify` | `JsonStringify` | `serde_json::to_string(&value).expect(...)` | One JSON-compatible primitive/list/tuple/string-keyed dict value | `indent`, `default`, other keyword args, class values, non-string dict keys | Python encoder customization and non-string key coercion are not modeled yet. |
+
 ## Contains
 
 | Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |

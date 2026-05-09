@@ -8,6 +8,60 @@ use smelt_hir::{Body, Expr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
+    pub(super) fn json_stringify_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "JSON" || member.property.name != "stringify" {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "JSON.stringify() currently supports exactly one value argument",
+            ));
+        };
+        let value = self.argument(argument, body)?;
+        if !self.is_json_serializable_type(Self::expr_ty(body, value)) {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "JSON.stringify() value must be JSON-serializable",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::JsonStringify { value },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Return whether a HIR type can be serialized by the JSON mapping.
+    fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+                self.is_json_serializable_type(*item)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
+            Some(Type::Dict(key, value)) => {
+                matches!(self.ctx.krate.types.get(*key), Some(Type::String))
+                    && self.is_json_serializable_type(*value)
+            }
+            _ => false,
+        }
+    }
+
     /// Lower direct TypeScript `Array.prototype.shift` calls.
     pub(super) fn list_shift_call(
         &mut self,

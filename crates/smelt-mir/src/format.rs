@@ -478,6 +478,9 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(separator)
             )
         }
+        Rvalue::JsonStringify { value: json_value } => {
+            format!("json_stringify {}", operand_text(json_value))
+        }
         Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {

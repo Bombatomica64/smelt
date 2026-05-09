@@ -698,6 +698,11 @@ pub enum Rvalue {
         /// Separator string.
         separator: Operand,
     },
+    /// Serialize a JSON-compatible value to a JSON string.
+    JsonStringify {
+        /// Value to serialize.
+        value: Operand,
+    },
     /// Perform a blocking HTTP GET request and return response text.
     HttpGetText {
         /// URL to request.

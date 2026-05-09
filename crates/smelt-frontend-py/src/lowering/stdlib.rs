@@ -7,6 +7,60 @@ use smelt_hir::{Body, Expr as HirExpr, ExprKind, Type};
 use super::{ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
+    /// Lower Python `json.dumps(value)` calls for JSON-compatible values.
+    pub(super) fn json_dumps_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return Ok(None);
+        };
+        if module.id.as_str() != "json" || attr.attr.as_str() != "dumps" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "json.dumps() currently supports exactly one value argument",
+            ));
+        }
+        let value = self.expression(&call.arguments.args[0], body)?;
+        if !self.is_json_serializable_type(Self::expr_ty(body, value)) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "json.dumps() value must be JSON-serializable",
+            ));
+        }
+        let ty = self.intern_type(Type::String);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::JsonStringify { value },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
+    /// Return whether a HIR type can be serialized by the JSON mapping.
+    fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+                self.is_json_serializable_type(*item)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type(*item)),
+            Some(Type::Dict(key, value)) => {
+                matches!(self.ctx.krate.types.get(*key), Some(Type::String))
+                    && self.is_json_serializable_type(*value)
+            }
+            _ => false,
+        }
+    }
+
     /// Lower Python `sum(values)` calls for int and float lists.
     pub(super) fn numeric_sum_call_expression(
         &mut self,

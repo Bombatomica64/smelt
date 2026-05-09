@@ -2165,6 +2165,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.math_module_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.json_dumps_call_expression(call, body)? {
+            return Ok(expr);
+        }
 
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {

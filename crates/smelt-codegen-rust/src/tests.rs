@@ -651,6 +651,28 @@ float_total: float = sum(floats)
 }
 
 #[test]
+fn emits_json_stringify_calls() {
+    let ts_source = source_for(
+        r#"
+const values: number[] = [1, 2];
+const text = JSON.stringify(values);
+"#,
+    );
+    let py_source = source_for_py(
+        r#"
+import json
+values: list[int] = [1, 2]
+text: str = json.dumps(values)
+"#,
+    );
+
+    assert!(ts_source.contains("serde_json::to_string(&"));
+    assert!(py_source.contains("serde_json::to_string(&"));
+    assert!(ts_source.contains(".expect(\"JSON serialization failed\")"));
+    assert!(py_source.contains(".expect(\"JSON serialization failed\")"));
+}
+
+#[test]
 fn emits_string_includes_method() {
     let source = source_for(
         r#"
@@ -1028,10 +1050,17 @@ fn emits_python_requests_get_as_blocking_reqwest_text() {
 
 #[test]
 fn injects_reqwest_dependency_for_http_mapping() {
-    let manifest = cargo_toml(&EmitOptions::default(), true, true);
+    let manifest = cargo_toml(&EmitOptions::default(), true, true, false);
 
     assert!(manifest.contains("tokio = { version = \"1\""));
     assert!(manifest.contains("reqwest = { version = \"0.12\""));
+}
+
+#[test]
+fn injects_serde_json_dependency_for_json_mapping() {
+    let manifest = cargo_toml(&EmitOptions::default(), false, false, true);
+
+    assert!(manifest.contains("serde_json = \"1\""));
 }
 
 #[test]

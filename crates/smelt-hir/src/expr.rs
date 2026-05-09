@@ -397,6 +397,11 @@ pub enum ExprKind {
         /// Separator string.
         separator: ExprId,
     },
+    /// Serialize a JSON-compatible value to a JSON string.
+    JsonStringify {
+        /// Value to serialize.
+        value: ExprId,
+    },
     /// Perform a blocking HTTP GET request and return the response body as text.
     HttpGetText {
         /// The URL to request.

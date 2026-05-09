@@ -443,6 +443,63 @@ def load() -> str:
 }
 
 #[test]
+fn json_dumps_lowers_to_stringify() -> TestResult {
+    let source = py!(r#"
+import json
+values: list[int] = [1, 2]
+text: str = json.dumps(values)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::JsonStringify { .. })),
+        "expected json.dumps lowering",
+    )
+}
+
+#[test]
+fn unsupported_json_dumps_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let keyword = lower_errors(
+        py!(r#"
+import json
+values: list[int] = [1, 2]
+text: str = json.dumps(values, indent=2)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&keyword)?.message.contains("exactly one value"),
+        "expected json.dumps keyword diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let unsupported_key = lower_errors(
+        py!(r#"
+import json
+values: dict[int, str] = {1: "a"}
+text: str = json.dumps(values)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&unsupported_key)?
+            .message
+            .contains("JSON-serializable"),
+        "expected json.dumps type diagnostic",
+    )
+}
+
+#[test]
 fn len_call_lowers() -> TestResult {
     let source = py!(r#"
 values: list[int] = [1, 2, 3]

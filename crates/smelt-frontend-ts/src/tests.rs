@@ -893,6 +893,57 @@ const entries = Object.entries(mapping);
 }
 
 #[test]
+fn lowers_json_stringify_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2];
+const text = JSON.stringify(values);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::JsonStringify { .. })),
+        "expected JSON.stringify lowering",
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_unsupported_json_stringify_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let extra_arg = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2];
+const text = JSON.stringify(values, null);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&extra_arg, "exactly one value")?;
+
+    let mut ctx = HirCtx::new();
+    let unsupported_type = lowering_errors(
+        ts!(r#"
+class User {
+  name: string;
+  constructor(name: string) {
+    this.name = name;
+  }
+}
+const user = new User("Ada");
+const text = JSON.stringify(user);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&unsupported_type, "JSON-serializable")
+}
+
+#[test]
 fn lowers_string_includes_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
