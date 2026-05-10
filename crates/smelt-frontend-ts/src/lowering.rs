@@ -4302,9 +4302,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
-    /// Lower annotated empty `new Map()` to a dictionary literal.
+    /// Lower `new Map(...)` to a dictionary literal.
     fn map_constructor_expression(
-        &self,
+        &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
@@ -4315,29 +4315,103 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if callee.name != "Map" {
             return Ok(None);
         }
-        if !new_expr.arguments.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new Map currently supports only an annotated empty constructor",
-            ));
-        }
-        let Some(ty) = type_hint else {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "empty Map constructors require a Map<K, V> type annotation",
-            ));
+        let (entries, ty) = match new_expr.arguments.as_slice() {
+            [] => {
+                let Some(ty) = type_hint else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "empty Map constructors require a Map<K, V> type annotation",
+                    ));
+                };
+                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "new Map() requires a Map<K, V> type annotation",
+                    ));
+                }
+                (Vec::new(), ty)
+            }
+            [Argument::ArrayExpression(array)] => {
+                let entries = self.map_constructor_entries(array, body)?;
+                let ty = if let Some(hint) = type_hint {
+                    let Some(Type::Dict(key_ty, value_ty)) = self.ctx.krate.types.get(hint) else {
+                        return Err(SmeltError::unsupported(
+                            self.span(new_expr.span.start, new_expr.span.end),
+                            "new Map([...]) requires a Map<K, V> type annotation when annotated",
+                        ));
+                    };
+                    for (key, value) in &entries {
+                        if Self::expr_ty(body, *key) != *key_ty
+                            || Self::expr_ty(body, *value) != *value_ty
+                        {
+                            return Err(SmeltError::unsupported(
+                                self.span(new_expr.span.start, new_expr.span.end),
+                                "new Map entry key and value types must match the Map<K, V> annotation",
+                            ));
+                        }
+                    }
+                    hint
+                } else if let Some((key, value)) = entries.first().copied() {
+                    let key_ty = Self::expr_ty(body, key);
+                    let value_ty = Self::expr_ty(body, value);
+                    for (entry_key, entry_value) in &entries {
+                        if Self::expr_ty(body, *entry_key) != key_ty
+                            || Self::expr_ty(body, *entry_value) != value_ty
+                        {
+                            return Err(SmeltError::unsupported(
+                                self.span(new_expr.span.start, new_expr.span.end),
+                                "new Map entry key and value types must be homogeneous",
+                            ));
+                        }
+                    }
+                    self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "empty Map array literals require a Map<K, V> type annotation",
+                    ));
+                };
+                (entries, ty)
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Map currently supports no arguments or one array literal of [key, value] pairs",
+                ));
+            }
         };
-        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new Map() requires a Map<K, V> type annotation",
-            ));
-        }
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::DictLit(Vec::new()),
+            kind: ExprKind::DictLit(entries),
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
+    }
+
+    /// Lower the entry array passed to `new Map([[key, value], ...])`.
+    fn map_constructor_entries(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>, SmeltError> {
+        let mut entries = Vec::new();
+        for element in &array.elements {
+            let ArrayExpressionElement::ArrayExpression(pair) = element else {
+                return Err(SmeltError::unsupported(
+                    self.span(element.span().start, element.span().end),
+                    "new Map entries must be [key, value] array pairs",
+                ));
+            };
+            let [key_element, value_element] = pair.elements.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(pair.span.start, pair.span.end),
+                    "new Map entries must contain exactly key and value",
+                ));
+            };
+            let key = self.array_element(key_element, body)?;
+            let value = self.array_element(value_element, body)?;
+            entries.push((key, value));
+        }
+        Ok(entries)
     }
 
     /// Lower an array element.

@@ -17,3 +17,7 @@ if a codegen feature becomes too large, prefer well-known Rust libraries that ar
 ## Refactoring timing
 finish active feature phases before broad codebase division refactors unless a small split is clearly low-risk and directly reduces current-file growth
 put new feature code into existing focused modules where practical, then do a deliberate architecture pass after the feature phase stabilizes
+
+## Frontend validation boundaries
+when `tsc` or Python compile/type checks would reject invalid source before Smelt runs, it is ok for HIR/MIR to use interchangeable internal representations such as Map and Record sharing Dict
+do not block useful mappings only because source spelling is erased internally; keep frontend checks/tests for shapes Smelt can cheaply validate itself

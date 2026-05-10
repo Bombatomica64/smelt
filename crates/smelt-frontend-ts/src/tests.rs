@@ -1398,6 +1398,7 @@ fn lowers_map_constructor_has_and_get_methods() -> Result<(), String> {
     let module_id = lower_ok(
         ts!(r#"
 const mapping: Map<string, number> = new Map();
+const literal = new Map([["a", 1], ["b", 2]]);
 const has = mapping.has("a");
 const value = mapping.get("a");
 "#),
@@ -1406,11 +1407,17 @@ const value = mapping.get("a");
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
+    let dict_lit_entries = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match &expr.kind {
+            ExprKind::DictLit(entries) => Some(entries.len()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
     ensure!(
-        body.exprs
-            .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
-        "Map constructor did not lower to DictLit"
+        dict_lit_entries.contains(&0) && dict_lit_entries.contains(&2),
+        "Map constructors did not lower to expected DictLit entries"
     );
     ensure!(
         body.exprs

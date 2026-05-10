@@ -1068,6 +1068,7 @@ fn emits_map_constructor_has_and_get_methods() {
     let source = source_for(
         r#"
 const mapping: Map<string, number> = new Map();
+const literal = new Map([["a", 1], ["b", 2]]);
 const has = mapping.has("a");
 const value = mapping.get("a");
 "#,
@@ -1075,6 +1076,9 @@ const value = mapping.get("a");
 
     assert!(source.contains("::std::collections::HashMap<String, f64>"));
     assert!(source.contains("::std::collections::HashMap::from([]);"));
+    assert!(source.contains(
+        "::std::collections::HashMap::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"
+    ));
     assert!(source.contains(".contains_key(&\"a\".to_owned());"));
     assert!(source.contains(".get(&\"a\".to_owned()).cloned();"));
 }
