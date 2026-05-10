@@ -119,14 +119,14 @@ TypeScript helpers:
 - [x] `to_have_length`
 - [x] `to_have_property`
 - [ ] `to_throw_with_type`
-- [ ] `to_throw_with_message`
+- [x] `to_throw_with_message`
 - [x] `deep_strict_equal` for Effect-style helper assertions
 - [x] Keep `to_strict_equal` as structural equality for v1.
 
 Python helpers:
 
-- [ ] `raises_type`
-- [ ] `raises_message`
+- [x] `raises_type`
+- [x] `raises_message`
 - [ ] Context-manager-shaped lowering for `with pytest.raises(...)`
 - [x] Identity assertions for `is` / `is not`
 - [x] Boolean negation assertion support for `assert not expr`

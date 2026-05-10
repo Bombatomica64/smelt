@@ -113,6 +113,7 @@ test("common matchers", () => {
   expect([1, 2, 3]).toContain(2);
   expect([1, 2, 3]).toHaveLength(3);
   expect(["a"]).toStrictEqual(["a"]);
+  expect([1, 2, 3]).not.toContain(4);
 });
 "#);
     let mut ctx = HirCtx::new();
@@ -139,6 +140,13 @@ test("common matchers", () => {
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListContains { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::UnaryOp { .. }))
+            .count()
+            >= 2
     );
     ensure!(
         body.exprs

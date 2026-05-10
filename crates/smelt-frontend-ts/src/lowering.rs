@@ -1480,9 +1480,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {
             return Ok(false);
         };
-        let Expression::CallExpression(expect_call) = &member.object else {
-            return Ok(false);
-        };
+        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
         let Expression::Identifier(expect_ident) = &expect_call.callee else {
             return Ok(false);
         };
@@ -1511,8 +1509,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })?;
         let actual = self.argument(actual_arg, body)?;
         let expected = self.argument(expected_arg, body)?;
-        let failed =
+        let mut failed =
             self.expect_matcher_failure_expr(matcher, actual, expected, call.span, body)?;
+        if inverted {
+            failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
+        }
         self.push_test_failure_if(
             failed,
             &format!("expect(...).{}(...) failed", matcher.source_name()),
@@ -1520,6 +1521,35 @@ impl<'ctx> ModuleBuilder<'ctx> {
             body,
         );
         Ok(true)
+    }
+
+    /// Extract `expect(...)` and whether `.not` was present from a matcher receiver.
+    fn expect_call_from_matcher_object<'a>(
+        &self,
+        expression: &'a Expression<'a>,
+    ) -> Result<(&'a oxc::ast::ast::CallExpression<'a>, bool), SmeltError> {
+        if let Expression::CallExpression(expect_call) = expression {
+            return Ok((expect_call, false));
+        }
+        let Expression::StaticMemberExpression(member) = expression else {
+            return Err(SmeltError::unsupported(
+                self.span(expression.span().start, expression.span().end),
+                "expect matcher receiver must be expect(...) or expect(...).not",
+            ));
+        };
+        if member.property.name != "not" {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "only expect(...).not matcher modifiers are supported",
+            ));
+        }
+        let Expression::CallExpression(expect_call) = &member.object else {
+            return Err(SmeltError::unsupported(
+                self.span(member.object.span().start, member.object.span().end),
+                "expect(...).not requires an expect(...) receiver",
+            ));
+        };
+        Ok((expect_call, true))
     }
 
     /// Build the boolean expression that means a supported matcher has failed.

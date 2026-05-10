@@ -5,7 +5,11 @@
 //! functions and call these helpers to preserve the public behavior of common
 //! Vitest/Jest and pytest assertions.
 
-use std::{fmt, panic::UnwindSafe};
+use std::{
+    any::Any,
+    fmt,
+    panic::{self, UnwindSafe},
+};
 
 pub mod py;
 pub mod ts;
@@ -121,7 +125,27 @@ pub fn fail(message: impl fmt::Display) -> ! {
 
 /// Runs a closure and returns true when it panics.
 pub fn catches_panic(function: impl FnOnce() + UnwindSafe) -> bool {
-    std::panic::catch_unwind(function).is_err()
+    panic::catch_unwind(function).is_err()
+}
+
+/// Runs a closure and returns the panic message when it panics.
+pub fn panic_message(function: impl FnOnce() + UnwindSafe) -> Option<String> {
+    panic::catch_unwind(function)
+        .err()
+        .map(|payload| payload_message(payload.as_ref()))
+}
+
+/// Extracts a string representation from a panic payload.
+fn payload_message(payload: &(dyn Any + Send)) -> String {
+    payload.downcast_ref::<String>().map_or_else(
+        || {
+            payload.downcast_ref::<&'static str>().map_or_else(
+                || "non-string panic payload".to_owned(),
+                |message| (*message).to_owned(),
+            )
+        },
+        Clone::clone,
+    )
 }
 
 #[cfg(test)]

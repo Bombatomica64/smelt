@@ -6,7 +6,7 @@
 
 use std::{fmt, panic::UnwindSafe};
 
-use crate::{SameValue, catches_panic, fail};
+use crate::{SameValue, catches_panic, fail, panic_message};
 
 /// Starts a Vitest/Jest-style value expectation.
 #[must_use]
@@ -402,6 +402,34 @@ where
             fail("expected function to throw");
         }
     }
+
+    /// Asserts `toThrow(message)` by checking a panic message substring.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the callable does not panic, or when the panic message does
+    /// not contain `expected`.
+    pub fn to_throw_with_message(self, expected: &str) {
+        let panic_text = panic_message(self.function);
+        let matched = panic_text
+            .as_deref()
+            .is_some_and(|text| text.contains(expected));
+        if self.inverted {
+            if matched {
+                fail(format_args!(
+                    "expected function not to throw message containing {expected:?}"
+                ));
+            }
+        } else if let Some(text) = panic_text {
+            if !matched {
+                fail(format_args!(
+                    "expected thrown message to contain {expected:?}, got {text:?}"
+                ));
+            }
+        } else {
+            fail("expected function to throw");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -517,6 +545,15 @@ mod tests {
         assert!(
             catches_panic(|| expect_fn(|| {}).to_throw()),
             "non-panicking function should fail toThrow"
+        );
+    }
+
+    #[test]
+    fn to_throw_with_message_checks_panic_text() {
+        expect_fn(|| panic!("bad value")).to_throw_with_message("value");
+        assert!(
+            catches_panic(|| expect_fn(|| panic!("bad value")).to_throw_with_message("missing")),
+            "different panic message should fail toThrow message matching"
         );
     }
 
