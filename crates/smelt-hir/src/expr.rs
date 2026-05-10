@@ -743,6 +743,8 @@ pub enum SetBinaryOp {
     Intersection,
     /// Return items in the left set but not the right set.
     Difference,
+    /// Return items present in exactly one set.
+    SymmetricDifference,
 }
 
 /// A directly lowered set projection operation.

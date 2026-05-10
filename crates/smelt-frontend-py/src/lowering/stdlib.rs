@@ -929,7 +929,14 @@ impl ModuleBuilder<'_> {
         let method = attr.attr.as_str();
         if !matches!(
             method,
-            "add" | "discard" | "remove" | "copy" | "union" | "intersection" | "difference"
+            "add"
+                | "discard"
+                | "remove"
+                | "copy"
+                | "union"
+                | "intersection"
+                | "difference"
+                | "symmetric_difference"
         ) {
             return Ok(None);
         }
@@ -952,11 +959,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.range),
             })));
         }
-        if matches!(method, "union" | "intersection" | "difference") {
+        if matches!(
+            method,
+            "union" | "intersection" | "difference" | "symmetric_difference"
+        ) {
             if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
                 return Err(SmeltError::unsupported(
                     self.span(call.range),
-                    "set union/intersection/difference require exactly one set argument",
+                    "set union/intersection/difference/symmetric_difference require exactly one set argument",
                 ));
             }
             let right = self.expression(&call.arguments.args[0], body)?;
@@ -970,6 +980,7 @@ impl ModuleBuilder<'_> {
                 "union" => SetBinaryOp::Union,
                 "intersection" => SetBinaryOp::Intersection,
                 "difference" => SetBinaryOp::Difference,
+                "symmetric_difference" => SetBinaryOp::SymmetricDifference,
                 _ => return Ok(None),
             };
             return Ok(Some(body.push_expr(HirExpr {

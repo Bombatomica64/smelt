@@ -428,6 +428,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::SetBinaryOp::Union => "union",
                 smelt_hir::SetBinaryOp::Intersection => "intersection",
                 smelt_hir::SetBinaryOp::Difference => "difference",
+                smelt_hir::SetBinaryOp::SymmetricDifference => "symmetric_difference",
             };
             format!(
                 "set_{op_text} {}, {}",

@@ -2288,6 +2288,7 @@ impl<'mir> FunctionEmitter<'mir> {
             smelt_hir::SetBinaryOp::Union => "union",
             smelt_hir::SetBinaryOp::Intersection => "intersection",
             smelt_hir::SetBinaryOp::Difference => "difference",
+            smelt_hir::SetBinaryOp::SymmetricDifference => "symmetric_difference",
         };
         Ok(format!(
             "{}.{}(&{}).cloned().collect()",

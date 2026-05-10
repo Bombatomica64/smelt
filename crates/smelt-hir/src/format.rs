@@ -519,6 +519,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::SetBinaryOp::Union => "union",
                 crate::expr::SetBinaryOp::Intersection => "intersection",
                 crate::expr::SetBinaryOp::Difference => "difference",
+                crate::expr::SetBinaryOp::SymmetricDifference => "symmetric_difference",
             };
             format!("set_{op_name} {}, {}", expr_ref(*left), expr_ref(*right))
         }

@@ -2579,6 +2579,7 @@ right: set[int] = {2, 3}
 merged: set[int] = left.union(right)
 common: set[int] = left.intersection(right)
 only_left: set[int] = left.difference(right)
+exclusive: set[int] = left.symmetric_difference(right)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -2594,6 +2595,7 @@ only_left: set[int] = left.difference(right)
         SetBinaryOp::Union,
         SetBinaryOp::Intersection,
         SetBinaryOp::Difference,
+        SetBinaryOp::SymmetricDifference,
     ] {
         ensure(
             body.exprs
