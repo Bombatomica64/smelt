@@ -648,54 +648,27 @@ def test_answer(answer):
 }
 
 #[test]
-fn pytest_fixture_rejects_autouse_and_non_default_scope() -> TestResult {
-    let autouse_source = py!(r#"
+fn pytest_fixture_accepts_autouse_and_non_default_scope_syntax() -> TestResult {
+    let source = py!(r#"
 import pytest
 
 @pytest.fixture(autouse=True)
-def answer() -> int:
+def autouse_answer() -> int:
     return 41
-"#);
-    let mut ctx = HirCtx::new();
-    let errors = lower_errors(autouse_source, &mut ctx)?;
-    ensure(
-        first_error(&errors)?
-            .message
-            .contains("autouse=True is not supported"),
-        "expected autouse fixture rejection",
-    )?;
-
-    let scope_source = py!(r#"
-import pytest
 
 @pytest.fixture(scope="module")
-def answer() -> int:
+def scoped_answer() -> int:
     return 41
+
+def test_answer(scoped_answer):
+    assert scoped_answer == 41
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(scope_source, &mut ctx)?;
+    let module_id = lower_path_module(source, "tests/test_fixture_scope.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
     ensure(
-        first_error(&errors)?
-            .message
-            .contains("supports only default function scope"),
-        "expected non-default fixture scope rejection",
-    )?;
-
-    let default_scope_source = py!(r#"
-import pytest
-
-@pytest.fixture(scope="function", autouse=False)
-def answer() -> int:
-    return 41
-
-def test_answer(answer):
-    assert answer == 41
-"#);
-    let mut ctx = HirCtx::new();
-    lower_path_module(
-        default_scope_source,
-        "tests/test_fixture_scope.py",
-        &mut ctx,
+        module.items.len() == 3,
+        "expected both fixtures and the consuming test to lower",
     )?;
     Ok(())
 }

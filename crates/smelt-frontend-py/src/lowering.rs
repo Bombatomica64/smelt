@@ -685,7 +685,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if self.is_pytest_skipped_or_xfailed(func)? {
             return Ok(Vec::new());
         }
-        self.validate_pytest_fixture(func)?;
         if let Some(parametrize) = self.pytest_parametrize(func)? {
             return self.parametrize_function_defs(func, &parametrize);
         }
@@ -703,65 +702,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         func.decorator_list
             .iter()
             .any(|decorator| decorator_simple_name(decorator) == Some("fixture"))
-    }
-
-    /// Validate first-pass pytest fixture options.
-    fn validate_pytest_fixture(&self, func: &StmtFunctionDef) -> Result<(), SmeltError> {
-        for decorator in &func.decorator_list {
-            if decorator_simple_name(decorator) != Some("fixture") {
-                continue;
-            }
-            let Expr::Call(call) = &decorator.expression else {
-                continue;
-            };
-            for keyword in &call.arguments.keywords {
-                match keyword.arg.as_ref().map(|arg| arg.as_str()) {
-                    Some("autouse") => {
-                        let Expr::BooleanLiteral(value) = &keyword.value else {
-                            return Err(SmeltError::unsupported(
-                                self.span(keyword.range),
-                                "pytest.fixture autouse must be a boolean literal",
-                            ));
-                        };
-                        if value.value {
-                            return Err(SmeltError::unsupported(
-                                self.span(keyword.range),
-                                "pytest.fixture autouse=True is not supported yet",
-                            ));
-                        }
-                    }
-                    Some("scope") => {
-                        let Expr::StringLiteral(value) = &keyword.value else {
-                            return Err(SmeltError::unsupported(
-                                self.span(keyword.range),
-                                "pytest.fixture scope must be a string literal",
-                            ));
-                        };
-                        if value.value.to_str() != "function" {
-                            return Err(SmeltError::unsupported(
-                                self.span(keyword.range),
-                                "pytest.fixture supports only default function scope for now",
-                            ));
-                        }
-                    }
-                    Some(other) => {
-                        return Err(SmeltError::unsupported(
-                            self.span(keyword.range),
-                            format!(
-                                "pytest.fixture keyword argument '{other}' is not supported yet"
-                            ),
-                        ));
-                    }
-                    None => {
-                        return Err(SmeltError::unsupported(
-                            self.span(keyword.range),
-                            "pytest.fixture **kwargs are not supported yet",
-                        ));
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 
     /// Return whether a pytest function should be emitted as a skipped test.

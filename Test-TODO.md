@@ -196,9 +196,10 @@ Python first:
 Fixtures:
 
 - [x] Start with simple named fixtures that return a value.
-- [x] Reject autouse fixtures with a clear source-located error.
-- [x] Reject non-default fixture scopes with a clear source-located error.
-- [x] Accept default function scope only at first.
+- [x] Accept `autouse` fixture syntax without rejecting valid pytest code.
+- [x] Accept scoped fixture syntax without rejecting valid pytest code.
+- [ ] Implement actual autouse fixture injection semantics.
+- [ ] Implement actual non-function fixture scope caching semantics.
 
 TypeScript table tests later:
 
