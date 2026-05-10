@@ -415,6 +415,9 @@ runtime errors.
   - [ ] `URL` construction and field access through the `url` crate, or explicitly defer URL
         support.
   - [ ] `Error` construction, message access, and throw/catch mapping policy.
+- [ ] TypeScript runtime type checks:
+  - [x] `instanceof` for concrete class values, represented explicitly in HIR/MIR and emitted as a static class check for today's non-dynamic class model.
+  - [ ] `instanceof` narrowing for unions once control-flow type narrowing is modeled.
 - [ ] TypeScript platform and async mappings:
   - [ ] `console.log`, `console.error`, and `console.warn` formatting policy.
   - [ ] `setTimeout`, `clearTimeout`, `setInterval`, and `clearInterval` in async contexts.
@@ -555,6 +558,11 @@ runtime errors.
 
 ## Phase 6/TypeScript Next Coverage
 
+- [ ] TypeScript `unknown` as a real boundary type.
+  - [ ] Represent `unknown` distinctly from `any` and from erased generics.
+  - [ ] Allow values to flow into `unknown` parameters and containers.
+  - [ ] Require narrowing or explicit assertion before operations on `unknown`.
+  - [ ] Support common callback/rest-argument surfaces such as `readonly unknown[]`.
 - [ ] Closures with captures.
 - [ ] Generic functions/classes beyond trivial cases.
 - [ ] Union and discriminated-union modeling beyond nullish optionals.
@@ -563,6 +571,69 @@ runtime errors.
 - [ ] Type narrowing/control-flow type analysis.
 - [ ] Object spread/rest/destructuring.
 - [ ] Callback-heavy stdlib methods.
+
+## Four-Repo Test-Suite Compatibility Gaps
+
+These items come from the `date-fns/date-fns`, `Effect-TS/effect`, `Textualize/rich`, and
+`encode/httpx` probes. They are not all stdlib work. Some are test-framework compatibility,
+some are import/package binding, and some are source-language object model features required before
+the real upstream tests can become useful signal.
+
+- [ ] Keep external repo probes as a separate acceptance track from Phase 6 stdlib mapping.
+  - [ ] Add a repeatable local probe command or script for the four first-green slices.
+  - [ ] Record the first unsupported construct per slice, not just pass/fail.
+  - [ ] Treat generated Rust test execution as the acceptance point, not only frontend lowering.
+- [ ] TypeScript test API gaps exposed by `date-fns` and `Effect`.
+  - [x] Support `expect(...).toEqual(...)` as the common Vitest structural-equality alias.
+  - [ ] Support `expect(...).toBeInstanceOf(...)` once `instanceof`/class identity is modeled.
+  - [x] Support `expect(...).not.*` matcher chains used by real tests for currently supported
+        matchers.
+  - [ ] Support `expect(...).toThrow(...)` with function callbacks and typed/message variants.
+  - [x] Support Node-style `assert.deepStrictEqual(...)` imports in addition to `@effect/vitest`
+        utility helpers.
+  - [x] Support nested `describe` hook inheritance beyond direct top-level lifecycle hooks.
+  - [ ] Support dynamic `test.each` / `describe.each` table sources after the direct literal pass.
+- [ ] Python pytest API gaps exposed by Rich and HTTPX.
+  - [x] Implement actual `autouse=True` fixture injection instead of only accepting the syntax.
+  - [ ] Implement scoped fixture caching for `scope="module"`, `class`, `package`, and `session`.
+  - [x] Support `pytest.raises(..., match=...)` and `with pytest.raises(...) as excinfo`.
+  - [x] Support callable-form `pytest.raises(Expected, fn, *args, **kwargs)`.
+  - [ ] Preserve pytest skip/skipif/xfail semantics explicitly in generated Rust tests instead of
+        only omitting skipped tests.
+  - [x] Support parametrization `ids=...` and `pytest.param(...)` rows.
+  - [ ] Support tuple/list parameter-name declarations such as `@pytest.mark.parametrize(("x", "y"), rows)`.
+  - [ ] Support function values and lambdas in parameter rows.
+  - [ ] Support marks on parameter rows and keyword-form argument tables used by real projects.
+  - [ ] Support non-literal `skipif` conditions by lowering them into runtime skip checks.
+  - [ ] Support built-in pytest fixtures that appear in real suites, starting with `tmp_path`,
+        `tmpdir`, `monkeypatch`, `capsys`, `capfd`, `recwarn`, and project fixtures such as
+        Click's `runner` when a target slice needs them.
+  - [ ] Allow untyped helper functions in pytest files when they are local test helpers, not only
+        top-level `test_*` functions.
+- [ ] TypeScript import/export gaps exposed by `date-fns` and `Effect`.
+  - [x] Fix manifest symbol availability when later entries import earlier entries.
+  - [x] Resolve named constants from dependency modules in real manifest slices, including the
+        `date-fns` `monthsInQuarter` case.
+  - [x] Resolve re-exports from `index.ts` modules.
+  - [x] Resolve namespace imports such as `import * as NumberInstances from ...`.
+  - [x] Lower exported object constants and object-literal modules used as namespace-like APIs.
+  - [x] Lower arrow functions assigned to exported `const` bindings.
+- [ ] Python import/package gaps exposed by Rich and HTTPX.
+  - [x] Resolve package imports such as `import httpx` to package `__init__.py` exports.
+  - [ ] Resolve `from rich._null_file import NULL_FILE, NullFile` across real package paths.
+  - [x] Treat `__all__` as export metadata instead of an unresolved runtime symbol.
+  - [ ] Handle module dunders such as `__name__`, `__file__`, and package-level export aliases.
+    - [x] `__name__` and `__file__`.
+    - [ ] Package-level export aliases.
+- [ ] Python object/protocol gaps exposed by Rich and HTTPX.
+  - [x] Support generic base classes used as protocol/type bases, such as `IO[str]`.
+  - [ ] Support `IntEnum` subclass construction and enum member lookup.
+  - [ ] Support class body self-reference patterns such as `codes.__new__`.
+  - [ ] Support `classmethod`, `cls` parameters, and class-level member calls.
+  - [ ] Support context manager protocol methods `__enter__` and `__exit__` for non-pytest cases.
+  - [ ] Support iterator protocol methods `__iter__` and `__next__`.
+  - [ ] Support dunder display/conversion methods such as `__str__` where tests assert public
+        behavior.
 
 ## Later Phases
 

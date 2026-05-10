@@ -359,6 +359,36 @@ pub enum Rvalue {
         /// The operand.
         operand: Operand,
     },
+    /// Choose one of two operands based on a boolean condition.
+    Conditional {
+        /// Boolean condition to test.
+        cond: Operand,
+        /// Operand used when the condition is true.
+        then_operand: Operand,
+        /// Operand used when the condition is false.
+        else_operand: Operand,
+    },
+    /// Test whether a value is an instance of a class.
+    InstanceOf {
+        /// Value being tested. Kept as an operand so side effects are evaluated before the check.
+        value: Operand,
+        /// Target class symbol.
+        class: Symbol,
+    },
+    /// Test the runtime tag of a TypeScript `unknown` value.
+    UnknownIs {
+        /// Value being tested.
+        value: Operand,
+        /// Runtime tag to check.
+        kind: smelt_hir::UnknownKind,
+    },
+    /// Extract a typed value from a TypeScript `unknown` value.
+    UnknownCast {
+        /// Value being extracted.
+        value: Operand,
+        /// Type expected after extraction.
+        target: TypeId,
+    },
     /// Construct a class instance.
     Struct {
         /// The class being constructed.

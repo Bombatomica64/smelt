@@ -608,6 +608,220 @@ const result = quartersToMonths(2);\nconsole.log(result);\n",
 }
 
 #[test]
+fn build_runs_typescript_folded_const_expression_import() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-folded-const-import"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/constants.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_folded_const_import"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/constants.ts"),
+        "export const base = Math.pow(10, 2);\nexport const maxTime = base * 5;\nexport const minTime = -maxTime;\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { minTime } from './constants';\nconsole.log(minTime);\n",
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"-500\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_resolves_typescript_reexport_imports() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-reexport-import"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/index.ts", "src/math.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_reexport_import"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/math.ts"),
+        "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/index.ts"),
+        "export { add as plus } from './math';\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { plus } from './index';\nconst result = plus(4, 5);\nconsole.log(result);\n",
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"9\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_resolves_typescript_namespace_imports() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-namespace-import"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/number.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_namespace_import"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/number.ts"),
+        "export function double(value: number): number {\n  return value * 2;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import * as NumberInstances from './number';\nconst result = NumberInstances.double(6);\nconsole.log(result);\n",
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"12\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_resolves_typescript_exported_arrow_function_consts() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-exported-arrow-const"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/number.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_exported_arrow_const"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/number.ts"),
+        "export const double = (value: number): number => value * 2;\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { double } from './number';\nconst result = double(6);\nconsole.log(result);\n",
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"12\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_resolves_typescript_object_namespace_consts() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-object-namespace"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/number.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_object_namespace"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/number.ts"),
+        "export function double(value: number): number {\n  return value * 2;\n}\nexport const NumberInstances = { double };\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { NumberInstances } from './number';\nconst result = NumberInstances.double(6);\nconsole.log(result);\n",
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"12\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
 fn build_resolves_python_package_init_imports() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
@@ -637,6 +851,48 @@ clone-strategy = "aggressive"
     fs::write(
         project_path.join("src/main.py"),
         "from lib import add\nresult: int = add(7, 8)\nprint(result)\n",
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"15\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_resolves_python_package_namespace_imports() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/httpx"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "py-package-namespace-import"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py", "src/httpx/__init__.py"]
+
+[output]
+target = "./dist"
+crate-name = "py_package_namespace_import"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/httpx/__init__.py"),
+        "def add(a: int, b: int) -> int:\n    return a + b\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.py"),
+        "import httpx\nresult: int = httpx.add(7, 8)\nprint(result)\n",
     )?;
 
     let manifest = project_path.join("Smelt.toml");

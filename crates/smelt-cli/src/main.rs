@@ -192,11 +192,13 @@ fn lower_ordered_manifest_files(
     files: &[PathBuf],
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut krate = smelt_hir::Crate::new();
+    let mut state = FrontendLoweringState::default();
     let mut modules = Vec::new();
 
     for (idx, file) in files.iter().enumerate() {
-        let (next_krate, module) = lower_manifest_file(krate, file, idx)?;
+        let (next_krate, module, next_state) = lower_manifest_file(krate, state, file, idx)?;
         krate = next_krate;
+        state = next_state;
         if let Ok(module_idx) = usize::try_from(module.0)
             && let Some(module_value) = krate.modules.get_mut(module_idx)
         {
@@ -208,17 +210,33 @@ fn lower_ordered_manifest_files(
     Ok((krate, modules))
 }
 
+/// Cross-file frontend metadata that is not represented directly in the shared HIR crate.
+#[derive(Default)]
+struct FrontendLoweringState {
+    /// TypeScript re-export aliases visible to later manifest entries.
+    ts_export_aliases: HashMap<String, smelt_hir::ItemId>,
+    /// TypeScript exported object constants used as namespace-like APIs.
+    ts_object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
+    /// Python module/package namespaces visible through `import package`.
+    py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
+}
+
 /// Lower one manifest file with the language-specific frontend.
 fn lower_manifest_file(
     krate: smelt_hir::Crate,
+    state: FrontendLoweringState,
     file: &Path,
     idx: usize,
-) -> Result<(smelt_hir::Crate, ModuleId), Box<dyn std::error::Error>> {
+) -> Result<(smelt_hir::Crate, ModuleId, FrontendLoweringState), Box<dyn std::error::Error>> {
     let file_string = file.display().to_string();
     let source = fs::read_to_string(file)?;
     match SourceLang::from_path(&file_string)? {
         SourceLang::TypeScript => {
-            let mut ctx = smelt_frontend_ts::HirCtx { krate };
+            let mut ctx = smelt_frontend_ts::HirCtx {
+                krate,
+                export_aliases: state.ts_export_aliases,
+                object_namespaces: state.ts_object_namespaces,
+            };
             let module = smelt_frontend_ts::to_hir_with_path(
                 &source,
                 FileId(u32::try_from(idx).map_err(|error| {
@@ -231,10 +249,21 @@ fn lower_manifest_file(
                 &mut ctx,
             )
             .map_err(|errors| lowering_error(file, &errors))?;
-            Ok((ctx.krate, module))
+            Ok((
+                ctx.krate,
+                module,
+                FrontendLoweringState {
+                    ts_export_aliases: ctx.export_aliases,
+                    ts_object_namespaces: ctx.object_namespaces,
+                    py_module_namespaces: state.py_module_namespaces,
+                },
+            ))
         }
         SourceLang::Python => {
-            let mut ctx = smelt_frontend_py::HirCtx { krate };
+            let mut ctx = smelt_frontend_py::HirCtx {
+                krate,
+                module_namespaces: state.py_module_namespaces,
+            };
             let module = smelt_frontend_py::to_hir_with_path(
                 &source,
                 FileId(u32::try_from(idx).map_err(|error| {
@@ -247,7 +276,15 @@ fn lower_manifest_file(
                 &mut ctx,
             )
             .map_err(|errors| lowering_error(file, &errors))?;
-            Ok((ctx.krate, module))
+            Ok((
+                ctx.krate,
+                module,
+                FrontendLoweringState {
+                    ts_export_aliases: state.ts_export_aliases,
+                    ts_object_namespaces: state.ts_object_namespaces,
+                    py_module_namespaces: ctx.module_namespaces,
+                },
+            ))
         }
     }
 }
@@ -417,19 +454,23 @@ fn scan_imports(source: &str, lang: SourceLang) -> Vec<String> {
     }
 }
 
-/// Scan TypeScript `import ... from "module"` and side-effect import specifiers.
+/// Scan TypeScript import and re-export module specifiers.
 fn scan_typescript_imports(source: &str) -> Vec<String> {
     source
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if !trimmed.starts_with("import ") {
-                return None;
+            if trimmed.starts_with("import ") {
+                let specifier = trimmed
+                    .split_once(" from ")
+                    .map_or(trimmed.strip_prefix("import "), |(_, right)| Some(right))?;
+                return quoted_module_specifier(specifier);
             }
-            let specifier = trimmed
-                .split_once(" from ")
-                .map_or(trimmed.strip_prefix("import "), |(_, right)| Some(right))?;
-            quoted_module_specifier(specifier)
+            if trimmed.starts_with("export ") && trimmed.contains(" from ") {
+                let (_, right) = trimmed.split_once(" from ")?;
+                return quoted_module_specifier(right);
+            }
+            None
         })
         .collect()
 }

@@ -904,6 +904,61 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                let cond_operand = self.lower_expr(*cond)?;
+                let then_operand = self.lower_expr(*then_expr)?;
+                let else_operand = self.lower_expr(*else_expr)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Conditional {
+                        cond: cond_operand,
+                        then_operand,
+                        else_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::InstanceOf { value, class } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::InstanceOf {
+                        value: lowered_value,
+                        class: *class,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::UnknownIs { value, kind } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::UnknownIs {
+                        value: lowered_value,
+                        kind: *kind,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::UnknownCast { value, target } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::UnknownCast {
+                        value: lowered_value,
+                        target: *target,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListLit(items) => {
                 let lowered_items = items
                     .iter()
@@ -2327,6 +2382,10 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::HttpGetText { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
+            | ExprKind::Conditional { .. }
+            | ExprKind::InstanceOf { .. }
+            | ExprKind::UnknownIs { .. }
+            | ExprKind::UnknownCast { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
             | ExprKind::ListLit(_)

@@ -56,12 +56,12 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
         for stmt in &block.statements {
             match stmt {
                 Statement::Assign { dest, value } => {
-                    validate_rvalue_exists(function, value, errors);
+                    validate_rvalue_exists(mir, function, value, errors);
                     validate_local_exists(function, *dest, errors);
                 }
                 Statement::AssignPlace { place, value } => {
                     validate_place_exists(function, place, errors);
-                    validate_rvalue_exists(function, value, errors);
+                    validate_rvalue_exists(mir, function, value, errors);
                 }
                 Statement::StorageLive(local) | Statement::StorageDead(local) => {
                     validate_local_exists(function, *local, errors);
@@ -124,6 +124,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
 
 /// Validate that IDs referenced by an rvalue point to existing MIR entities.
 fn validate_rvalue_exists(
+    mir: &Mir,
     function: &MirFunction,
     value: &Rvalue,
     errors: &mut Vec<ValidationError>,
@@ -144,6 +145,31 @@ fn validate_rvalue_exists(
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand_exists(function, lhs, errors);
             validate_operand_exists(function, rhs, errors);
+        }
+        Rvalue::Conditional {
+            cond,
+            then_operand,
+            else_operand,
+        } => {
+            validate_operand_exists(function, cond, errors);
+            validate_operand_exists(function, then_operand, errors);
+            validate_operand_exists(function, else_operand, errors);
+        }
+        Rvalue::InstanceOf { value: operand, .. } => {
+            validate_operand_exists(function, operand, errors);
+        }
+        Rvalue::UnknownIs {
+            value: unknown_value,
+            ..
+        } => {
+            validate_operand_exists(function, unknown_value, errors);
+        }
+        Rvalue::UnknownCast {
+            value: unknown_value,
+            target,
+        } => {
+            validate_operand_exists(function, unknown_value, errors);
+            validate_type(mir, *target, errors);
         }
         Rvalue::StringContains { haystack, needle } => {
             validate_operand_exists(function, haystack, errors);
@@ -664,6 +690,28 @@ fn validate_rvalue(
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand(function, definitions, lhs, errors);
             validate_operand(function, definitions, rhs, errors);
+        }
+        Rvalue::Conditional {
+            cond,
+            then_operand,
+            else_operand,
+        } => {
+            validate_operand(function, definitions, cond, errors);
+            validate_operand(function, definitions, then_operand, errors);
+            validate_operand(function, definitions, else_operand, errors);
+        }
+        Rvalue::InstanceOf { value: operand, .. } => {
+            validate_operand(function, definitions, operand, errors);
+        }
+        Rvalue::UnknownIs {
+            value: unknown_value,
+            ..
+        }
+        | Rvalue::UnknownCast {
+            value: unknown_value,
+            ..
+        } => {
+            validate_operand(function, definitions, unknown_value, errors);
         }
         Rvalue::StringContains { haystack, needle } => {
             validate_operand(function, definitions, haystack, errors);

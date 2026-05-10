@@ -170,6 +170,40 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("{op_text}{}", operand_text(operand))
         }
+        Rvalue::Conditional {
+            cond,
+            then_operand,
+            else_operand,
+        } => {
+            format!(
+                "if {} {{ {} }} else {{ {} }}",
+                operand_text(cond),
+                operand_text(then_operand),
+                operand_text(else_operand)
+            )
+        }
+        Rvalue::InstanceOf {
+            value: operand,
+            class,
+        } => {
+            format!("instanceof {}, class{}", operand_text(operand), class.0)
+        }
+        Rvalue::UnknownIs {
+            value: unknown_value,
+            kind,
+        } => {
+            format!("unknown_is {kind:?} {}", operand_text(unknown_value))
+        }
+        Rvalue::UnknownCast {
+            value: unknown_value,
+            target,
+        } => {
+            format!(
+                "unknown_cast {} as t{}",
+                operand_text(unknown_value),
+                target.0
+            )
+        }
         Rvalue::Struct { class, fields } => {
             let field_list = fields
                 .iter()
@@ -827,6 +861,7 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::String => "String".to_owned(),
+        Type::Unknown => "Unknown".to_owned(),
         Type::None => "None".to_owned(),
         Type::List(item) => format!("List<{}>", type_ref(mir, *item)),
         Type::Set(item) => format!("Set<{}>", type_ref(mir, *item)),

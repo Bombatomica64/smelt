@@ -724,6 +724,31 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
         }
         ExprKind::UnaryOp { op, operand } => format!("{op:?} {}", expr_ref(*operand)),
+        ExprKind::Conditional {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            format!(
+                "if {} then {} else {}",
+                expr_ref(*cond),
+                expr_ref(*then_expr),
+                expr_ref(*else_expr)
+            )
+        }
+        ExprKind::InstanceOf { value, class } => {
+            format!("instanceof {}, class{}", expr_ref(*value), class.0)
+        }
+        ExprKind::UnknownIs { value, kind } => {
+            format!("unknown_is {kind:?} {}", expr_ref(*value))
+        }
+        ExprKind::UnknownCast { value, target } => {
+            format!(
+                "unknown_cast {} as {}",
+                expr_ref(*value),
+                type_ref(krate, *target)
+            )
+        }
         ExprKind::Block(block) => format!("block {block:?}"),
         ExprKind::Lambda { body, return_ty } => {
             format!("lambda {body:?} -> {}", type_ref(krate, *return_ty))
@@ -873,6 +898,10 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::HttpGetText { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. }
+        | ExprKind::Conditional { .. }
+        | ExprKind::InstanceOf { .. }
+        | ExprKind::UnknownIs { .. }
+        | ExprKind::UnknownCast { .. }
         | ExprKind::Block(_)
         | ExprKind::Lambda { .. }
         | ExprKind::ListLit(_)
@@ -1082,6 +1111,7 @@ fn type_text(krate: &Crate, ty: &Type) -> String {
         Type::Int => "Int".to_owned(),
         Type::Float => "Float".to_owned(),
         Type::String => "String".to_owned(),
+        Type::Unknown => "Unknown".to_owned(),
         Type::None => "None".to_owned(),
         Type::List(item) => format!("List<{}>", type_ref(krate, *item)),
         Type::Set(item) => format!("Set<{}>", type_ref(krate, *item)),

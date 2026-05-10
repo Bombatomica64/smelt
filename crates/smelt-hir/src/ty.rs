@@ -13,6 +13,8 @@ pub enum Type {
     Float,
     /// String type.
     String,
+    /// TypeScript `unknown`, carried as an opaque safe boundary type.
+    Unknown,
     /// `None`/unit type.
     None,
     /// List type.

@@ -34,9 +34,12 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   - `src/quartersToMonths/index.ts`
   - `src/quartersToMonths/test.ts`
 - `vitest` globals are no longer the first failure.
-- Full slice still fails in `src/quartersToMonths/index.ts` on unresolved imported constant `monthsInQuarter`.
-- Test file alone fails on unresolved imported function `quartersToMonths`.
-- Next blocker is still the TypeScript import/export graph, not Vitest public API lowering.
+- `quartersToMonths/test.ts` alone now fails only because `quartersToMonths` is unavailable without
+  its library module.
+- Full slice can now fold exported primitive constant expressions such as `Math.pow(...) * ...`
+  and `-maxTime`.
+- Next blocker is any remaining non-foldable exported constant expression shape in the target slice,
+  not Vitest public API lowering.
 
 `Textualize/rich`:
 
@@ -44,8 +47,8 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   - `rich/_null_file.py`
   - `tests/test_null_file.py`
 - Pytest unannotated test discovery is no longer the first failure.
-- Library file still fails on `class NullFile(IO[str])` because complex generic base classes are unsupported.
-- `NULL_FILE = NullFile()` is then unresolved because the class failed to lower.
+- Library file now accepts generic base metadata such as `class NullFile(IO[str])`; `NULL_FILE =
+  NullFile()` still needs module-level constructed constant support.
 - Test file alone fails on local variable `file = NullFile()` being unresolved because imported module symbols are not available in that isolated run.
 - Next blockers are Python class/protocol support and import binding, not plain pytest discovery.
 
@@ -56,8 +59,13 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   - `packages/typeclass/src/data/Number.ts`
   - `packages/typeclass/test/data/Number.test.ts`
 - `@effect/vitest` and `describe.concurrent` are no longer the first failures.
-- Slice still fails on unresolved namespace import `NumberInstances`.
-- Next blockers are TypeScript namespace import/export binding and exported object/arrow-function runtime subset.
+- Test file alone resolves namespace imports such as `NumberInstances`; remaining failures are in the exported
+  constants/functions that those namespace members point at.
+- Full slice now reaches `packages/effect/src/Number.ts` and can lower exported arrow-function
+  constants plus object constants that group existing exports; remaining failures are exported
+  non-primitive value expressions such as `dual(...)` helpers.
+- Next blockers are remaining exported constant expression shapes outside the primitive folder and
+  the Effect runtime subset.
 
 `encode/httpx`:
 
@@ -65,9 +73,10 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   - `httpx/_status_codes.py`
   - `tests/test_status_codes.py`
 - Pytest unannotated test discovery is no longer the first failure.
-- Library file still fails on untyped `cls` in `codes.__new__`, unresolved `__all__`, and unresolved class name `codes`.
-- Test file alone fails on unresolved module import `httpx` and method/member calls such as `httpx.codes.get_reason_phrase(...)`.
-- Next blockers are Python module/package imports, `IntEnum`/class body handling, classmethod/`cls`, and member-call lowering.
+- Library file still fails on untyped `cls` in `codes.__new__` and unresolved class name `codes`.
+- Test file alone can resolve direct package namespace members such as `httpx.add(...)`; deeper
+  class-level member calls such as `httpx.codes.get_reason_phrase(...)` still need object model work.
+- Next blockers are `IntEnum`/class body handling, classmethod/`cls`, and class-level member-call lowering.
 
 ## Priority 0: Existing Workspace Health
 
@@ -112,8 +121,8 @@ Python:
   - `*_test.py` if needed later
 - [x] In pytest mode, allow top-level `def test_*():` with no return annotation and treat it as `-> None`.
 - [ ] Recognize pytest APIs and marks:
-  - `pytest.raises`
-  - `pytest.mark.parametrize`
+  - [x] `pytest.raises`
+  - [x] `pytest.mark.parametrize`
   - [x] `pytest.fixture`
   - [x] `pytest.mark.skip`
   - [x] `pytest.mark.skipif`
@@ -198,16 +207,40 @@ Fixtures:
 - [x] Start with simple named fixtures that return a value.
 - [x] Accept `autouse` fixture syntax without rejecting valid pytest code.
 - [x] Accept scoped fixture syntax without rejecting valid pytest code.
-- [ ] Implement actual autouse fixture injection semantics.
+- [x] Implement actual function-level autouse fixture injection semantics.
 - [ ] Implement actual non-function fixture scope caching semantics.
+- [ ] Support common built-in/project fixtures discovered in Click and Requests:
+  - `tmp_path`
+  - `tmpdir`
+  - `monkeypatch`
+  - `capsys`
+  - `capfd`
+  - `recwarn`
+  - project fixtures such as Click's `runner`
+
+Parametrization follow-up:
+
+- [ ] Support tuple/list parameter-name declarations:
+
+```py
+@pytest.mark.parametrize(("value", "expected"), [(1, 2)])
+```
+
+- [ ] Support function values and lambdas in parameter rows.
+- [ ] Support row-level marks in `pytest.param(...)`.
+- [ ] Support non-literal `pytest.mark.skipif(...)` conditions.
+- [ ] Allow untyped helper functions in pytest files when they are local test helpers, not emitted
+      Rust tests.
 
 TypeScript table tests later:
 
 - [x] Lower direct literal `test.each` / `it.each` rows into one Rust test per row.
 - [x] Lower direct literal `describe.each` rows by flattening direct nested `it` / `test` calls.
 - [x] Inline direct `beforeEach` / `afterEach` arrow callbacks into each generated test.
-- [ ] Support nested `describe` blocks with inherited lifecycle hooks.
+- [x] Support nested `describe` blocks with inherited lifecycle hooks.
 - [ ] Support dynamic table sources.
+- [ ] Support Vitest type-test imports such as `expectTypeOf` / `assertType` as no-op compile-time
+      assertions once type-only test files are in scope.
 
 ## Priority 5: Import Graph And Real Project Slices
 
@@ -217,8 +250,8 @@ Required for the date-fns first green target:
   - `./index.ts`
   - `../constants/index.ts`
 - [x] Resolve named exported constants.
-- [ ] Resolve re-exports from index modules.
-- [ ] Ensure manifest entries can provide symbols to later entries.
+- [x] Resolve re-exports from index modules.
+- [x] Ensure manifest entries can provide symbols to later entries.
 - [x] Add a regression fixture based on date-fns-style imports:
 
 ```ts
@@ -237,12 +270,14 @@ export function quartersToMonths(quarters: number): number {
 
 TypeScript:
 
+- [ ] `unknown` as a boundary type distinct from `any`
+- [ ] `readonly unknown[]`
 - [x] `Math.trunc`
 - [x] `Math.pow`
 - [x] String `.toUpperCase`
 - [x] String `.toLowerCase`
 - [x] `Date` should be rejected clearly unless implemented.
-- [x] `instanceof` rejected clearly until modeled.
+- [x] `instanceof` for concrete class values.
 - [x] `Infinity`
 - [ ] Array iteration and readonly array parameters
 - [ ] Exported object constants

@@ -8,6 +8,7 @@ mod stdlib;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::path::Path;
 
 use ruff_python_ast::{
     BoolOp, CmpOp, ElifElseClause, Expr, ModModule, Number, Operator, Pattern as RuffPattern,
@@ -44,8 +45,10 @@ pub(crate) struct ModuleBuilder<'ctx> {
     locals: HashMap<String, smelt_hir::LocalId>,
     /// Module-level items (functions / classes) for call resolution.
     items: HashMap<String, ItemId>,
+    /// Imported module/package namespaces available by local module name.
+    module_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Pytest fixture functions available to tests in this module.
-    pytest_fixtures: HashMap<String, (ItemId, TypeId)>,
+    pytest_fixtures: HashMap<String, PytestFixture>,
     /// Whether the current lowered function body is async.
     current_async: bool,
     /// Whether this module should use pytest-specific test discovery rules.
@@ -59,6 +62,17 @@ struct PytestParametrize {
     names: Vec<String>,
     /// Literal rows in order.
     rows: Vec<Vec<PytestLiteral>>,
+}
+
+/// Lowered metadata for a pytest fixture function.
+#[derive(Debug, Clone, Copy)]
+struct PytestFixture {
+    /// HIR item for the fixture function.
+    item: ItemId,
+    /// Return type produced by the fixture.
+    ty: TypeId,
+    /// Whether this fixture should be called for every pytest test in the module.
+    autouse: bool,
 }
 
 /// Literal values supported in first-pass pytest parametrization.
@@ -84,6 +98,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Build a lowering context for one Python source module.
     pub(crate) fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
         let items = visible_items(ctx);
+        let module_namespaces = ctx.module_namespaces.clone();
         Self {
             file_id,
             pytest_mode: test_support::is_pytest_file(&path),
@@ -91,6 +106,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ctx,
             locals: HashMap::new(),
             items,
+            module_namespaces,
             pytest_fixtures: HashMap::new(),
             current_async: false,
         }
@@ -130,6 +146,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.import_from_stmt(import, &mut hir_module);
             }
         }
+        self.register_module_namespace(&hir_module);
 
         // Pass 2 — lower module-level statements into the module body.
         for stmt in &module.body {
@@ -172,6 +189,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span,
             });
             self.alias_imported_item(module_name, local);
+            if let Some(namespace) = self.ctx.module_namespaces.get(module_name).cloned() {
+                self.module_namespaces.insert(local.to_owned(), namespace);
+            }
         }
     }
 
@@ -205,6 +225,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(item) = self.items.get(imported).copied() {
             self.items.insert(local.to_owned(), item);
         }
+    }
+
+    /// Register this module's lowered items for later `import module` namespace access.
+    fn register_module_namespace(&mut self, hir_module: &Module) {
+        let mut namespace = HashMap::new();
+        for item_id in &hir_module.items {
+            let Some(item) = self
+                .ctx
+                .krate
+                .items
+                .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
+            else {
+                continue;
+            };
+            let Some(name) = item_name(&self.ctx.krate, item) else {
+                continue;
+            };
+            namespace.insert(name.to_owned(), *item_id);
+        }
+        if namespace.is_empty() {
+            return;
+        }
+        let module_name = module_name_from_path(&self.path);
+        self.ctx
+            .module_namespaces
+            .insert(module_name.clone(), namespace.clone());
+        self.module_namespaces.insert(module_name, namespace);
     }
 
     /// Read the type attached to an expression id.
@@ -317,7 +364,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if is_django_model_base(base_expr) {
                         return Err(SmeltError::django_unsupported(span, class_name_str));
                     }
-                    match expr_simple_name(base_expr) {
+                    match base_class_name(base_expr) {
                         Some("object") => None,
                         Some(name) => Some(self.intern_name(name)),
                         None => {
@@ -691,8 +738,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let item = self.function_def(func)?;
         if Self::is_pytest_fixture(func) {
             let return_ty = self.function_return_ty(item)?;
-            self.pytest_fixtures
-                .insert(func.name.as_str().to_owned(), (item, return_ty));
+            self.pytest_fixtures.insert(
+                func.name.as_str().to_owned(),
+                Self::pytest_fixture_metadata(func, item, return_ty),
+            );
         }
         Ok(vec![item])
     }
@@ -702,6 +751,26 @@ impl<'ctx> ModuleBuilder<'ctx> {
         func.decorator_list
             .iter()
             .any(|decorator| decorator_simple_name(decorator) == Some("fixture"))
+    }
+
+    /// Extract the supported fixture metadata while accepting unknown pytest options.
+    fn pytest_fixture_metadata(func: &StmtFunctionDef, item: ItemId, ty: TypeId) -> PytestFixture {
+        let autouse = func.decorator_list.iter().any(|decorator| {
+            if decorator_simple_name(decorator) != Some("fixture") {
+                return false;
+            }
+            let Expr::Call(call) = &decorator.expression else {
+                return false;
+            };
+            call.arguments.keywords.iter().any(|keyword| {
+                keyword
+                    .arg
+                    .as_ref()
+                    .is_some_and(|arg| arg.as_str() == "autouse")
+                    && matches!(&keyword.value, Expr::BooleanLiteral(value) if value.value)
+            })
+        });
+        PytestFixture { item, ty, autouse }
     }
 
     /// Return whether a pytest function should be emitted as a skipped test.
@@ -785,11 +854,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "pytest.mark.parametrize requires names and rows",
             ));
         };
-        if !call.arguments.keywords.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(call.range),
-                "pytest.mark.parametrize keyword arguments are not supported yet",
-            ));
+        for keyword in &call.arguments.keywords {
+            let Some(arg) = keyword.arg.as_ref().map(|arg| arg.as_str()) else {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "pytest.mark.parametrize **kwargs are not supported yet",
+                ));
+            };
+            if arg != "ids" {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    format!(
+                        "pytest.mark.parametrize keyword argument '{arg}' is not supported yet"
+                    ),
+                ));
+            }
         }
         let names = self.pytest_parametrize_names(names_expr)?;
         let rows = self.pytest_parametrize_rows(rows_expr, names.len())?;
@@ -827,6 +906,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let func_span = self.span(func.range);
         let mut fn_body = Body::new(None, func_span);
         let root_block = fn_body.root;
+
+        for fixture in self.pytest_fixtures.values().copied() {
+            if fixture.autouse {
+                let callee = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Item(fixture.item),
+                    ty: fixture.ty,
+                    span: func_span,
+                });
+                let value = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Call {
+                        callee,
+                        args: Vec::new(),
+                    },
+                    ty: fixture.ty,
+                    span: func_span,
+                });
+                fn_body.push_stmt_to_block(root_block, HirStmt::Expr(value));
+            }
+        }
 
         for (param_name, value) in parametrize.names.iter().zip(row) {
             let ty = self.pytest_literal_type(value, func_span)?;
@@ -920,6 +1018,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for row_expr in row_exprs {
             let row = if width == 1 {
                 vec![self.pytest_literal(row_expr)?]
+            } else if let Expr::Call(call) = row_expr
+                && Self::is_pytest_param_call(call)
+            {
+                if call.arguments.args.len() < width {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.range),
+                        "pytest.param row width does not match parameter names",
+                    ));
+                }
+                call.arguments
+                    .args
+                    .iter()
+                    .take(width)
+                    .map(|value| self.pytest_literal(value))
+                    .collect::<Result<Vec<_>, _>>()?
             } else {
                 let values = match row_expr {
                     Expr::List(list) => list.elts.as_slice(),
@@ -956,6 +1069,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Parse one supported pytest parametrization literal.
     fn pytest_literal(&self, expr: &Expr) -> Result<PytestLiteral, SmeltError> {
         match expr {
+            Expr::Call(call) if Self::is_pytest_param_call(call) => {
+                let Some(value) = call.arguments.args.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.range),
+                        "pytest.param requires at least one value",
+                    ));
+                };
+                self.pytest_literal(value)
+            }
             Expr::BooleanLiteral(value) => Ok(PytestLiteral::Bool(value.value)),
             Expr::NumberLiteral(number) => match &number.value {
                 Number::Int(value) => value.as_i64().map(PytestLiteral::Int).ok_or_else(|| {
@@ -990,6 +1112,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.span(expr.range()),
                 "pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals",
             )),
+        }
+    }
+
+    /// Return whether a call expression is `pytest.param(...)` or imported `param(...)`.
+    fn is_pytest_param_call(call: &ruff_python_ast::ExprCall) -> bool {
+        match call.func.as_ref() {
+            Expr::Attribute(attr) if attr.attr.as_str() == "param" => {
+                matches!(attr.value.as_ref(), Expr::Name(name) if name.id.as_str() == "pytest")
+            }
+            Expr::Name(name) => name.id.as_str() == "param",
+            _ => false,
         }
     }
 
@@ -1144,26 +1277,47 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let func_span = self.span(func.range);
         let mut fn_body = Body::new(None, func_span);
         let mut params: Vec<Param> = Vec::new();
+        let is_pytest_test = self.is_pytest_test_function(func);
+
+        if is_pytest_test {
+            for fixture in self.pytest_fixtures.values().copied() {
+                if fixture.autouse {
+                    let callee = fn_body.push_expr(HirExpr {
+                        kind: ExprKind::Item(fixture.item),
+                        ty: fixture.ty,
+                        span: func_span,
+                    });
+                    let value = fn_body.push_expr(HirExpr {
+                        kind: ExprKind::Call {
+                            callee,
+                            args: Vec::new(),
+                        },
+                        ty: fixture.ty,
+                        span: func_span,
+                    });
+                    fn_body.push_stmt(HirStmt::Expr(value));
+                }
+            }
+        }
 
         // Parameters — only positional/keyword args, no *args / **kwargs.
         for param_with_default in func.parameters.iter_non_variadic_params() {
             let p = &param_with_default.parameter;
             let param_name_str = p.name.as_str();
-            if self.is_pytest_test_function(func)
-                && let Some((fixture_item, fixture_ty)) =
-                    self.pytest_fixtures.get(param_name_str).copied()
+            if is_pytest_test
+                && let Some(fixture) = self.pytest_fixtures.get(param_name_str).copied()
             {
                 let param_name = self.intern_name(param_name_str);
                 let local = fn_body.push_local(LocalDecl {
                     name: Some(param_name),
-                    ty: fixture_ty,
+                    ty: fixture.ty,
                     mutable: false,
                     span: self.span(p.range),
                 });
                 self.locals.insert(param_name_str.to_owned(), local);
                 let callee = fn_body.push_expr(HirExpr {
-                    kind: ExprKind::Item(fixture_item),
-                    ty: fixture_ty,
+                    kind: ExprKind::Item(fixture.item),
+                    ty: fixture.ty,
                     span: self.span(p.range),
                 });
                 let value = fn_body.push_expr(HirExpr {
@@ -1171,13 +1325,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         callee,
                         args: Vec::new(),
                     },
-                    ty: fixture_ty,
+                    ty: fixture.ty,
                     span: self.span(p.range),
                 });
                 let pat = fn_body.push_pattern(HirPattern::Binding(local));
                 fn_body.push_stmt(HirStmt::Let {
                     pat,
-                    ty: fixture_ty,
+                    ty: fixture.ty,
                     value: Some(value),
                 });
                 continue;
@@ -1598,6 +1752,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
             // Standalone expression statement (e.g. a function call).
             Stmt::Expr(s) => {
+                if let Expr::Call(call) = s.value.as_ref()
+                    && self.pytest_raises_callable_statement(call, body, block)?
+                {
+                    return Ok(());
+                }
                 let expr_id = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Expr(expr_id));
                 Ok(())
@@ -1733,12 +1892,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "pytest.raises lowering supports exactly one context manager",
             ));
         };
-        if item.optional_vars.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(item.range),
-                "pytest.raises context variables are not supported yet",
-            ));
-        }
+        let catch_binding = item
+            .optional_vars
+            .as_ref()
+            .map(|vars| self.pytest_raises_context_binding(vars, body))
+            .transpose()?;
         let Some(raises_call) = Self::pytest_raises_call(&item.context_expr) else {
             return Err(SmeltError::unsupported(
                 self.span(item.range),
@@ -1751,11 +1909,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "pytest.raises requires an expected exception type",
             ));
         }
-        if !raises_call.arguments.keywords.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(raises_call.range),
-                "pytest.raises keyword arguments are not supported yet",
-            ));
+        for keyword in &raises_call.arguments.keywords {
+            let Some(arg) = keyword.arg.as_ref().map(|arg| arg.as_str()) else {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "pytest.raises **kwargs are not supported yet",
+                ));
+            };
+            if arg != "match" {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    format!("pytest.raises keyword argument '{arg}' is not supported yet"),
+                ));
+            }
         }
 
         let bool_ty = self.intern_type(Type::Bool);
@@ -1804,7 +1970,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             block,
             HirStmt::TryCatch {
                 body: try_body,
-                catch_binding: None,
+                catch_binding,
                 catch_body: Some(catch_body),
                 finally_body: None,
             },
@@ -1838,19 +2004,167 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(())
     }
 
+    /// Lower a `with pytest.raises(...) as excinfo` binding to a catch local.
+    fn pytest_raises_context_binding(
+        &mut self,
+        vars: &Expr,
+        body: &mut Body,
+    ) -> Result<smelt_hir::LocalId, SmeltError> {
+        let Expr::Name(name) = vars else {
+            return Err(SmeltError::unsupported(
+                self.span(vars.range()),
+                "pytest.raises context variables must be simple names",
+            ));
+        };
+        let ty = self.intern_type(Type::String);
+        let symbol = self.intern_name(name.id.as_str());
+        let local = body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty,
+            mutable: false,
+            span: self.span(name.range),
+        });
+        self.locals.insert(name.id.to_string(), local);
+        Ok(local)
+    }
+
+    /// Lower callable-form `pytest.raises(Expected, fn, *args)` in statement position.
+    fn pytest_raises_callable_statement(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        if !Self::is_pytest_raises_call(call) || call.arguments.args.len() < 2 {
+            return Ok(false);
+        }
+        for keyword in &call.arguments.keywords {
+            let Some(arg) = keyword.arg.as_ref().map(|arg| arg.as_str()) else {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "pytest.raises **kwargs are not supported yet",
+                ));
+            };
+            if arg != "match" {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    format!("pytest.raises keyword argument '{arg}' is not supported yet"),
+                ));
+            }
+        }
+
+        let bool_ty = self.intern_type(Type::Bool);
+        let raised_sym = self.intern_name("__smelt_pytest_raised");
+        let raised_local = body.push_local(LocalDecl {
+            name: Some(raised_sym),
+            ty: bool_ty,
+            mutable: true,
+            span: self.span(call.range),
+        });
+        let false_expr = body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span: self.span(call.range),
+        });
+        let raised_pat = body.push_pattern(HirPattern::Binding(raised_local));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::Let {
+                pat: raised_pat,
+                ty: bool_ty,
+                value: Some(false_expr),
+            },
+        );
+
+        let try_body = body.push_block(self.span(call.range));
+        let callee = self.expression(&call.arguments.args[1], body)?;
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .skip(2)
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let value = body.push_expr(HirExpr {
+            kind: ExprKind::Call { callee, args },
+            ty: self.intern_type(Type::None),
+            span: self.span(call.range),
+        });
+        body.push_stmt_to_block(try_body, HirStmt::Expr(value));
+
+        let catch_body = body.push_block(self.span(call.range));
+        let raised_target = body.push_expr(HirExpr {
+            kind: ExprKind::Local(raised_local),
+            ty: bool_ty,
+            span: self.span(call.range),
+        });
+        let true_expr = body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span: self.span(call.range),
+        });
+        body.push_stmt_to_block(
+            catch_body,
+            HirStmt::Assign {
+                target: raised_target,
+                value: true_expr,
+            },
+        );
+        body.push_stmt_to_block(
+            block,
+            HirStmt::TryCatch {
+                body: try_body,
+                catch_binding: None,
+                catch_body: Some(catch_body),
+                finally_body: None,
+            },
+        );
+
+        let raised_check = body.push_expr(HirExpr {
+            kind: ExprKind::Local(raised_local),
+            ty: bool_ty,
+            span: self.span(call.range),
+        });
+        let missing_raise = body.push_expr(HirExpr {
+            kind: ExprKind::UnaryOp {
+                op: UnaryOp::Not,
+                operand: raised_check,
+            },
+            ty: bool_ty,
+            span: self.span(call.range),
+        });
+        let failure_block = body.push_block(self.span(call.range));
+        let message =
+            self.string_literal_expr("pytest.raises(...) did not raise", call.range, body);
+        body.push_stmt_to_block(failure_block, HirStmt::Throw(message));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::If {
+                cond: missing_raise,
+                then_block: failure_block,
+                else_block: None,
+            },
+        );
+        Ok(true)
+    }
+
     /// Return the call expression for a supported `pytest.raises(...)` call.
     fn pytest_raises_call(expr: &Expr) -> Option<&ruff_python_ast::ExprCall> {
         let Expr::Call(call) = expr else {
             return None;
         };
-        let is_raises = match call.func.as_ref() {
+        Self::is_pytest_raises_call(call).then_some(call)
+    }
+
+    /// Return whether a call is `pytest.raises(...)` or imported `raises(...)`.
+    fn is_pytest_raises_call(call: &ruff_python_ast::ExprCall) -> bool {
+        match call.func.as_ref() {
             Expr::Attribute(attr) if attr.attr.as_str() == "raises" => {
                 matches!(attr.value.as_ref(), Expr::Name(name) if name.id.as_str() == "pytest")
             }
             Expr::Name(name) => name.id.as_str() == "raises",
             _ => false,
-        };
-        is_raises.then_some(call)
+        }
     }
 
     /// Create a string literal expression for synthesized diagnostics.
@@ -2419,6 +2733,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // --- Unary operators ---
             Expr::UnaryOp(u) => self.unary_expression(u, body),
 
+            // --- Conditional expression: `a if cond else b` ---
+            Expr::If(if_expr) => self.if_expression(if_expr, body),
+
             // --- Calls ---
             Expr::Call(call) => self.call_expression_with_hint(call, body, type_hint),
 
@@ -2449,6 +2766,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Expr::Attribute(attr) => {
                 if let Some(constant) = self.math_constant_expression(attr, body) {
                     return Ok(constant);
+                }
+                if let Some(member_expr) = self.module_member_expression(attr, body)? {
+                    return Ok(member_expr);
                 }
                 let receiver = self.expression(&attr.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
@@ -2583,7 +2903,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
             Expr::Named(_)
             | Expr::Lambda(_)
-            | Expr::If(_)
             | Expr::ListComp(_)
             | Expr::SetComp(_)
             | Expr::DictComp(_)
@@ -2601,6 +2920,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 format!("unsupported expression: {}", expr_kind_name(expr)),
             )),
         }
+    }
+
+    /// Lower a Python conditional expression (`then if cond else else_`).
+    fn if_expression(
+        &mut self,
+        if_expr: &ruff_python_ast::ExprIf,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let cond = self.expression(&if_expr.test, body)?;
+        let then_expr = self.expression(&if_expr.body, body)?;
+        let else_expr = self.expression(&if_expr.orelse, body)?;
+        let ty = Self::expr_ty(body, then_expr);
+        if Self::expr_ty(body, else_expr) != ty {
+            return Err(SmeltError::unsupported(
+                self.span(if_expr.range),
+                "conditional expression branches must have the same type",
+            ));
+        }
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            },
+            ty,
+            span: self.span(if_expr.range),
+        }))
     }
 
     /// Lower a binary arithmetic/comparison operator expression.
@@ -2838,6 +3184,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(call.range);
 
+        if let Some(expr) = self.module_member_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.asyncio_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -2940,7 +3289,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.re_module_call_expression(call, body)? {
             return Ok(expr);
         }
-
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {
             if matches!(name.id.as_str(), "list" | "set" | "dict" | "tuple")
@@ -4426,10 +4774,134 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }));
         }
 
+        if let Some(value) = self.module_dunder_value(name) {
+            let ty = self.intern_type(Type::String);
+            return Ok(body.push_expr(HirExpr {
+                kind: ExprKind::Literal(Literal::String(value)),
+                ty,
+                span,
+            }));
+        }
+
         Err(SmeltError::unsupported(
             span,
             format!("unresolved name '{name}'"),
         ))
+    }
+
+    /// Return the source-level value for supported module dunder variables.
+    fn module_dunder_value(&self, name: &str) -> Option<String> {
+        match name {
+            "__file__" => Some(self.path.clone()),
+            "__name__" => Some(module_name_from_path(&self.path)),
+            _ => None,
+        }
+    }
+
+    /// Lower `module.member` when `module` is an imported package/module namespace.
+    fn module_member_expression(
+        &mut self,
+        attr: &ruff_python_ast::ExprAttribute,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(item_id) = self.module_member_item(attr) else {
+            return Ok(None);
+        };
+        let span = self.span(attr.range);
+        let ty = self.item_expr_type(item_id);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::Item(item_id),
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower `module.member(...)` for imported package/module namespace members.
+    fn module_member_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Some(item_id) = self.module_member_item(attr) else {
+            return Ok(None);
+        };
+        let span = self.span(call.range);
+        match self.item_ref(item_id) {
+            Item::Class(class) => {
+                let class_sym = class.name;
+                let class_ty = self.intern_type(Type::Class {
+                    name: class_sym,
+                    args: vec![],
+                });
+                let args = call
+                    .arguments
+                    .args
+                    .iter()
+                    .map(|arg| self.expression(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::New {
+                        class: class_sym,
+                        args,
+                    },
+                    ty: class_ty,
+                    span,
+                })))
+            }
+            Item::Function(function) => {
+                let return_ty = function.return_ty;
+                let callee = body.push_expr(HirExpr {
+                    kind: ExprKind::Item(item_id),
+                    ty: return_ty,
+                    span: self.span(attr.range),
+                });
+                let args = call
+                    .arguments
+                    .args
+                    .iter()
+                    .map(|arg| self.expression(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::Call { callee, args },
+                    ty: return_ty,
+                    span,
+                })))
+            }
+            Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => Err(
+                SmeltError::unsupported(span, "module namespace member is not callable"),
+            ),
+        }
+    }
+
+    /// Resolve one item from an imported package/module namespace member access.
+    fn module_member_item(&self, attr: &ruff_python_ast::ExprAttribute) -> Option<ItemId> {
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return None;
+        };
+        self.module_namespaces
+            .get(module.id.as_str())
+            .and_then(|members| members.get(attr.attr.as_str()))
+            .copied()
+    }
+
+    /// Return the HIR type to attach when an item appears as an expression.
+    fn item_expr_type(&mut self, item_id: ItemId) -> TypeId {
+        match self.item_ref(item_id) {
+            Item::Function(function) => function.return_ty,
+            Item::Class(class) => {
+                let sym = class.name;
+                self.intern_type(Type::Class {
+                    name: sym,
+                    args: vec![],
+                })
+            }
+            Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
+                self.intern_type(Type::None)
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -4671,6 +5143,29 @@ fn is_module_all_assignment(stmt: &Stmt) -> bool {
             matches!(assign.target.as_ref(), Expr::Name(name) if name.id.as_str() == "__all__")
         }
         _ => false,
+    }
+}
+
+/// Derive a stable Python module name from a source path.
+fn module_name_from_path(path: &str) -> String {
+    let source_path = Path::new(path);
+    if source_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py")
+        && let Some(parent) = source_path.parent().and_then(Path::file_name)
+    {
+        return parent.to_string_lossy().into_owned();
+    }
+    source_path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_else(|| "__main__".to_owned())
+}
+
+/// Return the base class name for plain and parameterized base expressions.
+fn base_class_name(expr: &Expr) -> Option<&str> {
+    match expr {
+        Expr::Subscript(sub) => expr_simple_name(&sub.value),
+        _ => expr_simple_name(expr),
     }
 }
 

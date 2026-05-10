@@ -1,6 +1,8 @@
 //! HIR construction context for TypeScript frontend lowering.
 
-use smelt_hir::Crate as HirCrate;
+use std::collections::HashMap;
+
+use smelt_hir::{Crate as HirCrate, ItemId};
 
 /// Context for building HIR from TypeScript source.
 ///
@@ -9,6 +11,10 @@ use smelt_hir::Crate as HirCrate;
 pub struct HirCtx {
     /// The HIR crate being constructed.
     pub krate: HirCrate,
+    /// Exported aliases created by re-export declarations.
+    pub export_aliases: HashMap<String, ItemId>,
+    /// Exported object constants used as namespace-like API surfaces.
+    pub object_namespaces: HashMap<String, HashMap<String, ItemId>>,
 }
 
 impl HirCtx {
@@ -17,6 +23,8 @@ impl HirCtx {
     pub fn new() -> Self {
         Self {
             krate: HirCrate::new(),
+            export_aliases: HashMap::new(),
+            object_namespaces: HashMap::new(),
         }
     }
 }

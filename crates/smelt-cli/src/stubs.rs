@@ -244,6 +244,7 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Bool) => "boolean".to_owned(),
         Some(Type::Int | Type::Float) => "number".to_owned(),
         Some(Type::String) => "string".to_owned(),
+        Some(Type::Unknown) | None => "unknown".to_owned(),
         Some(Type::None) => "void".to_owned(),
         Some(Type::List(item) | Type::Set(item)) => {
             format!("Array<{}>", ts_type(krate, *item))
@@ -280,7 +281,6 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
             format!("({params}) => {}", ts_type(krate, function.return_ty))
         }
         Some(Type::Future(item)) => format!("Promise<{}>", ts_type(krate, *item)),
-        None => "unknown".to_owned(),
     }
 }
 
@@ -291,6 +291,7 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Int) => "int".to_owned(),
         Some(Type::Float) => "float".to_owned(),
         Some(Type::String) => "str".to_owned(),
+        Some(Type::Unknown) | None => "typing.Any".to_owned(),
         Some(Type::None) => "None".to_owned(),
         Some(Type::List(item)) => format!("list[{}]", py_type(krate, *item)),
         Some(Type::Set(item)) => format!("set[{}]", py_type(krate, *item)),
@@ -314,6 +315,5 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Class { name, .. }) => symbol_name(krate, *name).to_owned(),
         Some(Type::Function(_)) => "typing.Callable".to_owned(),
         Some(Type::Future(item)) => format!("typing.Awaitable[{}]", py_type(krate, *item)),
-        None => "typing.Any".to_owned(),
     }
 }

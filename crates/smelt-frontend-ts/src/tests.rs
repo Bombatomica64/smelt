@@ -136,6 +136,224 @@ export function quartersToMonths(quarters: number): number {
 }
 
 #[test]
+fn exported_foldable_constants_are_visible_to_later_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export const base = Math.pow(10, 2);
+export const maxTime = base * 5;
+export const minTime = -maxTime;
+"#),
+        "src/constants.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { minTime } from "./constants";
+const value = minTime;
+"#),
+        "src/main.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -500.0)
+    ));
+    Ok(())
+}
+
+#[test]
+fn reexported_named_items_are_visible_to_later_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!("export function add(a: number, b: number): number { return a + b; }\n"),
+        "src/math.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!("export { add as plus } from \"./math\";\n"),
+        "src/index.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { plus } from "./index";
+const value = plus(2, 3);
+"#),
+        "src/main.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Call { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn namespace_import_members_are_visible_to_later_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!("export function double(value: number): number { return value * 2; }\n"),
+        "src/number.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import * as NumberInstances from "./number";
+const value = NumberInstances.double(4);
+"#),
+        "src/main.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Call { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn exported_arrow_function_constants_are_visible_to_later_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!("export const double = (value: number): number => value * 2;\n"),
+        "src/number.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { double } from "./number";
+const value = double(4);
+"#),
+        "src/main.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Call { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn exported_object_constants_can_act_as_namespace_apis() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export function double(value: number): number { return value * 2; }
+export const NumberInstances = { double };
+"#),
+        "src/number.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { NumberInstances } from "./number";
+const value = NumberInstances.double(4);
+"#),
+        "src/main.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Call { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn unknown_and_readonly_unknown_array_types_lower() -> Result<(), String> {
+    let source = ts!(r#"
+export function identity(value: unknown): unknown {
+  return value;
+}
+
+export function passthrough(values: readonly unknown[]): readonly unknown[] {
+  return values;
+}
+"#);
+    let mut ctx = HirCtx::new();
+    lower_ok(source, &mut ctx)?;
+    ensure!(
+        ctx.krate
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Unknown)),
+        "expected unknown to lower as a distinct HIR type",
+    );
+    ensure!(
+        ctx.krate
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::List(item) if matches!(ctx.krate.types.get(*item), Some(Type::Unknown)))),
+        "expected readonly unknown[] to lower as List<Unknown>",
+    );
+    Ok(())
+}
+
+#[test]
+fn unknown_narrowing_guards_and_assertions_lower() -> Result<(), String> {
+    let source = ts!(r#"
+function assertString(value: unknown): asserts value is string {
+  if (typeof value !== "string") {
+    throw "not string";
+  }
+}
+
+export function read(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  assertString(value);
+  return value;
+}
+
+export function isList(value: unknown): boolean {
+  return Array.isArray(value);
+}
+
+export function isNull(value: unknown): boolean {
+  return value === null;
+}
+"#);
+    let mut ctx = HirCtx::new();
+    lower_ok(source, &mut ctx)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::UnknownIs { .. })),
+        "expected unknown runtime tag checks",
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::UnknownCast { .. })),
+        "expected narrowed unknown extraction",
+    );
+    Ok(())
+}
+
+#[test]
 fn vitest_common_positive_matchers_lower_to_assertion_checks() -> Result<(), String> {
     let source = ts!(r#"
 import { test, expect } from "vitest";
@@ -213,6 +431,74 @@ test("uses hooks", () => {
     ensure!(
         body.stmts.len() >= 3,
         "expected beforeEach, test body, and afterEach statements"
+    );
+    Ok(())
+}
+
+#[test]
+fn vitest_nested_describe_inherits_lifecycle_hooks() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, test, expect, beforeEach, afterEach } from "vitest";
+
+describe("outer", () => {
+  beforeEach(() => {
+    expect(true).toBe(true);
+  });
+  describe("inner", () => {
+    afterEach(() => {
+      expect(true).toBe(true);
+    });
+    test("case", () => {
+      expect(true).toBe(true);
+    });
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/nested-hooks.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 1);
+    let function = function_item(&ctx, module, 0)?;
+    ensure!(function.is_test);
+    ensure_eq!(
+        ctx.krate
+            .symbols
+            .get(function.name)
+            .ok_or_else(|| "missing function symbol".to_owned())?,
+        "test_outer_inner_case"
+    );
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.stmts.len() >= 3,
+        "expected inherited beforeEach, test body, and nested afterEach statements"
+    );
+    Ok(())
+}
+
+#[test]
+fn node_assert_deep_strict_equal_identifier_lowers() -> Result<(), String> {
+    let source = ts!(r#"
+import { test } from "vitest";
+import { deepStrictEqual } from "node:assert";
+
+test("assert helper", () => {
+  deepStrictEqual(1 + 1, 2);
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/assert.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::BinOp {
+                op: BinOp::NotEq,
+                ..
+            }
+        )),
+        "expected deepStrictEqual identifier to lower to an assertion check",
     );
     Ok(())
 }
@@ -582,7 +868,7 @@ const lower = -Infinity;
 }
 
 #[test]
-fn rejects_date_and_instanceof_with_targeted_diagnostics() -> Result<(), String> {
+fn rejects_date_with_targeted_diagnostics() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let date_errors = lowering_errors(
         ts!(r#"
@@ -600,9 +886,13 @@ const date = new Date();
         &mut ctx,
     )?;
     assert_unsupported_ts(&new_date_errors, "TypeScript Date is not supported yet")?;
+    Ok(())
+}
 
+#[test]
+fn lowers_instanceof_for_class_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let instanceof_errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r#"
 class Box {}
 const value = new Box();
@@ -610,10 +900,13 @@ const result = value instanceof Box;
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(
-        &instanceof_errors,
-        "TypeScript instanceof is not supported yet",
-    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
+    );
     Ok(())
 }
 

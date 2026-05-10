@@ -399,6 +399,26 @@ const lower = -Infinity;
 }
 
 #[test]
+fn emits_typescript_instanceof_as_class_check() {
+    let source = source_for(
+        r#"
+class Box {
+  constructor() {}
+}
+class Other {
+  constructor() {}
+}
+const value = new Box();
+const yes = value instanceof Box;
+const no = value instanceof Other;
+"#,
+    );
+
+    assert!(source.contains(": bool = true;"));
+    assert!(source.contains(": bool = false;"));
+}
+
+#[test]
 fn emits_typescript_global_numeric_parse_calls() {
     let source = source_for(
         r#"
@@ -913,6 +933,19 @@ has_key: bool = "a" in mapping
     assert!(source.contains("::std::collections::HashSet::from(["));
     assert!(source.contains(".contains(&1)"));
     assert!(source.contains(".contains_key(&"));
+}
+
+#[test]
+fn emits_python_ternary_expression() {
+    let source = source_for_py(
+        r#"
+def choose(flag: bool, left: int, right: int) -> int:
+    return left if flag else right
+"#,
+    );
+
+    assert!(source.contains("if "));
+    assert!(source.contains(" else "));
 }
 
 #[test]
@@ -1867,6 +1900,52 @@ fn injects_regex_dependency_for_regex_mapping() {
     let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::Regex]);
 
     assert!(manifest.contains("regex = \"1\""));
+}
+
+#[test]
+fn emits_typescript_unknown_as_tagged_type() {
+    let source = source_for(
+        "function identity(value: unknown): unknown {
+  return value;
+}
+
+function passthrough(values: readonly unknown[]): readonly unknown[] {
+  return values;
+}
+",
+    );
+
+    assert!(source.contains("pub enum SmeltUnknown"));
+    assert!(source.contains("String(String),"));
+    assert!(source.contains("fn identity(arg_0: SmeltUnknown) -> SmeltUnknown"));
+    assert!(source.contains("fn passthrough(arg_0: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>"));
+}
+
+#[test]
+fn emits_typescript_unknown_wrap_checks_and_casts() {
+    let source = source_for(
+        r#"
+function boxString(): unknown {
+  return "ready";
+}
+
+function readString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  return value as string;
+}
+
+function isArray(value: unknown): boolean {
+  return Array.isArray(value);
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::String"));
+    assert!(source.contains("matches!(arg_0.clone(), SmeltUnknown::String(_))"));
+    assert!(source.contains("if let SmeltUnknown::String(value) = arg_0.clone()"));
+    assert!(source.contains("matches!(arg_0.clone(), SmeltUnknown::Array(_))"));
 }
 
 #[test]

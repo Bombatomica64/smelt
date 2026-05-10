@@ -613,6 +613,36 @@ pub enum ExprKind {
         /// The operand.
         operand: ExprId,
     },
+    /// Choose between two expressions based on a boolean condition.
+    Conditional {
+        /// Boolean condition to test.
+        cond: ExprId,
+        /// Expression used when the condition is true.
+        then_expr: ExprId,
+        /// Expression used when the condition is false.
+        else_expr: ExprId,
+    },
+    /// Test whether a value is an instance of a class constructor.
+    InstanceOf {
+        /// Value being tested.
+        value: ExprId,
+        /// Class constructor/type being tested against.
+        class: Symbol,
+    },
+    /// Test the runtime tag of a TypeScript `unknown` value.
+    UnknownIs {
+        /// Value being tested.
+        value: ExprId,
+        /// Runtime tag to check.
+        kind: UnknownKind,
+    },
+    /// Extract a typed value from a TypeScript `unknown` value.
+    UnknownCast {
+        /// Value being extracted.
+        value: ExprId,
+        /// Type expected after the extraction.
+        target: TypeId,
+    },
     /// A block expression.
     Block(BlockId),
     /// A lambda function.
@@ -998,6 +1028,23 @@ pub enum Literal {
     String(String),
     /// The None/null literal.
     None,
+}
+
+/// Runtime tags supported by TypeScript `unknown` narrowing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UnknownKind {
+    /// JavaScript `null`.
+    Null,
+    /// Boolean value.
+    Bool,
+    /// Number value.
+    Number,
+    /// String value.
+    String,
+    /// Array value.
+    Array,
+    /// Object value.
+    Object,
 }
 
 /// A binary operator.

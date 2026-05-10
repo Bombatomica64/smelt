@@ -24,7 +24,7 @@ use smelt_hir::{
     NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig,
     Pattern, PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
     StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
-    Visibility,
+    UnknownKind, Visibility,
 };
 
 /// Vitest expectation matchers that can lower to direct HIR checks.
@@ -51,6 +51,15 @@ struct ConstLiteral {
     literal: Literal,
     /// HIR type of the literal.
     ty: smelt_hir::TypeId,
+}
+
+/// A function that narrows one argument after it returns successfully.
+#[derive(Debug, Clone, Copy)]
+struct AssertionNarrowing {
+    /// Positional parameter index narrowed by the assertion.
+    param_index: usize,
+    /// Type proven for that argument.
+    target: smelt_hir::TypeId,
 }
 
 impl TestMatcher {
@@ -171,8 +180,16 @@ struct ModuleBuilder<'ctx> {
     current_async: bool,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
+    /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.
+    namespace_imports: HashSet<String>,
+    /// Object constants that act as namespace-like API surfaces.
+    object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Literal constant items visible from already-lowered modules.
     const_literals: HashMap<String, ConstLiteral>,
+    /// User assertion functions declared with `asserts value is T`.
+    assertion_functions: HashMap<String, AssertionNarrowing>,
+    /// Active local narrowings from guards and assertion calls.
+    narrowed_locals: Vec<HashMap<String, smelt_hir::TypeId>>,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
@@ -180,6 +197,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
+        let object_namespaces = ctx.object_namespaces.clone();
         Self {
             file_id,
             path,
@@ -192,7 +210,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_class: None,
             current_async: false,
             test_builtins: HashSet::new(),
+            namespace_imports: HashSet::new(),
+            object_namespaces,
             const_literals,
+            assertion_functions: HashMap::new(),
+            narrowed_locals: Vec::new(),
         }
     }
 
@@ -212,16 +234,31 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(name) = item_name(&ctx.krate, item) else {
                 continue;
             };
-            items.insert(name.to_owned(), item_id);
-            match item {
-                Item::Class(_) => {
-                    classes.insert(name.to_owned(), item_id);
-                }
-                Item::Interface(_) => {
-                    interfaces.insert(name.to_owned(), item_id);
-                }
-                Item::Function(_) | Item::TypeAlias(_) | Item::Const(_) => {}
-            }
+            insert_visible_item(
+                &mut items,
+                &mut classes,
+                &mut interfaces,
+                name,
+                item_id,
+                item,
+            );
+        }
+        for (alias, item_id) in &ctx.export_aliases {
+            let Some(item) = ctx
+                .krate
+                .items
+                .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
+            else {
+                continue;
+            };
+            insert_visible_item(
+                &mut items,
+                &mut classes,
+                &mut interfaces,
+                alias,
+                *item_id,
+                item,
+            );
         }
         (items, classes, interfaces)
     }
@@ -238,6 +275,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
             };
             if let Some(value) = const_literal_from_item(&ctx.krate, const_item) {
                 values.insert(name.to_owned(), value);
+            }
+        }
+        for (alias, item_id) in &ctx.export_aliases {
+            let Some(Item::Const(const_item)) = ctx
+                .krate
+                .items
+                .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
+            else {
+                continue;
+            };
+            if let Some(value) = const_literal_from_item(&ctx.krate, const_item) {
+                values.insert(alias.to_owned(), value);
             }
         }
         values
@@ -352,6 +401,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Err(error) => errors.push(error),
                     }
                 }
+            } else if let Statement::ExportNamedDeclaration(export) = statement
+                && export.source.is_some()
+            {
+                self.reexport_named_declaration(export, &mut module);
+            } else if let Statement::ExportAllDeclaration(export) = statement {
+                self.reexport_all_declaration(export, &mut module);
             }
         }
 
@@ -383,6 +438,59 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(self.ctx.krate.push_module(module))
     }
 
+    /// Lower `export { name } from "module"` metadata and local aliases.
+    fn reexport_named_declaration(
+        &mut self,
+        export: &oxc::ast::ast::ExportNamedDeclaration<'_>,
+        module: &mut Module,
+    ) {
+        let Some(source) = &export.source else {
+            return;
+        };
+        let source_text = source.value.as_str();
+        let span = self.span(export.span.start, export.span.end);
+        for specifier in &export.specifiers {
+            let imported = module_export_name(&specifier.local);
+            let exported = module_export_name(&specifier.exported);
+            let name = self.intern_source_name(&imported);
+            let alias = (exported != imported).then(|| self.intern_source_name(&exported));
+            module.imports.push(Import {
+                module: source_text.to_owned(),
+                name,
+                alias,
+                span,
+            });
+            self.alias_imported_item(&imported, &exported);
+            if let Some(item) = self.items.get(&exported).copied() {
+                self.ctx.export_aliases.insert(exported.clone(), item);
+            }
+            if let Some(namespace) = self.object_namespaces.get(&exported).cloned() {
+                self.ctx.object_namespaces.insert(exported, namespace);
+            }
+        }
+    }
+
+    /// Lower `export * from "module"` metadata for dependency discovery.
+    fn reexport_all_declaration(
+        &mut self,
+        export: &oxc::ast::ast::ExportAllDeclaration<'_>,
+        module: &mut Module,
+    ) {
+        let source = export.source.value.as_str();
+        let span = self.span(export.span.start, export.span.end);
+        let name = self.intern_source_name("*");
+        let alias = export
+            .exported
+            .as_ref()
+            .map(|exported| self.intern_source_name(&module_export_name(exported)));
+        module.imports.push(Import {
+            module: source.to_owned(),
+            name,
+            alias,
+            span,
+        });
+    }
+
     /// Lower an import declaration into module metadata and local item aliases.
     fn import_declaration(
         &mut self,
@@ -405,10 +513,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "default".to_owned(),
                     specifier_data.local.name.as_str().to_owned(),
                 ),
-                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => (
-                    "*".to_owned(),
-                    specifier_data.local.name.as_str().to_owned(),
-                ),
+                ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => {
+                    let local = specifier_data.local.name.as_str().to_owned();
+                    self.namespace_imports.insert(local.clone());
+                    ("*".to_owned(), local)
+                }
             };
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
@@ -422,7 +531,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 && test_support::is_vitest_builtin_name(&imported)
             {
                 self.test_builtins.insert(local.clone());
-            } else {
+            } else if imported != "*" {
                 self.alias_imported_item(&imported, &local);
             }
         }
@@ -441,6 +550,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         if let Some(value) = self.const_literals.get(imported).cloned() {
             self.const_literals.insert(local.to_owned(), value);
+        }
+        if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
+            self.object_namespaces.insert(local.to_owned(), namespace);
         }
     }
 
@@ -469,6 +581,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "exported const declarations require an initializer",
                 )
             })?;
+            if let Expression::ObjectExpression(object) = init {
+                self.object_namespace_const_declaration(binding.name.as_str(), object)?;
+                continue;
+            }
+            if let Expression::ArrowFunctionExpression(arrow) = init {
+                let item = self.arrow_function_const_declaration(binding.name.as_str(), arrow)?;
+                items.push(item);
+                continue;
+            }
             let value = self.literal_const_expression(init)?;
             let span = self.span(binding.span.start, binding.span.end);
             let mut body = Body::new(None, span);
@@ -494,6 +615,179 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(items)
     }
 
+    /// Lower an exported object constant that only groups existing exports into namespace metadata.
+    fn object_namespace_const_declaration(
+        &mut self,
+        name_text: &str,
+        object: &oxc::ast::ast::ObjectExpression<'_>,
+    ) -> Result<(), SmeltError> {
+        let mut members = HashMap::new();
+        for property in &object.properties {
+            let ObjectPropertyKind::ObjectProperty(object_property) = property else {
+                return Err(SmeltError::unsupported(
+                    self.span(property.span().start, property.span().end),
+                    "exported object namespace constants do not support spread properties yet",
+                ));
+            };
+            if object_property.computed || object_property.method {
+                return Err(SmeltError::unsupported(
+                    self.span(object_property.span.start, object_property.span.end),
+                    "exported object namespace constants require static data properties",
+                ));
+            }
+            let key_text = match &object_property.key {
+                PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
+                PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(
+                            object_property.key.span().start,
+                            object_property.key.span().end,
+                        ),
+                        "exported object namespace keys must be static string keys",
+                    ));
+                }
+            };
+            let Expression::Identifier(value_ident) = &object_property.value else {
+                return Err(SmeltError::unsupported(
+                    self.span(
+                        object_property.value.span().start,
+                        object_property.value.span().end,
+                    ),
+                    "exported object namespace values must reference existing items",
+                ));
+            };
+            let value_name = value_ident.name.as_str();
+            let Some(item) = self.items.get(value_name).copied() else {
+                return Err(SmeltError::unsupported(
+                    self.span(value_ident.span.start, value_ident.span.end),
+                    format!("exported object namespace member `{value_name}` is unresolved"),
+                ));
+            };
+            members.insert(key_text, item);
+        }
+        self.object_namespaces
+            .insert(name_text.to_owned(), members.clone());
+        self.ctx
+            .object_namespaces
+            .insert(name_text.to_owned(), members);
+        Ok(())
+    }
+
+    /// Lower an exported `const name = (...) => ...` binding into an importable function item.
+    fn arrow_function_const_declaration(
+        &mut self,
+        name_text: &str,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let return_ty = arrow
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(arrow.span.start, arrow.span.end),
+                    "exported arrow function constants must have an explicit return type",
+                )
+            })?;
+        if arrow.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))) {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "async arrow function constants must declare a Promise<T> return type",
+            ));
+        }
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_async = self.current_async;
+        self.current_async = arrow.r#async;
+        let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
+        let mut params = Vec::new();
+        for param in &arrow.params.items {
+            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                self.locals = saved_locals;
+                self.current_async = saved_async;
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "destructured arrow function parameters are not lowered yet",
+                ));
+            };
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "arrow function parameters must have explicit type annotations",
+                    )
+                })?;
+            let param_name = self.intern_source_name(binding.name.as_str());
+            let local = body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty,
+                mutable: false,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+            body.params.push(local);
+            self.locals.insert(binding.name.to_string(), local);
+            params.push(Param {
+                name: param_name,
+                local,
+                ty,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+        }
+
+        let mut errors = Vec::new();
+        if arrow.expression {
+            match arrow.body.statements.as_slice() {
+                [Statement::ExpressionStatement(statement)] => {
+                    match self.expression(&statement.expression, &mut body) {
+                        Ok(value) => {
+                            body.push_stmt(Stmt::Return(Some(value)));
+                        }
+                        Err(error) => errors.push(error),
+                    }
+                }
+                _ => errors.push(SmeltError::unsupported(
+                    self.span(arrow.body.span.start, arrow.body.span.end),
+                    "expression-bodied arrow functions must contain one expression",
+                )),
+            }
+        } else {
+            for statement in &arrow.body.statements {
+                if let Err(error) = self.statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
+        }
+        if arrow.r#async {
+            body.build_async_state_machine();
+        }
+        self.locals = saved_locals;
+        self.current_async = saved_async;
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+
+        let body_id = self.ctx.krate.push_body(body);
+        let name = self.intern_source_name(name_text);
+        let item = self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span: self.span(arrow.span.start, arrow.span.end),
+            params,
+            return_ty,
+            is_async: arrow.r#async,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        }));
+        self.items.insert(name_text.to_owned(), item);
+        Ok(item)
+    }
+
     /// Convert a supported TypeScript literal expression into an importable const value.
     fn literal_const_expression(
         &mut self,
@@ -516,11 +810,188 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 literal: Literal::None,
                 ty: self.ctx.krate.types.intern(Type::None),
             }),
+            Expression::Identifier(ident) => self
+                .const_literals
+                .get(ident.name.as_str())
+                .cloned()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(ident.span.start, ident.span.end),
+                        format!(
+                            "exported const expression references unresolved const `{}`",
+                            ident.name
+                        ),
+                    )
+                }),
+            Expression::UnaryExpression(unary) => self.unary_literal_const_expression(unary),
+            Expression::BinaryExpression(binary) => self.binary_literal_const_expression(binary),
+            Expression::CallExpression(call) => self.call_literal_const_expression(call),
             _ => Err(SmeltError::unsupported(
                 self.span(expression.span().start, expression.span().end),
-                "exported const values currently support only primitive literals",
+                "exported const values currently support primitive literals and foldable primitive expressions",
             )),
         }
+    }
+
+    /// Fold a supported unary expression inside an exported const initializer.
+    fn unary_literal_const_expression(
+        &mut self,
+        unary: &oxc::ast::ast::UnaryExpression<'_>,
+    ) -> Result<ConstLiteral, SmeltError> {
+        let value = self.literal_const_expression(&unary.argument)?;
+        match (unary.operator, value.literal) {
+            (UnaryOperator::UnaryNegation, Literal::Float(number)) => Ok(ConstLiteral {
+                literal: Literal::Float(-number),
+                ty: self.ctx.krate.types.intern(Type::Float),
+            }),
+            (UnaryOperator::LogicalNot, Literal::Bool(value)) => Ok(ConstLiteral {
+                literal: Literal::Bool(!value),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            }),
+            _ => Err(SmeltError::unsupported(
+                self.span(unary.span.start, unary.span.end),
+                "exported const unary expressions currently support numeric negation and boolean not",
+            )),
+        }
+    }
+
+    /// Fold a supported binary expression inside an exported const initializer.
+    fn binary_literal_const_expression(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+    ) -> Result<ConstLiteral, SmeltError> {
+        let lhs = self.literal_const_expression(&binary.left)?;
+        let rhs = self.literal_const_expression(&binary.right)?;
+        match (lhs.literal, rhs.literal) {
+            (Literal::Float(lhs), Literal::Float(rhs)) => {
+                let value = match binary.operator {
+                    BinaryOperator::Addition => lhs + rhs,
+                    BinaryOperator::Subtraction => lhs - rhs,
+                    BinaryOperator::Multiplication => lhs * rhs,
+                    BinaryOperator::Division => lhs / rhs,
+                    BinaryOperator::Remainder => lhs % rhs,
+                    BinaryOperator::Exponential => lhs.powf(rhs),
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(binary.span.start, binary.span.end),
+                            "exported numeric const expressions support arithmetic operators only",
+                        ));
+                    }
+                };
+                Ok(ConstLiteral {
+                    literal: Literal::Float(value),
+                    ty: self.ctx.krate.types.intern(Type::Float),
+                })
+            }
+            (Literal::String(lhs), Literal::String(rhs))
+                if binary.operator == BinaryOperator::Addition =>
+            {
+                Ok(ConstLiteral {
+                    literal: Literal::String(format!("{lhs}{rhs}")),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                })
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(binary.span.start, binary.span.end),
+                "exported const binary expressions currently require matching primitive operands",
+            )),
+        }
+    }
+
+    /// Fold supported pure calls inside exported const initializers.
+    fn call_literal_const_expression(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Result<ConstLiteral, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "exported const call expressions currently support only selected Math calls",
+            ));
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "exported const Math calls require a direct Math receiver",
+            ));
+        };
+        if object.name != "Math" || member.property.name != "pow" {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "exported const call expressions currently support only Math.pow",
+            ));
+        }
+        let [base_arg, exponent_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Math.pow in exported const expressions requires exactly two arguments",
+            ));
+        };
+        let base = self.number_literal_const_argument(base_arg)?;
+        let exponent = self.number_literal_const_argument(exponent_arg)?;
+        Ok(ConstLiteral {
+            literal: Literal::Float(base.powf(exponent)),
+            ty: self.ctx.krate.types.intern(Type::Float),
+        })
+    }
+
+    /// Fold one numeric argument in an exported const call expression.
+    fn number_literal_const_argument(
+        &mut self,
+        argument: &Argument<'_>,
+    ) -> Result<f64, SmeltError> {
+        let value = match argument {
+            Argument::NumericLiteral(lit) => lit.value,
+            Argument::Identifier(ident) => {
+                let Some(ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                }) = self.const_literals.get(ident.name.as_str())
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(ident.span.start, ident.span.end),
+                        format!(
+                            "exported const Math.pow argument references non-numeric const `{}`",
+                            ident.name
+                        ),
+                    ));
+                };
+                *value
+            }
+            Argument::UnaryExpression(unary) => {
+                let ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                } = self.unary_literal_const_expression(unary)?
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(unary.span.start, unary.span.end),
+                        "exported const Math.pow arguments must be numeric",
+                    ));
+                };
+                value
+            }
+            Argument::BinaryExpression(binary) => {
+                let ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                } = self.binary_literal_const_expression(binary)?
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(binary.span.start, binary.span.end),
+                        "exported const Math.pow arguments must be numeric",
+                    ));
+                };
+                value
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    "exported const Math.pow arguments must be foldable numeric expressions",
+                ));
+            }
+        };
+        Ok(value)
     }
 
     /// Lower a function declaration to HIR.
@@ -542,17 +1013,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         let name_text = id.name.as_str();
         let name = self.intern_source_name(name_text);
-        let return_ty = function
+        let assertion_return = function
             .return_type
             .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-            .transpose()?
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(function.span.start, function.span.end),
-                    "function declarations must have an explicit return type",
-                )
-            })?;
+            .and_then(|annotation| self.assertion_return_type(&annotation.type_annotation))
+            .transpose()?;
+        let return_ty = if assertion_return.is_some() {
+            self.ctx.krate.types.intern(Type::None)
+        } else {
+            function
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(function.span.start, function.span.end),
+                        "function declarations must have an explicit return type",
+                    )
+                })?
+        };
+        if function.return_type.is_none() {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "function declarations must have an explicit return type",
+            ));
+        }
         if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
             return Err(SmeltError::unsupported(
@@ -635,6 +1121,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
             owner: FunctionOwner::Module,
         }));
         self.items.insert(name_text.to_owned(), item);
+        if let Some((parameter_name, target)) = assertion_return
+            && let Some(param_index) = function.params.items.iter().position(|param| {
+                matches!(
+                    &param.pattern,
+                    BindingPattern::BindingIdentifier(binding)
+                        if binding.name.as_str() == parameter_name
+                )
+            })
+        {
+            self.assertion_functions.insert(
+                name_text.to_owned(),
+                AssertionNarrowing {
+                    param_index,
+                    target,
+                },
+            );
+        }
         Ok(item)
     }
 
@@ -1157,8 +1660,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     body.push_stmt_to_block(block, Stmt::Assign { target, value });
                     return Ok(());
                 }
+                let assertion_narrowing = self.assertion_call_narrowing(&expr_stmt.expression);
                 let expr = self.expression(&expr_stmt.expression, body)?;
                 body.push_stmt_to_block(block, Stmt::Expr(expr));
+                if let Some((name, target)) = assertion_narrowing {
+                    self.apply_narrowing(name, target);
+                }
                 Ok(())
             }
             Statement::ReturnStatement(return_stmt) => {
@@ -1172,7 +1679,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             Statement::IfStatement(if_stmt) => {
                 let cond = self.expression(&if_stmt.test, body)?;
+                let then_narrowing = self.guard_narrowing(&if_stmt.test);
+                if let Some(narrowing) = then_narrowing.clone() {
+                    self.narrowed_locals.push(narrowing);
+                }
                 let then_block = self.block_from_statement(&if_stmt.consequent, body)?;
+                if then_narrowing.is_some() {
+                    self.narrowed_locals.pop();
+                }
                 let else_block = if_stmt
                     .alternate
                     .as_ref()
@@ -1527,6 +2041,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 )?);
                 continue;
             }
+            if let Some(nested_describe) = self.describe_call(&expr_stmt.expression) {
+                let nested_group_name = format!(
+                    "{group_name} {}",
+                    self.describe_group_name(nested_describe)?
+                );
+                items.extend(self.describe_declaration_with_name(
+                    nested_describe,
+                    &nested_group_name,
+                    &before_each,
+                    &after_each,
+                )?);
+                continue;
+            }
             let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
                 return Err(SmeltError::unsupported(
                     self.statement_span(statement),
@@ -1536,6 +2063,88 @@ impl<'ctx> ModuleBuilder<'ctx> {
             items.push(self.test_case_declaration(
                 test_call,
                 Some(&group_name),
+                &before_each,
+                &after_each,
+                &[],
+            )?);
+        }
+        Ok(items)
+    }
+
+    /// Return the static title for a supported `describe(...)` call.
+    fn describe_group_name(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Result<String, SmeltError> {
+        let name_arg = call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "describe calls require a string name",
+            )
+        })?;
+        self.test_title(name_arg)
+    }
+
+    /// Lower a `describe` block using a caller-provided flattened group name.
+    fn describe_declaration_with_name(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        group_name: &str,
+        inherited_before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        inherited_after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let body_arg = call.arguments.get(1).ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "describe calls require a callback",
+            )
+        })?;
+        let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
+        let mut items = Vec::new();
+        let mut before_each = inherited_before_each.to_vec();
+        let mut after_each = inherited_after_each.to_vec();
+        for statement in &arrow.body.statements {
+            let Statement::ExpressionStatement(expr_stmt) = statement else {
+                return Err(SmeltError::unsupported(
+                    self.statement_span(statement),
+                    "describe blocks only support direct it/test/describe calls for now",
+                ));
+            };
+            if self.collect_lifecycle_hook(&expr_stmt.expression, &mut before_each, &mut after_each)
+            {
+                continue;
+            }
+            if let Some(table_call) = self.table_test_call(&expr_stmt.expression) {
+                items.extend(self.table_test_declarations(
+                    table_call,
+                    Some(group_name),
+                    &before_each,
+                    &after_each,
+                )?);
+                continue;
+            }
+            if let Some(nested_describe) = self.describe_call(&expr_stmt.expression) {
+                let nested_group_name = format!(
+                    "{group_name} {}",
+                    self.describe_group_name(nested_describe)?
+                );
+                items.extend(self.describe_declaration_with_name(
+                    nested_describe,
+                    &nested_group_name,
+                    &before_each,
+                    &after_each,
+                )?);
+                continue;
+            }
+            let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
+                return Err(SmeltError::unsupported(
+                    self.statement_span(statement),
+                    "describe blocks only support direct it/test/describe calls for now",
+                ));
+            };
+            items.push(self.test_case_declaration(
+                test_call,
+                Some(group_name),
                 &before_each,
                 &after_each,
                 &[],
@@ -1932,16 +2541,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<bool, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
-            return Ok(false);
+        let is_deep_strict_equal = match &call.callee {
+            Expression::Identifier(ident) => ident.name == "deepStrictEqual",
+            Expression::StaticMemberExpression(member)
+                if member.property.name == "deepStrictEqual" =>
+            {
+                matches!(
+                    &member.object,
+                    Expression::Identifier(object) if object.name == "U" || object.name == "assert"
+                )
+            }
+            _ => false,
         };
-        if member.property.name != "deepStrictEqual" {
-            return Ok(false);
-        }
-        let Expression::Identifier(object) = &member.object else {
-            return Ok(false);
-        };
-        if object.name != "U" && object.name != "assert" {
+        if !is_deep_strict_equal {
             return Ok(false);
         }
         let [actual_arg, expected_arg] = call.arguments.as_slice() else {
@@ -2272,6 +2884,140 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.statement_in_block(statement, body, block)?;
         }
         Ok(block)
+    }
+
+    /// Apply a local narrowing in the current lexical lowering context.
+    fn apply_narrowing(&mut self, name: String, target: smelt_hir::TypeId) {
+        if let Some(scope) = self.narrowed_locals.last_mut() {
+            scope.insert(name, target);
+        } else {
+            let mut scope = HashMap::new();
+            scope.insert(name, target);
+            self.narrowed_locals.push(scope);
+        }
+    }
+
+    /// Return the active narrowed type for a source local, if any.
+    fn narrowed_type(&self, name: &str) -> Option<smelt_hir::TypeId> {
+        self.narrowed_locals
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).copied())
+    }
+
+    /// Discover the narrowing applied by a successful assertion call statement.
+    fn assertion_call_narrowing(
+        &self,
+        expression: &Expression<'_>,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::CallExpression(call) = expression else {
+            return None;
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return None;
+        };
+        let assertion = self.assertion_functions.get(callee.name.as_str())?;
+        let arg = call.arguments.get(assertion.param_index)?;
+        let Argument::Identifier(identifier) = arg else {
+            return None;
+        };
+        Some((identifier.name.to_string(), assertion.target))
+    }
+
+    /// Discover local type facts proven by a boolean guard expression.
+    fn guard_narrowing(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Option<HashMap<String, smelt_hir::TypeId>> {
+        let mut out = HashMap::new();
+        if let Some((name, target)) = self.typeof_guard(expression) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.array_is_array_guard(expression) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.null_guard(expression) {
+            out.insert(name, target);
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
+    /// Recognize `typeof value === "kind"` guard expressions.
+    fn typeof_guard(&mut self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return None;
+        }
+        let Expression::UnaryExpression(unary) = &binary.left else {
+            return None;
+        };
+        if unary.operator != UnaryOperator::Typeof {
+            return None;
+        }
+        let Expression::Identifier(identifier) = &unary.argument else {
+            return None;
+        };
+        let Expression::StringLiteral(kind) = &binary.right else {
+            return None;
+        };
+        let ty = match kind.value.as_str() {
+            "boolean" => self.ctx.krate.types.intern(Type::Bool),
+            "number" => self.ctx.krate.types.intern(Type::Float),
+            "string" => self.ctx.krate.types.intern(Type::String),
+            "object" => self.ctx.krate.types.intern(Type::Unknown),
+            _ => return None,
+        };
+        Some((identifier.name.to_string(), ty))
+    }
+
+    /// Recognize `Array.isArray(value)` guard expressions.
+    fn array_is_array_guard(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::CallExpression(call) = expression else {
+            return None;
+        };
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Array" || member.property.name != "isArray" {
+            return None;
+        }
+        let [Argument::Identifier(identifier)] = call.arguments.as_slice() else {
+            return None;
+        };
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::List(unknown));
+        Some((identifier.name.to_string(), ty))
+    }
+
+    /// Recognize `value === null` guard expressions.
+    fn null_guard(&mut self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return None;
+        }
+        let (Expression::Identifier(identifier), Expression::NullLiteral(_)) =
+            (&binary.left, &binary.right)
+        else {
+            return None;
+        };
+        Some((
+            identifier.name.to_string(),
+            self.ctx.krate.types.intern(Type::None),
+        ))
     }
 
     /// Lower a catch parameter to an optional HIR local binding.
@@ -2675,10 +3421,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             Expression::BinaryExpression(binary) => {
                 if binary.operator == BinaryOperator::Instanceof {
-                    return Err(SmeltError::unsupported(
-                        self.span(binary.span.start, binary.span.end),
-                        "TypeScript instanceof is not supported yet; use static type narrowing before lowering",
-                    ));
+                    return self.instanceof_expression(binary, body);
+                }
+                if let Some(expr) = self.unknown_typeof_comparison(binary, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.unknown_null_comparison(binary, body)? {
+                    return Ok(expr);
                 }
                 let op = match binary.operator {
                     BinaryOperator::Addition => BinOp::Add,
@@ -2983,6 +3732,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.string_split_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.namespace_member_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Expression::StaticMemberExpression(member) = &call.callee
                     && let Expression::Identifier(object) = &member.object
                     && object.name == "console"
@@ -3071,6 +3823,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.span(call.span.start, call.span.end),
                     "call expression is not lowered yet",
                 ))
+            }
+            Expression::TSAsExpression(as_expr) => self.type_assertion_expression(
+                &as_expr.expression,
+                &as_expr.type_annotation,
+                as_expr.span,
+                body,
+            ),
+            Expression::TSTypeAssertion(assertion) => self.type_assertion_expression(
+                &assertion.expression,
+                &assertion.type_annotation,
+                assertion.span,
+                body,
+            ),
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.expression(&satisfies.expression, body)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.expression(&non_null.expression, body)
             }
             Expression::NewExpression(new_expr) => {
                 if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
@@ -3193,6 +3963,169 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 format!("expression kind is not lowered yet: {expression:?}"),
             )),
         }
+    }
+
+    /// Lower a TypeScript `value instanceof ClassName` expression.
+    fn instanceof_expression(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = self.expression(&binary.left, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        if !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Class { .. })) {
+            return Err(SmeltError::unsupported(
+                self.span(binary.left.span().start, binary.left.span().end),
+                "TypeScript instanceof requires a concrete class-typed left operand",
+            ));
+        }
+        let Expression::Identifier(class_ident) = &binary.right else {
+            return Err(SmeltError::unsupported(
+                self.span(binary.right.span().start, binary.right.span().end),
+                "TypeScript instanceof requires a direct class constructor on the right side",
+            ));
+        };
+        let class_text = class_ident.name.as_str();
+        if !self.classes.contains_key(class_text) {
+            return Err(SmeltError::unsupported(
+                self.span(class_ident.span.start, class_ident.span.end),
+                format!("TypeScript instanceof target `{class_text}` is not a lowered class"),
+            ));
+        }
+        let class = self.intern_type_name(class_text);
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::InstanceOf { value, class },
+            ty,
+            span: self.span(binary.span.start, binary.span.end),
+        }))
+    }
+
+    /// Lower `typeof value === "kind"` checks for TypeScript `unknown` values.
+    fn unknown_typeof_comparison(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality
+                | BinaryOperator::StrictInequality
+                | BinaryOperator::Equality
+                | BinaryOperator::Inequality
+        ) {
+            return Ok(None);
+        }
+        let Expression::UnaryExpression(unary) = &binary.left else {
+            return Ok(None);
+        };
+        if unary.operator != UnaryOperator::Typeof {
+            return Ok(None);
+        }
+        let Expression::StringLiteral(kind_lit) = &binary.right else {
+            return Ok(None);
+        };
+        let Some(kind) = unknown_kind_from_typeof(kind_lit.value.as_str()) else {
+            return Err(SmeltError::unsupported(
+                self.span(kind_lit.span.start, kind_lit.span.end),
+                format!(
+                    "typeof narrowing kind `{}` is not supported yet",
+                    kind_lit.value
+                ),
+            ));
+        };
+        let value = self.expression(&unary.argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
+            return Ok(None);
+        }
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let check = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs { value, kind },
+            ty: bool_ty,
+            span: self.span(binary.span.start, binary.span.end),
+        });
+        if matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ) {
+            return Ok(Some(self.unary_bool_expr(
+                UnaryOp::Not,
+                check,
+                binary.span,
+                body,
+            )));
+        }
+        Ok(Some(check))
+    }
+
+    /// Lower `value === null` checks for TypeScript `unknown` values.
+    fn unknown_null_comparison(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality
+                | BinaryOperator::StrictInequality
+                | BinaryOperator::Equality
+                | BinaryOperator::Inequality
+        ) {
+            return Ok(None);
+        }
+        let ((Expression::NullLiteral(_), value_expr) | (value_expr, Expression::NullLiteral(_))) =
+            (&binary.left, &binary.right)
+        else {
+            return Ok(None);
+        };
+        let value = self.expression(value_expr, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
+            return Ok(None);
+        }
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let check = body.push_expr(Expr {
+            kind: ExprKind::UnknownIs {
+                value,
+                kind: UnknownKind::Null,
+            },
+            ty: bool_ty,
+            span: self.span(binary.span.start, binary.span.end),
+        });
+        let negated = matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        );
+        if negated {
+            return Ok(Some(self.unary_bool_expr(
+                UnaryOp::Not,
+                check,
+                binary.span,
+                body,
+            )));
+        }
+        Ok(Some(check))
+    }
+
+    /// Lower TypeScript type assertions against `unknown` as checked extractions.
+    fn type_assertion_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        annotation: &TSType<'_>,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = self.expression(expression, body)?;
+        let target = self.ts_type_to_hir(annotation)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, value)) == Some(&Type::Unknown)
+            && target != Self::expr_ty(body, value)
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast { value, target },
+                ty: target,
+                span: self.span(span.start, span.end),
+            }));
+        }
+        Ok(value)
     }
 
     /// Lower a function call argument.
@@ -4112,6 +5045,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         };
         let value = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, value)) == Some(&Type::Unknown) {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::UnknownIs {
+                    value,
+                    kind: UnknownKind::Array,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let is_array = matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, value)),
             Some(Type::List(_))
@@ -5957,6 +6901,149 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower a static member access expression.
+    fn namespace_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some((namespace, member_name)) = self.namespace_member_name(member) else {
+            return Ok(None);
+        };
+        let span = self.span(member.span.start, member.span.end);
+        if let Some(value) = self.const_literals.get(member_name).cloned() {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(value.literal),
+                ty: value.ty,
+                span,
+            })));
+        }
+        let item = self
+            .object_namespaces
+            .get(namespace)
+            .and_then(|members| members.get(member_name))
+            .copied()
+            .or_else(|| self.items.get(member_name).copied());
+        let Some(item) = item else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("namespace import has no exported member `{member_name}`"),
+            ));
+        };
+        let ty = self.item_expr_type(item, span)?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Item(item),
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower a call through a namespace import, such as `Api.add(1, 2)`.
+    fn namespace_member_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Some((namespace, member_name)) = self.namespace_member_name(member) else {
+            return Ok(None);
+        };
+        let span = self.span(member.span.start, member.span.end);
+        let item = self
+            .object_namespaces
+            .get(namespace)
+            .and_then(|members| members.get(member_name))
+            .copied()
+            .or_else(|| self.items.get(member_name).copied());
+        let Some(item) = item else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("namespace import has no exported member `{member_name}`"),
+            ));
+        };
+        let (params, return_ty, is_async) = if let Item::Function(function) = self.item_ref(item) {
+            (
+                function.params.iter().map(|param| param.ty).collect(),
+                function.return_ty,
+                function.is_async,
+            )
+        } else {
+            return Err(SmeltError::unsupported(
+                span,
+                format!("namespace member `{member_name}` is not callable"),
+            ));
+        };
+        let args = call
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let callee = body.push_expr(Expr {
+            kind: ExprKind::Item(item),
+            ty: self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Function(smelt_hir::FunctionType {
+                    params,
+                    return_ty,
+                    is_async,
+                })),
+            span,
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Call { callee, args },
+            ty: return_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Return the namespace binding and exported member name for namespace member access.
+    fn namespace_member_name<'a>(
+        &self,
+        member: &'a oxc::ast::ast::StaticMemberExpression<'_>,
+    ) -> Option<(&'a str, &'a str)> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        let namespace = object.name.as_str();
+        (self.namespace_imports.contains(namespace)
+            || self.object_namespaces.contains_key(namespace))
+        .then_some((namespace, member.property.name.as_str()))
+    }
+
+    /// Compute the HIR expression type used when an item appears as an expression.
+    fn item_expr_type(
+        &mut self,
+        item: smelt_hir::ItemId,
+        span: Span,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        match self.item_ref(item) {
+            Item::Function(function) => {
+                Ok(self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Function(smelt_hir::FunctionType {
+                        params: function.params.iter().map(|param| param.ty).collect(),
+                        return_ty: function.return_ty,
+                        is_async: function.is_async,
+                    })))
+            }
+            Item::Class(class) => Ok(self.ctx.krate.types.intern(Type::Class {
+                name: class.name,
+                args: Vec::new(),
+            })),
+            Item::Const(const_item) => Ok(const_item.ty),
+            _ => Err(SmeltError::unsupported(
+                span,
+                "namespace member item is not usable as an expression yet",
+            )),
+        }
+    }
+
+    /// Lower a static member access expression.
     fn static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -5967,6 +7054,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.span(member.span.start, member.span.end),
                 "optional member access is not lowered yet",
             ));
+        }
+        if let Some(expr) = self.namespace_member_expression(member, body)? {
+            return Ok(expr);
         }
         let receiver = self.expression(&member.object, body)?;
         let field = self.intern_source_name(member.property.name.as_str());
@@ -6041,6 +7131,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Ok(expr);
         }
         if let Some(expr) = self.primitive_cast_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.namespace_member_call(call, body)? {
             return Ok(expr);
         }
         if let Expression::StaticMemberExpression(member) = &call.callee
@@ -6318,7 +7411,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         match ty {
             TSType::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
             TSType::TSStringKeyword(_) => Ok(self.ctx.krate.types.intern(Type::String)),
-            TSType::TSBooleanKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Bool)),
+            TSType::TSBooleanKeyword(_) | TSType::TSTypePredicate(_) => {
+                Ok(self.ctx.krate.types.intern(Type::Bool))
+            }
+            TSType::TSUnknownKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSType::TSVoidKeyword(_) | TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::None))
             }
@@ -6370,6 +7466,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
             }
+            TSType::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Readonly =>
+            {
+                self.ts_type_to_hir(&operator.type_annotation)
+            }
             TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
             TSType::TSThisType(this_ty) => {
                 let Some(class_name) = &self.current_class else {
@@ -6402,6 +7503,36 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Extract `asserts value is T` metadata from a TypeScript return annotation.
+    fn assertion_return_type(
+        &mut self,
+        ty: &TSType<'_>,
+    ) -> Option<Result<(String, smelt_hir::TypeId), SmeltError>> {
+        let TSType::TSTypePredicate(predicate) = ty else {
+            return None;
+        };
+        if !predicate.asserts {
+            return None;
+        }
+        let oxc::ast::ast::TSTypePredicateName::Identifier(parameter) = &predicate.parameter_name
+        else {
+            return Some(Err(SmeltError::unsupported(
+                self.span(predicate.span.start, predicate.span.end),
+                "assertion functions on `this` are not lowered yet",
+            )));
+        };
+        let Some(annotation) = &predicate.type_annotation else {
+            return Some(Err(SmeltError::unsupported(
+                self.span(predicate.span.start, predicate.span.end),
+                "assertion functions must use `asserts value is T`",
+            )));
+        };
+        Some(
+            self.ts_type_to_hir(&annotation.type_annotation)
+                .map(|target| (parameter.name.to_string(), target)),
+        )
+    }
+
     /// Convert tuple element type to HIR type.
     fn tuple_element_type_to_hir(
         &mut self,
@@ -6411,6 +7542,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             TSTupleElement::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
             TSTupleElement::TSStringKeyword(_) => Ok(self.ctx.krate.types.intern(Type::String)),
             TSTupleElement::TSBooleanKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Bool)),
+            TSTupleElement::TSUnknownKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSTupleElement::TSNullKeyword(_)
             | TSTupleElement::TSUndefinedKeyword(_)
             | TSTupleElement::TSVoidKeyword(_) => Ok(self.ctx.krate.types.intern(Type::None)),
@@ -6780,11 +7912,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         };
         let ty = Self::local_ty(body, local);
-        Ok(body.push_expr(Expr {
+        let local_expr = body.push_expr(Expr {
             kind: ExprKind::Local(local),
             ty,
             span: self.span(start, end),
-        }))
+        });
+        if let Some(target) = self.narrowed_type(name)
+            && self.ctx.krate.types.get(ty) == Some(&Type::Unknown)
+            && target != ty
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: local_expr,
+                    target,
+                },
+                ty: target,
+                span: self.span(start, end),
+            }));
+        }
+        Ok(local_expr)
     }
 
     /// Ensure a console.log item exists in the HIR.
@@ -7039,6 +8185,38 @@ fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
         .names
         .get(symbol)
         .or_else(|| krate.symbols.get(symbol))
+}
+
+/// Map a JavaScript `typeof` result string to an executable unknown tag.
+fn unknown_kind_from_typeof(kind: &str) -> Option<UnknownKind> {
+    match kind {
+        "boolean" => Some(UnknownKind::Bool),
+        "number" => Some(UnknownKind::Number),
+        "string" => Some(UnknownKind::String),
+        "object" => Some(UnknownKind::Object),
+        _ => None,
+    }
+}
+
+/// Insert an item into the visible lookup tables under a source-level name.
+fn insert_visible_item(
+    items: &mut HashMap<String, smelt_hir::ItemId>,
+    classes: &mut HashMap<String, smelt_hir::ItemId>,
+    interfaces: &mut HashMap<String, smelt_hir::ItemId>,
+    name: &str,
+    item_id: smelt_hir::ItemId,
+    item: &Item,
+) {
+    items.insert(name.to_owned(), item_id);
+    match item {
+        Item::Class(_) => {
+            classes.insert(name.to_owned(), item_id);
+        }
+        Item::Interface(_) => {
+            interfaces.insert(name.to_owned(), item_id);
+        }
+        Item::Function(_) | Item::TypeAlias(_) | Item::Const(_) => {}
+    }
 }
 
 /// Return a literal value from a HIR constant item when it can be inlined safely.

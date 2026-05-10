@@ -190,6 +190,55 @@ def add(x: int, y: int) -> int:
 }
 
 #[test]
+fn module_dunders_lower_to_string_literals() -> TestResult {
+    let source = py!(r#"
+module_name: str = __name__
+module_file: str = __file__
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "src/package/example.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    ensure(
+        module_body.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "example")
+        ),
+        "expected __name__ literal",
+    )?;
+    ensure(
+        module_body.exprs.iter().any(
+            |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "src/package/example.py")
+        ),
+        "expected __file__ literal",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn ternary_expression_lowers() -> TestResult {
+    let source = py!(r#"
+def choose(flag: bool, left: int, right: int) -> int:
+    return left if flag else right
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = *module.items.first().ok_or("expected function")?;
+    let Item::Function(function) = item(&ctx, item_id)? else {
+        return Err("expected function item".to_owned());
+    };
+    let function_body = body(&ctx, function.body.ok_or("expected function body")?)?;
+    ensure(
+        function_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "expected ternary to lower to conditional expression",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn async_function_and_await_lower() -> TestResult {
     let source = py!(r#"
 async def lift(value: int) -> int:
@@ -576,6 +625,45 @@ def test_raises():
 }
 
 #[test]
+fn pytest_raises_match_excinfo_and_callable_form_lower() -> TestResult {
+    let source = py!(r#"
+import pytest
+
+def boom() -> None:
+    raise "boom"
+
+def test_raises_forms():
+    with pytest.raises(Exception, match="boom") as excinfo:
+        boom()
+    pytest.raises(Exception, boom, match="boom")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_raises_forms.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let Item::Function(function) = item(&ctx, module.items[1])? else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    let body = body(&ctx, function.body.ok_or("expected test body")?)?;
+    ensure(
+        body.stmts
+            .iter()
+            .filter(|stmt| matches!(stmt, Stmt::TryCatch { .. }))
+            .count()
+            == 2,
+        "expected context and callable pytest.raises forms to lower to try/catch",
+    )?;
+    ensure(
+        body.locals.iter().any(|local| {
+            local
+                .name
+                .is_some_and(|name| symbol(&ctx, name).is_ok_and(|name| name == "excinfo"))
+        }),
+        "expected pytest.raises as excinfo to bind a catch local",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn pytest_parametrize_expands_literal_rows_to_test_functions() -> TestResult {
     let source = py!(r#"
 import pytest
@@ -614,6 +702,25 @@ def test_increment(value, expected):
             "generated parametrized case should have a stable name",
         )?;
     }
+    Ok(())
+}
+
+#[test]
+fn pytest_parametrize_accepts_ids_and_pytest_param_rows() -> TestResult {
+    let source = py!(r#"
+import pytest
+
+@pytest.mark.parametrize("value, expected", [pytest.param(1, 2, id="one"), pytest.param(3, 4, marks=pytest.mark.xfail)], ids=["a", "b"])
+def test_increment(value, expected):
+    assert value + 1 == expected
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_parametrize_ids.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure(
+        module.items.len() == 2,
+        "expected pytest.param rows to expand into generated tests",
+    )?;
     Ok(())
 }
 
@@ -669,6 +776,32 @@ def test_answer(scoped_answer):
     ensure(
         module.items.len() == 3,
         "expected both fixtures and the consuming test to lower",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn pytest_autouse_fixture_is_called_in_tests() -> TestResult {
+    let source = py!(r#"
+import pytest
+
+@pytest.fixture(autouse=True)
+def setup() -> int:
+    return 1
+
+def test_uses_autouse():
+    assert True
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_autouse.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let Item::Function(function) = item(&ctx, module.items[1])? else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    let body = body(&ctx, function.body.ok_or("expected test body")?)?;
+    ensure(
+        body.stmts.iter().any(|stmt| matches!(stmt, Stmt::Expr(_))),
+        "expected autouse fixture call to be injected before test body",
     )?;
     Ok(())
 }
@@ -3359,6 +3492,67 @@ class Meta(metaclass=ABCMeta):
     let errors = lower_errors(source, &mut ctx)?;
     let error = first_error(&errors)?;
     ensure_eq(&error.code, &"smelt::no-metaclass", "error code")?;
+    Ok(())
+}
+
+#[test]
+fn package_import_namespace_members_lower() -> TestResult {
+    let mut ctx = HirCtx::new();
+    lower_path_module(
+        py!(r#"
+def add(a: int, b: int) -> int:
+    return a + b
+"#),
+        "src/httpx/__init__.py",
+        &mut ctx,
+    )?;
+    ensure(
+        ctx.module_namespaces
+            .get("httpx")
+            .is_some_and(|members| members.contains_key("add")),
+        "expected httpx package namespace to export add",
+    )?;
+    let module_id = lower_path_module(
+        py!(r#"
+import httpx
+
+result: int = httpx.add(2, 3)
+"#),
+        "tests/test_status_codes.py",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    ensure(
+        module_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Call { .. })),
+        "expected package namespace member call",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn generic_base_class_lowers_as_base_metadata() -> TestResult {
+    let source = py!(r#"
+class NullFile(IO[str]):
+    def write(self, text: str) -> int:
+        return 0
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let class = module
+        .items
+        .iter()
+        .find_map(|item_id| match item(&ctx, *item_id).ok()? {
+            Item::Class(class) => Some(class),
+            _ => None,
+        })
+        .ok_or("expected class item")?;
+    let base = class.base.ok_or("expected base class metadata")?;
+    ensure_eq(&symbol(&ctx, base)?, &"IO", "base class")?;
     Ok(())
 }
 

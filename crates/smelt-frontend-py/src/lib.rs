@@ -185,6 +185,9 @@ impl SmeltError {
 pub struct HirCtx {
     /// The crate being assembled.
     pub krate: HirCrate,
+    /// Module/package namespace exports visible to later files.
+    pub module_namespaces:
+        std::collections::HashMap<String, std::collections::HashMap<String, smelt_hir::ItemId>>,
 }
 
 impl HirCtx {
@@ -193,6 +196,7 @@ impl HirCtx {
     pub fn new() -> Self {
         Self {
             krate: HirCrate::new(),
+            module_namespaces: std::collections::HashMap::new(),
         }
     }
 }

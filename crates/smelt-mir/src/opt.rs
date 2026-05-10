@@ -157,6 +157,20 @@ fn rewrite_rvalue(
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
         }
+        Rvalue::Conditional {
+            cond,
+            then_operand,
+            else_operand,
+        } => {
+            rewrite_operand_except(cond, aliases, dest)
+                | rewrite_operand_except(then_operand, aliases, dest)
+                | rewrite_operand_except(else_operand, aliases, dest)
+        }
+        Rvalue::InstanceOf { value: operand, .. }
+        | Rvalue::UnknownIs { value: operand, .. }
+        | Rvalue::UnknownCast { value: operand, .. } => {
+            rewrite_operand_except(operand, aliases, dest)
+        }
         Rvalue::StringContains { haystack, needle } => {
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(needle, aliases, dest)
