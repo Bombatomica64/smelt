@@ -208,6 +208,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 continue;
             }
+            if let Statement::ExpressionStatement(expr_stmt) = statement
+                && let Some(test_call) = self.test_case_call(&expr_stmt.expression)
+            {
+                match self.test_case_declaration(test_call) {
+                    Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
             if let Statement::ExportNamedDeclaration(export) = statement
                 && let Some(decl) = &export.declaration
             {
@@ -1144,6 +1153,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.is_test_framework_callee(&call.callee)
     }
 
+    /// Return a supported top-level test case call, if this expression is one.
+    fn test_case_call<'a>(
+        &self,
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
+        let Expression::CallExpression(call) = expression else {
+            return None;
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return None;
+        };
+        let name = callee.name.as_str();
+        (self.test_builtins.contains(name) && matches!(name, "it" | "test")).then_some(call)
+    }
+
     /// Return whether a callee belongs to an imported test-framework API.
     fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
@@ -1162,6 +1186,178 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             _ => false,
         }
+    }
+
+    /// Lower a top-level Vitest `test` / `it` call into an HIR test function.
+    fn test_case_declaration(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let name_arg = call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "test case calls require a string name",
+            )
+        })?;
+        let body_arg = call.arguments.get(1).ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "test case calls require a callback",
+            )
+        })?;
+        let test_name = self.test_case_name(name_arg)?;
+        let Argument::ArrowFunctionExpression(arrow) = body_arg else {
+            return Err(SmeltError::unsupported(
+                self.span(body_arg.span().start, body_arg.span().end),
+                "test case callbacks must be arrow functions",
+            ));
+        };
+        if arrow.r#async {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "async test callbacks are not lowered yet",
+            ));
+        }
+        if !arrow.params.items.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.params.span.start, arrow.params.span.end),
+                "test callbacks with parameters are not lowered yet",
+            ));
+        }
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_async = self.current_async;
+        self.current_async = false;
+        let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
+        let mut errors = Vec::new();
+        for statement in &arrow.body.statements {
+            if let Err(error) = self.test_case_statement(statement, &mut body) {
+                errors.push(error);
+            }
+        }
+        self.locals = saved_locals;
+        self.current_async = saved_async;
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+
+        let name = self.intern_source_name(&test_name);
+        let body_id = self.ctx.krate.push_body(body);
+        let none = self.ctx.krate.types.intern(Type::None);
+        let item = self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span: self.span(call.span.start, call.span.end),
+            params: Vec::new(),
+            return_ty: none,
+            is_async: false,
+            is_test: true,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        }));
+        self.items.insert(test_name, item);
+        Ok(item)
+    }
+
+    /// Convert a test-case name argument into a stable Rust function name.
+    fn test_case_name(&self, argument: &Argument<'_>) -> Result<String, SmeltError> {
+        let Argument::StringLiteral(name) = argument else {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "test case names must be string literals",
+            ));
+        };
+        Ok(format!(
+            "test_{}",
+            sanitize_test_name(name.value.as_str()).unwrap_or_else(|| "case".to_owned())
+        ))
+    }
+
+    /// Lower one supported statement inside a test case callback.
+    fn test_case_statement(
+        &mut self,
+        statement: &Statement<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        if let Statement::ExpressionStatement(expr_stmt) = statement
+            && let Expression::CallExpression(call) = &expr_stmt.expression
+            && self.expect_to_be_statement(call, body)?
+        {
+            return Ok(());
+        }
+        self.statement(statement, body)
+    }
+
+    /// Lower `expect(actual).toBe(expected)` to a conditional failure path.
+    fn expect_to_be_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        if member.property.name != "toBe" {
+            return Ok(false);
+        }
+        let Expression::CallExpression(expect_call) = &member.object else {
+            return Ok(false);
+        };
+        let Expression::Identifier(expect_ident) = &expect_call.callee else {
+            return Ok(false);
+        };
+        if !self.test_builtins.contains(expect_ident.name.as_str())
+            || expect_ident.name.as_str() != "expect"
+        {
+            return Ok(false);
+        }
+        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(expect_call.span.start, expect_call.span.end),
+                "expect(...).toBe(...) requires an actual value",
+            )
+        })?;
+        let expected_arg = call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "expect(...).toBe(...) requires an expected value",
+            )
+        })?;
+        let actual = self.argument(actual_arg, body)?;
+        let expected = self.argument(expected_arg, body)?;
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let not_equal = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: actual,
+                rhs: expected,
+            },
+            ty: bool_ty,
+            span: self.span(call.span.start, call.span.end),
+        });
+        let failure_block = body.push_block(self.span(call.span.start, call.span.end));
+        let message = self.string_literal_expr("expect(...).toBe(...) failed", call.span, body);
+        body.push_stmt_to_block(failure_block, Stmt::Throw(message));
+        body.push_stmt(Stmt::If {
+            cond: not_equal,
+            then_block: failure_block,
+            else_block: None,
+        });
+        Ok(true)
+    }
+
+    /// Create a string literal expression for synthesized test diagnostics.
+    fn string_literal_expr(
+        &mut self,
+        value: &str,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let ty = self.ctx.krate.types.intern(Type::String);
+        body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(value.to_owned())),
+            ty,
+            span: self.span(span.start, span.end),
+        })
     }
 
     /// Create a block from a statement (wrapping if needed).
@@ -5729,6 +5925,25 @@ fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
         .names
         .get(symbol)
         .or_else(|| krate.symbols.get(symbol))
+}
+
+/// Sanitize a source test title into a stable Rust identifier suffix.
+fn sanitize_test_name(name: &str) -> Option<String> {
+    let mut output = String::new();
+    let mut previous_underscore = false;
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            output.push(ch.to_ascii_lowercase());
+            previous_underscore = false;
+        } else if !previous_underscore && !output.is_empty() {
+            output.push('_');
+            previous_underscore = true;
+        }
+    }
+    while output.ends_with('_') {
+        output.pop();
+    }
+    (!output.is_empty()).then_some(output)
 }
 
 /// Return whether a property key can be resolved without runtime evaluation.

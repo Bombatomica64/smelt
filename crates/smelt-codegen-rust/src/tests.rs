@@ -1089,6 +1089,28 @@ def test_truth():
 }
 
 #[test]
+fn emits_typescript_vitest_test_case_as_rust_test() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("adds numbers", () => {
+  expect(1 + 1).toBe(2);
+});
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "#[test]\nfn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"
+        )
+    );
+    assert!(source.contains("1.0 + 1.0"));
+    assert!(source.contains("!= 2.0"));
+    assert!(source.contains("return Ok(());"));
+}
+
+#[test]
 fn emits_set_mutation_methods() {
     let ts_source = source_for(
         r#"

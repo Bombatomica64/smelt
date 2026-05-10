@@ -79,7 +79,7 @@ Add `smelt test` later. First implement the lowering units needed by codegen.
 
 TypeScript lowering:
 
-- [ ] Lower this shape to one Rust `#[test]`:
+- [x] Lower this shape to one Rust `#[test]`:
 
 ```ts
 test("name", () => {
