@@ -55,6 +55,7 @@ mod context;
 mod error;
 mod ident;
 mod lowering;
+mod test_support;
 
 pub use context::HirCtx;
 pub use error::SmeltError;

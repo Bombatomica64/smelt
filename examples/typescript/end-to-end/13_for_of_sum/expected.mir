@@ -6,7 +6,7 @@ fn main (FuncId(0)) -> None
     %3 temp: List<Float>
     %4 temp: Float
     %5 temp: Float
-    %6 temp: Float
+    %6 temp: Bool
     %7 temp: Float
     %8 temp: None
   bb0:

@@ -29,7 +29,7 @@ use crate::helpers::{
     expr_simple_name, expr_type_name, is_django_model_base, range_to_span, stmt_kind_name,
     two_type_args,
 };
-use crate::{HirCtx, SmeltError};
+use crate::{HirCtx, SmeltError, test_support};
 
 /// Stateful Python-module lowering context.
 pub(crate) struct ModuleBuilder<'ctx> {
@@ -45,6 +45,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     items: HashMap<String, ItemId>,
     /// Whether the current lowered function body is async.
     current_async: bool,
+    /// Whether this module should use pytest-specific test discovery rules.
+    pytest_mode: bool,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
@@ -53,6 +55,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let items = visible_items(ctx);
         Self {
             file_id,
+            pytest_mode: test_support::is_pytest_file(&path),
             path,
             ctx,
             locals: HashMap::new(),
@@ -647,17 +650,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let name_str = func.name.as_str();
         let name = self.intern_name(name_str);
 
-        // Return type — required.
-        let annotated_return_ty = func
-            .returns
-            .as_deref()
-            .ok_or_else(|| {
-                SmeltError::unsupported(
+        // Return type — required except for pytest test functions, where an
+        // omitted annotation is treated as `-> None`.
+        let annotated_return_ty = match func.returns.as_deref() {
+            Some(annotation) => self.annotation_to_hir(annotation)?,
+            None if self.is_pytest_test_function(func) => self.intern_type(Type::None),
+            None => {
+                return Err(SmeltError::unsupported(
                     self.span(func.range),
                     format!("function '{name_str}' must have an explicit return type annotation"),
-                )
-            })
-            .and_then(|ann| self.annotation_to_hir(ann))?;
+                ));
+            }
+        };
         let return_ty = if func.is_async {
             self.future_type(annotated_return_ty)
         } else {
@@ -745,6 +749,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let item_id = self.ctx.krate.push_item(item);
         self.items.insert(name_str.to_owned(), item_id);
         Ok(item_id)
+    }
+
+    /// Return whether `func` is a top-level pytest test function in pytest mode.
+    fn is_pytest_test_function(&self, func: &StmtFunctionDef) -> bool {
+        self.pytest_mode && test_support::is_pytest_test_function(func.name.as_str())
     }
 
     // -----------------------------------------------------------------------
@@ -1384,7 +1393,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         }
 
-        let iter = self.expression(&for_stmt.iter, body)?;
+        let raw_iter = self.expression(&for_stmt.iter, body)?;
+        let iter = self.for_iterable(raw_iter, body);
         let iter_ty = Self::expr_ty(body, iter);
         let item_ty = self
             .iter_item_type(iter_ty)
@@ -1401,6 +1411,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
             },
         );
         Ok(())
+    }
+
+    /// Adapt Python iterables whose Rust representation is not directly indexable.
+    fn for_iterable(&mut self, iter: smelt_hir::ExprId, body: &mut Body) -> smelt_hir::ExprId {
+        let iter_ty = Self::expr_ty(body, iter);
+        let iter_span = usize::try_from(iter.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map_or_else(|| Span::new(self.file_id, 0, 0), |expr| expr.span);
+        match self.ctx.krate.types.get(iter_ty).cloned() {
+            Some(Type::Set(item_ty)) => {
+                let ty = self.intern_type(Type::List(item_ty));
+                body.push_expr(HirExpr {
+                    kind: ExprKind::SetProjection {
+                        op: SetProjectionOp::Values,
+                        set: iter,
+                    },
+                    ty,
+                    span: iter_span,
+                })
+            }
+            Some(Type::Dict(key_ty, _)) => {
+                let ty = self.intern_type(Type::List(key_ty));
+                body.push_expr(HirExpr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Keys,
+                        dict: iter,
+                    },
+                    ty,
+                    span: iter_span,
+                })
+            }
+            _ => iter,
+        }
     }
 
     /// `match subject: case …` — only literal / wildcard patterns.

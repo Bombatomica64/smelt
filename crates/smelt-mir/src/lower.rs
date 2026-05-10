@@ -65,6 +65,8 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
 
     let mut mir = Mir::new(krate.types.clone(), krate.symbols.clone());
     let none = mir.types.intern(Type::None);
+    let loop_index_ty = mir.types.intern(Type::Float);
+    let loop_bool_ty = mir.types.intern(Type::Bool);
     let mut errors = Vec::new();
     let mut item_functions = HashMap::new();
 
@@ -182,6 +184,8 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             return_ty,
             function.owner,
             function.is_async,
+            loop_index_ty,
+            loop_bool_ty,
         )
         .and_then(LoweringCtx::lower)
         {
@@ -219,6 +223,8 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             none,
             smelt_hir::FunctionOwner::Module,
             false,
+            loop_index_ty,
+            loop_bool_ty,
         )
         .and_then(LoweringCtx::lower)
         {
@@ -257,6 +263,10 @@ struct LoweringCtx<'hir> {
     loops: Vec<LoopTargets>,
     /// Stack of lexical exception targets for throws inside try blocks.
     exception_targets: Vec<ExceptionTarget>,
+    /// Numeric type used for generated index-based loop counters.
+    loop_index_ty: TypeId,
+    /// Boolean type used for generated loop conditions.
+    loop_bool_ty: TypeId,
 }
 
 /// Target blocks for break and continue statements.
@@ -289,6 +299,8 @@ impl<'hir> LoweringCtx<'hir> {
         return_ty: TypeId,
         owner: smelt_hir::FunctionOwner,
         is_async: bool,
+        loop_index_ty: TypeId,
+        loop_bool_ty: TypeId,
     ) -> Result<Self, LowerError> {
         let span = body
             .blocks
@@ -346,6 +358,8 @@ impl<'hir> LoweringCtx<'hir> {
             exprs: HashMap::new(),
             loops: Vec::new(),
             exception_targets: Vec::new(),
+            loop_index_ty,
+            loop_bool_ty,
         })
     }
 
@@ -665,33 +679,8 @@ impl<'hir> LoweringCtx<'hir> {
         let iter_operand = self.lower_expr(iter)?;
         let iter_span = self.hir_expr(iter)?.span;
         let iter_local = self.local_operand(iter_operand, iter_span)?;
-        let float_ty = if let Some(idx) = self
-            .krate
-            .types
-            .all()
-            .iter()
-            .position(|ty| *ty == Type::Float)
-        {
-            TypeId(u32_from_usize(idx, "HIR type index does not fit in u32")?)
-        } else {
-            let local_index = usize_from_u32(hir_local.0, "HIR local index does not fit in usize")?;
-            self.body
-                .locals
-                .get(local_index)
-                .map(|local| local.ty)
-                .ok_or_else(|| self.error("HIR local index should be valid", None))?
-        };
-        let bool_ty = if let Some(idx) = self
-            .krate
-            .types
-            .all()
-            .iter()
-            .position(|ty| *ty == Type::Bool)
-        {
-            TypeId(u32_from_usize(idx, "HIR type index does not fit in u32")?)
-        } else {
-            float_ty
-        };
+        let float_ty = self.loop_index_ty;
+        let bool_ty = self.loop_bool_ty;
         let idx = self.push_temp(float_ty, iter_span);
         self.block_mut()?.statements.push(Statement::Assign {
             dest: idx,

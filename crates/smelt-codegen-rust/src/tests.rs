@@ -1032,6 +1032,28 @@ for (const entry: [string, number] of mapping) {
 }
 
 #[test]
+fn emits_python_set_and_dict_for_loops() {
+    let source = source_for_py(
+        r#"
+items: set[int] = {1, 2}
+total: int = 0
+for item in items:
+    total = total + item
+names: dict[str, int] = {"Ada": 1}
+last: str = ""
+for name in names:
+    last = name
+"#,
+    );
+
+    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(source.matches("while").count() >= 2);
+    assert!(source.contains("total ="));
+    assert!(source.contains("last = name.clone();"));
+}
+
+#[test]
 fn emits_set_mutation_methods() {
     let ts_source = source_for(
         r#"

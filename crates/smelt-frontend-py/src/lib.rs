@@ -263,6 +263,7 @@ pub fn to_hir_with_path(
 
 pub(crate) mod helpers;
 pub(crate) mod lowering;
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod tests;

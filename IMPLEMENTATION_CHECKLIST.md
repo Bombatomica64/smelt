@@ -485,6 +485,8 @@ runtime errors.
     - [x] Set literals and `in` / `not in`.
     - [x] Set `add`, `remove`, `discard`, `clear`, and `copy`.
     - [x] Set `union`, `intersection`, and `difference`.
+    - [x] Set iteration in `for` loops via value projection.
+  - [x] Dict iteration in `for` loops via key projection.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.
 - [ ] Python standard-library module mappings:
   - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,

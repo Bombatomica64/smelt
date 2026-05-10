@@ -1,0 +1,195 @@
+//! pytest-style helpers for generated Rust tests.
+//!
+//! Most pytest support should lower directly to Rust assertions. This module
+//! holds the pieces that need shared behavior, especially failure formatting and
+//! panic/error checks.
+
+use std::{fmt, panic::UnwindSafe};
+
+use crate::{catches_panic, fail};
+
+/// Asserts a Python `assert expr` condition.
+///
+/// # Panics
+///
+/// Panics when `condition` is false.
+pub fn assert_true(condition: bool) {
+    assert_true_with_message(condition, "assertion failed");
+}
+
+/// Asserts a Python `assert expr, message` condition.
+///
+/// # Panics
+///
+/// Panics when `condition` is false.
+pub fn assert_true_with_message(condition: bool, message: impl fmt::Display) {
+    if !condition {
+        fail(message);
+    }
+}
+
+/// Asserts Python equality.
+///
+/// # Panics
+///
+/// Panics when `actual != expected`.
+pub fn assert_eq<T, U>(actual: &T, expected: &U)
+where
+    T: PartialEq<U> + fmt::Debug + ?Sized,
+    U: fmt::Debug + ?Sized,
+{
+    if actual != expected {
+        fail(format_args!(
+            "assertion failed: left == right\n  left: {actual:?}\n right: {expected:?}"
+        ));
+    }
+}
+
+/// Asserts Python inequality.
+///
+/// # Panics
+///
+/// Panics when `actual == expected`.
+pub fn assert_ne<T, U>(actual: &T, expected: &U)
+where
+    T: PartialEq<U> + fmt::Debug + ?Sized,
+    U: fmt::Debug + ?Sized,
+{
+    if actual == expected {
+        fail(format_args!(
+            "assertion failed: left != right\n  left: {actual:?}\n right: {expected:?}"
+        ));
+    }
+}
+
+/// Asserts that a block does not satisfy a condition.
+///
+/// # Panics
+///
+/// Panics when `condition` is true.
+pub fn assert_false(condition: bool) {
+    if condition {
+        fail("assertion failed: expected false");
+    }
+}
+
+/// Asserts `pytest.raises` for currently-lowered exception paths.
+///
+/// v1 exception lowering maps expected source-language errors to Rust panics.
+/// This helper preserves the public `pytest.raises` shape without exposing a
+/// dynamic Python exception object.
+///
+/// # Panics
+///
+/// Panics when `function` does not panic.
+pub fn raises(function: impl FnOnce() + UnwindSafe) {
+    if !catches_panic(function) {
+        fail("expected exception to be raised");
+    }
+}
+
+/// Asserts that a block does not raise.
+///
+/// # Panics
+///
+/// Panics when `function` panics.
+pub fn does_not_raise(function: impl FnOnce() + UnwindSafe) {
+    if catches_panic(function) {
+        fail("expected no exception to be raised");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        assert_eq, assert_false, assert_ne, assert_true, assert_true_with_message, does_not_raise,
+        raises,
+    };
+    use crate::catches_panic;
+
+    #[test]
+    fn assert_true_accepts_true() {
+        assert_true(true);
+    }
+
+    #[test]
+    fn assert_true_rejects_false() {
+        assert!(
+            catches_panic(|| assert_true(false)),
+            "false condition should fail"
+        );
+    }
+
+    #[test]
+    fn assert_true_with_message_rejects_false() {
+        assert!(
+            catches_panic(|| assert_true_with_message(false, "custom failure")),
+            "false condition with message should fail"
+        );
+    }
+
+    #[test]
+    fn assert_eq_accepts_equal_values() {
+        assert_eq(&vec![1_i32, 2_i32], &vec![1_i32, 2_i32]);
+    }
+
+    #[test]
+    fn assert_eq_rejects_different_values() {
+        assert!(
+            catches_panic(|| assert_eq(&1_i32, &2_i32)),
+            "different values should fail equality"
+        );
+    }
+
+    #[test]
+    fn assert_ne_accepts_different_values() {
+        assert_ne("left", "right");
+    }
+
+    #[test]
+    fn assert_ne_rejects_equal_values() {
+        assert!(
+            catches_panic(|| assert_ne(&1_i32, &1_i32)),
+            "equal values should fail inequality"
+        );
+    }
+
+    #[test]
+    fn assert_false_accepts_false() {
+        assert_false(false);
+    }
+
+    #[test]
+    fn assert_false_rejects_true() {
+        assert!(
+            catches_panic(|| assert_false(true)),
+            "true condition should fail assert_false"
+        );
+    }
+
+    #[test]
+    fn raises_accepts_panics() {
+        raises(|| panic!("expected test panic"));
+    }
+
+    #[test]
+    fn raises_rejects_non_panics() {
+        assert!(
+            catches_panic(|| raises(|| {})),
+            "non-panicking block should fail raises"
+        );
+    }
+
+    #[test]
+    fn does_not_raise_accepts_non_panics() {
+        does_not_raise(|| {});
+    }
+
+    #[test]
+    fn does_not_raise_rejects_panics() {
+        assert!(
+            catches_panic(|| does_not_raise(|| panic!("expected test panic"))),
+            "panicking block should fail does_not_raise"
+        );
+    }
+}

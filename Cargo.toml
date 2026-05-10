@@ -7,6 +7,7 @@ members = [
     "crates/smelt-codegen-rust",
     "crates/smelt-asyncio",
     "crates/smelt-runtime",
+    "crates/smelt-test",
     "crates/smelt-cli",
 ]
 resolver = "2"

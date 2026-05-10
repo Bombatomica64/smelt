@@ -1,6 +1,6 @@
 //! Unit tests for the Python frontend.
 
-use crate::{HirCtx, SmeltError, to_hir};
+use crate::{HirCtx, SmeltError, to_hir, to_hir_with_path};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
     Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
@@ -33,6 +33,12 @@ fn lower_errors(source: &str, ctx: &mut HirCtx) -> Result<Vec<SmeltError>, Strin
         )),
         Err(errors) => Ok(errors),
     }
+}
+
+/// Lowers `source` from a concrete path and returns the module ID.
+fn lower_path_module(source: &str, path: &str, ctx: &mut HirCtx) -> Result<ModuleId, String> {
+    to_hir_with_path(source, FileId(0), path, ctx)
+        .map_err(|errors| format!("expected successful lowering, got {errors:?}"))
 }
 
 /// Returns the first diagnostic from `errors`.
@@ -398,6 +404,39 @@ fn missing_return_annotation_is_error() -> TestResult {
         &"smelt::unsupported-py",
         "error code",
     )?;
+    Ok(())
+}
+
+#[test]
+fn pytest_test_function_without_return_annotation_lowers_to_none() -> TestResult {
+    let source = py!("def test_smoke():\n    pass\n");
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_smoke.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = *module
+        .items
+        .first()
+        .ok_or_else(|| "expected lowered pytest test function".to_owned())?;
+    let item = ctx
+        .krate
+        .items
+        .get(usize::try_from(item_id.0).map_err(|err| err.to_string())?)
+        .ok_or_else(|| "missing lowered pytest test function item".to_owned())?;
+    let Item::Function(function) = item else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    ensure(
+        matches!(ctx.krate.types.get(function.return_ty), Some(Type::None)),
+        "pytest test functions without return annotations lower as None",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn pytest_suffix_test_function_without_return_annotation_lowers_to_none() -> TestResult {
+    let source = py!("def test_smoke():\n    pass\n");
+    let mut ctx = HirCtx::new();
+    lower_path_module(source, "tests/smoke_test.py", &mut ctx)?;
     Ok(())
 }
 
@@ -2366,6 +2405,62 @@ for value in range(3):
             .iter()
             .any(|stmt| matches!(stmt, Stmt::For { .. })),
         "expected for range lowering",
+    )
+}
+
+#[test]
+fn set_and_dict_for_loops_lower_to_projections() -> TestResult {
+    let source = py!(r#"
+items: set[int] = {1, 2}
+total: int = 0
+for item in items:
+    total = total + item
+names: dict[str, int] = {"Ada": 1}
+last: str = ""
+for name in names:
+    last = name
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::SetProjection {
+                    op: SetProjectionOp::Values,
+                    ..
+                }
+            )
+        }),
+        "expected set for-loop to lower through values projection",
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::DictProjection {
+                    op: DictProjectionOp::Keys,
+                    ..
+                }
+            )
+        }),
+        "expected dict for-loop to lower through keys projection",
+    )?;
+    ensure(
+        body.stmts
+            .iter()
+            .filter(|stmt| matches!(stmt, Stmt::For { .. }))
+            .count()
+            >= 2,
+        "expected both for loops to lower",
     )
 }
 

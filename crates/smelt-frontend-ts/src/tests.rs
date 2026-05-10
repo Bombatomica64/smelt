@@ -58,6 +58,51 @@ fn lowering_errors(source: &str, ctx: &mut HirCtx) -> Result<Vec<SmeltError>, St
     }
 }
 
+/// Lower TypeScript source with a source path and fail readably on error.
+fn lower_path_ok(source: &str, path: &str, ctx: &mut HirCtx) -> Result<ModuleId, String> {
+    to_hir_with_path(source, FileId(0), path, ctx)
+        .map_err(|errors| format!("unexpected lowering failure: {errors:?}"))
+}
+
+#[test]
+fn vitest_public_api_imports_lower_as_test_builtins() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, it, test, beforeEach, afterEach } from "vitest";
+
+describe("group", () => {});
+it("case", () => {});
+test("case 2", () => {});
+beforeEach(() => {});
+afterEach(() => {});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/example.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure_eq!(body.stmts.len(), 0);
+    Ok(())
+}
+
+#[test]
+fn effect_vitest_concurrent_describe_lowers_as_test_builtin() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, test } from "@effect/vitest";
+
+describe.concurrent("group", () => {});
+test("case", () => {});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        source,
+        "packages/typeclass/test/data/Number.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure_eq!(body.stmts.len(), 0);
+    Ok(())
+}
+
 /// Get the lowered module for a module ID.
 fn module(ctx: &HirCtx, module_id: ModuleId) -> Result<&smelt_hir::Module, String> {
     let module_index = usize::try_from(module_id.0)

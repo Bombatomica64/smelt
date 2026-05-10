@@ -1,10 +1,9 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod stdlib;
+use std::collections::{HashMap, HashSet};
 
-use std::collections::HashMap;
-
-use crate::{HirCtx, SmeltError, camel_to_snake};
+use crate::{HirCtx, SmeltError, camel_to_snake, test_support};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ClassElement, Declaration,
@@ -116,6 +115,8 @@ struct ModuleBuilder<'ctx> {
     current_class: Option<String>,
     /// Whether the current lowered function body is async.
     current_async: bool,
+    /// Test-framework API names imported from Vitest-compatible modules.
+    test_builtins: HashSet<String>,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
@@ -133,6 +134,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_fields: HashMap::new(),
             current_class: None,
             current_async: false,
+            test_builtins: HashSet::new(),
         }
     }
 
@@ -291,7 +293,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 alias,
                 span,
             });
-            self.alias_imported_item(&imported, &local);
+            if test_support::is_vitest_compatible_module(source)
+                && test_support::is_vitest_builtin_name(&imported)
+            {
+                self.test_builtins.insert(local.clone());
+            } else {
+                self.alias_imported_item(&imported, &local);
+            }
         }
     }
 
@@ -927,6 +935,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         match statement {
             Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
             Statement::ExpressionStatement(expr_stmt) => {
+                if self.is_test_framework_statement(&expr_stmt.expression) {
+                    return Ok(());
+                }
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
                     let (target, value) = self.assignment_parts(assign, body)?;
                     body.push_stmt_to_block(block, Stmt::Assign { target, value });
@@ -1120,6 +1131,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.statement_span(statement),
                 format!("statement kind is not lowered yet: {statement:?}"),
             )),
+        }
+    }
+
+    /// Return whether an expression is a top-level Vitest organization call.
+    fn is_test_framework_statement(&self, expression: &Expression<'_>) -> bool {
+        let Expression::CallExpression(call) = expression else {
+            return false;
+        };
+        self.is_test_framework_callee(&call.callee)
+    }
+
+    /// Return whether a callee belongs to an imported test-framework API.
+    fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
+        match callee {
+            Expression::Identifier(ident) => self.test_builtins.contains(ident.name.as_str()),
+            Expression::StaticMemberExpression(member)
+                if member.property.name == "concurrent"
+                    || member.property.name == "each"
+                    || member.property.name == "skip"
+                    || member.property.name == "only" =>
+            {
+                matches!(
+                    &member.object,
+                    Expression::Identifier(object)
+                        if self.test_builtins.contains(object.name.as_str())
+                )
+            }
+            _ => false,
         }
     }
 
