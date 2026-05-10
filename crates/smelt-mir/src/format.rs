@@ -434,6 +434,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::SetProjection { op, set } => {
+            let op_text = match op {
+                smelt_hir::SetProjectionOp::Values => "values",
+                smelt_hir::SetProjectionOp::Entries => "entries",
+            };
+            format!("set_{op_text} {}", operand_text(set))
+        }
         Rvalue::ListConcat { left, right } => {
             format!(
                 "list_concat {}, {}",

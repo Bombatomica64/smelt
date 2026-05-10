@@ -924,6 +924,34 @@ const mapSize = mapping.size;
 }
 
 #[test]
+fn emits_map_and_set_projection_methods() {
+    let source = source_for(
+        r#"
+const values: Set<number> = new Set([1, 2]);
+const valueKeys = values.keys();
+const valueList = values.values();
+const valueEntries = values.entries();
+const mapping: Map<string, number> = new Map();
+const mapKeys = mapping.keys();
+const mapValues = mapping.values();
+const mapEntries = mapping.entries();
+"#,
+    );
+
+    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".values().cloned().collect::<Vec<_>>()"));
+    assert!(
+        source.contains(
+            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+        )
+    );
+    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+    assert!(
+        source.contains(".iter().map(|value| (value.clone(), value.clone())).collect::<Vec<_>>()")
+    );
+}
+
+#[test]
 fn emits_python_set_algebra_methods() {
     let source = source_for_py(
         r#"

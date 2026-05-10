@@ -1341,6 +1341,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::SetBinary { op, left, right } => {
                 self.set_binary_text(*op, left, right, dest_ty)
             }
+            Rvalue::SetProjection { op, set } => self.set_projection_text(*op, set, dest_ty),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
             Rvalue::ListCallback { op, list, callback } => {
@@ -2269,6 +2270,42 @@ impl<'mir> FunctionEmitter<'mir> {
             method,
             self.operand_text(right)?
         ))
+    }
+
+    /// Converts a set projection operation to Rust text.
+    fn set_projection_text(
+        &self,
+        op: smelt_hir::SetProjectionOp,
+        set: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let set_ty = self.operand_ty(set)?;
+        let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
+            return Err(EmitError::new("set projection receiver must be a set"));
+        };
+        match (op, self.mir.types.get(dest_ty)) {
+            (smelt_hir::SetProjectionOp::Values, Some(Type::List(inner))) if inner == item_ty => {}
+            (smelt_hir::SetProjectionOp::Entries, Some(Type::List(entry_ty)))
+                if matches!(
+                    self.mir.types.get(*entry_ty),
+                    Some(Type::Tuple(items))
+                        if matches!(items.as_slice(), [left, right] if left == item_ty && right == item_ty)
+                ) => {}
+            _ => {
+                return Err(EmitError::new(
+                    "set projection destination does not match projection type",
+                ));
+            }
+        }
+        let set_text = self.operand_text(set)?;
+        match op {
+            smelt_hir::SetProjectionOp::Values => {
+                Ok(format!("{set_text}.iter().cloned().collect::<Vec<_>>()"))
+            }
+            smelt_hir::SetProjectionOp::Entries => Ok(format!(
+                "{set_text}.iter().map(|value| (value.clone(), value.clone())).collect::<Vec<_>>()"
+            )),
+        }
     }
 
     /// Converts a list concatenation operation to Rust text.

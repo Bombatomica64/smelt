@@ -521,6 +521,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("set_{op_name} {}, {}", expr_ref(*left), expr_ref(*right))
         }
+        ExprKind::SetProjection { op, set } => {
+            let op_name = match op {
+                crate::expr::SetProjectionOp::Values => "values",
+                crate::expr::SetProjectionOp::Entries => "entries",
+            };
+            format!("set_{op_name} {}", expr_ref(*set))
+        }
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
         }
@@ -758,6 +765,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::SetClear { .. }
         | ExprKind::SetCopy { .. }
         | ExprKind::SetBinary { .. }
+        | ExprKind::SetProjection { .. }
         | ExprKind::ListConcat { .. }
         | ExprKind::ListSearch { .. }
         | ExprKind::ListCallback { .. }

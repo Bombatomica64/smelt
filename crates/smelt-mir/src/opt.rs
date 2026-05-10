@@ -234,6 +234,7 @@ fn rewrite_rvalue(
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
         }
+        Rvalue::SetProjection { set, .. } => rewrite_operand_except(set, aliases, dest),
         Rvalue::ListConcat { left, right } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)

@@ -278,6 +278,13 @@ pub enum ExprKind {
         /// Right set operand.
         right: ExprId,
     },
+    /// Project values or entries from a set.
+    SetProjection {
+        /// Projection to apply.
+        op: SetProjectionOp,
+        /// Set value to project.
+        set: ExprId,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.
@@ -691,6 +698,15 @@ pub enum SetBinaryOp {
     Intersection,
     /// Return items in the left set but not the right set.
     Difference,
+}
+
+/// A directly lowered set projection operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetProjectionOp {
+    /// Project set values.
+    Values,
+    /// Project item-item entries.
+    Entries,
 }
 
 /// A directly lowered string affix test.

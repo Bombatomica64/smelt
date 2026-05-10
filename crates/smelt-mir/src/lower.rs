@@ -1358,6 +1358,18 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::SetProjection { op, set } => {
+                let set_operand = self.lower_expr(*set)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetProjection {
+                        op: *op,
+                        set: set_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListConcat { left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
@@ -2046,6 +2058,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::SetClear { .. }
             | ExprKind::SetCopy { .. }
             | ExprKind::SetBinary { .. }
+            | ExprKind::SetProjection { .. }
             | ExprKind::ListConcat { .. }
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }

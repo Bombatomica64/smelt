@@ -164,6 +164,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `set.delete(x)` | `SetRemove::Delete` | `SetRemove::Delete` | `set.remove(&x)` | One item matching element type on a local set | Wrong arity, mismatched item type, non-local receiver | Rust `HashSet::remove` bool return matches the supported surface. |
 | `set.clear()` | `SetClear` | `SetClear` | `{ set.clear(); () }` | No arguments on a local set | Arguments, non-local receiver | JS returns `undefined`, represented as `None`. |
 | `set.size` | `Len` | `Len` | `set.len() as f64` | Set receiver | Runtime dynamic receivers | Static set size only. |
+| `set.keys()` / `set.values()` | `SetProjection::Values` | `SetProjection::Values` | `set.iter().cloned().collect()` | No arguments | Iterator object identity/laziness | Returns a list rather than a JS iterator. |
+| `set.entries()` | `SetProjection::Entries` | `SetProjection::Entries` | `set.iter().map(|v| (v.clone(), v.clone())).collect()` | No arguments | Iterator object identity/laziness | Returns a list of tuples rather than a JS iterator. |
 | `new Map()` | `DictLit` | `Dict` | `HashMap::from([])` | `Map<K, V>` annotated target | Entry iterable construction | TypeScript `Map` is currently represented with the shared dictionary path. |
 | `map.has(k)` | `DictContainsKey` | `DictContainsKey` | `map.contains_key(&k)` | One key matching key type | Wrong arity or mismatched key type | Rust `HashMap` key semantics are used. |
 | `map.get(k)` | `DictGet` | `DictGet` | `map.get(&k).cloned()` | One key matching key type | Wrong arity or mismatched key type | TypeScript `undefined` is represented as `Option<V>`. |
@@ -171,6 +173,9 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `map.delete(k)` | `DictRemoveKey` | `DictRemoveKey` | `map.remove(&k).is_some()` | One key matching key type on a local map | Wrong arity, mismatched key type, non-local receiver | Rust `HashMap::remove` bool result matches the supported surface. |
 | `map.clear()` | `DictClear` | `DictClear` | `{ map.clear(); () }` | No arguments on a local map | Arguments, non-local receiver | JS returns `undefined`, represented as `None`. |
 | `map.size` | `Len` | `Len` | `map.len() as f64` | Map receiver | Runtime dynamic receivers | Static map size only. |
+| `map.keys()` | `DictProjection::Keys` | `DictProjection::Keys` | `map.keys().cloned().collect()` | No arguments | Iterator object identity/laziness | Returns a list rather than a JS iterator. |
+| `map.values()` | `DictProjection::Values` | `DictProjection::Values` | `map.values().cloned().collect()` | No arguments | Iterator object identity/laziness | Returns a list rather than a JS iterator. |
+| `map.entries()` | `DictProjection::Entries` | `DictProjection::Entries` | `map.iter().map(...).collect()` | No arguments | Iterator object identity/laziness | Returns a list of tuples rather than a JS iterator. |
 | `x in list` / `x not in list` | `ListContains` plus optional `UnaryOp::Not` | `ListContains` plus optional `Unary` | `list.contains(&x)` | Item matching element type | Mismatched types | Rust equality semantics are used. |
 | `x in set` / `x not in set` | `SetContains` plus optional `UnaryOp::Not` | `SetContains` plus optional `Unary` | `set.contains(&x)` | Item matching element type | Mismatched types | Rust `HashSet` equality and hashing semantics are used. |
 | Python set literal `{a, b}` | `SetLit` | `Set` | `HashSet::from([a, b])` | Same-typed literal elements or annotated target type | Mixed element types, empty set literal syntax | Python preserves unique values; generated Rust uses `HashSet`. |

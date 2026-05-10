@@ -4,8 +4,8 @@ use super::*;
 use smelt_hir::{
     DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp, Literal,
     ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    RegexMatchOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Type,
+    RegexMatchOp, SetProjectionOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp,
+    StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -1305,6 +1305,58 @@ const mapSize = mapping.size;
             .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
             .count(),
         2,
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_map_and_set_projection_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: Set<number> = new Set([1, 2]);
+const valueKeys = values.keys();
+const valueList = values.values();
+const valueEntries = values.entries();
+const mapping: Map<string, number> = new Map();
+const mapKeys = mapping.keys();
+const mapValues = mapping.values();
+const mapEntries = mapping.entries();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::DictProjection { .. }))
+            .count(),
+        3,
+    );
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(
+                expr.kind,
+                ExprKind::SetProjection {
+                    op: SetProjectionOp::Values,
+                    ..
+                }
+            ))
+            .count(),
+        2,
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::SetProjection {
+                op: SetProjectionOp::Entries,
+                ..
+            }
+        )),
+        "expected Set.entries lowering",
     );
     Ok(())
 }

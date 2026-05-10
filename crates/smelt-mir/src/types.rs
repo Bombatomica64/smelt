@@ -581,6 +581,13 @@ pub enum Rvalue {
         /// Right set operand.
         right: Operand,
     },
+    /// Project values or entries from a set.
+    SetProjection {
+        /// Projection to apply.
+        op: smelt_hir::SetProjectionOp,
+        /// Set value to project.
+        set: Operand,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.

@@ -22,9 +22,9 @@ use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, Class, DictProjectionOp, Expr, ExprKind,
     Field, FileId, Function, FunctionOwner, Import, Interface, Item, Language, ListCallbackOp,
     ListSearchOp, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
-    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, SetRemoveOp,
-    SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
+    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
+    SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp,
+    StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1721,6 +1721,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.map_mutation_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.map_projection_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.set_projection_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.array_is_array_call(call, body)? {
@@ -3580,6 +3586,97 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Lower direct TypeScript `Map` projection methods.
+    fn map_projection_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "keys" => DictProjectionOp::Keys,
+            "values" => DictProjectionOp::Values,
+            "entries" => DictProjectionOp::Entries,
+            _ => return Ok(None),
+        };
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Map keys/values/entries require no arguments",
+            ));
+        }
+        let dict = self.expression(&member.object, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
+        let key_ty = *dict_key_ty;
+        let value_ty = *dict_value_ty;
+        let ty = match op {
+            DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
+            DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
+            DictProjectionOp::Entries => {
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![key_ty, value_ty]));
+                self.ctx.krate.types.intern(Type::List(entry_ty))
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictProjection { op, dict },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Set` projection methods.
+    fn set_projection_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let op = match member.property.name.as_str() {
+            "keys" | "values" => SetProjectionOp::Values,
+            "entries" => SetProjectionOp::Entries,
+            _ => return Ok(None),
+        };
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Set keys/values/entries require no arguments",
+            ));
+        }
+        let set = self.expression(&member.object, body)?;
+        let set_ty = Self::expr_ty(body, set);
+        let Some(Type::Set(set_item_ty)) = self.ctx.krate.types.get(set_ty) else {
+            return Ok(None);
+        };
+        let item_ty = *set_item_ty;
+        let ty = match op {
+            SetProjectionOp::Values => self.ctx.krate.types.intern(Type::List(item_ty)),
+            SetProjectionOp::Entries => {
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![item_ty, item_ty]));
+                self.ctx.krate.types.intern(Type::List(entry_ty))
+            }
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::SetProjection { op, set },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.
