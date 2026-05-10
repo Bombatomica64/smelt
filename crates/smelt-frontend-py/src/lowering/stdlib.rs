@@ -2,7 +2,9 @@
 
 use ruff_python_ast::{Expr, ExprSubscript, UnaryOp as RuffUnaryOp};
 use ruff_text_size::Ranged;
-use smelt_hir::{Body, BoolFoldOp, Expr as HirExpr, ExprKind, RegexMatchOp, SetRemoveOp, Type};
+use smelt_hir::{
+    Body, BoolFoldOp, Expr as HirExpr, ExprKind, RegexMatchOp, SetBinaryOp, SetRemoveOp, Type,
+};
 
 use super::{ModuleBuilder, SmeltError};
 
@@ -825,7 +827,10 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let method = attr.attr.as_str();
-        if !matches!(method, "add" | "discard" | "remove" | "copy") {
+        if !matches!(
+            method,
+            "add" | "discard" | "remove" | "copy" | "union" | "intersection" | "difference"
+        ) {
             return Ok(None);
         }
         let set = self.expression(&attr.value, body)?;
@@ -843,6 +848,36 @@ impl ModuleBuilder<'_> {
             }
             return Ok(Some(body.push_expr(HirExpr {
                 kind: ExprKind::SetCopy { set },
+                ty: set_ty,
+                span: self.span(call.range),
+            })));
+        }
+        if matches!(method, "union" | "intersection" | "difference") {
+            if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range),
+                    "set union/intersection/difference require exactly one set argument",
+                ));
+            }
+            let right = self.expression(&call.arguments.args[0], body)?;
+            if Self::expr_ty(body, right) != set_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(call.arguments.args[0].range()),
+                    "set algebra argument must match the receiver set type",
+                ));
+            }
+            let op = match method {
+                "union" => SetBinaryOp::Union,
+                "intersection" => SetBinaryOp::Intersection,
+                "difference" => SetBinaryOp::Difference,
+                _ => return Ok(None),
+            };
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::SetBinary {
+                    op,
+                    left: set,
+                    right,
+                },
                 ty: set_ty,
                 span: self.span(call.range),
             })));

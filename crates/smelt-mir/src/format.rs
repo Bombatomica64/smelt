@@ -422,6 +422,18 @@ fn rvalue_text(value: &Rvalue) -> String {
         }
         Rvalue::SetClear { set } => format!("set_clear {}", operand_text(set)),
         Rvalue::SetCopy { set } => format!("set_copy {}", operand_text(set)),
+        Rvalue::SetBinary { op, left, right } => {
+            let op_text = match op {
+                smelt_hir::SetBinaryOp::Union => "union",
+                smelt_hir::SetBinaryOp::Intersection => "intersection",
+                smelt_hir::SetBinaryOp::Difference => "difference",
+            };
+            format!(
+                "set_{op_text} {}, {}",
+                operand_text(left),
+                operand_text(right)
+            )
+        }
         Rvalue::ListConcat { left, right } => {
             format!(
                 "list_concat {}, {}",

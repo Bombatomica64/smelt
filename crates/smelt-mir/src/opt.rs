@@ -230,6 +230,10 @@ fn rewrite_rvalue(
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
             rewrite_operand_except(set, aliases, dest)
         }
+        Rvalue::SetBinary { left, right, .. } => {
+            rewrite_operand_except(left, aliases, dest)
+                | rewrite_operand_except(right, aliases, dest)
+        }
         Rvalue::ListConcat { left, right } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)

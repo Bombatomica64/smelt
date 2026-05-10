@@ -269,6 +269,15 @@ pub enum ExprKind {
         /// Set value to copy.
         set: ExprId,
     },
+    /// Combine two sets into a new set.
+    SetBinary {
+        /// Set operation to apply.
+        op: SetBinaryOp,
+        /// Left set operand.
+        left: ExprId,
+        /// Right set operand.
+        right: ExprId,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.
@@ -671,6 +680,17 @@ pub enum SetRemoveOp {
     Discard,
     /// Panic when the item is missing and return `None`.
     Remove,
+}
+
+/// A directly lowered set algebra operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetBinaryOp {
+    /// Return items in either set.
+    Union,
+    /// Return items in both sets.
+    Intersection,
+    /// Return items in the left set but not the right set.
+    Difference,
 }
 
 /// A directly lowered string affix test.

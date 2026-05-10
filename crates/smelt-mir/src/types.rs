@@ -572,6 +572,15 @@ pub enum Rvalue {
         /// Set value to copy.
         set: Operand,
     },
+    /// Combine two sets into a new set.
+    SetBinary {
+        /// Set operation to apply.
+        op: smelt_hir::SetBinaryOp,
+        /// Left set operand.
+        left: Operand,
+        /// Right set operand.
+        right: Operand,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.

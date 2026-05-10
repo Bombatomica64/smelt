@@ -220,6 +220,10 @@ fn validate_rvalue_exists(
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
             validate_operand_exists(function, set, errors);
         }
+        Rvalue::SetBinary { left, right, .. } => {
+            validate_operand_exists(function, left, errors);
+            validate_operand_exists(function, right, errors);
+        }
         Rvalue::ListConcat { left, right } => {
             validate_operand_exists(function, left, errors);
             validate_operand_exists(function, right, errors);
@@ -690,6 +694,10 @@ fn validate_rvalue(
         }
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
             validate_operand(function, definitions, set, errors);
+        }
+        Rvalue::SetBinary { left, right, .. } => {
+            validate_operand(function, definitions, left, errors);
+            validate_operand(function, definitions, right, errors);
         }
         Rvalue::ListConcat { left, right } => {
             validate_operand(function, definitions, left, errors);

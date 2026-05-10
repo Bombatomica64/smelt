@@ -470,6 +470,7 @@ runtime errors.
         `difference`, and iteration.
     - [x] Set literals and `in` / `not in`.
     - [x] Set `add`, `remove`, `discard`, `clear`, and `copy`.
+    - [x] Set `union`, `intersection`, and `difference`.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.
 - [ ] Python standard-library module mappings:
   - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,

@@ -1338,6 +1338,9 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::SetRemove { op, set, item } => self.set_remove_text(*op, set, item, dest_ty),
             Rvalue::SetClear { set } => self.collection_clear_text(set, dest_ty, "set"),
             Rvalue::SetCopy { set } => self.set_copy_text(set, dest_ty),
+            Rvalue::SetBinary { op, left, right } => {
+                self.set_binary_text(*op, left, right, dest_ty)
+            }
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
             Rvalue::ListCallback { op, list, callback } => {
@@ -2230,6 +2233,41 @@ impl<'mir> FunctionEmitter<'mir> {
             ));
         }
         Ok(format!("{}.clone()", self.operand_text(set)?))
+    }
+
+    /// Converts a set algebra operation to Rust text.
+    fn set_binary_text(
+        &self,
+        op: smelt_hir::SetBinaryOp,
+        left: &Operand,
+        right: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let left_ty = self.operand_ty(left)?;
+        if self.operand_ty(right)? != left_ty {
+            return Err(EmitError::new(
+                "set algebra operands must have the same set type",
+            ));
+        }
+        if !matches!(self.mir.types.get(left_ty), Some(Type::Set(_))) {
+            return Err(EmitError::new("set algebra operands must be sets"));
+        }
+        if dest_ty != left_ty {
+            return Err(EmitError::new(
+                "set algebra destination must match the operand set type",
+            ));
+        }
+        let method = match op {
+            smelt_hir::SetBinaryOp::Union => "union",
+            smelt_hir::SetBinaryOp::Intersection => "intersection",
+            smelt_hir::SetBinaryOp::Difference => "difference",
+        };
+        Ok(format!(
+            "{}.{}(&{}).cloned().collect()",
+            self.operand_text(left)?,
+            method,
+            self.operand_text(right)?
+        ))
     }
 
     /// Converts a list concatenation operation to Rust text.

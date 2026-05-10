@@ -1344,6 +1344,20 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::SetBinary { op, left, right } => {
+                let left_operand = self.lower_expr(*left)?;
+                let right_operand = self.lower_expr(*right)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetBinary {
+                        op: *op,
+                        left: left_operand,
+                        right: right_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListConcat { left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
@@ -2031,6 +2045,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::SetRemove { .. }
             | ExprKind::SetClear { .. }
             | ExprKind::SetCopy { .. }
+            | ExprKind::SetBinary { .. }
             | ExprKind::ListConcat { .. }
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }

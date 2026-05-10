@@ -177,6 +177,9 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `set.remove(x)` | `SetRemove::Remove` | `SetRemove::Remove` | `if !set.remove(&x) { panic!(...) }` | One item matching element type on a local set | Wrong arity, mismatched item type, non-local receiver | Missing-value `KeyError` is modeled as a generated panic for now. |
 | `set.copy()` | `SetCopy` | `SetCopy` | `set.clone()` | No arguments | Arguments | Produces a shallow `HashSet` clone. |
 | `set.clear()` | `SetClear` | `SetClear` | `{ set.clear(); () }` | No arguments on a local set | Arguments, non-local receiver | Python returns `None`; generated Rust mutates the local `HashSet`. |
+| `set.union(other)` | `SetBinary::Union` | `SetBinary::Union` | `set.union(&other).cloned().collect()` | One same-typed set argument | Multiple arguments, arbitrary iterables | Rust `HashSet` order is not deterministic. |
+| `set.intersection(other)` | `SetBinary::Intersection` | `SetBinary::Intersection` | `set.intersection(&other).cloned().collect()` | One same-typed set argument | Multiple arguments, arbitrary iterables | Rust `HashSet` order is not deterministic. |
+| `set.difference(other)` | `SetBinary::Difference` | `SetBinary::Difference` | `set.difference(&other).cloned().collect()` | One same-typed set argument | Multiple arguments, arbitrary iterables | Rust `HashSet` order is not deterministic. |
 | `x in tuple` / `x not in tuple` | `TupleContains` plus optional `UnaryOp::Not` | `TupleContains` plus optional `Unary` | Equality chain over tuple fields | Item matching at least one tuple element type | Mismatched types | Rust equality semantics are used. |
 | `k in dict` / `k not in dict` | `DictContainsKey` plus optional `UnaryOp::Not` | `DictContainsKey` plus optional `Unary` | `dict.contains_key(&k)` | Key matching dict key type | Mismatched key type | Rust `HashMap` key semantics are used. |
 

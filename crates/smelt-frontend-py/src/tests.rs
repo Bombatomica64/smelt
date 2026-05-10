@@ -4,7 +4,7 @@ use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
     Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    Pattern, PatternId, RegexMatchOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
+    Pattern, PatternId, RegexMatchOp, SetBinaryOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
     StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
@@ -2306,6 +2306,40 @@ values.clear()
             .any(|expr| matches!(expr.kind, ExprKind::SetClear { .. })),
         "expected set.clear lowering",
     )
+}
+
+#[test]
+fn set_algebra_methods_lower() -> TestResult {
+    let source = py!(r#"
+left: set[int] = {1, 2}
+right: set[int] = {2, 3}
+merged: set[int] = left.union(right)
+common: set[int] = left.intersection(right)
+only_left: set[int] = left.difference(right)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [
+        SetBinaryOp::Union,
+        SetBinaryOp::Intersection,
+        SetBinaryOp::Difference,
+    ] {
+        ensure(
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::SetBinary { op, .. } if op == expected)),
+            "expected set algebra lowering",
+        )?;
+    }
+    Ok(())
 }
 
 #[test]

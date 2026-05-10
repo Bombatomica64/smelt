@@ -908,6 +908,24 @@ values.clear()
 }
 
 #[test]
+fn emits_python_set_algebra_methods() {
+    let source = source_for_py(
+        r#"
+left: set[int] = {1, 2}
+right: set[int] = {2, 3}
+merged: set[int] = left.union(right)
+common: set[int] = left.intersection(right)
+only_left: set[int] = left.difference(right)
+"#,
+    );
+
+    assert!(source.contains(".union(&"));
+    assert!(source.contains(".intersection(&"));
+    assert!(source.contains(".difference(&"));
+    assert!(source.contains(".cloned().collect()"));
+}
+
+#[test]
 fn emits_map_constructor_has_and_get_methods() {
     let source = source_for(
         r#"
