@@ -715,6 +715,11 @@ pub enum Rvalue {
         /// List value to copy and sort.
         list: Operand,
     },
+    /// Return a reversed copy of a list.
+    ListReversed {
+        /// List value to copy in reverse order.
+        list: Operand,
+    },
     /// Materialize an integer range as a list.
     ListRange {
         /// Inclusive start value.

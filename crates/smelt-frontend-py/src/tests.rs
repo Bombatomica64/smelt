@@ -2310,6 +2310,31 @@ ordered: list[int] = sorted(values)
 }
 
 #[test]
+fn builtin_reversed_lower() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2]
+flipped: list[int] = reversed(values)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListReversed { .. })),
+        "expected reversed lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn range_builtin_lowers() -> TestResult {
     let source = py!(r#"
 first: list[int] = range(3)

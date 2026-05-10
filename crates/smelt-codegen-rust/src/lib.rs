@@ -1385,6 +1385,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
             Rvalue::ListBoolFold { op, list } => self.list_bool_fold_text(*op, list),
             Rvalue::ListSorted { list } => self.list_sorted_text(list, dest_ty),
+            Rvalue::ListReversed { list } => self.list_reversed_text(list, dest_ty),
             Rvalue::ListRange { start, end, step } => {
                 self.list_range_text(start, end, step, dest_ty)
             }
@@ -2946,6 +2947,23 @@ impl<'mir> FunctionEmitter<'mir> {
                 "sorted() supports bool, int, float, and string lists",
             )),
         }
+    }
+
+    /// Converts a reversed-copy list operation to Rust text.
+    fn list_reversed_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+            return Err(EmitError::new("reversed() argument must be a list"));
+        }
+        if dest_ty != list_ty {
+            return Err(EmitError::new(
+                "reversed() destination must match the input list type",
+            ));
+        }
+        Ok(format!(
+            "{}.iter().rev().cloned().collect::<Vec<_>>()",
+            self.operand_text(list)?
+        ))
     }
 
     /// Converts a Python `range(...)` materialization to Rust text.

@@ -2228,6 +2228,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             {
                 return Ok(expr);
             }
+            if name.id.as_str() == "reversed"
+                && let Some(expr) = self.reversed_call_expression(call, body)?
+            {
+                return Ok(expr);
+            }
             if name.id.as_str() == "range"
                 && let Some(expr) = self.range_call_expression(call, body)?
             {

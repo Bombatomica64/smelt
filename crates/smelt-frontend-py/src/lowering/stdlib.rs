@@ -287,6 +287,39 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `reversed(values)` calls for list values.
+    pub(super) fn reversed_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if name.id.as_str() != "reversed" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "reversed() currently supports exactly one list argument and no keywords",
+            ));
+        }
+        let list = self.expression(&call.arguments.args[0], body)?;
+        let list_ty = Self::expr_ty(body, list);
+        if !matches!(self.ctx.krate.types.get(list_ty), Some(Type::List(_))) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "reversed() argument must be a list",
+            ));
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListReversed { list },
+            ty: list_ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `range(...)` as a materialized `list[int]`.
     pub(super) fn range_call_expression(
         &mut self,

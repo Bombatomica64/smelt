@@ -602,6 +602,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("list_{op_text} {}", expr_ref(*list))
         }
         ExprKind::ListSorted { list } => format!("list_sorted {}", expr_ref(*list)),
+        ExprKind::ListReversed { list } => format!("list_reversed {}", expr_ref(*list)),
         ExprKind::ListRange { start, end, step } => format!(
             "list_range {}, {}, {}",
             expr_ref(*start),
@@ -800,6 +801,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListSum { .. }
         | ExprKind::ListBoolFold { .. }
         | ExprKind::ListSorted { .. }
+        | ExprKind::ListReversed { .. }
         | ExprKind::ListRange { .. }
         | ExprKind::ListIndex { .. }
         | ExprKind::ListRemove { .. }

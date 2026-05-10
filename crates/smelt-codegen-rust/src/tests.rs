@@ -851,6 +851,18 @@ ordered_floats: list[float] = sorted(floats)
 }
 
 #[test]
+fn emits_python_reversed_builtin() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2]
+flipped: list[int] = reversed(values)
+"#,
+    );
+
+    assert!(source.contains(".iter().rev().cloned().collect::<Vec<_>>()"));
+}
+
+#[test]
 fn emits_python_range_builtin() {
     let source = source_for_py(
         r#"

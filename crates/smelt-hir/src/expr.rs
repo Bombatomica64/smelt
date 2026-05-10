@@ -397,6 +397,11 @@ pub enum ExprKind {
         /// List value to copy and sort.
         list: ExprId,
     },
+    /// Return a reversed copy of a list.
+    ListReversed {
+        /// List value to copy in reverse order.
+        list: ExprId,
+    },
     /// Materialize an integer range as a list.
     ListRange {
         /// Inclusive start value.

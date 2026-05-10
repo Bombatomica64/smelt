@@ -427,6 +427,7 @@ runtime errors.
   - [x] `all(...)` and `any(...)`.
   - [ ] `sorted(...)` and `reversed(...)`.
     - [x] `sorted(...)` for plain sortable lists without `key` or `reverse`.
+    - [x] `reversed(...)` for list values.
   - [ ] `list(...)`, `dict(...)`, `tuple(...)`, and `set(...)` constructors.
     - [x] Empty annotated `list()`, `dict()`, `set()`, and `tuple()`.
     - [x] Same-container copy forms: `list(list_value)`, `dict(dict_value)`, `set(set_value)`, and `tuple(tuple_value)`.

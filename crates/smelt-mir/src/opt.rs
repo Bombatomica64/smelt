@@ -286,7 +286,8 @@ fn rewrite_rvalue(
         }
         Rvalue::ListSum { list }
         | Rvalue::ListBoolFold { list, .. }
-        | Rvalue::ListSorted { list } => rewrite_operand_except(list, aliases, dest),
+        | Rvalue::ListSorted { list }
+        | Rvalue::ListReversed { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListRange { start, end, step } => {
             rewrite_operand_except(start, aliases, dest)
                 | rewrite_operand_except(end, aliases, dest)
