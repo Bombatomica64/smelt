@@ -807,6 +807,8 @@ finite: bool = math.isfinite(value)
 nan_value: bool = math.isnan(value)
 sample: float = random.random()
 roll: int = random.randint(1, 6)
+choices: list[str] = ["a", "b"]
+picked: str = random.choice(choices)
 values: tuple[int, int] = (1, 2)
 has_tuple: bool = 2 in values
 unique: set[int] = {1, 2}
@@ -829,6 +831,8 @@ has_key: bool = "a" in mapping
     assert!(source.contains(".is_nan();"));
     assert!(source.contains("rand::random::<f64>();"));
     assert!(source.contains("rand::random_range(1..=6);"));
+    assert!(source.contains("rand::random_range(0..choice_items.len())"));
+    assert!(source.contains("random.choice() from empty list"));
     assert!(source.contains(".0 == "));
     assert!(source.contains("::std::collections::HashSet::from(["));
     assert!(source.contains(".contains(&1)"));

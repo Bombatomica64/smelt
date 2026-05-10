@@ -453,6 +453,11 @@ pub enum ExprKind {
         /// Step value.
         step: ExprId,
     },
+    /// Pick one item from a list with a pseudo-random index.
+    ListRandomChoice {
+        /// List value to choose from.
+        list: ExprId,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

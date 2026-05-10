@@ -575,6 +575,9 @@ fn rvalue_text(value: &Rvalue) -> String {
             operand_text(end),
             operand_text(step)
         ),
+        Rvalue::ListRandomChoice { list } => {
+            format!("list_random_choice {}", operand_text(list))
+        }
         Rvalue::ListIndex { list, item } => {
             format!("list_index {}, {}", operand_text(list), operand_text(item))
         }

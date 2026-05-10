@@ -3038,6 +3038,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span,
                 })))
             }
+            "choice" => {
+                if call.arguments.args.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "random.choice() requires exactly one list argument",
+                    ));
+                }
+                let list = self.expression(&call.arguments.args[0], body)?;
+                let list_ty = Self::expr_ty(body, list);
+                let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "random.choice() currently requires a list argument",
+                    ));
+                };
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::ListRandomChoice { list },
+                    ty: *item_ty,
+                    span,
+                })))
+            }
             _ => Ok(None),
         }
     }

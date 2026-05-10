@@ -644,6 +644,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             expr_ref(*end),
             expr_ref(*step)
         ),
+        ExprKind::ListRandomChoice { list } => {
+            format!("list_random_choice {}", expr_ref(*list))
+        }
         ExprKind::ListIndex { list, item } => {
             format!("list_index {}, {}", expr_ref(*list), expr_ref(*item))
         }
@@ -846,6 +849,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListEnumerate { .. }
         | ExprKind::ListZip { .. }
         | ExprKind::ListRange { .. }
+        | ExprKind::ListRandomChoice { .. }
         | ExprKind::ListIndex { .. }
         | ExprKind::ListRemove { .. }
         | ExprKind::ListSort { .. }

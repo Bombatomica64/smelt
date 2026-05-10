@@ -338,6 +338,12 @@ fn needs_rand(mir: &Mir) -> bool {
                     } | Statement::AssignPlace {
                         value: Rvalue::NumericRandom | Rvalue::NumericRandomInt { .. },
                         ..
+                    } | Statement::Assign {
+                        value: Rvalue::ListRandomChoice { .. },
+                        ..
+                    } | Statement::AssignPlace {
+                        value: Rvalue::ListRandomChoice { .. },
+                        ..
                     }
                 )
             })
@@ -1413,6 +1419,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListRange { start, end, step } => {
                 self.list_range_text(start, end, step, dest_ty)
             }
+            Rvalue::ListRandomChoice { list } => self.list_random_choice_text(list, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
             Rvalue::ListSort { list } => self.list_sort_text(list, dest_ty),
@@ -3239,6 +3246,27 @@ impl<'mir> FunctionEmitter<'mir> {
             self.operand_text(start)?,
             self.operand_text(end)?,
             self.operand_text(step)?
+        ))
+    }
+
+    /// Converts a Python `random.choice(list)` operation to Rust text.
+    fn list_random_choice_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("random.choice() argument must be a list"));
+        };
+        if *item_ty != dest_ty {
+            return Err(EmitError::new(
+                "random.choice() destination must match list item type",
+            ));
+        }
+        let list_text = self.operand_text(list)?;
+        Ok(format!(
+            "{{ let choice_items = {list_text}; if choice_items.is_empty() {{ panic!(\"random.choice() from empty list\"); }} choice_items[rand::random_range(0..choice_items.len())].clone() }}"
         ))
     }
 

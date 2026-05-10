@@ -315,6 +315,9 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, end, errors);
             validate_operand_exists(function, step, errors);
         }
+        Rvalue::ListRandomChoice { list } => {
+            validate_operand_exists(function, list, errors);
+        }
         Rvalue::ListIndex { list, item } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
@@ -831,6 +834,9 @@ fn validate_rvalue(
             validate_operand(function, definitions, start, errors);
             validate_operand(function, definitions, end, errors);
             validate_operand(function, definitions, step, errors);
+        }
+        Rvalue::ListRandomChoice { list } => {
+            validate_operand(function, definitions, list, errors);
         }
         Rvalue::ListIndex { list, item } => {
             validate_operand(function, definitions, list, errors);

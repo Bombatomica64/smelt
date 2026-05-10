@@ -784,6 +784,11 @@ pub enum Rvalue {
         /// Step value.
         step: Operand,
     },
+    /// Pick one item from a list with a pseudo-random index.
+    ListRandomChoice {
+        /// List value to choose from.
+        list: Operand,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

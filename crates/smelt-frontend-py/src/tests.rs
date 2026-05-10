@@ -2306,6 +2306,8 @@ fn random_module_functions_lower() -> TestResult {
 import random
 sample: float = random.random()
 roll: int = random.randint(1, 6)
+values: list[str] = ["a", "b"]
+picked: str = random.choice(values)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -2328,6 +2330,12 @@ roll: int = random.randint(1, 6)
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericRandomInt { .. })),
         "expected random.randint lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListRandomChoice { .. })),
+        "expected random.choice lowering",
     )?;
     Ok(())
 }

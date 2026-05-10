@@ -515,6 +515,7 @@ runtime errors.
   - [ ] `random`: random, randint, choice, shuffle with an explicit RNG policy.
     - [x] `random.random`.
     - [x] `random.randint`.
+    - [x] `random.choice` for list values.
   - [ ] `collections`: `defaultdict`, `Counter`, and `deque`, or targeted rejection.
   - [ ] `itertools`: `chain`, `islice`, `count`, `repeat`, `product`, and `zip_longest`, or
         targeted rejection.
