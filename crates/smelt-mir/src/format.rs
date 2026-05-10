@@ -526,6 +526,25 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(key)
             )
         }
+        Rvalue::DictSet {
+            dict,
+            key,
+            value: dict_value,
+        } => {
+            format!(
+                "dict_set {}, {}, {}",
+                operand_text(dict),
+                operand_text(key),
+                operand_text(dict_value)
+            )
+        }
+        Rvalue::DictRemoveKey { dict, key } => {
+            format!(
+                "dict_remove_key {}, {}",
+                operand_text(dict),
+                operand_text(key)
+            )
+        }
         Rvalue::DictGet { dict, key, default } => format!(
             "dict_get {}, {}, {}",
             operand_text(dict),

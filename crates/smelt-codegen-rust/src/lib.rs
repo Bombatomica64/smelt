@@ -1371,6 +1371,12 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
+            Rvalue::DictSet {
+                dict,
+                key,
+                value: dict_value,
+            } => self.dict_set_text(dict, key, dict_value, dest_ty),
+            Rvalue::DictRemoveKey { dict, key } => self.dict_remove_key_text(dict, key, dest_ty),
             Rvalue::DictGet { dict, key, default } => {
                 self.dict_get_text(dict, key, default.as_ref(), dest_ty)
             }
@@ -3087,6 +3093,75 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Converts a dictionary insertion operation to Rust text.
+    fn dict_set_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        value: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict set receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new("dict set key must match the dict key type"));
+        }
+        if self.operand_ty(value)? != *value_ty {
+            return Err(EmitError::new(
+                "dict set value must match the dict value type",
+            ));
+        }
+        if dest_ty != dict_ty {
+            return Err(EmitError::new(
+                "dict set destination must match the receiver dict type",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict set receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let key_text = self.operand_text(key)?;
+        let value_text = self.operand_text(value)?;
+        Ok(format!(
+            "{{ {dict_text}.insert({key_text}, {value_text}); {dict_text}.clone() }}"
+        ))
+    }
+
+    /// Converts a dictionary key removal operation to Rust text.
+    fn dict_remove_key_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict remove receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new(
+                "dict remove key must match the dict key type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
+            return Err(EmitError::new("dict remove destination must be bool"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict remove receiver must be a mutable local for now",
+            ));
+        };
+        Ok(format!(
+            "{}.remove(&{}).is_some()",
+            self.local_name(*local)?,
+            self.operand_text(key)?
+        ))
+    }
+
     /// Converts a dictionary pop operation to Rust text.
     fn dict_pop_text(
         &self,
@@ -3779,6 +3854,8 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     | Rvalue::SetClear { set: list }
                     | Rvalue::DictClear { dict: list }
                     | Rvalue::DictPop { dict: list, .. }
+                    | Rvalue::DictSet { dict: list, .. }
+                    | Rvalue::DictRemoveKey { dict: list, .. }
                     | Rvalue::DictSetDefault { dict: list, .. }
                     | Rvalue::DictUpdate { dict: list, .. },
                 ..

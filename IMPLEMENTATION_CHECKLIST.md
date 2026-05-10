@@ -386,6 +386,7 @@ runtime errors.
   - [ ] `Map` construction, `get`, `set`, `has`, `delete`, `clear`, `size`, `keys`, `values`,
         `entries`, and iteration.
     - [x] `Map<K, V>` type reference, annotated empty `new Map()`, `Map.has`, and `Map.get`.
+    - [x] `Map.set`, `Map.delete`, and `Map.clear`.
   - [ ] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
     - [x] `Set<T>` type reference, `new Set([literal values])`, annotated `new Set()`, and `Set.has`.
     - [x] `Set.add`, `Set.delete`, and `Set.clear`.

@@ -1718,6 +1718,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.map_get_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.map_mutation_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.array_is_array_call(call, body)? {
                     return Ok(expr);
                 }
@@ -3494,6 +3497,87 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower direct TypeScript `Map` mutation methods.
+    fn map_mutation_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let method = member.property.name.as_str();
+        if !matches!(method, "set" | "delete" | "clear") {
+            return Ok(None);
+        }
+        let dict = self.expression(&member.object, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
+        let key_ty = *dict_key_ty;
+        let value_ty = *dict_value_ty;
+        match method {
+            "set" => {
+                let [key_argument, value_argument] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Map.set requires key and value arguments",
+                    ));
+                };
+                let key = self.argument(key_argument, body)?;
+                let value = self.argument(value_argument, body)?;
+                if Self::expr_ty(body, key) != key_ty || Self::expr_ty(body, value) != value_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Map.set key and value must match the map type",
+                    ));
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::DictSet { dict, key, value },
+                    ty: dict_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "delete" => {
+                let [key_argument] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Map.delete requires exactly one key argument",
+                    ));
+                };
+                let key = self.argument(key_argument, body)?;
+                if Self::expr_ty(body, key) != key_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Map.delete key must match the map key type",
+                    ));
+                }
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::DictRemoveKey { dict, key },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "clear" => {
+                if !call.arguments.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Map.clear requires no arguments",
+                    ));
+                }
+                let ty = self.ctx.krate.types.intern(Type::None);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::DictClear { dict },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Lower direct TypeScript `Array.prototype.concat` for one same-typed array argument.

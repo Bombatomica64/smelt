@@ -424,6 +424,22 @@ pub enum ExprKind {
         /// The key to search for.
         key: ExprId,
     },
+    /// Insert or replace a dictionary key-value pair.
+    DictSet {
+        /// Dictionary value to mutate.
+        dict: ExprId,
+        /// Key to write.
+        key: ExprId,
+        /// Value to write.
+        value: ExprId,
+    },
+    /// Remove a dictionary key and return whether it existed.
+    DictRemoveKey {
+        /// Dictionary value to mutate.
+        dict: ExprId,
+        /// Key to remove.
+        key: ExprId,
+    },
     /// Look up a dictionary key and return an optional value or default.
     DictGet {
         /// Dictionary value to read.

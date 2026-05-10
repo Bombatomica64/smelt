@@ -302,6 +302,19 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, key, errors);
         }
+        Rvalue::DictSet {
+            dict,
+            key,
+            value: dict_value,
+        } => {
+            validate_operand_exists(function, dict, errors);
+            validate_operand_exists(function, key, errors);
+            validate_operand_exists(function, dict_value, errors);
+        }
+        Rvalue::DictRemoveKey { dict, key } => {
+            validate_operand_exists(function, dict, errors);
+            validate_operand_exists(function, key, errors);
+        }
         Rvalue::DictGet { dict, key, default } => {
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, key, errors);
@@ -757,6 +770,19 @@ fn validate_rvalue(
             validate_operand(function, definitions, item, errors);
         }
         Rvalue::DictContainsKey { dict, key } => {
+            validate_operand(function, definitions, dict, errors);
+            validate_operand(function, definitions, key, errors);
+        }
+        Rvalue::DictSet {
+            dict,
+            key,
+            value: dict_value,
+        } => {
+            validate_operand(function, definitions, dict, errors);
+            validate_operand(function, definitions, key, errors);
+            validate_operand(function, definitions, dict_value, errors);
+        }
+        Rvalue::DictRemoveKey { dict, key } => {
             validate_operand(function, definitions, dict, errors);
             validate_operand(function, definitions, key, errors);
         }

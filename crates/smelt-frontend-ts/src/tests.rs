@@ -1328,6 +1328,42 @@ const value = mapping.get("a");
 }
 
 #[test]
+fn lowers_map_mutation_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let mapping: Map<string, number> = new Map();
+const same = mapping.set("a", 1);
+const deleted = mapping.delete("a");
+mapping.clear();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictSet { .. })),
+        "expected Map.set lowering",
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictRemoveKey { .. })),
+        "expected Map.delete lowering",
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictClear { .. })),
+        "expected Map.clear lowering",
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_string_split_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

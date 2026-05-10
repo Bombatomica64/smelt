@@ -1623,6 +1623,34 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DictSet { dict, key, value } => {
+                let dict_operand = self.lower_expr(*dict)?;
+                let key_operand = self.lower_expr(*key)?;
+                let value_operand = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictSet {
+                        dict: dict_operand,
+                        key: key_operand,
+                        value: value_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DictRemoveKey { dict, key } => {
+                let dict_operand = self.lower_expr(*dict)?;
+                let key_operand = self.lower_expr(*key)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictRemoveKey {
+                        dict: dict_operand,
+                        key: key_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DictGet { dict, key, default } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
@@ -2026,6 +2054,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListShift { .. }
             | ExprKind::TupleContains { .. }
             | ExprKind::DictContainsKey { .. }
+            | ExprKind::DictSet { .. }
+            | ExprKind::DictRemoveKey { .. }
             | ExprKind::DictGet { .. }
             | ExprKind::DictSetDefault { .. }
             | ExprKind::DictClear { .. }

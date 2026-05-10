@@ -599,6 +599,17 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DictContainsKey { dict, key } => {
             format!("dict_contains_key {}, {}", expr_ref(*dict), expr_ref(*key))
         }
+        ExprKind::DictSet { dict, key, value } => {
+            format!(
+                "dict_set {}, {}, {}",
+                expr_ref(*dict),
+                expr_ref(*key),
+                expr_ref(*value)
+            )
+        }
+        ExprKind::DictRemoveKey { dict, key } => {
+            format!("dict_remove_key {}, {}", expr_ref(*dict), expr_ref(*key))
+        }
         ExprKind::DictGet { dict, key, default } => format!(
             "dict_get {}, {}, {}",
             expr_ref(*dict),
@@ -761,6 +772,8 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListShift { .. }
         | ExprKind::TupleContains { .. }
         | ExprKind::DictContainsKey { .. }
+        | ExprKind::DictSet { .. }
+        | ExprKind::DictRemoveKey { .. }
         | ExprKind::DictGet { .. }
         | ExprKind::DictSetDefault { .. }
         | ExprKind::DictClear { .. }

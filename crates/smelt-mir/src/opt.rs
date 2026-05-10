@@ -296,6 +296,18 @@ fn rewrite_rvalue(
         Rvalue::DictContainsKey { dict, key } => {
             rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
         }
+        Rvalue::DictSet {
+            dict,
+            key,
+            value: dict_value,
+        } => {
+            rewrite_operand_except(dict, aliases, dest)
+                | rewrite_operand_except(key, aliases, dest)
+                | rewrite_operand_except(dict_value, aliases, dest)
+        }
+        Rvalue::DictRemoveKey { dict, key } => {
+            rewrite_operand_except(dict, aliases, dest) | rewrite_operand_except(key, aliases, dest)
+        }
         Rvalue::DictGet { dict, key, default } => {
             rewrite_operand_except(dict, aliases, dest)
                 | rewrite_operand_except(key, aliases, dest)

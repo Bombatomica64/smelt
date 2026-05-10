@@ -727,6 +727,22 @@ pub enum Rvalue {
         /// Key to search for.
         key: Operand,
     },
+    /// Insert or replace a dictionary key-value pair.
+    DictSet {
+        /// Dictionary value to mutate.
+        dict: Operand,
+        /// Key to write.
+        key: Operand,
+        /// Value to write.
+        value: Operand,
+    },
+    /// Remove a dictionary key and return whether it existed.
+    DictRemoveKey {
+        /// Dictionary value to mutate.
+        dict: Operand,
+        /// Key to remove.
+        key: Operand,
+    },
     /// Look up a dictionary key and return an optional value or default.
     DictGet {
         /// Dictionary value to read.

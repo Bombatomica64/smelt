@@ -924,6 +924,23 @@ const value = mapping.get("a");
 }
 
 #[test]
+fn emits_map_mutation_methods() {
+    let source = source_for(
+        r#"
+let mapping: Map<string, number> = new Map();
+const same = mapping.set("a", 1);
+const deleted = mapping.delete("a");
+mapping.clear();
+"#,
+    );
+
+    assert!(source.contains(".insert(\"a\".to_owned(), 1.0);"));
+    assert!(source.contains(".remove(&\"a\".to_owned()).is_some();"));
+    assert!(source.contains(".clear(); ()"));
+    assert!(source.contains(".clone()"));
+}
+
+#[test]
 fn emits_string_split_method() {
     let source = source_for(
         r#"
