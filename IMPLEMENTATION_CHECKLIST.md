@@ -277,6 +277,10 @@ runtime errors.
     - [x] Python `json.loads` for annotated JSON-compatible destination types.
   - [ ] `regex` dependency injection, then regex-backed TypeScript `replace` / `replaceAll` and
         Python `re` basics.
+    - [x] `regex` dependency injection for generated Rust crates.
+    - [x] TypeScript `new RegExp(pattern).test(text)` boolean matching.
+    - [x] Python `re.search`, `re.match`, and `re.fullmatch` boolean matching.
+    - [ ] Regex replacement, splitting, captures, flags, and compiled regex values.
   - [x] `reqwest` dependency injection, then TypeScript `fetch` and Python HTTP mapping decision.
     - [x] Python `requests.get(url)` maps to blocking Reqwest response text.
   - [ ] `chrono` dependency injection, then TypeScript `Date` and Python `datetime` decision.
@@ -388,6 +392,7 @@ runtime errors.
         explicitly defer Date support.
   - [ ] `RegExp.test`, `String.match`, and regex-backed `replace` using the Rust `regex` crate, or
         explicitly defer regex support.
+    - [x] `new RegExp(pattern).test(text)` without flags.
   - [ ] `URL` construction and field access through the `url` crate, or explicitly defer URL
         support.
   - [ ] `Error` construction, message access, and throw/catch mapping policy.
@@ -477,6 +482,7 @@ runtime errors.
     - [x] `json.loads` for annotated JSON-compatible destination types.
   - [ ] `re`: `compile`, `search`, `match`, `fullmatch`, `sub`, and `split`, or explicitly defer
         regex support.
+    - [x] `re.search`, `re.match`, and `re.fullmatch` with direct string pattern/text arguments.
   - [ ] `datetime`: `datetime`, `date`, `timedelta`, `now`, `utcnow`, parsing, and formatting, or
         explicitly defer datetime support.
   - [ ] `pathlib` / `os.path`: path join, basename/name/stem/suffix, exists, is_file, is_dir.

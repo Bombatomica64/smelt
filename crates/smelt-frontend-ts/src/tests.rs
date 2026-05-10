@@ -3,9 +3,9 @@
 use super::*;
 use smelt_hir::{
     DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp, Literal,
-    ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Stmt,
-    StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide,
-    Type,
+    ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
+    RegexMatchOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -1079,6 +1079,59 @@ const values = JSON.parse<number[]>(text);
             .any(|expr| matches!(expr.kind, ExprKind::JsonParse { .. })),
         "expected JSON.parse lowering",
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_regexp_test_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const text = "abc123";
+const pattern = "\\d+";
+const hasDigits = new RegExp(pattern).test(text);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::RegexIsMatch {
+                    op: RegexMatchOp::Search,
+                    ..
+                }
+            )
+        }),
+        "expected RegExp.test lowering",
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_unsupported_regexp_test_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let flags = lowering_errors(
+        ts!(r#"
+const text = "abc123";
+const hasDigits = new RegExp("\\d+", "g").test(text);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&flags, "exactly one string pattern")?;
+
+    let mut ctx = HirCtx::new();
+    let non_string = lowering_errors(
+        ts!(r#"
+const text = "abc123";
+const hasDigits = new RegExp(1).test(text);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&non_string, "string pattern and haystack")?;
     Ok(())
 }
 

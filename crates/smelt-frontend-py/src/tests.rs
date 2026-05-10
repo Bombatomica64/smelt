@@ -4,8 +4,8 @@ use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
     Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    Pattern, PatternId, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Symbol, Type,
+    Pattern, PatternId, RegexMatchOp, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp,
+    StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -487,6 +487,76 @@ values: list[int] = json.loads(text)
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::JsonParse { .. })),
         "expected json.loads lowering",
+    )
+}
+
+#[test]
+fn re_module_calls_lower_to_regex_matches() -> TestResult {
+    let source = py!(r#"
+import re
+text: str = "abc123"
+pattern: str = "\\d+"
+found: bool = re.search(pattern, text)
+starts: bool = re.match(pattern, text)
+full: bool = re.fullmatch(pattern, text)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [
+        RegexMatchOp::Search,
+        RegexMatchOp::Match,
+        RegexMatchOp::FullMatch,
+    ] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::RegexIsMatch { op, .. } if op == expected),
+            ),
+            "expected re module regex lowering",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
+fn unsupported_re_module_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let keyword = lower_errors(
+        py!(r#"
+import re
+text: str = "abc123"
+found: bool = re.search("\\d+", text, flags=0)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&keyword)?
+            .message
+            .contains("pattern and text arguments only"),
+        "expected re keyword diagnostic",
+    )?;
+
+    let mut ctx = HirCtx::new();
+    let non_string = lower_errors(
+        py!(r#"
+import re
+text: str = "abc123"
+found: bool = re.search(1, text)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&non_string)?
+            .message
+            .contains("string pattern and text"),
+        "expected re type diagnostic",
     )
 }
 

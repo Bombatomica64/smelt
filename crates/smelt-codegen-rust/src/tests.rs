@@ -810,6 +810,34 @@ values: list[int] = json.loads(text)
 }
 
 #[test]
+fn emits_regex_match_calls() {
+    let ts_source = source_for(
+        r#"
+const text = "abc123";
+const pattern = "\\d+";
+const hasDigits = new RegExp(pattern).test(text);
+"#,
+    );
+    let py_source = source_for_py(
+        r#"
+import re
+text: str = "abc123"
+pattern: str = "\\d+"
+found: bool = re.search(pattern, text)
+starts: bool = re.match(pattern, text)
+full: bool = re.fullmatch(pattern, text)
+"#,
+    );
+
+    assert!(ts_source.contains("regex::Regex::new(&"));
+    assert!(ts_source.contains(".is_match(&"));
+    assert!(py_source.contains(".is_match(&"));
+    assert!(py_source.contains(".find(&"));
+    assert!(py_source.contains("m.start() == 0"));
+    assert!(py_source.contains("m.end() =="));
+}
+
+#[test]
 fn emits_string_includes_method() {
     let source = source_for(
         r#"
@@ -1253,6 +1281,13 @@ fn injects_rand_dependency_for_random_mapping() {
     let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::Rand]);
 
     assert!(manifest.contains("rand = \"0.9\""));
+}
+
+#[test]
+fn injects_regex_dependency_for_regex_mapping() {
+    let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::Regex]);
+
+    assert!(manifest.contains("regex = \"1\""));
 }
 
 #[test]

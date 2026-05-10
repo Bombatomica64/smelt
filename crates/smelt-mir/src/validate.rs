@@ -340,6 +340,12 @@ fn validate_rvalue_exists(
         Rvalue::JsonParse { text } => {
             validate_operand_exists(function, text, errors);
         }
+        Rvalue::RegexIsMatch {
+            pattern, haystack, ..
+        } => {
+            validate_operand_exists(function, pattern, errors);
+            validate_operand_exists(function, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand_exists(function, url, errors);
         }
@@ -784,6 +790,12 @@ fn validate_rvalue(
         }
         Rvalue::JsonParse { text } => {
             validate_operand(function, definitions, text, errors);
+        }
+        Rvalue::RegexIsMatch {
+            pattern, haystack, ..
+        } => {
+            validate_operand(function, definitions, pattern, errors);
+            validate_operand(function, definitions, haystack, errors);
         }
         Rvalue::HttpGetText { url } => {
             validate_operand(function, definitions, url, errors);

@@ -63,7 +63,7 @@ pub use body::{
 pub use expr::{
     AsyncOp, BinOp, BoolFoldOp, CallbackExpr, CallbackExprKind, DictProjectionOp, Expr, ExprKind,
     ListCallbackOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp,
+    NumericUnaryFuncOp, RegexMatchOp, StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp,
     StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, bin_op_text,
 };
 pub use format::format_compact;

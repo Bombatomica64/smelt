@@ -447,6 +447,22 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_{op_name} {}", expr_ref(*operand))
         }
+        ExprKind::RegexIsMatch {
+            op,
+            pattern,
+            haystack,
+        } => {
+            let op_name = match op {
+                crate::expr::RegexMatchOp::Search => "search",
+                crate::expr::RegexMatchOp::Match => "match",
+                crate::expr::RegexMatchOp::FullMatch => "fullmatch",
+            };
+            format!(
+                "regex_{op_name} {}, {}",
+                expr_ref(*pattern),
+                expr_ref(*haystack)
+            )
+        }
         ExprKind::StringCharAt { operand, index } => {
             format!(
                 "string_char_at {}, {}",
@@ -698,6 +714,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringRepeat { .. }
         | ExprKind::StringPad { .. }
         | ExprKind::StringPredicate { .. }
+        | ExprKind::RegexIsMatch { .. }
         | ExprKind::StringCharAt { .. }
         | ExprKind::StringCharCodeAt { .. }
         | ExprKind::StringContains { .. }

@@ -493,6 +493,15 @@ pub enum Rvalue {
         /// String value to test.
         operand: Operand,
     },
+    /// Test whether a regex pattern matches a string.
+    RegexIsMatch {
+        /// Regex match shape to apply.
+        op: smelt_hir::RegexMatchOp,
+        /// Regex pattern text.
+        pattern: Operand,
+        /// String value being matched.
+        haystack: Operand,
+    },
     /// Read a single character from a string as a string value.
     StringCharAt {
         /// String value to index.

@@ -190,6 +190,15 @@ pub enum ExprKind {
         /// The string value being tested.
         operand: ExprId,
     },
+    /// Test whether a regex pattern matches a string.
+    RegexIsMatch {
+        /// Regex match shape to apply.
+        op: RegexMatchOp,
+        /// Regex pattern text.
+        pattern: ExprId,
+        /// String value being matched.
+        haystack: ExprId,
+    },
     /// Read a single character from a string as a string value.
     StringCharAt {
         /// The string value being indexed.
@@ -656,6 +665,17 @@ pub enum StringPredicateOp {
     IsAlpha,
     /// Test for alphanumeric characters.
     IsAlnum,
+}
+
+/// A directly lowered regex boolean match operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RegexMatchOp {
+    /// Search for a match anywhere in the string.
+    Search,
+    /// Require the match to start at the beginning of the string.
+    Match,
+    /// Require the match to cover the full string.
+    FullMatch,
 }
 
 /// A directly lowered dictionary projection operation.

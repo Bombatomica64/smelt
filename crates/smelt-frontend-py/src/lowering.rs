@@ -2180,6 +2180,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.json_loads_call_expression(call, body, type_hint)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.re_module_call_expression(call, body)? {
+            return Ok(expr);
+        }
 
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {

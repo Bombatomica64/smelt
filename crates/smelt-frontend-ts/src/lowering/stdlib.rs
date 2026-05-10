@@ -3,7 +3,7 @@
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use oxc::syntax::operator::UnaryOperator;
-use smelt_hir::{Body, Expr, ExprKind, Type};
+use smelt_hir::{Body, Expr, ExprKind, RegexMatchOp, Type};
 
 use super::{ModuleBuilder, SmeltError};
 
@@ -93,6 +93,61 @@ impl ModuleBuilder<'_> {
         }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::JsonParse { text },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower TypeScript `new RegExp(pattern).test(text)` to a regex boolean match.
+    pub(super) fn regexp_test_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "test" {
+            return Ok(None);
+        }
+        let Expression::NewExpression(new_expr) = &member.object else {
+            return Ok(None);
+        };
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if callee.name != "RegExp" {
+            return Ok(None);
+        }
+        let [pattern_argument] = new_expr.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new RegExp() currently requires exactly one string pattern argument",
+            ));
+        };
+        let [haystack_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "RegExp.test() requires exactly one string argument",
+            ));
+        };
+        let pattern = self.argument(pattern_argument, body)?;
+        let haystack = self.argument(haystack_argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "RegExp.test() requires string pattern and haystack",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::RegexIsMatch {
+                op: RegexMatchOp::Search,
+                pattern,
+                haystack,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

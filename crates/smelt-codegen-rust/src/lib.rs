@@ -254,6 +254,8 @@ enum GeneratedDep {
     SerdeJson,
     /// Rand for generated random number calls.
     Rand,
+    /// Regex for generated regular-expression matching.
+    Regex,
 }
 
 /// Generates Cargo.toml content for the given emission options and dependencies.
@@ -272,6 +274,9 @@ fn cargo_toml(options: &EmitOptions, deps_needed: &[GeneratedDep]) -> String {
     }
     if deps_needed.contains(&GeneratedDep::Rand) {
         deps.push_str("rand = \"0.9\"\n");
+    }
+    if deps_needed.contains(&GeneratedDep::Regex) {
+        deps.push_str("regex = \"1\"\n");
     }
     format!(
         "[workspace]\n\n[package]\nname = \"{}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\n{deps}",
@@ -294,7 +299,30 @@ fn generated_deps(mir: &Mir) -> Vec<GeneratedDep> {
     if needs_rand(mir) {
         deps.push(GeneratedDep::Rand);
     }
+    if needs_regex(mir) {
+        deps.push(GeneratedDep::Regex);
+    }
     deps
+}
+
+/// Returns true when generated Rust uses Regex APIs.
+fn needs_regex(mir: &Mir) -> bool {
+    mir.functions.iter().any(|function| {
+        function.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    Statement::Assign {
+                        value: Rvalue::RegexIsMatch { .. },
+                        ..
+                    } | Statement::AssignPlace {
+                        value: Rvalue::RegexIsMatch { .. },
+                        ..
+                    }
+                )
+            })
+        })
+    })
 }
 
 /// Returns true when generated Rust uses Rand APIs.
@@ -1287,6 +1315,11 @@ impl<'mir> FunctionEmitter<'mir> {
                 pad,
             } => self.string_pad_text(*op, operand, target_len, pad),
             Rvalue::StringPredicate { op, operand } => self.string_predicate_text(*op, operand),
+            Rvalue::RegexIsMatch {
+                op,
+                pattern,
+                haystack,
+            } => self.regex_is_match_text(*op, pattern, haystack),
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
             Rvalue::StringCharCodeAt { operand, index } => {
                 self.string_char_code_at_text(operand, index)
@@ -1921,6 +1954,46 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(format!(
             "!{operand_text}.is_empty() && {operand_text}.chars().all(char::{method_name})"
         ))
+    }
+
+    /// Converts a regex boolean match operation to Rust text using the `regex` crate.
+    ///
+    /// The emitted expression compiles the pattern at the call site so the dependency stays
+    /// interchangeable with a future cached-regex helper module.
+    fn regex_is_match_text(
+        &self,
+        op: smelt_hir::RegexMatchOp,
+        pattern: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(pattern)?),
+            Some(Type::String)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new(
+                "regex match requires string pattern and haystack operands",
+            ));
+        }
+        let pattern_text = self.operand_text(pattern)?;
+        let haystack_text = self.operand_text(haystack)?;
+        let regex_text =
+            format!("regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\")");
+        Ok(match op {
+            smelt_hir::RegexMatchOp::Search => {
+                format!("{regex_text}.is_match(&{haystack_text})")
+            }
+            smelt_hir::RegexMatchOp::Match => {
+                format!("{regex_text}.find(&{haystack_text}).is_some_and(|m| m.start() == 0)")
+            }
+            smelt_hir::RegexMatchOp::FullMatch => {
+                format!(
+                    "{regex_text}.find(&{haystack_text}).is_some_and(|m| m.start() == 0 && m.end() == {haystack_text}.len())"
+                )
+            }
+        })
     }
 
     /// Converts a string character lookup operation to Rust text.

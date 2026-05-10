@@ -111,6 +111,15 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `json.dumps(value)` | `JsonStringify` | `JsonStringify` | `serde_json::to_string(&value).expect(...)` | One JSON-compatible primitive/list/tuple/string-keyed dict value | `indent`, `default`, other keyword args, class values, non-string dict keys | Python encoder customization and non-string key coercion are not modeled yet. |
 | `json.loads(text)` | `JsonParse` | `JsonParse` | `serde_json::from_str::<T>(&text).expect(...)` | One string argument with annotated destination type | Hooks, keyword args, unannotated destination, class targets | Serde JSON is isolated behind codegen dependency injection; failures currently panic. |
 
+## Regex
+
+| Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `new RegExp(pattern).test(text)` | `RegexIsMatch::Search` | `RegexIsMatch::Search` | `regex::Regex::new(&pattern).expect(...).is_match(&text)` | One string pattern and one string text argument | Flags, regex literals, `String.match`, captures, replacement | Rust `regex` syntax is used; JavaScript features such as lookaround and backreferences are not supported by the Rust crate. |
+| `re.search(pattern, text)` | `RegexIsMatch::Search` | `RegexIsMatch::Search` | `regex::Regex::new(&pattern).expect(...).is_match(&text)` | String pattern and text arguments | Flags, compiled patterns, captures, match object access | Returns `bool` directly instead of a Python match object. Rust `regex` syntax is used. |
+| `re.match(pattern, text)` | `RegexIsMatch::Match` | `RegexIsMatch::Match` | `regex::Regex::new(&pattern).expect(...).find(&text).is_some_and(...)` | String pattern and text arguments | Flags, compiled patterns, captures, match object access | Returns `bool` directly and requires the first match to start at byte offset 0. |
+| `re.fullmatch(pattern, text)` | `RegexIsMatch::FullMatch` | `RegexIsMatch::FullMatch` | `regex::Regex::new(&pattern).expect(...).find(&text).is_some_and(...)` | String pattern and text arguments | Flags, compiled patterns, captures, match object access | Returns `bool` directly and requires the match to cover the full byte length. |
+
 ## Contains
 
 | Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |

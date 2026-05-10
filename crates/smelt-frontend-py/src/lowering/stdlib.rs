@@ -2,7 +2,7 @@
 
 use ruff_python_ast::{Expr, ExprSubscript, UnaryOp as RuffUnaryOp};
 use ruff_text_size::Ranged;
-use smelt_hir::{Body, BoolFoldOp, Expr as HirExpr, ExprKind, Type};
+use smelt_hir::{Body, BoolFoldOp, Expr as HirExpr, ExprKind, RegexMatchOp, Type};
 
 use super::{ModuleBuilder, SmeltError};
 
@@ -86,6 +86,55 @@ impl ModuleBuilder<'_> {
         }
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::JsonParse { text },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
+    /// Lower Python `re.search`, `re.match`, and `re.fullmatch` calls to boolean regex matches.
+    pub(super) fn re_module_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return Ok(None);
+        };
+        if module.id.as_str() != "re" {
+            return Ok(None);
+        }
+        let op = match attr.attr.as_str() {
+            "search" => RegexMatchOp::Search,
+            "match" => RegexMatchOp::Match,
+            "fullmatch" => RegexMatchOp::FullMatch,
+            _ => return Ok(None),
+        };
+        if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "re.search/match/fullmatch currently require pattern and text arguments only",
+            ));
+        }
+        let pattern = self.expression(&call.arguments.args[0], body)?;
+        let haystack = self.expression(&call.arguments.args[1], body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+            || self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "re.search/match/fullmatch require string pattern and text arguments",
+            ));
+        }
+        let ty = self.intern_type(Type::Bool);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::RegexIsMatch {
+                op,
+                pattern,
+                haystack,
+            },
             ty,
             span: self.span(call.range),
         })))

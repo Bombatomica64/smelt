@@ -348,6 +348,22 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("string_{op_text} {}", operand_text(operand))
         }
+        Rvalue::RegexIsMatch {
+            op,
+            pattern,
+            haystack,
+        } => {
+            let op_text = match op {
+                smelt_hir::RegexMatchOp::Search => "search",
+                smelt_hir::RegexMatchOp::Match => "match",
+                smelt_hir::RegexMatchOp::FullMatch => "fullmatch",
+            };
+            format!(
+                "regex_{op_text} {}, {}",
+                operand_text(pattern),
+                operand_text(haystack)
+            )
+        }
         Rvalue::StringCharAt { operand, index } => {
             format!(
                 "string_char_at {}, {}",
