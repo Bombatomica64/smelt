@@ -87,7 +87,7 @@ test("name", () => {
 })
 ```
 
-- [ ] Lower this shape by flattening the group name into a stable Rust test function name:
+- [x] Lower this shape by flattening the group name into a stable Rust test function name:
 
 ```ts
 describe("group", () => {
@@ -95,7 +95,7 @@ describe("group", () => {
 })
 ```
 
-- [ ] Ignore `describe` as runtime structure. It is a test organization construct.
+- [x] Ignore `describe` as runtime structure. It is a test organization construct.
 
 Python lowering:
 
@@ -115,13 +115,13 @@ Extend `smelt-test`.
 TypeScript helpers:
 
 - [ ] `to_be_instance_of`
-- [ ] `to_contain`
-- [ ] `to_have_length`
+- [x] `to_contain`
+- [x] `to_have_length`
 - [ ] `to_have_property`
 - [ ] `to_throw_with_type`
 - [ ] `to_throw_with_message`
 - [ ] `deep_strict_equal` for Effect-style helper assertions
-- [ ] Keep `to_strict_equal` as structural equality for v1.
+- [x] Keep `to_strict_equal` as structural equality for v1.
 
 Python helpers:
 

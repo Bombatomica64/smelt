@@ -1169,6 +1169,27 @@ describe("math helpers", () => {
 }
 
 #[test]
+fn emits_typescript_vitest_common_positive_matchers() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("common matchers", () => {
+  expect(1 + 1).toEqual(2);
+  expect([1, 2, 3]).toContain(2);
+  expect([1, 2, 3]).toHaveLength(3);
+  expect(["a"]).toStrictEqual(["a"]);
+});
+"#,
+    );
+
+    assert!(source.contains("expect(...).toEqual(...) failed"));
+    assert!(source.contains(".contains(&"));
+    assert!(source.contains("expect(...).toHaveLength(...) failed"));
+    assert!(source.contains("expect(...).toStrictEqual(...) failed"));
+}
+
+#[test]
 fn emits_set_mutation_methods() {
     let ts_source = source_for(
         r#"

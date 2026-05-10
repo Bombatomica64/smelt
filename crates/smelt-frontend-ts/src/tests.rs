@@ -2,8 +2,8 @@
 
 use super::*;
 use smelt_hir::{
-    DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp, Literal,
-    ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
+    BinOp, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp,
+    Literal, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
     RegexMatchOp, SetProjectionOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp,
     StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
@@ -100,6 +100,51 @@ test("case", () => {});
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
     ensure_eq!(body.stmts.len(), 0);
+    Ok(())
+}
+
+#[test]
+fn vitest_common_positive_matchers_lower_to_assertion_checks() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+test("common matchers", () => {
+  expect(1 + 1).toEqual(2);
+  expect([1, 2, 3]).toContain(2);
+  expect([1, 2, 3]).toHaveLength(3);
+  expect(["a"]).toStrictEqual(["a"]);
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/example.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let test_fn = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, test_fn)?;
+
+    ensure!(test_fn.is_test);
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(
+                expr.kind,
+                ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    ..
+                }
+            ))
+            .count()
+            >= 3
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListContains { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Len { .. }))
+    );
     Ok(())
 }
 

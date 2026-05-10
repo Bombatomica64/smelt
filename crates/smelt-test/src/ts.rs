@@ -175,6 +175,54 @@ impl<T> Expect<T> {
         );
     }
 
+    /// Asserts `toContain` for generated string and collection values.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the expectation is not satisfied.
+    pub fn to_contain<U>(&self, expected: U)
+    where
+        T: Contains<U> + fmt::Debug,
+        U: fmt::Debug,
+    {
+        let matched = self.actual.contains_value(&expected);
+        self.assert_match(
+            matched,
+            format_args!(
+                "expected {actual:?} to contain {expected:?}",
+                actual = self.actual
+            ),
+            format_args!(
+                "expected {actual:?} not to contain {expected:?}",
+                actual = self.actual
+            ),
+        );
+    }
+
+    /// Asserts `toHaveLength` for generated string and collection values.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the expectation is not satisfied.
+    pub fn to_have_length(&self, expected: usize)
+    where
+        T: HasLength + fmt::Debug,
+    {
+        let actual_len = self.actual.value_len();
+        let matched = actual_len == expected;
+        self.assert_match(
+            matched,
+            format_args!(
+                "expected {actual:?} to have length {expected}, got {actual_len}",
+                actual = self.actual
+            ),
+            format_args!(
+                "expected {actual:?} not to have length {expected}",
+                actual = self.actual
+            ),
+        );
+    }
+
     /// Handles positive and negated assertion results.
     fn assert_match(
         &self,
@@ -202,6 +250,53 @@ pub trait IsNull {
 impl<T> IsNull for Option<T> {
     fn is_null(&self) -> bool {
         self.is_none()
+    }
+}
+
+/// Containment abstraction for generated TypeScript `toContain` checks.
+pub trait Contains<T> {
+    /// Returns true when `expected` is contained in `self`.
+    #[must_use]
+    fn contains_value(&self, expected: &T) -> bool;
+}
+
+impl Contains<Self> for String {
+    fn contains_value(&self, expected: &Self) -> bool {
+        self.contains(expected)
+    }
+}
+
+impl Contains<&str> for String {
+    fn contains_value(&self, expected: &&str) -> bool {
+        self.contains(*expected)
+    }
+}
+
+impl<T> Contains<T> for Vec<T>
+where
+    T: PartialEq,
+{
+    fn contains_value(&self, expected: &T) -> bool {
+        self.contains(expected)
+    }
+}
+
+/// Length abstraction for generated TypeScript `toHaveLength` checks.
+pub trait HasLength {
+    /// Returns the JavaScript-visible length for a value.
+    #[must_use]
+    fn value_len(&self) -> usize;
+}
+
+impl HasLength for String {
+    fn value_len(&self) -> usize {
+        self.chars().count()
+    }
+}
+
+impl<T> HasLength for Vec<T> {
+    fn value_len(&self) -> usize {
+        self.len()
     }
 }
 
@@ -317,6 +412,26 @@ mod tests {
     fn to_be_null_matches_none() {
         expect(None::<i32>).to_be_null();
         expect(Some(1_i32)).not().to_be_null();
+    }
+
+    #[test]
+    fn to_contain_matches_strings_and_vectors() {
+        expect("alpha".to_owned()).to_contain("ph");
+        expect(vec![1_i32, 2_i32, 3_i32]).to_contain(2_i32);
+        assert!(
+            catches_panic(|| expect(vec![1_i32]).to_contain(2_i32)),
+            "missing item should fail toContain"
+        );
+    }
+
+    #[test]
+    fn to_have_length_matches_strings_and_vectors() {
+        expect("éa".to_owned()).to_have_length(2);
+        expect(vec![1_i32, 2_i32]).to_have_length(2);
+        assert!(
+            catches_panic(|| expect(vec![1_i32]).to_have_length(2)),
+            "different length should fail toHaveLength"
+        );
     }
 
     #[test]

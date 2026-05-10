@@ -26,6 +26,46 @@ use smelt_hir::{
     StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
 };
 
+/// Vitest expectation matchers that can lower to direct HIR checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TestMatcher {
+    /// `expect(actual).toBe(expected)`.
+    Be,
+    /// `expect(actual).toEqual(expected)`.
+    Equal,
+    /// `expect(actual).toStrictEqual(expected)`.
+    StrictEqual,
+    /// `expect(actual).toContain(expected)`.
+    Contain,
+    /// `expect(actual).toHaveLength(expected)`.
+    HaveLength,
+}
+
+impl TestMatcher {
+    /// Parse a source matcher name into a supported test matcher.
+    fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "toBe" => Some(Self::Be),
+            "toEqual" => Some(Self::Equal),
+            "toStrictEqual" => Some(Self::StrictEqual),
+            "toContain" => Some(Self::Contain),
+            "toHaveLength" => Some(Self::HaveLength),
+            _ => None,
+        }
+    }
+
+    /// Return the source API spelling for diagnostics.
+    const fn source_name(self) -> &'static str {
+        match self {
+            Self::Be => "toBe",
+            Self::Equal => "toEqual",
+            Self::StrictEqual => "toStrictEqual",
+            Self::Contain => "toContain",
+            Self::HaveLength => "toHaveLength",
+        }
+    }
+}
+
 /// Check whether an actual class field type satisfies an interface field.
 fn field_type_satisfies(
     krate: &smelt_hir::Crate,
@@ -211,8 +251,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(test_call) = self.test_case_call(&expr_stmt.expression)
             {
-                match self.test_case_declaration(test_call) {
+                match self.test_case_declaration(test_call, None) {
                     Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
+            if let Statement::ExpressionStatement(expr_stmt) = statement
+                && let Some(describe_call) = self.describe_call(&expr_stmt.expression)
+            {
+                match self.describe_declaration(describe_call) {
+                    Ok(items) => module.items.extend(items),
                     Err(error) => errors.push(error),
                 }
                 continue;
@@ -1168,6 +1217,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
         (self.test_builtins.contains(name) && matches!(name, "it" | "test")).then_some(call)
     }
 
+    /// Return a supported top-level `describe` call, if this expression is one.
+    fn describe_call<'a>(
+        &self,
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
+        let Expression::CallExpression(call) = expression else {
+            return None;
+        };
+        self.is_describe_callee(&call.callee).then_some(call)
+    }
+
     /// Return whether a callee belongs to an imported test-framework API.
     fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
@@ -1188,10 +1248,66 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Return whether a callee is `describe` or `describe.concurrent`.
+    fn is_describe_callee(&self, callee: &Expression<'_>) -> bool {
+        match callee {
+            Expression::Identifier(ident) => {
+                ident.name == "describe" && self.test_builtins.contains("describe")
+            }
+            Expression::StaticMemberExpression(member) if member.property.name == "concurrent" => {
+                matches!(
+                    &member.object,
+                    Expression::Identifier(object)
+                        if object.name == "describe" && self.test_builtins.contains("describe")
+                )
+            }
+            _ => false,
+        }
+    }
+
+    /// Lower a top-level Vitest `describe` block into flattened test items.
+    fn describe_declaration(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let name_arg = call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "describe calls require a string name",
+            )
+        })?;
+        let group_name = self.test_title(name_arg)?;
+        let body_arg = call.arguments.get(1).ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "describe calls require a callback",
+            )
+        })?;
+        let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
+        let mut items = Vec::new();
+        for statement in &arrow.body.statements {
+            let Statement::ExpressionStatement(expr_stmt) = statement else {
+                return Err(SmeltError::unsupported(
+                    self.statement_span(statement),
+                    "describe blocks only support direct it/test calls for now",
+                ));
+            };
+            let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
+                return Err(SmeltError::unsupported(
+                    self.statement_span(statement),
+                    "describe blocks only support direct it/test calls for now",
+                ));
+            };
+            items.push(self.test_case_declaration(test_call, Some(&group_name))?);
+        }
+        Ok(items)
+    }
+
     /// Lower a top-level Vitest `test` / `it` call into an HIR test function.
     fn test_case_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        group_name: Option<&str>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let name_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -1205,25 +1321,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "test case calls require a callback",
             )
         })?;
-        let test_name = self.test_case_name(name_arg)?;
-        let Argument::ArrowFunctionExpression(arrow) = body_arg else {
-            return Err(SmeltError::unsupported(
-                self.span(body_arg.span().start, body_arg.span().end),
-                "test case callbacks must be arrow functions",
-            ));
-        };
-        if arrow.r#async {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "async test callbacks are not lowered yet",
-            ));
-        }
-        if !arrow.params.items.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.params.span.start, arrow.params.span.end),
-                "test callbacks with parameters are not lowered yet",
-            ));
-        }
+        let test_name = self.test_case_name(name_arg, group_name)?;
+        let arrow = self.test_arrow_callback(body_arg, "test case callbacks")?;
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_async = self.current_async;
@@ -1259,17 +1358,58 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Convert a test-case name argument into a stable Rust function name.
-    fn test_case_name(&self, argument: &Argument<'_>) -> Result<String, SmeltError> {
+    fn test_case_name(
+        &self,
+        argument: &Argument<'_>,
+        group_name: Option<&str>,
+    ) -> Result<String, SmeltError> {
+        let case_name = self.test_title(argument)?;
+        let full_name = group_name.map_or_else(
+            || case_name.clone(),
+            |group_name| format!("{group_name} {case_name}"),
+        );
+        Ok(format!(
+            "test_{}",
+            sanitize_test_name(&full_name).unwrap_or_else(|| "case".to_owned())
+        ))
+    }
+
+    /// Extract a string title from a test-framework name argument.
+    fn test_title(&self, argument: &Argument<'_>) -> Result<String, SmeltError> {
         let Argument::StringLiteral(name) = argument else {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "test case names must be string literals",
             ));
         };
-        Ok(format!(
-            "test_{}",
-            sanitize_test_name(name.value.as_str()).unwrap_or_else(|| "case".to_owned())
-        ))
+        Ok(name.value.to_string())
+    }
+
+    /// Extract and validate an arrow callback for supported test-framework calls.
+    fn test_arrow_callback<'a>(
+        &self,
+        argument: &'a Argument<'a>,
+        context: &str,
+    ) -> Result<&'a oxc::ast::ast::ArrowFunctionExpression<'a>, SmeltError> {
+        let Argument::ArrowFunctionExpression(arrow) = argument else {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                format!("{context} must be arrow functions"),
+            ));
+        };
+        if arrow.r#async {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                format!("async {context} are not lowered yet"),
+            ));
+        }
+        if !arrow.params.items.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.params.span.start, arrow.params.span.end),
+                format!("{context} with parameters are not lowered yet"),
+            ));
+        }
+        Ok(arrow)
     }
 
     /// Lower one supported statement inside a test case callback.
@@ -1280,15 +1420,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<(), SmeltError> {
         if let Statement::ExpressionStatement(expr_stmt) = statement
             && let Expression::CallExpression(call) = &expr_stmt.expression
-            && self.expect_to_be_statement(call, body)?
+            && self.expect_matcher_statement(call, body)?
         {
             return Ok(());
         }
         self.statement(statement, body)
     }
 
-    /// Lower `expect(actual).toBe(expected)` to a conditional failure path.
-    fn expect_to_be_statement(
+    /// Lower supported `expect(actual).matcher(expected)` calls to failure paths.
+    fn expect_matcher_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
@@ -1296,9 +1436,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(false);
         };
-        if member.property.name != "toBe" {
+        let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {
             return Ok(false);
-        }
+        };
         let Expression::CallExpression(expect_call) = &member.object else {
             return Ok(false);
         };
@@ -1313,36 +1453,183 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let actual_arg = expect_call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(expect_call.span.start, expect_call.span.end),
-                "expect(...).toBe(...) requires an actual value",
+                format!(
+                    "expect(...).{}(...) requires an actual value",
+                    matcher.source_name()
+                ),
             )
         })?;
         let expected_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "expect(...).toBe(...) requires an expected value",
+                format!(
+                    "expect(...).{}(...) requires an expected value",
+                    matcher.source_name()
+                ),
             )
         })?;
         let actual = self.argument(actual_arg, body)?;
         let expected = self.argument(expected_arg, body)?;
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        let not_equal = body.push_expr(Expr {
-            kind: ExprKind::BinOp {
-                op: BinOp::NotEq,
-                lhs: actual,
-                rhs: expected,
-            },
-            ty: bool_ty,
-            span: self.span(call.span.start, call.span.end),
-        });
-        let failure_block = body.push_block(self.span(call.span.start, call.span.end));
-        let message = self.string_literal_expr("expect(...).toBe(...) failed", call.span, body);
+        let failed =
+            self.expect_matcher_failure_expr(matcher, actual, expected, call.span, body)?;
+        self.push_test_failure_if(
+            failed,
+            &format!("expect(...).{}(...) failed", matcher.source_name()),
+            call.span,
+            body,
+        );
+        Ok(true)
+    }
+
+    /// Build the boolean expression that means a supported matcher has failed.
+    fn expect_matcher_failure_expr(
+        &mut self,
+        matcher: TestMatcher,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match matcher {
+            TestMatcher::Be | TestMatcher::Equal | TestMatcher::StrictEqual => {
+                Ok(self.comparison_expr(BinOp::NotEq, actual, expected, span, body))
+            }
+            TestMatcher::Contain => {
+                let contains = self.contains_expr(actual, expected, span, body)?;
+                Ok(self.unary_bool_expr(UnaryOp::Not, contains, span, body))
+            }
+            TestMatcher::HaveLength => {
+                let len = self.len_expr(actual, span, body)?;
+                Ok(self.comparison_expr(BinOp::NotEq, len, expected, span, body))
+            }
+        }
+    }
+
+    /// Push a throwing failure block guarded by a boolean condition.
+    fn push_test_failure_if(
+        &mut self,
+        cond: smelt_hir::ExprId,
+        message: &str,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) {
+        let failure_block = body.push_block(self.span(span.start, span.end));
+        let message = self.string_literal_expr(message, span, body);
         body.push_stmt_to_block(failure_block, Stmt::Throw(message));
         body.push_stmt(Stmt::If {
-            cond: not_equal,
+            cond,
             then_block: failure_block,
             else_block: None,
         });
-        Ok(true)
+    }
+
+    /// Create a boolean unary expression for synthesized test assertions.
+    fn unary_bool_expr(
+        &mut self,
+        op: UnaryOp,
+        operand: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        body.push_expr(Expr {
+            kind: ExprKind::UnaryOp { op, operand },
+            ty: bool_ty,
+            span: self.span(span.start, span.end),
+        })
+    }
+
+    /// Create a boolean comparison expression for synthesized test assertions.
+    fn comparison_expr(
+        &mut self,
+        op: BinOp,
+        lhs: smelt_hir::ExprId,
+        rhs: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        body.push_expr(Expr {
+            kind: ExprKind::BinOp { op, lhs, rhs },
+            ty: bool_ty,
+            span: self.span(span.start, span.end),
+        })
+    }
+
+    /// Create a length expression for synthesized test assertions.
+    fn len_expr(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
+            Some(
+                Type::String | Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Tuple(_),
+            ) => {
+                let int_ty = self.ctx.krate.types.intern(Type::Int);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Len { operand },
+                    ty: int_ty,
+                    span: self.span(span.start, span.end),
+                }))
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "expect(...).toHaveLength(...) requires a string or collection actual value",
+            )),
+        }
+    }
+
+    /// Create a containment expression for synthesized test assertions.
+    fn contains_expr(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let kind = match self.ctx.krate.types.get(Self::expr_ty(body, actual)) {
+            Some(Type::String)
+                if self.ctx.krate.types.get(Self::expr_ty(body, expected))
+                    == Some(&Type::String) =>
+            {
+                ExprKind::StringContains {
+                    haystack: actual,
+                    needle: expected,
+                }
+            }
+            Some(Type::List(item_ty)) if Self::expr_ty(body, expected) == *item_ty => {
+                ExprKind::ListContains {
+                    list: actual,
+                    item: expected,
+                }
+            }
+            Some(Type::Set(item_ty)) if Self::expr_ty(body, expected) == *item_ty => {
+                ExprKind::SetContains {
+                    set: actual,
+                    item: expected,
+                }
+            }
+            Some(Type::Tuple(items)) if items.contains(&Self::expr_ty(body, expected)) => {
+                ExprKind::TupleContains {
+                    tuple: actual,
+                    item: expected,
+                }
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    "expect(...).toContain(...) requires a string, array, set, or tuple actual value with a matching expected value",
+                ));
+            }
+        };
+        Ok(body.push_expr(Expr {
+            kind,
+            ty: bool_ty,
+            span: self.span(span.start, span.end),
+        }))
     }
 
     /// Create a string literal expression for synthesized test diagnostics.
