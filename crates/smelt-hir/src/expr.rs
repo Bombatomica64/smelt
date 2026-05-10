@@ -397,6 +397,15 @@ pub enum ExprKind {
         /// List value to copy and sort.
         list: ExprId,
     },
+    /// Materialize an integer range as a list.
+    ListRange {
+        /// Inclusive start value.
+        start: ExprId,
+        /// Exclusive end value.
+        end: ExprId,
+        /// Step value.
+        step: ExprId,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

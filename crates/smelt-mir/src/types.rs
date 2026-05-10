@@ -700,6 +700,15 @@ pub enum Rvalue {
         /// List value to copy and sort.
         list: Operand,
     },
+    /// Materialize an integer range as a list.
+    ListRange {
+        /// Inclusive start value.
+        start: Operand,
+        /// Exclusive end value.
+        end: Operand,
+        /// Step value.
+        step: Operand,
+    },
     /// Return the first index of an equal list item.
     ListIndex {
         /// List value to scan.

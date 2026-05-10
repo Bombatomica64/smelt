@@ -1382,6 +1382,9 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
             Rvalue::ListBoolFold { op, list } => self.list_bool_fold_text(*op, list),
             Rvalue::ListSorted { list } => self.list_sorted_text(list, dest_ty),
+            Rvalue::ListRange { start, end, step } => {
+                self.list_range_text(start, end, step, dest_ty)
+            }
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
             Rvalue::ListSort { list } => self.list_sort_text(list, dest_ty),
@@ -2922,6 +2925,32 @@ impl<'mir> FunctionEmitter<'mir> {
                 "sorted() supports bool, int, float, and string lists",
             )),
         }
+    }
+
+    /// Converts a Python `range(...)` materialization to Rust text.
+    fn list_range_text(
+        &self,
+        start: &Operand,
+        end: &Operand,
+        step: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let int_ty = self.type_id(Type::Int)?;
+        if self.operand_ty(start)? != int_ty
+            || self.operand_ty(end)? != int_ty
+            || self.operand_ty(step)? != int_ty
+        {
+            return Err(EmitError::new("range() bounds must be integers"));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::List(item)) if *item == int_ty) {
+            return Err(EmitError::new("range() destination must be list[int]"));
+        }
+        Ok(format!(
+            "{{ let start = {}; let end = {}; let step = {}; if step == 0 {{ panic!(\"range() arg 3 must not be zero\"); }} let mut values = Vec::new(); let mut current = start; if step > 0 {{ while current < end {{ values.push(current); current += step; }} }} else {{ while current > end {{ values.push(current); current += step; }} }} values }}",
+            self.operand_text(start)?,
+            self.operand_text(end)?,
+            self.operand_text(step)?
+        ))
     }
 
     /// Converts a list index operation to Rust text.

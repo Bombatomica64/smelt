@@ -284,6 +284,11 @@ fn validate_rvalue_exists(
         | Rvalue::ListSorted { list } => {
             validate_operand_exists(function, list, errors);
         }
+        Rvalue::ListRange { start, end, step } => {
+            validate_operand_exists(function, start, errors);
+            validate_operand_exists(function, end, errors);
+            validate_operand_exists(function, step, errors);
+        }
         Rvalue::ListIndex { list, item } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
@@ -764,6 +769,11 @@ fn validate_rvalue(
         | Rvalue::ListBoolFold { list, .. }
         | Rvalue::ListSorted { list } => {
             validate_operand(function, definitions, list, errors);
+        }
+        Rvalue::ListRange { start, end, step } => {
+            validate_operand(function, definitions, start, errors);
+            validate_operand(function, definitions, end, errors);
+            validate_operand(function, definitions, step, errors);
         }
         Rvalue::ListIndex { list, item } => {
             validate_operand(function, definitions, list, errors);

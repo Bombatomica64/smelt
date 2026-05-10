@@ -2262,6 +2262,41 @@ ordered: list[int] = sorted(values)
 }
 
 #[test]
+fn range_builtin_lowers() -> TestResult {
+    let source = py!(r#"
+first: list[int] = range(3)
+middle: list[int] = range(1, 4)
+stepped: list[int] = range(5, 1, -2)
+total: int = 0
+for value in range(3):
+    total = total + value
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::ListRange { .. }))
+            .count()
+            >= 4,
+        "expected range lowering",
+    )?;
+    ensure(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. })),
+        "expected for range lowering",
+    )
+}
+
+#[test]
 fn list_contains_comparison_lowers() -> TestResult {
     let source = py!(r#"
 values: list[int] = [1, 2, 3]

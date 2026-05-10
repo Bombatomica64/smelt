@@ -826,6 +826,25 @@ ordered_floats: list[float] = sorted(floats)
 }
 
 #[test]
+fn emits_python_range_builtin() {
+    let source = source_for_py(
+        r#"
+first: list[int] = range(3)
+middle: list[int] = range(1, 4)
+stepped: list[int] = range(5, 1, -2)
+total: int = 0
+for value in range(3):
+    total = total + value
+"#,
+    );
+
+    assert!(source.contains("let mut values = Vec::new();"));
+    assert!(source.contains("while current < end"));
+    assert!(source.contains("while current > end"));
+    assert!(source.contains("panic!(\"range() arg 3 must not be zero\")"));
+}
+
+#[test]
 fn emits_json_stringify_calls() {
     let ts_source = source_for(
         r#"

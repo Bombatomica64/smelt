@@ -287,6 +287,72 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `range(...)` as a materialized `list[int]`.
+    pub(super) fn range_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if name.id.as_str() != "range" {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "range() keyword arguments are not supported",
+            ));
+        }
+        let int_ty = self.intern_type(Type::Int);
+        let int_literal = |hir_body: &mut Body, value| {
+            hir_body.push_expr(HirExpr {
+                kind: ExprKind::Literal(smelt_hir::Literal::Int(value)),
+                ty: int_ty,
+                span,
+            })
+        };
+        let (start, end, step) = match call.arguments.args.as_ref() {
+            [end_expr] => (
+                int_literal(body, 0),
+                self.expression(end_expr, body)?,
+                int_literal(body, 1),
+            ),
+            [start_expr, end_expr] => (
+                self.expression(start_expr, body)?,
+                self.expression(end_expr, body)?,
+                int_literal(body, 1),
+            ),
+            [start_expr, end_expr, step_expr] => (
+                self.expression(start_expr, body)?,
+                self.expression(end_expr, body)?,
+                self.expression(step_expr, body)?,
+            ),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "range() requires one, two, or three integer arguments",
+                ));
+            }
+        };
+        for bound in [start, end, step] {
+            if self.ctx.krate.types.get(Self::expr_ty(body, bound)) != Some(&Type::Int) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "range() arguments must be integers",
+                ));
+            }
+        }
+        let ty = self.intern_type(Type::List(int_ty));
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListRange { start, end, step },
+            ty,
+            span,
+        })))
+    }
+
     /// Lower Python `list.extend(other)` calls for same-typed lists.
     pub(super) fn list_extend_call_expression(
         &mut self,

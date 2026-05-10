@@ -416,7 +416,7 @@ runtime errors.
   - [x] `abs(...)` for `int` and `float`.
   - [ ] `str(...)`, `int(...)`, `float(...)`, and `bool(...)` conversions with strict semantic
         differences documented.
-  - [ ] `range(...)` for `for` loops and materialized lists.
+  - [x] `range(...)` for `for` loops and materialized lists.
   - [ ] `enumerate(...)`.
   - [ ] `zip(...)`.
   - [ ] `sum(...)`, `min(...)`, and `max(...)`.
