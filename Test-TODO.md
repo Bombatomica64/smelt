@@ -127,7 +127,7 @@ Python helpers:
 
 - [x] `raises_type`
 - [x] `raises_message`
-- [ ] Context-manager-shaped lowering for `with pytest.raises(...)`
+- [x] Context-manager-shaped lowering for `with pytest.raises(...)`
 - [x] Identity assertions for `is` / `is not`
 - [x] Boolean negation assertion support for `assert not expr`
 
@@ -135,12 +135,12 @@ Python helpers:
 
 Python first:
 
-- [ ] Implement `@pytest.mark.parametrize` expansion.
-- [ ] Generate one Rust `#[test]` per parameter row.
-- [ ] Use stable generated names with sanitized parameter indexes:
+- [x] Implement `@pytest.mark.parametrize` expansion.
+- [x] Generate one Rust `#[test]` per parameter row.
+- [x] Use stable generated names with sanitized parameter indexes:
   - `test_name__case_0`
   - `test_name__case_1`
-- [ ] Support simple literal parameter tables first:
+- [x] Support simple literal parameter tables first:
   - numbers
   - strings
   - booleans

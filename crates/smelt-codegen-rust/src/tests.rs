@@ -1196,6 +1196,28 @@ def test_truth():
 }
 
 #[test]
+fn emits_python_pytest_raises_as_result_control_flow() {
+    let source = source_for_py_path(
+        r#"
+import pytest
+
+def test_raises():
+    with pytest.raises(Exception):
+        raise "boom"
+"#,
+        "tests/test_raises.py",
+    );
+
+    assert!(
+        source.contains("#[test]\nfn test_raises() -> Result<(), Box<dyn std::error::Error>> {")
+    );
+    assert!(source.contains("let mut __smelt_pytest_raised: bool = false;"));
+    assert!(source.contains("__smelt_pytest_raised = true;"));
+    assert!(source.contains("pytest.raises(...) did not raise"));
+    assert!(source.contains("return Ok(());"));
+}
+
+#[test]
 fn emits_typescript_vitest_test_case_as_rust_test() {
     let source = source_for(
         r#"

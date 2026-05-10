@@ -12,7 +12,7 @@ use std::convert::TryFrom;
 use ruff_python_ast::{
     BoolOp, CmpOp, ElifElseClause, Expr, ModModule, Number, Operator, Pattern as RuffPattern,
     PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAssert, StmtAugAssign, StmtClassDef,
-    StmtFor, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch,
+    StmtFor, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch, StmtWith,
     UnaryOp as RuffUnaryOp,
 };
 use ruff_text_size::{Ranged, TextRange};
@@ -50,6 +50,34 @@ pub(crate) struct ModuleBuilder<'ctx> {
     pytest_mode: bool,
 }
 
+/// A simple pytest parametrization table.
+#[derive(Debug, Clone)]
+struct PytestParametrize {
+    /// Parameter names in order.
+    names: Vec<String>,
+    /// Literal rows in order.
+    rows: Vec<Vec<PytestLiteral>>,
+}
+
+/// Literal values supported in first-pass pytest parametrization.
+#[derive(Debug, Clone)]
+enum PytestLiteral {
+    /// Boolean literal.
+    Bool(bool),
+    /// Integer literal.
+    Int(i64),
+    /// Floating-point literal.
+    Float(f64),
+    /// String literal.
+    String(String),
+    /// `None`.
+    None,
+    /// Tuple literal.
+    Tuple(Vec<Self>),
+    /// List literal.
+    List(Vec<Self>),
+}
+
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Build a lowering context for one Python source module.
     pub(crate) fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
@@ -84,8 +112,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         // statements can reference them in calls.
         for stmt in &module.body {
             if let Stmt::FunctionDef(func) = stmt {
-                match self.function_def(func) {
-                    Ok(item_id) => hir_module.items.push(item_id),
+                match self.function_defs(func) {
+                    Ok(item_ids) => hir_module.items.extend(item_ids),
                     Err(err) => errors.push(err),
                 }
             } else if let Stmt::ClassDef(class) = stmt {
@@ -648,6 +676,370 @@ impl<'ctx> ModuleBuilder<'ctx> {
     // Function definition
     // -----------------------------------------------------------------------
 
+    /// Lower a Python function definition, expanding simple pytest parametrization.
+    fn function_defs(&mut self, func: &StmtFunctionDef) -> Result<Vec<ItemId>, SmeltError> {
+        if let Some(parametrize) = self.pytest_parametrize(func)? {
+            return self.parametrize_function_defs(func, &parametrize);
+        }
+        self.function_def(func).map(|item| vec![item])
+    }
+
+    /// Extract a simple `@pytest.mark.parametrize(...)` decorator, if present.
+    fn pytest_parametrize(
+        &self,
+        func: &StmtFunctionDef,
+    ) -> Result<Option<PytestParametrize>, SmeltError> {
+        if !self.is_pytest_test_function(func) {
+            return Ok(None);
+        }
+        let Some(decorator) = func
+            .decorator_list
+            .iter()
+            .find(|decorator| decorator_simple_name(decorator) == Some("parametrize"))
+        else {
+            return Ok(None);
+        };
+        let Expr::Call(call) = &decorator.expression else {
+            return Err(SmeltError::unsupported(
+                self.span(decorator.range),
+                "pytest.mark.parametrize must be called",
+            ));
+        };
+        let [names_expr, rows_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "pytest.mark.parametrize requires names and rows",
+            ));
+        };
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "pytest.mark.parametrize keyword arguments are not supported yet",
+            ));
+        }
+        let names = self.pytest_parametrize_names(names_expr)?;
+        let rows = self.pytest_parametrize_rows(rows_expr, names.len())?;
+        Ok(Some(PytestParametrize { names, rows }))
+    }
+
+    /// Lower one parametrized pytest function into one Rust test item per row.
+    fn parametrize_function_defs(
+        &mut self,
+        func: &StmtFunctionDef,
+        parametrize: &PytestParametrize,
+    ) -> Result<Vec<ItemId>, SmeltError> {
+        let mut items = Vec::new();
+        for (case_index, row) in parametrize.rows.iter().enumerate() {
+            items.push(self.parametrize_function_def(func, parametrize, row, case_index)?);
+        }
+        Ok(items)
+    }
+
+    /// Lower one pytest parametrization row into a concrete no-argument test.
+    fn parametrize_function_def(
+        &mut self,
+        func: &StmtFunctionDef,
+        parametrize: &PytestParametrize,
+        row: &[PytestLiteral],
+        case_index: usize,
+    ) -> Result<ItemId, SmeltError> {
+        let base_name = func.name.as_str();
+        let generated_name = format!("{base_name}__case_{case_index}");
+        let name = self.intern_name(&generated_name);
+        let return_ty = self.intern_type(Type::None);
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_async = self.current_async;
+        self.current_async = false;
+        let func_span = self.span(func.range);
+        let mut fn_body = Body::new(None, func_span);
+        let root_block = fn_body.root;
+
+        for (param_name, value) in parametrize.names.iter().zip(row) {
+            let ty = self.pytest_literal_type(value, func_span)?;
+            let sym = self.intern_name(param_name);
+            let local = fn_body.push_local(LocalDecl {
+                name: Some(sym),
+                ty,
+                mutable: false,
+                span: func_span,
+            });
+            self.locals.insert(param_name.clone(), local);
+            let value_expr = self.pytest_literal_expr(value, &mut fn_body, func_span)?;
+            let pat = fn_body.push_pattern(HirPattern::Binding(local));
+            fn_body.push_stmt_to_block(
+                root_block,
+                HirStmt::Let {
+                    pat,
+                    ty,
+                    value: Some(value_expr),
+                },
+            );
+        }
+
+        let body_error = func
+            .body
+            .iter()
+            .find_map(|stmt| self.statement(stmt, &mut fn_body).err());
+        self.locals = saved_locals;
+        self.current_async = saved_async;
+        if let Some(err) = body_error {
+            return Err(err);
+        }
+        let body_id = self.ctx.krate.push_body(fn_body);
+        let item = Item::Function(Function {
+            name,
+            span: func_span,
+            params: Vec::new(),
+            return_ty,
+            is_async: false,
+            is_test: true,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        });
+        let item_id = self.ctx.krate.push_item(item);
+        self.items.insert(generated_name, item_id);
+        Ok(item_id)
+    }
+
+    /// Parse pytest parametrization names from a string literal.
+    fn pytest_parametrize_names(&self, expr: &Expr) -> Result<Vec<String>, SmeltError> {
+        let Expr::StringLiteral(value) = expr else {
+            return Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                "pytest.mark.parametrize names must be a string literal",
+            ));
+        };
+        let names = value
+            .value
+            .to_str()
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if names.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                "pytest.mark.parametrize requires at least one parameter name",
+            ));
+        }
+        Ok(names)
+    }
+
+    /// Parse pytest parametrization rows from a list or tuple literal.
+    fn pytest_parametrize_rows(
+        &self,
+        expr: &Expr,
+        width: usize,
+    ) -> Result<Vec<Vec<PytestLiteral>>, SmeltError> {
+        let row_exprs = match expr {
+            Expr::List(list) => list.elts.as_slice(),
+            Expr::Tuple(tuple) => tuple.elts.as_slice(),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(expr.range()),
+                    "pytest.mark.parametrize rows must be a list or tuple literal",
+                ));
+            }
+        };
+        let mut rows = Vec::new();
+        for row_expr in row_exprs {
+            let row = if width == 1 {
+                vec![self.pytest_literal(row_expr)?]
+            } else {
+                let values = match row_expr {
+                    Expr::List(list) => list.elts.as_slice(),
+                    Expr::Tuple(tuple) => tuple.elts.as_slice(),
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(row_expr.range()),
+                            "multi-argument pytest.mark.parametrize rows must be tuples or lists",
+                        ));
+                    }
+                };
+                if values.len() != width {
+                    return Err(SmeltError::unsupported(
+                        self.span(row_expr.range()),
+                        "pytest.mark.parametrize row width does not match parameter names",
+                    ));
+                }
+                values
+                    .iter()
+                    .map(|value| self.pytest_literal(value))
+                    .collect::<Result<Vec<_>, _>>()?
+            };
+            rows.push(row);
+        }
+        if rows.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                "pytest.mark.parametrize requires at least one row",
+            ));
+        }
+        Ok(rows)
+    }
+
+    /// Parse one supported pytest parametrization literal.
+    fn pytest_literal(&self, expr: &Expr) -> Result<PytestLiteral, SmeltError> {
+        match expr {
+            Expr::BooleanLiteral(value) => Ok(PytestLiteral::Bool(value.value)),
+            Expr::NumberLiteral(number) => match &number.value {
+                Number::Int(value) => value.as_i64().map(PytestLiteral::Int).ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(number.range),
+                        "pytest.mark.parametrize integer literal out of i64 range",
+                    )
+                }),
+                Number::Float(value) => Ok(PytestLiteral::Float(*value)),
+                Number::Complex { .. } => Err(SmeltError::unsupported(
+                    self.span(number.range),
+                    "pytest.mark.parametrize does not support complex literals",
+                )),
+            },
+            Expr::StringLiteral(value) => {
+                Ok(PytestLiteral::String(value.value.to_str().to_owned()))
+            }
+            Expr::NoneLiteral(_) => Ok(PytestLiteral::None),
+            Expr::Tuple(tuple) => tuple
+                .elts
+                .iter()
+                .map(|elt| self.pytest_literal(elt))
+                .collect::<Result<Vec<_>, _>>()
+                .map(PytestLiteral::Tuple),
+            Expr::List(list) => list
+                .elts
+                .iter()
+                .map(|elt| self.pytest_literal(elt))
+                .collect::<Result<Vec<_>, _>>()
+                .map(PytestLiteral::List),
+            _ => Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                "pytest.mark.parametrize supports only bool, number, string, None, tuple, and list literals",
+            )),
+        }
+    }
+
+    /// Return the HIR type for a parametrization literal.
+    fn pytest_literal_type(
+        &mut self,
+        value: &PytestLiteral,
+        span: Span,
+    ) -> Result<TypeId, SmeltError> {
+        match value {
+            PytestLiteral::Bool(_) => Ok(self.intern_type(Type::Bool)),
+            PytestLiteral::Int(_) => Ok(self.intern_type(Type::Int)),
+            PytestLiteral::Float(_) => Ok(self.intern_type(Type::Float)),
+            PytestLiteral::String(_) => Ok(self.intern_type(Type::String)),
+            PytestLiteral::None => Ok(self.intern_type(Type::None)),
+            PytestLiteral::Tuple(items) => {
+                let types = items
+                    .iter()
+                    .map(|item| self.pytest_literal_type(item, span))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(self.intern_type(Type::Tuple(types)))
+            }
+            PytestLiteral::List(items) => {
+                let Some(first) = items.first() else {
+                    let none = self.intern_type(Type::None);
+                    return Ok(self.intern_type(Type::List(none)));
+                };
+                let first_ty = self.pytest_literal_type(first, span)?;
+                for item in &items[1..] {
+                    let item_ty = self.pytest_literal_type(item, span)?;
+                    if item_ty != first_ty {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            "pytest.mark.parametrize list literals must be homogeneous",
+                        ));
+                    }
+                }
+                Ok(self.intern_type(Type::List(first_ty)))
+            }
+        }
+    }
+
+    /// Push a HIR expression for a parametrization literal.
+    fn pytest_literal_expr(
+        &mut self,
+        literal_value: &PytestLiteral,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match literal_value {
+            PytestLiteral::Bool(inner) => {
+                let ty = self.intern_type(Type::Bool);
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::Bool(*inner)),
+                    ty,
+                    span,
+                }))
+            }
+            PytestLiteral::Int(inner) => {
+                let ty = self.intern_type(Type::Int);
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::Int(*inner)),
+                    ty,
+                    span,
+                }))
+            }
+            PytestLiteral::Float(inner) => {
+                let ty = self.intern_type(Type::Float);
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::Float(*inner)),
+                    ty,
+                    span,
+                }))
+            }
+            PytestLiteral::String(inner) => {
+                let ty = self.intern_type(Type::String);
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::String(inner.clone())),
+                    ty,
+                    span,
+                }))
+            }
+            PytestLiteral::None => {
+                let ty = self.intern_type(Type::None);
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span,
+                }))
+            }
+            PytestLiteral::Tuple(items) => {
+                let elts = items
+                    .iter()
+                    .map(|item| self.pytest_literal_expr(item, body, span))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let elem_types = elts.iter().map(|&expr| Self::expr_ty(body, expr)).collect();
+                let ty = self.intern_type(Type::Tuple(elem_types));
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::TupleLit(elts),
+                    ty,
+                    span,
+                }))
+            }
+            PytestLiteral::List(items) => {
+                let elts = items
+                    .iter()
+                    .map(|item| self.pytest_literal_expr(item, body, span))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = if let Some(first) = elts.first().copied() {
+                    let elem_ty = Self::expr_ty(body, first);
+                    self.intern_type(Type::List(elem_ty))
+                } else {
+                    let none = self.intern_type(Type::None);
+                    self.intern_type(Type::List(none))
+                };
+                Ok(body.push_expr(HirExpr {
+                    kind: ExprKind::ListLit(elts),
+                    ty,
+                    span,
+                }))
+            }
+        }
+    }
+
     /// Lower a Python function definition into an HIR function item.
     fn function_def(&mut self, func: &StmtFunctionDef) -> Result<ItemId, SmeltError> {
         let name_str = func.name.as_str();
@@ -1094,6 +1486,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // `assert expr[, message]`
             Stmt::Assert(assert_stmt) => self.assert_statement(assert_stmt, body, block),
 
+            // `with pytest.raises(...): ...`
+            Stmt::With(with_stmt) => self.pytest_raises_with_statement(with_stmt, body, block),
+
             // Standalone expression statement (e.g. a function call).
             Stmt::Expr(s) => {
                 let expr_id = self.expression(&s.value, body)?;
@@ -1128,7 +1523,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
             Stmt::Delete(_)
             | Stmt::TypeAlias(_)
-            | Stmt::With(_)
             | Stmt::Try(_)
             | Stmt::Global(_)
             | Stmt::Nonlocal(_)
@@ -1211,6 +1605,145 @@ impl<'ctx> ModuleBuilder<'ctx> {
             },
         );
         Ok(())
+    }
+
+    /// Lower `with pytest.raises(...): ...` to native try/catch assertion flow.
+    fn pytest_raises_with_statement(
+        &mut self,
+        with_stmt: &StmtWith,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        if with_stmt.is_async {
+            return Err(SmeltError::unsupported(
+                self.span(with_stmt.range),
+                "async pytest.raises context managers are not supported",
+            ));
+        }
+        let [item] = with_stmt.items.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(with_stmt.range),
+                "pytest.raises lowering supports exactly one context manager",
+            ));
+        };
+        if item.optional_vars.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(item.range),
+                "pytest.raises context variables are not supported yet",
+            ));
+        }
+        let Some(raises_call) = Self::pytest_raises_call(&item.context_expr) else {
+            return Err(SmeltError::unsupported(
+                self.span(item.range),
+                "only pytest.raises context managers are supported",
+            ));
+        };
+        if raises_call.arguments.args.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(raises_call.range),
+                "pytest.raises requires an expected exception type",
+            ));
+        }
+        if !raises_call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(raises_call.range),
+                "pytest.raises keyword arguments are not supported yet",
+            ));
+        }
+
+        let bool_ty = self.intern_type(Type::Bool);
+        let raised_sym = self.intern_name("__smelt_pytest_raised");
+        let raised_local = body.push_local(LocalDecl {
+            name: Some(raised_sym),
+            ty: bool_ty,
+            mutable: true,
+            span: self.span(with_stmt.range),
+        });
+        let false_expr = body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span: self.span(with_stmt.range),
+        });
+        let raised_pat = body.push_pattern(HirPattern::Binding(raised_local));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::Let {
+                pat: raised_pat,
+                ty: bool_ty,
+                value: Some(false_expr),
+            },
+        );
+
+        let try_body = self.block_from_stmts(&with_stmt.body, body)?;
+        let catch_body = body.push_block(self.span(item.range));
+        let raised_target = body.push_expr(HirExpr {
+            kind: ExprKind::Local(raised_local),
+            ty: bool_ty,
+            span: self.span(item.range),
+        });
+        let true_expr = body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span: self.span(item.range),
+        });
+        body.push_stmt_to_block(
+            catch_body,
+            HirStmt::Assign {
+                target: raised_target,
+                value: true_expr,
+            },
+        );
+        body.push_stmt_to_block(
+            block,
+            HirStmt::TryCatch {
+                body: try_body,
+                catch_binding: None,
+                catch_body: Some(catch_body),
+                finally_body: None,
+            },
+        );
+
+        let raised_check = body.push_expr(HirExpr {
+            kind: ExprKind::Local(raised_local),
+            ty: bool_ty,
+            span: self.span(with_stmt.range),
+        });
+        let missing_raise = body.push_expr(HirExpr {
+            kind: ExprKind::UnaryOp {
+                op: UnaryOp::Not,
+                operand: raised_check,
+            },
+            ty: bool_ty,
+            span: self.span(with_stmt.range),
+        });
+        let failure_block = body.push_block(self.span(with_stmt.range));
+        let message =
+            self.string_literal_expr("pytest.raises(...) did not raise", with_stmt.range, body);
+        body.push_stmt_to_block(failure_block, HirStmt::Throw(message));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::If {
+                cond: missing_raise,
+                then_block: failure_block,
+                else_block: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Return the call expression for a supported `pytest.raises(...)` call.
+    fn pytest_raises_call(expr: &Expr) -> Option<&ruff_python_ast::ExprCall> {
+        let Expr::Call(call) = expr else {
+            return None;
+        };
+        let is_raises = match call.func.as_ref() {
+            Expr::Attribute(attr) if attr.attr.as_str() == "raises" => {
+                matches!(attr.value.as_ref(), Expr::Name(name) if name.id.as_str() == "pytest")
+            }
+            Expr::Name(name) => name.id.as_str() == "raises",
+            _ => false,
+        };
+        is_raises.then_some(call)
     }
 
     /// Create a string literal expression for synthesized diagnostics.

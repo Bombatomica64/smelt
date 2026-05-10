@@ -519,6 +519,85 @@ def test_identity():
 }
 
 #[test]
+fn pytest_raises_context_manager_lowers_to_try_catch() -> TestResult {
+    let source = py!(r#"
+import pytest
+
+def test_raises():
+    with pytest.raises(Exception):
+        raise "boom"
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_raises.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = *module
+        .items
+        .first()
+        .ok_or_else(|| "expected lowered pytest test function".to_owned())?;
+    let Item::Function(function) = ctx
+        .krate
+        .items
+        .get(usize::try_from(item_id.0).map_err(|err| err.to_string())?)
+        .ok_or_else(|| "missing lowered pytest test function item".to_owned())?
+    else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    let body_id = function
+        .body
+        .ok_or_else(|| "expected pytest test body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+    ensure(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::TryCatch { .. })),
+        "expected pytest.raises to lower to try/catch",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn pytest_parametrize_expands_literal_rows_to_test_functions() -> TestResult {
+    let source = py!(r#"
+import pytest
+
+@pytest.mark.parametrize("value, expected, pair, items", [(1, 2, (1, "a"), [1, 2]), (3, 4, (3, "b"), [3, 4])])
+def test_increment(value, expected):
+    assert value + 1 == expected
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_parametrize.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure(
+        module.items.len() == 2,
+        "expected one generated test function per parameter row",
+    )?;
+    for (index, item_id) in module.items.iter().enumerate() {
+        let Item::Function(function) = ctx
+            .krate
+            .items
+            .get(usize::try_from(item_id.0).map_err(|err| err.to_string())?)
+            .ok_or_else(|| "missing lowered pytest test function item".to_owned())?
+        else {
+            return Err("expected pytest test function item".to_owned());
+        };
+        ensure(
+            function.is_test,
+            "generated parametrized case should be a test",
+        )?;
+        ensure(
+            function.params.is_empty(),
+            "generated parametrized case should bind parameters as locals",
+        )?;
+        let expected_name = format!("test_increment__case_{index}");
+        ensure(
+            symbol(&ctx, function.name)? == expected_name,
+            "generated parametrized case should have a stable name",
+        )?;
+    }
+    Ok(())
+}
+
+#[test]
 fn print_call_lowers() -> TestResult {
     let source = py!(r#"
 x: int = 1
