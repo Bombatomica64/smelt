@@ -582,6 +582,42 @@ const lower = -Infinity;
 }
 
 #[test]
+fn rejects_date_and_instanceof_with_targeted_diagnostics() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let date_errors = lowering_errors(
+        ts!(r#"
+const now = Date.now();
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&date_errors, "TypeScript Date is not supported yet")?;
+
+    let mut ctx = HirCtx::new();
+    let new_date_errors = lowering_errors(
+        ts!(r#"
+const date = new Date();
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&new_date_errors, "TypeScript Date is not supported yet")?;
+
+    let mut ctx = HirCtx::new();
+    let instanceof_errors = lowering_errors(
+        ts!(r#"
+class Box {}
+const value = new Box();
+const result = value instanceof Box;
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(
+        &instanceof_errors,
+        "TypeScript instanceof is not supported yet",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn lowers_global_numeric_parse_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -2667,6 +2667,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }))
             }
             Expression::BinaryExpression(binary) => {
+                if binary.operator == BinaryOperator::Instanceof {
+                    return Err(SmeltError::unsupported(
+                        self.span(binary.span.start, binary.span.end),
+                        "TypeScript instanceof is not supported yet; use static type narrowing before lowering",
+                    ));
+                }
                 let op = match binary.operator {
                     BinaryOperator::Addition => BinOp::Add,
                     BinaryOperator::Subtraction => BinOp::Sub,
@@ -2811,6 +2817,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             Expression::ComputedMemberExpression(member) => self.computed_member(member, body),
             Expression::CallExpression(call) => {
+                if let Some(error) = self.unsupported_date_call(call) {
+                    return Err(error);
+                }
                 if let Some(expr) = self.promise_static_call(call, body)? {
                     return Ok(expr);
                 }
@@ -3069,6 +3078,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "new expressions require a direct class name",
                     ));
                 };
+                if callee.name == "Date" {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "TypeScript Date is not supported yet; Date.now, construction, parsing, and formatting need a Date mapping policy",
+                    ));
+                }
                 let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
                     return Err(SmeltError::unsupported(
                         self.span(callee.span.start, callee.span.end),
@@ -3359,6 +3374,26 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return a targeted diagnostic for unsupported TypeScript `Date` APIs.
+    fn unsupported_date_call(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<SmeltError> {
+        let is_date = match &call.callee {
+            Expression::Identifier(callee) => callee.name == "Date",
+            Expression::StaticMemberExpression(member) => {
+                matches!(&member.object, Expression::Identifier(object) if object.name == "Date")
+            }
+            _ => false,
+        };
+        is_date.then(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "TypeScript Date is not supported yet; Date.now, construction, parsing, and formatting need a Date mapping policy",
+            )
+        })
     }
 
     /// Lower TypeScript `fetch(url)` into an async HTTP GET text operation.

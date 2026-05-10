@@ -196,9 +196,9 @@ Python first:
 Fixtures:
 
 - [x] Start with simple named fixtures that return a value.
-- [ ] Reject autouse fixtures with a clear source-located error.
-- [ ] Reject non-default fixture scopes with a clear source-located error.
-- [ ] Accept default function scope only at first.
+- [x] Reject autouse fixtures with a clear source-located error.
+- [x] Reject non-default fixture scopes with a clear source-located error.
+- [x] Accept default function scope only at first.
 
 TypeScript table tests later:
 
@@ -240,8 +240,8 @@ TypeScript:
 - [x] `Math.pow`
 - [x] String `.toUpperCase`
 - [x] String `.toLowerCase`
-- [ ] `Date` should be rejected clearly unless implemented.
-- [ ] `instanceof`
+- [x] `Date` should be rejected clearly unless implemented.
+- [x] `instanceof` rejected clearly until modeled.
 - [x] `Infinity`
 - [ ] Array iteration and readonly array parameters
 - [ ] Exported object constants
