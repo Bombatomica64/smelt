@@ -450,6 +450,9 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::SetClear { set } => format!("set_clear {}", operand_text(set)),
         Rvalue::SetCopy { set } => format!("set_copy {}", operand_text(set)),
         Rvalue::ListToSet { list } => format!("list_to_set {}", operand_text(list)),
+        Rvalue::ListPairsToDict { list } => {
+            format!("list_pairs_to_dict {}", operand_text(list))
+        }
         Rvalue::SetBinary { op, left, right } => {
             let op_text = match op {
                 smelt_hir::SetBinaryOp::Union => "union",

@@ -238,7 +238,9 @@ fn rewrite_rvalue(
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
             rewrite_operand_except(set, aliases, dest)
         }
-        Rvalue::ListToSet { list } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListToSet { list } | Rvalue::ListPairsToDict { list } => {
+            rewrite_operand_except(list, aliases, dest)
+        }
         Rvalue::SetBinary { left, right, .. } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)

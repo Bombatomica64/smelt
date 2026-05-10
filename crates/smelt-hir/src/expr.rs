@@ -619,6 +619,11 @@ pub enum ExprKind {
         /// List value to collect into a set.
         list: ExprId,
     },
+    /// Convert a list of key/value tuples into a dictionary.
+    ListPairsToDict {
+        /// List of pair tuples to collect into a dictionary.
+        list: ExprId,
+    },
     /// A dictionary literal.
     DictLit(Vec<(ExprId, ExprId)>),
     /// A tuple literal.

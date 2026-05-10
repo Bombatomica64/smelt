@@ -1130,6 +1130,8 @@ empty_items: set[int] = set()
 names: dict[str, int] = {"Ada": 1}
 copied_names: dict[str, int] = dict(names)
 empty_names: dict[str, int] = dict()
+pairs: list[tuple[str, int]] = [("Ada", 1)]
+pair_names: dict[str, int] = dict(pairs)
 coords: tuple[int, int] = (1, 2)
 same_coords: tuple[int, int] = tuple(coords)
 empty_tuple: tuple[()] = tuple()
@@ -1165,6 +1167,12 @@ coord_set: set[int] = set(coords)
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::DictCopy { .. })),
         "expected dict constructor copy lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListPairsToDict { .. })),
+        "expected dict(list_of_pairs) conversion lowering",
     )?;
     ensure(
         body.exprs.iter().any(|expr| {

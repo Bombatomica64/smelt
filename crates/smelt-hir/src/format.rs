@@ -533,6 +533,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::SetClear { set } => format!("set_clear {}", expr_ref(*set)),
         ExprKind::SetCopy { set } => format!("set_copy {}", expr_ref(*set)),
         ExprKind::ListToSet { list } => format!("list_to_set {}", expr_ref(*list)),
+        ExprKind::ListPairsToDict { list } => {
+            format!("list_pairs_to_dict {}", expr_ref(*list))
+        }
         ExprKind::SetBinary { op, left, right } => {
             let op_name = match op {
                 crate::expr::SetBinaryOp::Union => "union",
@@ -808,6 +811,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::SetClear { .. }
         | ExprKind::SetCopy { .. }
         | ExprKind::ListToSet { .. }
+        | ExprKind::ListPairsToDict { .. }
         | ExprKind::SetBinary { .. }
         | ExprKind::SetProjection { .. }
         | ExprKind::ListConcat { .. }

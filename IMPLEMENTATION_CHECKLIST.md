@@ -433,7 +433,8 @@ runtime errors.
     - [x] Same-container copy forms: `list(list_value)`, `dict(dict_value)`, `set(set_value)`, and `tuple(tuple_value)`.
     - [x] `list(set_value)` and `list(dict_value)`.
     - [x] `list(tuple_value)`, `set(list_value)`, and `set(tuple_value)` for homogeneous inputs.
-    - [ ] Cross-iterable constructor forms such as `list(tuple_value)`, `set(list_value)`, `tuple(list_value)`, and `dict(iterable_pairs)`.
+    - [x] `dict(list_of_pair_tuples)` for statically typed 2-item tuple pairs.
+    - [ ] Remaining cross-iterable constructor forms such as `tuple(list_value)` and arbitrary `dict(iterable_pairs)`.
   - [ ] `isinstance(...)` and `issubclass(...)` where static types make them decidable.
   - [ ] `print(...)` formatting parity and stderr support if needed.
 - [ ] Python string mappings:

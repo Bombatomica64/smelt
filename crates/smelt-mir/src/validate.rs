@@ -231,6 +231,9 @@ fn validate_rvalue_exists(
         Rvalue::ListToSet { list } => {
             validate_operand_exists(function, list, errors);
         }
+        Rvalue::ListPairsToDict { list } => {
+            validate_operand_exists(function, list, errors);
+        }
         Rvalue::SetBinary { left, right, .. } => {
             validate_operand_exists(function, left, errors);
             validate_operand_exists(function, right, errors);
@@ -736,6 +739,9 @@ fn validate_rvalue(
             validate_operand(function, definitions, set, errors);
         }
         Rvalue::ListToSet { list } => {
+            validate_operand(function, definitions, list, errors);
+        }
+        Rvalue::ListPairsToDict { list } => {
             validate_operand(function, definitions, list, errors);
         }
         Rvalue::SetBinary { left, right, .. } => {

@@ -603,6 +603,11 @@ pub enum Rvalue {
         /// List value to collect into a set.
         list: Operand,
     },
+    /// Convert a list of key/value tuples into a dictionary.
+    ListPairsToDict {
+        /// List of pair tuples to collect into a dictionary.
+        list: Operand,
+    },
     /// Combine two sets into a new set.
     SetBinary {
         /// Set operation to apply.

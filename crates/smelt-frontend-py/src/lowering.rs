@@ -2656,17 +2656,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let source = self.expression(arg, body)?;
         let source_ty = Self::expr_ty(body, source);
-        let Some(Type::Dict(_, _)) = self.ctx.krate.types.get(source_ty) else {
-            return Err(SmeltError::unsupported(
-                span,
-                "dict(value) currently requires a dict value",
-            ));
+        let (kind, ty) = match self.ctx.krate.types.get(source_ty) {
+            Some(Type::Dict(_, _)) => (ExprKind::DictCopy { dict: source }, source_ty),
+            Some(Type::List(item_ty)) => {
+                let Some(Type::Tuple(items)) = self.ctx.krate.types.get(*item_ty) else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "dict(value) list input must contain 2-item tuples",
+                    ));
+                };
+                let [key_ty, value_ty] = items.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "dict(value) list input must contain 2-item tuples",
+                    ));
+                };
+                (
+                    ExprKind::ListPairsToDict { list: source },
+                    self.intern_type(Type::Dict(*key_ty, *value_ty)),
+                )
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "dict(value) currently requires a dict value or list of 2-item tuples",
+                ));
+            }
         };
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::DictCopy { dict: source },
-            ty: source_ty,
-            span,
-        })))
+        Ok(Some(body.push_expr(HirExpr { kind, ty, span })))
     }
 
     /// Lower `tuple(value)` for the currently supported direct container inputs.

@@ -1372,6 +1372,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::SetClear { set } => self.collection_clear_text(set, dest_ty, "set"),
             Rvalue::SetCopy { set } => self.set_copy_text(set, dest_ty),
             Rvalue::ListToSet { list } => self.list_to_set_text(list, dest_ty),
+            Rvalue::ListPairsToDict { list } => self.list_pairs_to_dict_text(list, dest_ty),
             Rvalue::SetBinary { op, left, right } => {
                 self.set_binary_text(*op, left, right, dest_ty)
             }
@@ -1811,7 +1812,12 @@ impl<'mir> FunctionEmitter<'mir> {
             .ok_or_else(|| EmitError::new("primitive cast destination has unknown type"))?;
         let operand_text = self.operand_text(operand)?;
         match (op, dest_type, operand_type) {
-            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Bool) => Ok(operand_text),
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Bool)
+            | (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int)
+            | (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Float)
+            | (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::String) => {
+                Ok(operand_text)
+            }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Int) => {
                 Ok(format!("{operand_text} != 0"))
             }
@@ -1824,7 +1830,6 @@ impl<'mir> FunctionEmitter<'mir> {
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Bool) => {
                 Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
             }
-            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int) => Ok(operand_text),
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Float) => {
                 Ok(format!("{operand_text}.trunc() as i64"))
             }
@@ -1837,7 +1842,6 @@ impl<'mir> FunctionEmitter<'mir> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Int) => {
                 Ok(format!("{operand_text} as f64"))
             }
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Float) => Ok(operand_text),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
             )),
@@ -1847,7 +1851,6 @@ impl<'mir> FunctionEmitter<'mir> {
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int | Type::Float) => {
                 Ok(format!("{operand_text}.to_string()"))
             }
-            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::String) => Ok(operand_text),
             _ => Err(EmitError::new(
                 "primitive cast must convert bool, int, float, or string to the matching destination type",
             )),
@@ -2480,6 +2483,40 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         Ok(format!(
             "{}.iter().cloned().collect::<::std::collections::HashSet<_>>()",
+            self.operand_text(list)?
+        ))
+    }
+
+    /// Converts a list of key/value pair tuples to a Rust `HashMap`.
+    fn list_pairs_to_dict_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("dict() pair source must be a list"));
+        };
+        let Some(Type::Tuple(items)) = self.mir.types.get(*item_ty) else {
+            return Err(EmitError::new(
+                "dict() pair source must contain tuple items",
+            ));
+        };
+        let [key_ty, value_ty] = items.as_slice() else {
+            return Err(EmitError::new(
+                "dict() pair source tuples must have length two",
+            ));
+        };
+        if !matches!(
+            self.mir.types.get(dest_ty),
+            Some(Type::Dict(dest_key, dest_value)) if dest_key == key_ty && dest_value == value_ty
+        ) {
+            return Err(EmitError::new(
+                "dict() destination must match pair key and value types",
+            ));
+        }
+        Ok(format!(
+            "{}.iter().cloned().collect::<::std::collections::HashMap<_, _>>()",
             self.operand_text(list)?
         ))
     }

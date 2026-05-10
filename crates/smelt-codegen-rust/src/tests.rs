@@ -554,6 +554,8 @@ empty_items: set[int] = set()
 names: dict[str, int] = {"Ada": 1}
 copied_names: dict[str, int] = dict(names)
 empty_names: dict[str, int] = dict()
+pairs: list[tuple[str, int]] = [("Ada", 1)]
+pair_names: dict[str, int] = dict(pairs)
 item_list: list[int] = list(items)
 name_keys: list[str] = list(names)
 coords: tuple[int, int] = (1, 2)
@@ -569,6 +571,7 @@ coord_set: set[int] = set(coords)
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
+    assert!(source.contains(".iter().cloned().collect::<::std::collections::HashMap<_, _>>()"));
     assert!(source.contains("vec!["));
     assert!(source.contains("::std::collections::HashSet::from(["));
 }
