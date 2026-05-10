@@ -1664,7 +1664,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let receiver = self.expression(&member.object, body)?;
                 let index = self.expression(&member.expression, body)?;
-                let ty = self.index_type(Self::expr_ty(body, receiver))?;
+                let receiver_ty = Self::expr_ty(body, receiver);
+                self.reject_negative_bracket_index(receiver_ty, index, body, member.span)?;
+                let ty = self.index_type(receiver_ty)?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Index { receiver, index },
                     ty,
@@ -1757,6 +1759,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.list_search_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.collection_at_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.string_search_call(call, body)? {
@@ -4097,6 +4102,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })))
     }
 
+    /// Lower TypeScript `.at(index)` on arrays and strings to Python-style HIR indexing.
+    fn collection_at_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "at" {
+            return Ok(None);
+        }
+        let [index_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array/string at requires exactly one numeric index",
+            ));
+        };
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let ty = match self.ctx.krate.types.get(receiver_ty) {
+            Some(Type::List(item_ty)) => *item_ty,
+            Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+            _ => return Ok(None),
+        };
+        let index = self.argument(index_argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, index)) != Some(&Type::Float) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array/string at index must be a number",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Index { receiver, index },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript string splitting.
     fn string_split_call(
         &mut self,
@@ -4584,7 +4628,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
-        let ty = self.index_type(Self::expr_ty(body, receiver))?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        self.reject_negative_bracket_index(receiver_ty, index, body, member.span)?;
+        let ty = self.index_type(receiver_ty)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty,
@@ -5117,6 +5163,50 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.span(0, 0),
                 "index access is only lowered for arrays, strings, and records for now",
             )),
+        }
+    }
+
+    /// Reject negative TypeScript bracket indexes before they reach Python-style HIR indexing.
+    fn reject_negative_bracket_index(
+        &self,
+        receiver_ty: smelt_hir::TypeId,
+        index: smelt_hir::ExprId,
+        body: &Body,
+        span: oxc::span::Span,
+    ) -> Result<(), SmeltError> {
+        let uses_sequence_indexing = matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::List(_) | Type::String)
+        );
+        if uses_sequence_indexing && Self::is_negative_numeric_expr(body, index) {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "negative array/string bracket indexes are JavaScript property lookups; use .at(...) for negative element indexing",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns whether a lowered expression is a negative numeric literal.
+    fn is_negative_numeric_expr(body: &Body, expr_id: smelt_hir::ExprId) -> bool {
+        let Ok(expr_index) = usize::try_from(expr_id.0) else {
+            return false;
+        };
+        let Some(candidate) = body.exprs.get(expr_index) else {
+            return false;
+        };
+        match &candidate.kind {
+            ExprKind::Literal(Literal::Float(value)) => *value < 0.0,
+            ExprKind::UnaryOp {
+                op: UnaryOp::Neg,
+                operand,
+            } => usize::try_from(operand.0)
+                .ok()
+                .and_then(|operand_index| body.exprs.get(operand_index))
+                .is_some_and(|operand_expr| {
+                    matches!(operand_expr.kind, ExprKind::Literal(Literal::Float(_)))
+                }),
+            _ => false,
         }
     }
 

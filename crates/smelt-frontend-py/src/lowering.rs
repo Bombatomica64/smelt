@@ -3307,6 +3307,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::List(elem)) | Some(Type::Set(elem)) => Ok(*elem),
             Some(Type::Dict(_, val)) => Ok(*val),
+            Some(Type::String) => Ok(receiver_ty),
             Some(Type::Tuple(items)) => items.first().copied().ok_or_else(|| {
                 SmeltError::unsupported(
                     Span::new(self.file_id, 0, 0),
@@ -3315,7 +3316,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }),
             _ => Err(SmeltError::unsupported(
                 Span::new(self.file_id, 0, 0),
-                "subscript access requires a list, set, dict, or tuple",
+                "subscript access requires a list, set, dict, tuple, or string",
             )),
         }
     }

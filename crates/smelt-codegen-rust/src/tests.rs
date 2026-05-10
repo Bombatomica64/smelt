@@ -143,6 +143,7 @@ fn emits_string_index_and_for_of() {
         r#"
 const word = "abc";
 const first = word[0];
+const last = word.at(-1);
 let joined = "";
 for (let ch: string of word) {
   joined = joined + ch;
@@ -150,9 +151,10 @@ for (let ch: string of word) {
 "#,
     );
 
-    assert!(source.contains(".chars().nth(0.0 as usize).map(|ch| ch.to_string()).expect"));
+    assert!(source.contains("let normalized = if index < 0 { len + index } else { index }"));
+    assert!(source.contains(".chars().nth({ let len = word.chars().count() as i64;"));
     assert!(source.contains(".chars().count() as f64"));
-    assert!(source.contains(".chars().nth(_smelt_tmp_"));
+    assert!(source.contains("let index = _smelt_tmp_"));
 }
 
 #[test]
@@ -368,6 +370,22 @@ last_text: str = word[-3:]
     assert!(source.contains(".chars().skip(0usize).take("));
     assert!(source.matches("if index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));
+}
+
+#[test]
+fn emits_python_negative_list_and_string_indexes() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2, 3]
+last_value: int = values[-1]
+word: str = "abc"
+last_char: str = word[-1]
+"#,
+    );
+
+    assert!(source.contains("let normalized = if index < 0 { len + index } else { index }"));
+    assert!(source.contains(".get({ let len = values.len() as i64;"));
+    assert!(source.contains(".chars().nth({ let len = word.chars().count() as i64;"));
 }
 
 #[test]

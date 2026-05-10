@@ -258,6 +258,7 @@ runtime errors.
   - [ ] Python tuple slicing with positive indexes.
   - [x] Python string slicing with positive indexes.
   - [x] Shared slice-bound policy: HIR/MIR uses Python-style negative-index normalization; TypeScript `slice` lowers to that shared semantic because supported JS slice bounds match it.
+  - [x] Shared element-index policy: HIR/MIR uses Python-style negative-index normalization for list/string element access; TypeScript `.at(...)` lowers to it, while negative bracket indexes are rejected because JavaScript treats them as property lookups.
 - [ ] Batch E, callback-heavy methods after closure support:
   - [x] TypeScript `Array.prototype.map` with capture-free expression callbacks.
   - [x] TypeScript `Array.prototype.filter` with capture-free expression callbacks.
@@ -328,7 +329,7 @@ runtime errors.
   - [x] `Array.prototype.concat`.
   - [x] `Array.prototype.join`.
   - [x] `Array.prototype.indexOf` and `lastIndexOf`.
-  - [ ] `Array.prototype.at`.
+  - [x] `Array.prototype.at`.
   - [x] `Array.prototype.reverse`.
   - [ ] `Array.prototype.sort` with comparator support or explicit rejection.
   - [x] `Array.isArray` as a typed no-op/guard where static types make it decidable.
@@ -348,6 +349,7 @@ runtime errors.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
     - [x] `String.prototype.charAt`.
     - [x] `String.prototype.charCodeAt`.
+    - [x] `String.prototype.at`.
   - [x] `String.prototype.repeat`.
   - [x] `String.prototype.padStart` and `padEnd`.
   - [ ] `String(...)`, `Number(...)`, and `Boolean(...)` constructors/conversions or explicit

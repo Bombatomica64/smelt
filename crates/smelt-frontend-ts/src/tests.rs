@@ -187,6 +187,7 @@ fn lowers_string_index_and_for_of() -> Result<(), String> {
         ts!(r#"
 const word = "abc";
 const first = word[0];
+const last = word.at(-1);
 let joined = "";
 for (let ch: string of word) {
   joined = joined + ch;
@@ -209,6 +210,36 @@ for (let ch: string of word) {
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
+}
+
+#[test]
+fn lowers_array_at_and_rejects_negative_bracket_index() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const last = values.at(-1);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+
+    let errors = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const invalid = values[-1];
+"#),
+        &mut HirCtx::new(),
+    )?;
+    assert_unsupported_ts(&errors, "negative array/string bracket indexes")
 }
 
 #[test]

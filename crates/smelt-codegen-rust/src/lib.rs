@@ -712,13 +712,25 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
-                if let Some(Type::Dict(_, _)) = self.mir.types.get(base_ty) {
-                    out.push_str(&format!(
-                        "    {}.insert({}, {rendered_value});\n",
-                        self.local_name(*base)?,
-                        self.operand_text(index)?
-                    ));
-                    return Ok(());
+                match self.mir.types.get(base_ty) {
+                    Some(Type::Dict(_, _)) => {
+                        out.push_str(&format!(
+                            "    {}.insert({}, {rendered_value});\n",
+                            self.local_name(*base)?,
+                            self.operand_text(index)?
+                        ));
+                        return Ok(());
+                    }
+                    Some(Type::List(_)) => {
+                        let base_text = self.local_name(*base)?;
+                        let index_text =
+                            self.normalized_index_text(&format!("{base_text}.len()"), index)?;
+                        out.push_str(&format!(
+                            "    {{ let index = {index_text}; {base_text}[index] = {rendered_value}; }}\n"
+                        ));
+                        return Ok(());
+                    }
+                    _ => {}
                 }
             }
             Place::Local(_) => {}
@@ -3675,21 +3687,29 @@ impl<'mir> FunctionEmitter<'mir> {
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
-                    Some(Type::List(_)) => Ok(format!(
-                        "{}.get({} as usize).cloned().expect(\"index out of bounds\")",
-                        self.local_name(*base)?,
-                        self.operand_text(index)?
-                    )),
+                    Some(Type::List(_)) => {
+                        let base_text = self.local_name(*base)?;
+                        let index_text =
+                            self.normalized_index_text(&format!("{base_text}.len()"), index)?;
+                        Ok(format!(
+                            "{base_text}.get({index_text}).cloned().expect(\"index out of bounds\")"
+                        ))
+                    }
                     Some(Type::Dict(_, _)) => Ok(format!(
                         "{}.get(&{}).cloned().expect(\"index out of bounds\")",
                         self.local_name(*base)?,
                         self.operand_text(index)?
                     )),
-                    Some(Type::String) => Ok(format!(
-                        "{}.chars().nth({} as usize).map(|ch| ch.to_string()).expect(\"index out of bounds\")",
-                        self.local_name(*base)?,
-                        self.operand_text(index)?
-                    )),
+                    Some(Type::String) => {
+                        let base_text = self.local_name(*base)?;
+                        let index_text = self.normalized_index_text(
+                            &format!("{base_text}.chars().count()"),
+                            index,
+                        )?;
+                        Ok(format!(
+                            "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
+                        ))
+                    }
                     _ => Err(EmitError::new(
                         "index codegen is only implemented for lists, strings, and dicts",
                     )),
@@ -3704,11 +3724,12 @@ impl<'mir> FunctionEmitter<'mir> {
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
-                    Some(Type::List(_)) => Ok(format!(
-                        "{}[{} as usize]",
-                        self.local_name(*base)?,
-                        self.operand_text(index)?
-                    )),
+                    Some(Type::List(_)) => {
+                        let base_text = self.local_name(*base)?;
+                        let index_text =
+                            self.normalized_index_text(&format!("{base_text}.len()"), index)?;
+                        Ok(format!("{base_text}[{index_text}]"))
+                    }
                     Some(Type::Dict(_, _)) => Ok(format!(
                         "*{}.get_mut(&{}).expect(\"index out of bounds\")",
                         self.local_name(*base)?,
@@ -3754,12 +3775,26 @@ impl<'mir> FunctionEmitter<'mir> {
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item)) => Ok(*item),
                     Some(Type::Dict(_, value)) => Ok(*value),
+                    Some(Type::String) => self.type_id(Type::String),
                     _ => Err(EmitError::new(
-                        "index type lookup is only implemented for lists and dicts",
+                        "index type lookup is only implemented for lists, strings, and dicts",
                     )),
                 }
             }
         }
+    }
+
+    /// Converts a Python-style element index into a Rust `usize` expression.
+    ///
+    /// Negative indexes are offset from the collection length. Bounds are not
+    /// clamped because Python element indexing raises when the normalized index
+    /// is still outside the collection; the generated Rust keeps that behavior
+    /// with `expect` on negative conversion and the eventual indexed lookup.
+    fn normalized_index_text(&self, len_expr: &str, index: &Operand) -> Result<String, EmitError> {
+        let index_text = self.operand_text(index)?;
+        Ok(format!(
+            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"
+        ))
     }
 
     /// Finds the type ID for a given type.
