@@ -370,6 +370,7 @@ runtime errors.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
     - [x] `Number.isFinite` and `Number.isNaN`.
   - [ ] Numeric formatting: `toString`, `toFixed`, `toPrecision`, and `toExponential`.
+    - [x] `number.toString()` without radix.
 - [ ] TypeScript object/record mappings:
   - [x] `Object.keys`.
   - [x] `Object.values`.

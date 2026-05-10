@@ -353,6 +353,18 @@ const asBool = Boolean("");
 }
 
 #[test]
+fn emits_typescript_number_to_string_method() {
+    let source = source_for(
+        r#"
+const value = 42;
+const text = value.toString();
+"#,
+    );
+
+    assert!(source.contains(".to_string()"));
+}
+
+#[test]
 fn emits_number_predicate_calls() {
     let source = source_for(
         r#"

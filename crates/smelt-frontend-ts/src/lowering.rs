@@ -2357,6 +2357,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.number_predicate_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.number_to_string_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.math_unary_func_call(call, body)? {
                     return Ok(expr);
                 }
@@ -3129,6 +3132,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericPredicate { op, operand },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `number.toString()` calls without a radix argument.
+    fn number_to_string_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "toString" {
+            return Ok(None);
+        }
+        let operand = self.expression(&member.object, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "number.toString radix arguments are not supported yet",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToString,
+                operand,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
