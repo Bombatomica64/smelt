@@ -1203,7 +1203,8 @@ test("common matchers", () => {
   expect([1, 2, 3]).toContain(2);
   expect([1, 2, 3]).toHaveLength(3);
   expect(["a"]).toStrictEqual(["a"]);
-  expect({ name: "Ada" }).toHaveProperty("name");
+  const user: Record<string, string> = { name: "Ada" };
+  expect(user).toHaveProperty("name");
   U.deepStrictEqual([1, 2], [1, 2]);
 });
 "#,

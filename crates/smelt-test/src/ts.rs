@@ -223,6 +223,30 @@ impl<T> Expect<T> {
         );
     }
 
+    /// Asserts `toHaveProperty` for generated object/map values.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the expectation is not satisfied.
+    pub fn to_have_property<K>(&self, key: K)
+    where
+        T: HasProperty<K> + fmt::Debug,
+        K: fmt::Debug,
+    {
+        let matched = self.actual.has_property(&key);
+        self.assert_match(
+            matched,
+            format_args!(
+                "expected {actual:?} to have property {key:?}",
+                actual = self.actual
+            ),
+            format_args!(
+                "expected {actual:?} not to have property {key:?}",
+                actual = self.actual
+            ),
+        );
+    }
+
     /// Handles positive and negated assertion results.
     fn assert_match(
         &self,
@@ -300,6 +324,40 @@ impl<T> HasLength for Vec<T> {
     }
 }
 
+/// Property-key abstraction for generated TypeScript `toHaveProperty` checks.
+pub trait HasProperty<K> {
+    /// Returns true when `key` is present on the value.
+    #[must_use]
+    fn has_property(&self, key: &K) -> bool;
+}
+
+impl<K, V, S> HasProperty<K> for std::collections::HashMap<K, V, S>
+where
+    K: Eq + std::hash::Hash,
+    S: std::hash::BuildHasher,
+{
+    fn has_property(&self, key: &K) -> bool {
+        self.contains_key(key)
+    }
+}
+
+/// Effect/Vitest-compatible structural equality assertion.
+///
+/// # Panics
+///
+/// Panics when the values are not equal.
+pub fn deep_strict_equal<T, U>(actual: &T, expected: &U)
+where
+    T: PartialEq<U> + fmt::Debug,
+    U: fmt::Debug,
+{
+    if actual != expected {
+        fail(format_args!(
+            "assertion failed: deepStrictEqual\n  actual: {actual:?}\nexpected: {expected:?}"
+        ));
+    }
+}
+
 /// Assertion builder for `expect(fn)` calls.
 #[derive(Debug)]
 pub struct ThrowExpectation<F>
@@ -348,7 +406,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{expect, expect_fn};
+    use super::{deep_strict_equal, expect, expect_fn};
     use crate::catches_panic;
 
     #[test]
@@ -431,6 +489,21 @@ mod tests {
         assert!(
             catches_panic(|| expect(vec![1_i32]).to_have_length(2)),
             "different length should fail toHaveLength"
+        );
+    }
+
+    #[test]
+    fn to_have_property_matches_hash_maps() {
+        let map = std::collections::HashMap::from([("name".to_owned(), 1_i32)]);
+        expect(map).to_have_property("name".to_owned());
+    }
+
+    #[test]
+    fn deep_strict_equal_uses_structural_equality() {
+        deep_strict_equal(&vec![1_i32, 2_i32], &vec![1_i32, 2_i32]);
+        assert!(
+            catches_panic(|| deep_strict_equal(&vec![1_i32], &vec![2_i32])),
+            "different values should fail deepStrictEqual"
         );
     }
 

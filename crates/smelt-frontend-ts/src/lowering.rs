@@ -39,6 +39,8 @@ enum TestMatcher {
     Contain,
     /// `expect(actual).toHaveLength(expected)`.
     HaveLength,
+    /// `expect(actual).toHaveProperty(key)`.
+    HaveProperty,
 }
 
 impl TestMatcher {
@@ -50,6 +52,7 @@ impl TestMatcher {
             "toStrictEqual" => Some(Self::StrictEqual),
             "toContain" => Some(Self::Contain),
             "toHaveLength" => Some(Self::HaveLength),
+            "toHaveProperty" => Some(Self::HaveProperty),
             _ => None,
         }
     }
@@ -62,6 +65,7 @@ impl TestMatcher {
             Self::StrictEqual => "toStrictEqual",
             Self::Contain => "toContain",
             Self::HaveLength => "toHaveLength",
+            Self::HaveProperty => "toHaveProperty",
         }
     }
 }
@@ -1424,7 +1428,44 @@ impl<'ctx> ModuleBuilder<'ctx> {
         {
             return Ok(());
         }
+        if let Statement::ExpressionStatement(expr_stmt) = statement
+            && let Expression::CallExpression(call) = &expr_stmt.expression
+            && self.deep_strict_equal_statement(call, body)?
+        {
+            return Ok(());
+        }
         self.statement(statement, body)
+    }
+
+    /// Lower Effect/Vitest-style `U.deepStrictEqual(actual, expected)` assertions.
+    fn deep_strict_equal_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        if member.property.name != "deepStrictEqual" {
+            return Ok(false);
+        }
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(false);
+        };
+        if object.name != "U" && object.name != "assert" {
+            return Ok(false);
+        }
+        let [actual_arg, expected_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "deepStrictEqual(...) requires actual and expected values",
+            ));
+        };
+        let actual = self.argument(actual_arg, body)?;
+        let expected = self.argument(expected_arg, body)?;
+        let failed = self.comparison_expr(BinOp::NotEq, actual, expected, call.span, body);
+        self.push_test_failure_if(failed, "deepStrictEqual(...) failed", call.span, body);
+        Ok(true)
     }
 
     /// Lower supported `expect(actual).matcher(expected)` calls to failure paths.
@@ -1501,6 +1542,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             TestMatcher::HaveLength => {
                 let len = self.len_expr(actual, span, body)?;
                 Ok(self.comparison_expr(BinOp::NotEq, len, expected, span, body))
+            }
+            TestMatcher::HaveProperty => {
+                let contains = self.dict_contains_key_expr(actual, expected, span, body)?;
+                Ok(self.unary_bool_expr(UnaryOp::Not, contains, span, body))
             }
         }
     }
@@ -1627,6 +1672,38 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         Ok(body.push_expr(Expr {
             kind,
+            ty: bool_ty,
+            span: self.span(span.start, span.end),
+        }))
+    }
+
+    /// Create a dictionary key containment expression for `toHaveProperty`.
+    fn dict_contains_key_expr(
+        &mut self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(Self::expr_ty(body, actual))
+        else {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "expect(...).toHaveProperty(...) requires an object or map actual value",
+            ));
+        };
+        if Self::expr_ty(body, expected) != *key_ty {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "expect(...).toHaveProperty(...) key must match the object key type",
+            ));
+        }
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictContainsKey {
+                dict: actual,
+                key: expected,
+            },
             ty: bool_ty,
             span: self.span(span.start, span.end),
         }))
