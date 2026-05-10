@@ -43,6 +43,54 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `json.loads(text)` calls with an annotated destination type.
+    pub(super) fn json_loads_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return Ok(None);
+        };
+        if module.id.as_str() != "json" || attr.attr.as_str() != "loads" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "json.loads() currently supports exactly one text argument",
+            ));
+        }
+        let Some(ty) = type_hint else {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "json.loads() requires an annotated destination type",
+            ));
+        };
+        if !self.is_json_serializable_type(ty) {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "json.loads() destination type must be JSON-compatible",
+            ));
+        }
+        let text = self.expression(&call.arguments.args[0], body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "json.loads() text argument must be a string",
+            ));
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::JsonParse { text },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Return whether a HIR type can be serialized by the JSON mapping.
     fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {

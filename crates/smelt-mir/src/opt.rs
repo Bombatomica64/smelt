@@ -326,6 +326,7 @@ fn rewrite_rvalue(
         Rvalue::JsonStringify { value: json_value } => {
             rewrite_operand_except(json_value, aliases, dest)
         }
+        Rvalue::JsonParse { text } => rewrite_operand_except(text, aliases, dest),
         Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
         Rvalue::NumericExtrema { args, .. } => args.iter_mut().fold(false, |changed, arg| {
             rewrite_operand_except(arg, aliases, dest) || changed

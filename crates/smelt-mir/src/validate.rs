@@ -337,6 +337,9 @@ fn validate_rvalue_exists(
         Rvalue::JsonStringify { value: json_value } => {
             validate_operand_exists(function, json_value, errors);
         }
+        Rvalue::JsonParse { text } => {
+            validate_operand_exists(function, text, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand_exists(function, url, errors);
         }
@@ -778,6 +781,9 @@ fn validate_rvalue(
         }
         Rvalue::JsonStringify { value: json_value } => {
             validate_operand(function, definitions, json_value, errors);
+        }
+        Rvalue::JsonParse { text } => {
+            validate_operand(function, definitions, text, errors);
         }
         Rvalue::HttpGetText { url } => {
             validate_operand(function, definitions, url, errors);

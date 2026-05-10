@@ -467,6 +467,30 @@ text: str = json.dumps(values)
 }
 
 #[test]
+fn json_loads_lowers_to_parse() -> TestResult {
+    let source = py!(r#"
+import json
+text: str = "[1,2]"
+values: list[int] = json.loads(text)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::JsonParse { .. })),
+        "expected json.loads lowering",
+    )
+}
+
+#[test]
 fn unsupported_json_dumps_forms_reject() -> TestResult {
     let mut ctx = HirCtx::new();
     let keyword = lower_errors(
@@ -496,6 +520,25 @@ text: str = json.dumps(values)
             .message
             .contains("JSON-serializable"),
         "expected json.dumps type diagnostic",
+    )
+}
+
+#[test]
+fn unsupported_json_loads_forms_reject() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let extra_arg = lower_errors(
+        py!(r#"
+import json
+text: str = "[1,2]"
+values: list[int] = json.loads(text, None)
+"#),
+        &mut ctx,
+    )?;
+    ensure(
+        first_error(&extra_arg)?
+            .message
+            .contains("exactly one text argument"),
+        "expected json.loads arity diagnostic",
     )
 }
 

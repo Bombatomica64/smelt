@@ -762,6 +762,11 @@ pub enum Rvalue {
         /// Value to serialize.
         value: Operand,
     },
+    /// Parse JSON text into a statically known JSON-compatible type.
+    JsonParse {
+        /// JSON text to parse.
+        text: Operand,
+    },
     /// Perform a blocking HTTP GET request and return response text.
     HttpGetText {
         /// URL to request.

@@ -1724,6 +1724,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.json_stringify_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.json_parse_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_case_call(call, body)? {
                     return Ok(expr);
                 }

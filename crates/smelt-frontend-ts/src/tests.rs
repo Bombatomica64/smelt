@@ -1061,6 +1061,28 @@ const text = JSON.stringify(values);
 }
 
 #[test]
+fn lowers_json_parse_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const text = "[1,2]";
+const values = JSON.parse<number[]>(text);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::JsonParse { .. })),
+        "expected JSON.parse lowering",
+    );
+    Ok(())
+}
+
+#[test]
 fn rejects_unsupported_json_stringify_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let extra_arg = lowering_errors(
@@ -1087,6 +1109,19 @@ const text = JSON.stringify(user);
         &mut ctx,
     )?;
     assert_unsupported_ts(&unsupported_type, "JSON-serializable")
+}
+
+#[test]
+fn rejects_unsupported_json_parse_forms() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let missing_type = lowering_errors(
+        ts!(r#"
+const text = "[1,2]";
+const values = JSON.parse(text);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&missing_type, "explicit type argument")
 }
 
 #[test]

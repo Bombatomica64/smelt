@@ -272,7 +272,9 @@ runtime errors.
         Python `json.dumps` / `json.loads`.
     - [x] `serde_json` dependency injection.
     - [x] TypeScript `JSON.stringify`.
+    - [x] TypeScript `JSON.parse<T>` for JSON-compatible explicit target types.
     - [x] Python `json.dumps`.
+    - [x] Python `json.loads` for annotated JSON-compatible destination types.
   - [ ] `regex` dependency injection, then regex-backed TypeScript `replace` / `replaceAll` and
         Python `re` basics.
   - [x] `reqwest` dependency injection, then TypeScript `fetch` and Python HTTP mapping decision.
@@ -373,7 +375,7 @@ runtime errors.
   - [ ] `delete obj[key]` or explicit rejection with mutation semantics documented.
 - [ ] TypeScript JSON mappings:
   - [x] `JSON.stringify` with `serde_json` dependency injection.
-  - [ ] `JSON.parse<T>` with typed deserialization strategy.
+  - [x] `JSON.parse<T>` with typed deserialization strategy for JSON-compatible explicit target types.
   - [ ] Unsupported replacer/reviver/spacing forms produce targeted diagnostics.
   - [ ] Decide and document how classes/interfaces map to serialized shapes.
 - [ ] TypeScript Map, Set, Date, RegExp, URL, and Error mappings:
@@ -472,6 +474,7 @@ runtime errors.
     - [x] `math.isfinite` and `isnan`.
   - [ ] `json`: `loads`, `dumps`, `load`, and `dump` with `serde_json`.
     - [x] `json.dumps`.
+    - [x] `json.loads` for annotated JSON-compatible destination types.
   - [ ] `re`: `compile`, `search`, `match`, `fullmatch`, `sub`, and `split`, or explicitly defer
         regex support.
   - [ ] `datetime`: `datetime`, `date`, `timedelta`, `now`, `utcnow`, parsing, and formatting, or

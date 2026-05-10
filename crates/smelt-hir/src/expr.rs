@@ -459,6 +459,11 @@ pub enum ExprKind {
         /// Value to serialize.
         value: ExprId,
     },
+    /// Parse a JSON string into a statically known JSON-compatible type.
+    JsonParse {
+        /// JSON text to parse.
+        text: ExprId,
+    },
     /// Perform a blocking HTTP GET request and return the response body as text.
     HttpGetText {
         /// The URL to request.

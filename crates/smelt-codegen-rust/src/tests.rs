@@ -788,6 +788,28 @@ text: str = json.dumps(values)
 }
 
 #[test]
+fn emits_json_parse_calls() {
+    let ts_source = source_for(
+        r#"
+const text = "[1,2]";
+const values = JSON.parse<number[]>(text);
+"#,
+    );
+    let py_source = source_for_py(
+        r#"
+import json
+text: str = "[1,2]"
+values: list[int] = json.loads(text)
+"#,
+    );
+
+    assert!(ts_source.contains("serde_json::from_str::<Vec<f64>>(&"));
+    assert!(py_source.contains("serde_json::from_str::<Vec<i64>>(&"));
+    assert!(ts_source.contains(".expect(\"JSON parse failed\")"));
+    assert!(py_source.contains(".expect(\"JSON parse failed\")"));
+}
+
+#[test]
 fn emits_string_includes_method() {
     let source = source_for(
         r#"

@@ -44,6 +44,60 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower TypeScript `JSON.parse<T>(text)` calls for JSON-compatible targets.
+    pub(super) fn json_parse_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "JSON" || member.property.name != "parse" {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "JSON.parse<T>() currently supports exactly one text argument",
+            ));
+        };
+        let Some(type_args) = &call.type_arguments else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "JSON.parse requires an explicit type argument",
+            ));
+        };
+        let [target_ty] = type_args.params.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "JSON.parse requires exactly one type argument",
+            ));
+        };
+        let ty = self.ts_type_to_hir(target_ty)?;
+        if !self.is_json_serializable_type(ty) {
+            return Err(SmeltError::unsupported(
+                self.span(target_ty.span().start, target_ty.span().end),
+                "JSON.parse<T>() target type must be JSON-compatible",
+            ));
+        }
+        let text = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "JSON.parse<T>() text argument must be a string",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::JsonParse { text },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Return whether a HIR type can be serialized by the JSON mapping.
     fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {

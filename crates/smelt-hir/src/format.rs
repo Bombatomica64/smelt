@@ -615,6 +615,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("string_join {}, {}", expr_ref(*items), expr_ref(*separator))
         }
         ExprKind::JsonStringify { value } => format!("json_stringify {}", expr_ref(*value)),
+        ExprKind::JsonParse { text } => format!("json_parse {}", expr_ref(*text)),
         ExprKind::HttpGetText { url } => format!("http_get_text {}", expr_ref(*url)),
         ExprKind::BinOp { op, lhs, rhs } => {
             format!("{op:?} {}, {}", expr_ref(*lhs), expr_ref(*rhs))
@@ -736,6 +737,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringSplit { .. }
         | ExprKind::StringJoin { .. }
         | ExprKind::JsonStringify { .. }
+        | ExprKind::JsonParse { .. }
         | ExprKind::HttpGetText { .. }
         | ExprKind::BinOp { .. }
         | ExprKind::UnaryOp { .. }

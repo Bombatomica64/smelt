@@ -107,7 +107,9 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | Source API | HIR expression | MIR rvalue | Rust output | Supported arguments | Unsupported arguments | Known semantic differences |
 | --- | --- | --- | --- | --- | --- | --- |
 | `JSON.stringify(value)` | `JsonStringify` | `JsonStringify` | `serde_json::to_string(&value).expect(...)` | One JSON-compatible primitive/list/tuple/string-keyed dict value | Replacer, spacing, class values, non-string dict keys | Serde JSON is isolated behind codegen dependency injection; class/interface serialization is not modeled yet. |
+| `JSON.parse<T>(text)` | `JsonParse` | `JsonParse` | `serde_json::from_str::<T>(&text).expect(...)` | One string argument and explicit JSON-compatible type argument | Reviver, omitted type argument, class/interface targets | Serde JSON is isolated behind codegen dependency injection; failures currently panic. |
 | `json.dumps(value)` | `JsonStringify` | `JsonStringify` | `serde_json::to_string(&value).expect(...)` | One JSON-compatible primitive/list/tuple/string-keyed dict value | `indent`, `default`, other keyword args, class values, non-string dict keys | Python encoder customization and non-string key coercion are not modeled yet. |
+| `json.loads(text)` | `JsonParse` | `JsonParse` | `serde_json::from_str::<T>(&text).expect(...)` | One string argument with annotated destination type | Hooks, keyword args, unannotated destination, class targets | Serde JSON is isolated behind codegen dependency injection; failures currently panic. |
 
 ## Contains
 

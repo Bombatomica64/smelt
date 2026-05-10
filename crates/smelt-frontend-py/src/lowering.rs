@@ -1142,7 +1142,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let value = ann
             .value
             .as_deref()
-            .map(|v| self.expression(v, body))
+            .map(|v| self.expression_with_hint(v, body, Some(ty)))
             .transpose()?;
 
         let name_str = target_name.id.as_str();
@@ -1677,7 +1677,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Expr::UnaryOp(u) => self.unary_expression(u, body),
 
             // --- Calls ---
-            Expr::Call(call) => self.call_expression(call, body),
+            Expr::Call(call) => self.call_expression_with_hint(call, body, type_hint),
 
             // --- Await ---
             Expr::Await(await_expr) => {
@@ -2075,10 +2075,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Lower a call expression.
-    fn call_expression(
+    /// Lower a call expression with an optional expected result type.
+    fn call_expression_with_hint(
         &mut self,
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
+        type_hint: Option<TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(call.range);
 
@@ -2173,6 +2175,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Ok(expr);
         }
         if let Some(expr) = self.json_dumps_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.json_loads_call_expression(call, body, type_hint)? {
             return Ok(expr);
         }
 

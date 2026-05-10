@@ -325,10 +325,10 @@ fn needs_serde_json(mir: &Mir) -> bool {
                 matches!(
                     statement,
                     Statement::Assign {
-                        value: Rvalue::JsonStringify { .. },
+                        value: Rvalue::JsonStringify { .. } | Rvalue::JsonParse { .. },
                         ..
                     } | Statement::AssignPlace {
-                        value: Rvalue::JsonStringify { .. },
+                        value: Rvalue::JsonStringify { .. } | Rvalue::JsonParse { .. },
                         ..
                     }
                 )
@@ -1355,6 +1355,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::JsonStringify { value: json_value } => {
                 self.json_stringify_text(json_value, dest_ty)
             }
+            Rvalue::JsonParse { text } => self.json_parse_text(text, dest_ty),
             Rvalue::HttpGetText { url } => self.http_get_text(url),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
             Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
@@ -3083,6 +3084,29 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(format!(
             "serde_json::to_string(&{}).expect(\"JSON serialization failed\")",
             self.operand_text(value)?
+        ))
+    }
+
+    /// Converts a JSON parse operation to Rust text.
+    ///
+    /// Serde stays behind this helper so future backend changes do not affect
+    /// the frontend lowering shape.
+    fn json_parse_text(&self, text: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(text)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("JSON parse input must be a string"));
+        }
+        if !self.is_json_serializable_type(dest_ty) {
+            return Err(EmitError::new(
+                "JSON parse destination must be JSON-compatible",
+            ));
+        }
+        Ok(format!(
+            "serde_json::from_str::<{}>(&{}).expect(\"JSON parse failed\")",
+            self.type_text(dest_ty)?,
+            self.operand_text(text)?
         ))
     }
 

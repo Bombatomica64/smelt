@@ -1693,6 +1693,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::JsonParse { text } => {
+                let text_operand = self.lower_expr(*text)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::JsonParse { text: text_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::HttpGetText { url } => {
                 let url_operand = self.lower_expr(*url)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1959,6 +1968,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringSplit { .. }
             | ExprKind::StringJoin { .. }
             | ExprKind::JsonStringify { .. }
+            | ExprKind::JsonParse { .. }
             | ExprKind::HttpGetText { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
