@@ -3,10 +3,10 @@
 use crate::{HirCtx, SmeltError, to_hir, to_hir_with_path};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
-    Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    Pattern, PatternId, PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp,
-    SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Symbol, Type,
+    Literal, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, Pattern, PatternId, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
+    SetProjectionOp, SetRelationOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
+    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -2213,6 +2213,9 @@ log_value: float = math.log(value)
 log10_value: float = math.log10(value)
 log2_value: float = math.log2(value)
 exp_value: float = math.exp(value)
+pi_value: float = math.pi
+e_value: float = math.e
+tau_value: float = math.tau
 raised: float = math.pow(value, 2.0)
 floored: int = math.floor(value)
 ceiled: int = math.ceil(value)
@@ -2280,6 +2283,18 @@ nan_value: bool = math.isnan(value)
                 |expr| matches!(expr.kind, ExprKind::NumericPredicate { op, .. } if op == expected),
             ),
             "expected math predicate lowering",
+        )?;
+    }
+    for expected in [
+        std::f64::consts::PI,
+        std::f64::consts::E,
+        std::f64::consts::TAU,
+    ] {
+        ensure(
+            body.exprs.iter().any(|expr| {
+                matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == expected)
+            }),
+            "expected math constant lowering",
         )?;
     }
     Ok(())

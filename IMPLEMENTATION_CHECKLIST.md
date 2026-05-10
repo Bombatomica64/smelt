@@ -500,6 +500,7 @@ runtime errors.
     - [x] `math.atan2`.
     - [x] `math.log`, `log10`, `log2`, and `exp`.
     - [x] `math.isfinite` and `isnan`.
+    - [x] `math.pi`, `math.e`, and `math.tau`.
   - [ ] `json`: `loads`, `dumps`, `load`, and `dump` with `serde_json`.
     - [x] `json.dumps`.
     - [x] `json.loads` for annotated JSON-compatible destination types.

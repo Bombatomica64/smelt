@@ -1807,6 +1807,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
             // --- Attribute access: `obj.field` ---
             Expr::Attribute(attr) => {
+                if let Some(constant) = self.math_constant_expression(attr, body) {
+                    return Ok(constant);
+                }
                 let receiver = self.expression(&attr.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
                 let field_ty = self.field_type(receiver_ty)?;
@@ -2952,6 +2955,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Lower direct Python `math` constants to float literals.
+    fn math_constant_expression(
+        &mut self,
+        attr: &ruff_python_ast::ExprAttribute,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expr::Name(module) = attr.value.as_ref() else {
+            return None;
+        };
+        if module.id.as_str() != "math" {
+            return None;
+        }
+        let value = match attr.attr.as_str() {
+            "pi" => std::f64::consts::PI,
+            "e" => std::f64::consts::E,
+            "tau" => std::f64::consts::TAU,
+            _ => return None,
+        };
+        let ty = self.intern_type(Type::Float);
+        Some(body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::Float(value)),
+            ty,
+            span: self.span(attr.range),
+        }))
     }
 
     /// Lower direct Python `random.*` numeric calls.

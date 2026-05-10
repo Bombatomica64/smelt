@@ -797,6 +797,9 @@ value: float = 4.0
 root: float = math.sqrt(value)
 raised: float = math.pow(value, 2.0)
 angle: float = math.atan2(value, 2.0)
+pi_value: float = math.pi
+e_value: float = math.e
+tau_value: float = math.tau
 floored: int = math.floor(value)
 ceiled: int = math.ceil(value)
 whole: int = math.trunc(value)
@@ -815,6 +818,9 @@ has_key: bool = "a" in mapping
     assert!(source.contains(".sqrt();"));
     assert!(source.contains(".powf("));
     assert!(source.contains(".atan2("));
+    assert!(source.contains("3.141592653589793"));
+    assert!(source.contains("2.718281828459045"));
+    assert!(source.contains("6.283185307179586"));
     assert!(source.contains(".floor() as i64;"));
     assert!(source.contains(".ceil() as i64;"));
     assert!(source.contains(".trunc() as i64;"));
