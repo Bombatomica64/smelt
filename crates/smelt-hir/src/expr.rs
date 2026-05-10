@@ -418,6 +418,11 @@ pub enum ExprKind {
         /// List value to copy in reverse order.
         list: ExprId,
     },
+    /// Pair list items with zero-based integer indexes.
+    ListEnumerate {
+        /// List value to enumerate.
+        list: ExprId,
+    },
     /// Materialize an integer range as a list.
     ListRange {
         /// Inclusive start value.

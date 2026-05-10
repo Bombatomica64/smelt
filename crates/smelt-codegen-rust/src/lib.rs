@@ -1395,6 +1395,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListBoolFold { op, list } => self.list_bool_fold_text(*op, list),
             Rvalue::ListSorted { list } => self.list_sorted_text(list, dest_ty),
             Rvalue::ListReversed { list } => self.list_reversed_text(list, dest_ty),
+            Rvalue::ListEnumerate { list } => self.list_enumerate_text(list, dest_ty),
             Rvalue::ListRange { start, end, step } => {
                 self.list_range_text(start, end, step, dest_ty)
             }
@@ -3020,6 +3021,34 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         Ok(format!(
             "{}.iter().rev().cloned().collect::<Vec<_>>()",
+            self.operand_text(list)?
+        ))
+    }
+
+    /// Converts Python `enumerate(list)` materialization to Rust text.
+    fn list_enumerate_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("enumerate() argument must be a list"));
+        };
+        let Some(Type::List(tuple_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("enumerate() destination must be a list"));
+        };
+        let Some(Type::Tuple(items)) = self.mir.types.get(*tuple_ty) else {
+            return Err(EmitError::new("enumerate() list item must be a tuple"));
+        };
+        let [index_ty, value_ty] = items.as_slice() else {
+            return Err(EmitError::new(
+                "enumerate() destination must contain (int, item) tuples",
+            ));
+        };
+        if self.mir.types.get(*index_ty) != Some(&Type::Int) || *value_ty != *item_ty {
+            return Err(EmitError::new(
+                "enumerate() destination must contain (int, item) tuples",
+            ));
+        }
+        Ok(format!(
+            "{}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()",
             self.operand_text(list)?
         ))
     }

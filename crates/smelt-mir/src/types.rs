@@ -739,6 +739,11 @@ pub enum Rvalue {
         /// List value to copy in reverse order.
         list: Operand,
     },
+    /// Pair list items with zero-based integer indexes.
+    ListEnumerate {
+        /// List value to enumerate.
+        list: Operand,
+    },
     /// Materialize an integer range as a list.
     ListRange {
         /// Inclusive start value.

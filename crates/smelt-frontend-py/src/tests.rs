@@ -2409,6 +2409,35 @@ flipped: list[int] = reversed(values)
 }
 
 #[test]
+fn builtin_enumerate_lower() -> TestResult {
+    let source = py!(r#"
+values: list[str] = ["a", "b"]
+pairs: list[tuple[int, str]] = enumerate(values)
+names: dict[str, int] = {"Ada": 1}
+name_pairs: list[tuple[int, str]] = enumerate(names)
+items: set[int] = {1, 2}
+item_pairs: list[tuple[int, int]] = enumerate(items)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::ListEnumerate { .. }))
+            .count()
+            == 3,
+        "expected enumerate() lowering for list, dict keys, and set values",
+    )
+}
+
+#[test]
 fn range_builtin_lowers() -> TestResult {
     let source = py!(r#"
 first: list[int] = range(3)

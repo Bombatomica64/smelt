@@ -419,7 +419,7 @@ runtime errors.
   - [ ] `str(...)`, `int(...)`, `float(...)`, and `bool(...)` conversions with strict semantic
         differences documented.
   - [x] `range(...)` for `for` loops and materialized lists.
-  - [ ] `enumerate(...)`.
+  - [x] `enumerate(...)` for list values, dict keys, and set values with default start.
   - [ ] `zip(...)`.
   - [ ] `sum(...)`, `min(...)`, and `max(...)`.
     - [x] `sum(...)` for int and float lists.

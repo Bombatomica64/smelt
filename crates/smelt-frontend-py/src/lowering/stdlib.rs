@@ -320,6 +320,45 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `enumerate(values)` as a materialized list of `(index, value)` tuples.
+    pub(super) fn enumerate_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if name.id.as_str() != "enumerate" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "enumerate() currently supports exactly one iterable argument and no start",
+            ));
+        }
+        let raw_iter = self.expression(&call.arguments.args[0], body)?;
+        let list = self.for_iterable(raw_iter, body);
+        let list_ty = Self::expr_ty(body, list);
+        let item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) {
+            *item_ty
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "enumerate() argument must be a list, set, or dict",
+            ));
+        };
+        let int_ty = self.intern_type(Type::Int);
+        let tuple_ty = self.intern_type(Type::Tuple(vec![int_ty, item_ty]));
+        let ty = self.intern_type(Type::List(tuple_ty));
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListEnumerate { list },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `range(...)` as a materialized `list[int]`.
     pub(super) fn range_call_expression(
         &mut self,

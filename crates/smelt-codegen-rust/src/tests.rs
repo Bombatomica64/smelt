@@ -881,6 +881,25 @@ flipped: list[int] = reversed(values)
 }
 
 #[test]
+fn emits_python_enumerate_builtin() {
+    let source = source_for_py(
+        r#"
+values: list[str] = ["a", "b"]
+pairs: list[tuple[int, str]] = enumerate(values)
+names: dict[str, int] = {"Ada": 1}
+name_pairs: list[tuple[int, str]] = enumerate(names)
+items: set[int] = {1, 2}
+item_pairs: list[tuple[int, int]] = enumerate(items)
+"#,
+    );
+
+    assert!(source.contains(".iter().cloned().enumerate()"));
+    assert!(source.contains("idx as i64"));
+    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+}
+
+#[test]
 fn emits_python_range_builtin() {
     let source = source_for_py(
         r#"
@@ -1107,6 +1126,27 @@ test("adds numbers", () => {
     );
     assert!(source.contains("1.0 + 1.0"));
     assert!(source.contains("!= 2.0"));
+    assert!(source.contains("return Ok(());"));
+}
+
+#[test]
+fn emits_typescript_describe_it_as_flattened_rust_test() {
+    let source = source_for(
+        r#"
+import { describe, it, expect } from "vitest";
+
+describe("math helpers", () => {
+  it("adds numbers", () => {
+    expect(1 + 1).toBe(2);
+  });
+});
+"#,
+    );
+
+    assert!(source.contains(
+        "#[test]\nfn test_math_helpers_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"
+    ));
+    assert!(!source.contains("fn main()"));
     assert!(source.contains("return Ok(());"));
 }
 

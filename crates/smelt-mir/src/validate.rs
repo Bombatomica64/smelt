@@ -296,7 +296,8 @@ fn validate_rvalue_exists(
         Rvalue::ListSum { list }
         | Rvalue::ListBoolFold { list, .. }
         | Rvalue::ListSorted { list }
-        | Rvalue::ListReversed { list } => {
+        | Rvalue::ListReversed { list }
+        | Rvalue::ListEnumerate { list } => {
             validate_operand_exists(function, list, errors);
         }
         Rvalue::ListRange { start, end, step } => {
@@ -797,7 +798,8 @@ fn validate_rvalue(
         Rvalue::ListSum { list }
         | Rvalue::ListBoolFold { list, .. }
         | Rvalue::ListSorted { list }
-        | Rvalue::ListReversed { list } => {
+        | Rvalue::ListReversed { list }
+        | Rvalue::ListEnumerate { list } => {
             validate_operand(function, definitions, list, errors);
         }
         Rvalue::ListRange { start, end, step } => {

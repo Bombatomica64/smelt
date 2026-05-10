@@ -97,6 +97,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `any(values)` | `ListBoolFold::Any` | `ListBoolFold::Any` | `values.iter().copied().any(|value| value)` | One `list[bool]` argument | Iterables other than lists, non-bool lists | Python truthiness for arbitrary item types is not modeled. |
 | `sorted(values)` | `ListSorted` | `ListSorted` | Clone, sort, and return the clone | One sortable list argument | `key`, `reverse`, non-list iterables, nested/record items | Float sorting panics on unordered values such as NaN until Python edge semantics are modeled. |
 | `reversed(values)` | `ListReversed` | `ListReversed` | `values.iter().rev().cloned().collect()` | One list argument | Iterator object identity/laziness, non-list iterables | Returns a materialized list rather than Python's lazy reverse iterator. |
+| `enumerate(values)` | `ListEnumerate` | `ListEnumerate` | `values.iter().cloned().enumerate().map(...)` | One list argument, plus dict/set after key/value projection | `start`, lazy iterator identity, arbitrary iterables | Returns a materialized list of `(i64, item)` tuples. Set/dict order follows Rust `HashSet`/`HashMap` iteration order. |
 | `range(stop)` / `range(start, stop[, step])` | `ListRange` | `ListRange` | Materialized `Vec<i64>` built with a loop | One to three integer arguments | Keyword args and lazy range object identity | `range()` is represented as `list[int]`; zero step panics in generated Rust. |
 
 ## HTTP
