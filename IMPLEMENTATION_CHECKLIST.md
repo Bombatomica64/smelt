@@ -420,7 +420,7 @@ runtime errors.
         differences documented.
   - [x] `range(...)` for `for` loops and materialized lists.
   - [x] `enumerate(...)` for list values, dict keys, and set values with default start.
-  - [ ] `zip(...)`.
+  - [x] `zip(...)` for two list values, dict keys, and set values.
   - [ ] `sum(...)`, `min(...)`, and `max(...)`.
     - [x] `sum(...)` for int and float lists.
     - [x] `min(...)` and `max(...)` for all-int or all-float fixed argument lists.

@@ -2341,6 +2341,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             {
                 return Ok(expr);
             }
+            if name.id.as_str() == "zip"
+                && let Some(expr) = self.zip_call_expression(call, body)?
+            {
+                return Ok(expr);
+            }
             if name.id.as_str() == "range"
                 && let Some(expr) = self.range_call_expression(call, body)?
             {

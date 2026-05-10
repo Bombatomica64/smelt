@@ -359,6 +359,55 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Python `zip(left, right)` as a materialized list of pair tuples.
+    pub(super) fn zip_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if name.id.as_str() != "zip" {
+            return Ok(None);
+        }
+        if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "zip() currently supports exactly two iterable arguments",
+            ));
+        }
+        let raw_left = self.expression(&call.arguments.args[0], body)?;
+        let left = self.for_iterable(raw_left, body);
+        let raw_right = self.expression(&call.arguments.args[1], body)?;
+        let right = self.for_iterable(raw_right, body);
+        let left_ty = Self::expr_ty(body, left);
+        let right_ty = Self::expr_ty(body, right);
+        let left_item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(left_ty) {
+            *item_ty
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "zip() left argument must be a list, set, or dict",
+            ));
+        };
+        let right_item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(right_ty) {
+            *item_ty
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[1].range()),
+                "zip() right argument must be a list, set, or dict",
+            ));
+        };
+        let tuple_ty = self.intern_type(Type::Tuple(vec![left_item_ty, right_item_ty]));
+        let ty = self.intern_type(Type::List(tuple_ty));
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListZip { left, right },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
     /// Lower Python `range(...)` as a materialized `list[int]`.
     pub(super) fn range_call_expression(
         &mut self,

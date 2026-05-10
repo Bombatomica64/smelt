@@ -900,6 +900,24 @@ item_pairs: list[tuple[int, int]] = enumerate(items)
 }
 
 #[test]
+fn emits_python_zip_builtin() {
+    let source = source_for_py(
+        r#"
+names: list[str] = ["Ada", "Linus"]
+scores: list[int] = [1, 2]
+pairs: list[tuple[str, int]] = zip(names, scores)
+lookup: dict[str, int] = {"Ada": 1}
+items: set[int] = {1, 2}
+mixed: list[tuple[str, int]] = zip(lookup, items)
+"#,
+    );
+
+    assert!(source.contains(".iter().cloned().zip("));
+    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+}
+
+#[test]
 fn emits_python_range_builtin() {
     let source = source_for_py(
         r#"

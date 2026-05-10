@@ -300,6 +300,10 @@ fn validate_rvalue_exists(
         | Rvalue::ListEnumerate { list } => {
             validate_operand_exists(function, list, errors);
         }
+        Rvalue::ListZip { left, right } => {
+            validate_operand_exists(function, left, errors);
+            validate_operand_exists(function, right, errors);
+        }
         Rvalue::ListRange { start, end, step } => {
             validate_operand_exists(function, start, errors);
             validate_operand_exists(function, end, errors);
@@ -801,6 +805,10 @@ fn validate_rvalue(
         | Rvalue::ListReversed { list }
         | Rvalue::ListEnumerate { list } => {
             validate_operand(function, definitions, list, errors);
+        }
+        Rvalue::ListZip { left, right } => {
+            validate_operand(function, definitions, left, errors);
+            validate_operand(function, definitions, right, errors);
         }
         Rvalue::ListRange { start, end, step } => {
             validate_operand(function, definitions, start, errors);

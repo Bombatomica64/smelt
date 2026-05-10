@@ -297,6 +297,10 @@ fn rewrite_rvalue(
         | Rvalue::ListSorted { list }
         | Rvalue::ListReversed { list }
         | Rvalue::ListEnumerate { list } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::ListZip { left, right } => {
+            rewrite_operand_except(left, aliases, dest)
+                | rewrite_operand_except(right, aliases, dest)
+        }
         Rvalue::ListRange { start, end, step } => {
             rewrite_operand_except(start, aliases, dest)
                 | rewrite_operand_except(end, aliases, dest)

@@ -1678,6 +1678,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListZip { left, right } => {
+                let left_operand = self.lower_expr(*left)?;
+                let right_operand = self.lower_expr(*right)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListZip {
+                        left: left_operand,
+                        right: right_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListRange { start, end, step } => {
                 let start_operand = self.lower_expr(*start)?;
                 let end_operand = self.lower_expr(*end)?;
@@ -2230,6 +2243,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListSorted { .. }
             | ExprKind::ListReversed { .. }
             | ExprKind::ListEnumerate { .. }
+            | ExprKind::ListZip { .. }
             | ExprKind::ListRange { .. }
             | ExprKind::ListIndex { .. }
             | ExprKind::ListRemove { .. }

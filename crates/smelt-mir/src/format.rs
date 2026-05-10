@@ -546,6 +546,9 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListSorted { list } => format!("list_sorted {}", operand_text(list)),
         Rvalue::ListReversed { list } => format!("list_reversed {}", operand_text(list)),
         Rvalue::ListEnumerate { list } => format!("list_enumerate {}", operand_text(list)),
+        Rvalue::ListZip { left, right } => {
+            format!("list_zip {}, {}", operand_text(left), operand_text(right))
+        }
         Rvalue::ListRange { start, end, step } => format!(
             "list_range {}, {}, {}",
             operand_text(start),

@@ -423,6 +423,13 @@ pub enum ExprKind {
         /// List value to enumerate.
         list: ExprId,
     },
+    /// Pair two lists elementwise, truncating to the shorter list.
+    ListZip {
+        /// Left list value to zip.
+        left: ExprId,
+        /// Right list value to zip.
+        right: ExprId,
+    },
     /// Materialize an integer range as a list.
     ListRange {
         /// Inclusive start value.

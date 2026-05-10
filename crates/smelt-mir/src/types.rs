@@ -744,6 +744,13 @@ pub enum Rvalue {
         /// List value to enumerate.
         list: Operand,
     },
+    /// Pair two lists elementwise, truncating to the shorter list.
+    ListZip {
+        /// Left list value to zip.
+        left: Operand,
+        /// Right list value to zip.
+        right: Operand,
+    },
     /// Materialize an integer range as a list.
     ListRange {
         /// Inclusive start value.

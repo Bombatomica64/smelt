@@ -907,6 +907,13 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(());
         }
 
+        if block_terminates(then) {
+            out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+            self.emit_block(then, out)?;
+            out.push_str("    }\n");
+            return self.emit_block(else_, out);
+        }
+
         Err(EmitError::new(
             "if/else codegen requires structured branches with a shared join or terminating arms",
         ))
@@ -1396,6 +1403,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListSorted { list } => self.list_sorted_text(list, dest_ty),
             Rvalue::ListReversed { list } => self.list_reversed_text(list, dest_ty),
             Rvalue::ListEnumerate { list } => self.list_enumerate_text(list, dest_ty),
+            Rvalue::ListZip { left, right } => self.list_zip_text(left, right, dest_ty),
             Rvalue::ListRange { start, end, step } => {
                 self.list_range_text(start, end, step, dest_ty)
             }
@@ -3050,6 +3058,42 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(format!(
             "{}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()",
             self.operand_text(list)?
+        ))
+    }
+
+    /// Converts Python `zip(left, right)` materialization to Rust text.
+    fn list_zip_text(
+        &self,
+        left: &Operand,
+        right: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let left_ty = self.operand_ty(left)?;
+        let right_ty = self.operand_ty(right)?;
+        let Some(Type::List(left_item_ty)) = self.mir.types.get(left_ty) else {
+            return Err(EmitError::new("zip() left argument must be a list"));
+        };
+        let Some(Type::List(right_item_ty)) = self.mir.types.get(right_ty) else {
+            return Err(EmitError::new("zip() right argument must be a list"));
+        };
+        let Some(Type::List(tuple_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("zip() destination must be a list"));
+        };
+        let Some(Type::Tuple(items)) = self.mir.types.get(*tuple_ty) else {
+            return Err(EmitError::new("zip() list item must be a tuple"));
+        };
+        let [dest_left_ty, dest_right_ty] = items.as_slice() else {
+            return Err(EmitError::new("zip() destination must contain pair tuples"));
+        };
+        if *dest_left_ty != *left_item_ty || *dest_right_ty != *right_item_ty {
+            return Err(EmitError::new(
+                "zip() destination tuple items must match argument item types",
+            ));
+        }
+        Ok(format!(
+            "{}.iter().cloned().zip({}.iter().cloned()).collect::<Vec<_>>()",
+            self.operand_text(left)?,
+            self.operand_text(right)?
         ))
     }
 

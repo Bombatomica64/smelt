@@ -2438,6 +2438,35 @@ item_pairs: list[tuple[int, int]] = enumerate(items)
 }
 
 #[test]
+fn builtin_zip_lower() -> TestResult {
+    let source = py!(r#"
+names: list[str] = ["Ada", "Linus"]
+scores: list[int] = [1, 2]
+pairs: list[tuple[str, int]] = zip(names, scores)
+lookup: dict[str, int] = {"Ada": 1}
+items: set[int] = {1, 2}
+mixed: list[tuple[str, int]] = zip(lookup, items)
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::ListZip { .. }))
+            .count()
+            == 2,
+        "expected zip() lowering for list/list and dict/set inputs",
+    )
+}
+
+#[test]
 fn range_builtin_lowers() -> TestResult {
     let source = py!(r#"
 first: list[int] = range(3)
