@@ -251,14 +251,14 @@ TypeScript:
 
 Python:
 
-- [ ] pytest-mode untyped `test_*`
-- [ ] `is` / `is not`
+- [x] pytest-mode untyped `test_*`
+- [x] `is` / `is not`
 - [ ] Ternary expressions
 - [ ] `try` / `except`
 - [ ] Context manager protocol
 - [ ] `IntEnum`
 - [ ] `classmethod`
-- [ ] `__all__`
+- [x] `__all__`
 - [ ] Dunder methods used by tests:
   - `__str__`
   - `__iter__`

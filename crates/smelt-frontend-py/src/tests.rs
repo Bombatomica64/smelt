@@ -170,6 +170,26 @@ def add(x: int, y: int) -> int:
 }
 
 #[test]
+fn module_all_assignment_is_ignored() -> TestResult {
+    let source = py!(r#"
+__all__ = ["add"]
+
+def add(x: int, y: int) -> int:
+    return x + y
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq(&module.items.len(), &1, "item count")?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    ensure(
+        module_body.stmts.is_empty(),
+        "expected __all__ metadata not to emit runtime statements",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn async_function_and_await_lower() -> TestResult {
     let source = py!(r#"
 async def lift(value: int) -> int:

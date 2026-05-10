@@ -136,7 +136,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if matches!(
                 stmt,
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_)
-            ) {
+            ) || is_module_all_assignment(stmt)
+            {
                 continue; // already lowered in Pass 1
             }
             if let Err(err) = self.statement(stmt, &mut body) {
@@ -4715,6 +4716,22 @@ fn visible_items(ctx: &HirCtx) -> HashMap<String, ItemId> {
         items.insert(name.to_owned(), item_id);
     }
     items
+}
+
+/// Return true for module-level `__all__` metadata assignments.
+fn is_module_all_assignment(stmt: &Stmt) -> bool {
+    match stmt {
+        Stmt::Assign(assign) => {
+            let [target] = assign.targets.as_slice() else {
+                return false;
+            };
+            matches!(target, Expr::Name(name) if name.id.as_str() == "__all__")
+        }
+        Stmt::AnnAssign(assign) => {
+            matches!(assign.target.as_ref(), Expr::Name(name) if name.id.as_str() == "__all__")
+        }
+        _ => false,
+    }
 }
 
 /// Return an item's source name when available.
