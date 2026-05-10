@@ -1660,6 +1660,54 @@ for (const entry: [string, number] of mapping) {
 }
 
 #[test]
+fn lowers_static_tuple_index() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const pair: [string, number] = ["Ada", 1];
+const name = pair[0];
+const count = pair[1];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let indexes = body
+        .exprs
+        .iter()
+        .filter_map(|expr| match expr.kind {
+            ExprKind::TupleIndex { index, .. } => Some(index),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    ensure!(
+        indexes == [0, 1],
+        "expected static tuple index lowering for both tuple fields"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn rejects_dynamic_tuple_index() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const pair: [string, number] = ["Ada", 1];
+const index = 1;
+const value = pair[index];
+"#),
+        &mut ctx,
+    )?;
+
+    assert_unsupported_ts(
+        &errors,
+        "tuple indexing requires a static non-negative integer index",
+    )
+}
+
+#[test]
 fn lowers_try_catch_finally_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

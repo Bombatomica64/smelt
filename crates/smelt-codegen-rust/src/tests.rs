@@ -407,6 +407,20 @@ empty: tuple[()] = pair[:0]
 }
 
 #[test]
+fn emits_typescript_tuple_index() {
+    let source = source_for(
+        r#"
+const pair: [string, number] = ["Ada", 1];
+const name = pair[0];
+const count = pair[1];
+"#,
+    );
+
+    assert!(source.contains(".0.clone();"));
+    assert!(source.contains(".1.clone();"));
+}
+
+#[test]
 fn emits_python_list_append_method() {
     let source = source_for_py(
         r#"

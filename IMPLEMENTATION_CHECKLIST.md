@@ -22,6 +22,7 @@
 
 - [x] Array literals.
 - [x] Tuple literals with tuple annotation.
+- [x] Static TypeScript tuple indexing.
 - [x] Record object literals with `Record<string, T>` annotation.
 - [x] Index expressions.
 - [x] Static member expressions for record field reads.

@@ -1696,24 +1696,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span: self.span(member.span.start, member.span.end),
                 }))
             }
-            Expression::ComputedMemberExpression(member) => {
-                if member.optional {
-                    return Err(SmeltError::unsupported(
-                        self.span(member.span.start, member.span.end),
-                        "optional index access is not lowered yet",
-                    ));
-                }
-                let receiver = self.expression(&member.object, body)?;
-                let index = self.expression(&member.expression, body)?;
-                let receiver_ty = Self::expr_ty(body, receiver);
-                self.reject_negative_bracket_index(receiver_ty, index, body, member.span)?;
-                let ty = self.index_type(receiver_ty)?;
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Index { receiver, index },
-                    ty,
-                    span: self.span(member.span.start, member.span.end),
-                }))
-            }
+            Expression::ComputedMemberExpression(member) => self.computed_member(member, body),
             Expression::CallExpression(call) => {
                 if let Some(expr) = self.promise_static_call(call, body)? {
                     return Ok(expr);
@@ -4744,6 +4727,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
+        if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(receiver_ty).cloned() {
+            let index = self.static_tuple_index(index, body, items.len(), member.span)?;
+            let Some(ty) = items.get(index).copied() else {
+                return Err(SmeltError::unsupported(
+                    self.span(member.span.start, member.span.end),
+                    "tuple index is out of bounds",
+                ));
+            };
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TupleIndex {
+                    tuple: receiver,
+                    index,
+                },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         self.reject_negative_bracket_index(receiver_ty, index, body, member.span)?;
         let ty = self.index_type(receiver_ty)?;
         Ok(body.push_expr(Expr {
@@ -5281,6 +5281,57 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Resolve the static numeric index required for TypeScript tuple indexing.
+    fn static_tuple_index(
+        &self,
+        index_expr_id: smelt_hir::ExprId,
+        body: &Body,
+        len: usize,
+        span: oxc::span::Span,
+    ) -> Result<usize, SmeltError> {
+        let Some(index_expr) = usize::try_from(index_expr_id.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+        else {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "tuple index expression is invalid",
+            ));
+        };
+        let ExprKind::Literal(Literal::Float(value)) = &index_expr.kind else {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "tuple indexing requires a static non-negative integer index",
+            ));
+        };
+        let index_value = *value;
+        if index_value < 0.0_f64 {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "negative tuple bracket indexes are JavaScript property lookups; use .at(...) when supported for negative element indexing",
+            ));
+        }
+        if index_value.fract() != 0.0_f64 {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "tuple indexing requires an integer index",
+            ));
+        }
+        let resolved_index = index_value.to_string().parse::<usize>().map_err(|_err| {
+            SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "tuple indexing requires a representable usize index",
+            )
+        })?;
+        if resolved_index >= len {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "tuple index is out of bounds",
+            ));
+        }
+        Ok(resolved_index)
+    }
+
     /// Reject negative TypeScript bracket indexes before they reach Python-style HIR indexing.
     fn reject_negative_bracket_index(
         &self,
@@ -5291,7 +5342,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<(), SmeltError> {
         let uses_sequence_indexing = matches!(
             self.ctx.krate.types.get(receiver_ty),
-            Some(Type::List(_) | Type::String)
+            Some(Type::List(_) | Type::String | Type::Tuple(_))
         );
         if uses_sequence_indexing && Self::is_negative_numeric_expr(body, index) {
             return Err(SmeltError::unsupported(
