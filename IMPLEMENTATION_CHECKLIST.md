@@ -390,6 +390,7 @@ runtime errors.
     - [x] `Map.set`, `Map.delete`, and `Map.clear`.
     - [x] `Map.size`.
     - [x] `Map.keys`, `Map.values`, and `Map.entries` as list projections.
+    - [x] `for...of` over `Map<K, V>` via entry projection.
   - [ ] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
     - [x] `Set<T>` type reference, `new Set([literal values])`, annotated `new Set()`, and `Set.has`.
     - [x] `Set.add`, `Set.delete`, and `Set.clear`.

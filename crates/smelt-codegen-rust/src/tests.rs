@@ -974,6 +974,27 @@ for (let item: number of values) {
 }
 
 #[test]
+fn emits_map_for_of_iteration() {
+    let source = source_for(
+        r#"
+const mapping: Map<string, number> = new Map([["a", 1], ["b", 2]]);
+let last: [string, number] = ["", 0];
+for (const entry: [string, number] of mapping) {
+  last = entry;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+        )
+    );
+    assert!(source.contains("while"));
+    assert!(source.contains("last = entry.clone();"));
+}
+
+#[test]
 fn emits_set_mutation_methods() {
     let ts_source = source_for(
         r#"

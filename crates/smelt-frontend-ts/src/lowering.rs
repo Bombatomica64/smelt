@@ -1350,19 +1350,36 @@ impl<'ctx> ModuleBuilder<'ctx> {
         body: &mut Body,
     ) -> smelt_hir::ExprId {
         let iter_ty = Self::expr_ty(body, iter);
-        let Some(Type::Set(set_item_ty)) = self.ctx.krate.types.get(iter_ty) else {
-            return iter;
-        };
-        let item_ty = *set_item_ty;
-        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
-        body.push_expr(Expr {
-            kind: ExprKind::SetProjection {
-                op: SetProjectionOp::Values,
-                set: iter,
-            },
-            ty,
-            span: self.expression_span(source),
-        })
+        match self.ctx.krate.types.get(iter_ty).cloned() {
+            Some(Type::Set(item_ty)) => {
+                let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::SetProjection {
+                        op: SetProjectionOp::Values,
+                        set: iter,
+                    },
+                    ty,
+                    span: self.expression_span(source),
+                })
+            }
+            Some(Type::Dict(key_ty, value_ty)) => {
+                let entry_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Tuple(vec![key_ty, value_ty]));
+                let ty = self.ctx.krate.types.intern(Type::List(entry_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Entries,
+                        dict: iter,
+                    },
+                    ty,
+                    span: self.expression_span(source),
+                })
+            }
+            _ => iter,
+        }
     }
 
     /// Convert a switch case label expression to a literal.
