@@ -1859,6 +1859,9 @@ impl<'mir> FunctionEmitter<'mir> {
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(format!(
                 "{operand_text}.parse::<i64>().expect(\"int() parse failed\")"
             )),
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Float, Type::String) => Ok(format!(
+                "({operand_text}.parse::<i64>().expect(\"int() parse failed\") as f64)"
+            )),
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Bool) => {
                 Ok(format!("if {operand_text} {{ 1.0 }} else {{ 0.0 }}"))
             }

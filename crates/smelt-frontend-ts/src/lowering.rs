@@ -2360,6 +2360,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.number_parse_float_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.number_parse_int_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.number_to_string_call(call, body)? {
                     return Ok(expr);
                 }
@@ -3172,6 +3175,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::PrimitiveCast {
                 op: PrimitiveCastOp::ToFloat,
+                operand,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Number.parseInt(...)` calls without a radix argument.
+    fn number_parse_int_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Number" || member.property.name != "parseInt" {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Number.parseInt requires exactly one string argument",
+            ));
+        };
+        let operand = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Number.parseInt requires a string argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToInt,
                 operand,
             },
             ty,
