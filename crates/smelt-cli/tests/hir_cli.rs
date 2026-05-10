@@ -555,6 +555,59 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_runs_date_fns_style_extensionful_const_import() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/constants"))?;
+    fs::create_dir_all(project_path.join("src/quartersToMonths"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "date-fns-style-import"
+version = "0.1.0"
+
+[sources]
+entries = [
+  "src/quartersToMonths/index.ts",
+  "src/constants/index.ts",
+  "src/main.ts",
+]
+
+[output]
+target = "./dist"
+crate-name = "date_fns_style_import"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/constants/index.ts"),
+        "export const monthsInQuarter = 3;\n",
+    )?;
+    fs::write(
+        project_path.join("src/quartersToMonths/index.ts"),
+        "import { monthsInQuarter } from \"../constants/index.ts\";\n\
+export function quartersToMonths(quarters: number): number {\n  return Math.trunc(quarters * monthsInQuarter);\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { quartersToMonths } from \"./quartersToMonths/index.ts\";\n\
+const result = quartersToMonths(2);\nconsole.log(result);\n",
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"6\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
 fn build_resolves_python_package_init_imports() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

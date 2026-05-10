@@ -114,10 +114,10 @@ Python:
 - [ ] Recognize pytest APIs and marks:
   - `pytest.raises`
   - `pytest.mark.parametrize`
-  - `pytest.fixture`
-  - `pytest.mark.skip`
-  - `pytest.mark.skipif`
-  - `pytest.mark.xfail`
+  - [x] `pytest.fixture`
+  - [x] `pytest.mark.skip`
+  - [x] `pytest.mark.skipif`
+  - [x] `pytest.mark.xfail`
 
 ## Priority 2: Minimal Native Rust Test Emission
 
@@ -195,27 +195,30 @@ Python first:
 
 Fixtures:
 
-- [ ] Start with simple named fixtures that return a value.
+- [x] Start with simple named fixtures that return a value.
 - [ ] Reject autouse fixtures with a clear source-located error.
 - [ ] Reject non-default fixture scopes with a clear source-located error.
 - [ ] Accept default function scope only at first.
 
 TypeScript table tests later:
 
-- [ ] Keep `test.each` out of scope for the first pass.
-- [ ] Keep `describe.each` out of scope for the first pass.
+- [x] Lower direct literal `test.each` / `it.each` rows into one Rust test per row.
+- [x] Lower direct literal `describe.each` rows by flattening direct nested `it` / `test` calls.
+- [x] Inline direct `beforeEach` / `afterEach` arrow callbacks into each generated test.
+- [ ] Support nested `describe` blocks with inherited lifecycle hooks.
+- [ ] Support dynamic table sources.
 
 ## Priority 5: Import Graph And Real Project Slices
 
 Required for the date-fns first green target:
 
-- [ ] Resolve extensionful imports:
+- [x] Resolve extensionful imports:
   - `./index.ts`
   - `../constants/index.ts`
-- [ ] Resolve named exported constants.
+- [x] Resolve named exported constants.
 - [ ] Resolve re-exports from index modules.
 - [ ] Ensure manifest entries can provide symbols to later entries.
-- [ ] Add a regression fixture based on date-fns-style imports:
+- [x] Add a regression fixture based on date-fns-style imports:
 
 ```ts
 // constants.ts
@@ -233,15 +236,16 @@ export function quartersToMonths(quarters: number): number {
 
 TypeScript:
 
-- [ ] `Math.trunc`
-- [ ] `Math.pow`
-- [ ] String `.toUpperCase`
-- [ ] String `.toLowerCase`
+- [x] `Math.trunc`
+- [x] `Math.pow`
+- [x] String `.toUpperCase`
+- [x] String `.toLowerCase`
 - [ ] `Date` should be rejected clearly unless implemented.
 - [ ] `instanceof`
 - [ ] `Infinity`
 - [ ] Array iteration and readonly array parameters
 - [ ] Exported object constants
+  - [x] Exported primitive literal constants.
 - [ ] Arrow functions assigned to `const`
 - [ ] Function overload declarations should be ignored/merged with implementation when safe.
 

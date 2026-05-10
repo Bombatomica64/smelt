@@ -598,6 +598,74 @@ def test_increment(value, expected):
 }
 
 #[test]
+fn pytest_simple_fixture_binds_test_parameter() -> TestResult {
+    let source = py!(r#"
+import pytest
+
+@pytest.fixture
+def answer() -> int:
+    return 41
+
+def test_answer(answer):
+    assert answer + 1 == 42
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_fixture.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure(
+        module.items.len() == 2,
+        "expected fixture function and generated test function",
+    )?;
+    let Item::Function(function) = item(&ctx, module.items[1])? else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    ensure(function.is_test, "fixture consumer should be a test")?;
+    ensure(
+        function.params.is_empty(),
+        "fixture parameters should be bound as locals, not Rust test parameters",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn pytest_skip_skipif_and_xfail_do_not_emit_runnable_tests() -> TestResult {
+    let source = py!(r#"
+import pytest
+
+@pytest.mark.skip
+def test_skip():
+    assert False
+
+@pytest.mark.skipif(True)
+def test_skipif():
+    assert False
+
+@pytest.mark.xfail
+def test_xfail():
+    assert False
+
+@pytest.mark.skipif(False)
+def test_runs():
+    assert True
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_skip.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure(
+        module.items.len() == 1,
+        "expected only non-skipped test to lower",
+    )?;
+    let Item::Function(function) = item(&ctx, module.items[0])? else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    ensure(
+        symbol(&ctx, function.name)? == "test_runs",
+        "expected skip/xfail tests to be omitted",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn print_call_lowers() -> TestResult {
     let source = py!(r#"
 x: int = 1

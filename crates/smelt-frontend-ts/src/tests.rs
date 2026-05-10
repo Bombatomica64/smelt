@@ -104,6 +104,38 @@ test("case", () => {});
 }
 
 #[test]
+fn exported_literal_constants_are_visible_to_later_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!("export const monthsInQuarter = 3;\n"),
+        "src/constants/index.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { monthsInQuarter } from "../constants/index.ts";
+
+export function quartersToMonths(quarters: number): number {
+  return Math.trunc(quarters * monthsInQuarter);
+}
+"#),
+        "src/quartersToMonths/index.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0)
+        )
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn vitest_common_positive_matchers_lower_to_assertion_checks() -> Result<(), String> {
     let source = ts!(r#"
 import { test, expect } from "vitest";
@@ -153,6 +185,73 @@ test("common matchers", () => {
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::Len { .. }))
     );
+    Ok(())
+}
+
+#[test]
+fn vitest_lifecycle_hooks_are_inlined_into_tests() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect, beforeEach, afterEach } from "vitest";
+
+beforeEach(() => {
+  expect(true).toBe(true);
+});
+afterEach(() => {
+  expect(true).toBe(true);
+});
+test("uses hooks", () => {
+  expect(true).toBe(true);
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/hooks.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 1);
+    let function = function_item(&ctx, module, 0)?;
+    ensure!(function.is_test);
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.stmts.len() >= 3,
+        "expected beforeEach, test body, and afterEach statements"
+    );
+    Ok(())
+}
+
+#[test]
+fn vitest_test_each_expands_literal_rows() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+test.each([[1, 2, 3], [2, 3, 5]])("adds", (a, b, expected) => {
+  expect(a + b).toBe(expected);
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/table.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
+    for index in 0..module.items.len() {
+        let function = function_item(&ctx, module, index)?;
+        ensure!(function.is_test);
+    }
+    Ok(())
+}
+
+#[test]
+fn vitest_describe_each_expands_literal_rows() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, test, expect } from "vitest";
+
+describe.each([[1], [2]])("group", (value) => {
+  test("case", () => {
+    expect(value).toBe(value);
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/describe-each.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
     Ok(())
 }
 

@@ -44,6 +44,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     locals: HashMap<String, smelt_hir::LocalId>,
     /// Module-level items (functions / classes) for call resolution.
     items: HashMap<String, ItemId>,
+    /// Pytest fixture functions available to tests in this module.
+    pytest_fixtures: HashMap<String, (ItemId, TypeId)>,
     /// Whether the current lowered function body is async.
     current_async: bool,
     /// Whether this module should use pytest-specific test discovery rules.
@@ -89,6 +91,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ctx,
             locals: HashMap::new(),
             items,
+            pytest_fixtures: HashMap::new(),
             current_async: false,
         }
     }
@@ -678,10 +681,80 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Lower a Python function definition, expanding simple pytest parametrization.
     fn function_defs(&mut self, func: &StmtFunctionDef) -> Result<Vec<ItemId>, SmeltError> {
+        if self.is_pytest_skipped_or_xfailed(func)? {
+            return Ok(Vec::new());
+        }
         if let Some(parametrize) = self.pytest_parametrize(func)? {
             return self.parametrize_function_defs(func, &parametrize);
         }
-        self.function_def(func).map(|item| vec![item])
+        let item = self.function_def(func)?;
+        if Self::is_pytest_fixture(func) {
+            let return_ty = self.function_return_ty(item)?;
+            self.pytest_fixtures
+                .insert(func.name.as_str().to_owned(), (item, return_ty));
+        }
+        Ok(vec![item])
+    }
+
+    /// Return whether a function is decorated with `@pytest.fixture`.
+    fn is_pytest_fixture(func: &StmtFunctionDef) -> bool {
+        func.decorator_list
+            .iter()
+            .any(|decorator| decorator_simple_name(decorator) == Some("fixture"))
+    }
+
+    /// Return whether a pytest function should be emitted as a skipped test.
+    fn is_pytest_skipped_or_xfailed(&self, func: &StmtFunctionDef) -> Result<bool, SmeltError> {
+        if !self.pytest_mode || !test_support::is_pytest_test_function(func.name.as_str()) {
+            return Ok(false);
+        }
+        for decorator in &func.decorator_list {
+            match decorator_simple_name(decorator) {
+                Some("skip") | Some("xfail") => return Ok(true),
+                Some("skipif") => {
+                    let Expr::Call(call) = &decorator.expression else {
+                        return Err(SmeltError::unsupported(
+                            self.span(decorator.range),
+                            "pytest.mark.skipif must be called",
+                        ));
+                    };
+                    let Some(condition) = call.arguments.args.first() else {
+                        return Err(SmeltError::unsupported(
+                            self.span(call.range),
+                            "pytest.mark.skipif requires a boolean condition",
+                        ));
+                    };
+                    let Expr::BooleanLiteral(value) = condition else {
+                        return Err(SmeltError::unsupported(
+                            self.span(condition.range()),
+                            "pytest.mark.skipif supports only literal boolean conditions",
+                        ));
+                    };
+                    if value.value {
+                        return Ok(true);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(false)
+    }
+
+    /// Return the declared return type for a lowered function item.
+    fn function_return_ty(&self, item: ItemId) -> Result<TypeId, SmeltError> {
+        let index = usize::try_from(item.0).map_err(|err| {
+            SmeltError::unsupported(
+                Span::new(self.file_id, 0, 0),
+                format!("internal error: fixture item id does not fit in usize: {err}"),
+            )
+        })?;
+        let Some(Item::Function(function)) = self.ctx.krate.items.get(index) else {
+            return Err(SmeltError::unsupported(
+                Span::new(self.file_id, 0, 0),
+                "internal error: pytest fixture did not lower to a function",
+            ));
+        };
+        Ok(function.return_ty)
     }
 
     /// Extract a simple `@pytest.mark.parametrize(...)` decorator, if present.
@@ -1075,6 +1148,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
         for param_with_default in func.parameters.iter_non_variadic_params() {
             let p = &param_with_default.parameter;
             let param_name_str = p.name.as_str();
+            if self.is_pytest_test_function(func)
+                && let Some((fixture_item, fixture_ty)) =
+                    self.pytest_fixtures.get(param_name_str).copied()
+            {
+                let param_name = self.intern_name(param_name_str);
+                let local = fn_body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty: fixture_ty,
+                    mutable: false,
+                    span: self.span(p.range),
+                });
+                self.locals.insert(param_name_str.to_owned(), local);
+                let callee = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Item(fixture_item),
+                    ty: fixture_ty,
+                    span: self.span(p.range),
+                });
+                let value = fn_body.push_expr(HirExpr {
+                    kind: ExprKind::Call {
+                        callee,
+                        args: Vec::new(),
+                    },
+                    ty: fixture_ty,
+                    span: self.span(p.range),
+                });
+                let pat = fn_body.push_pattern(HirPattern::Binding(local));
+                fn_body.push_stmt(HirStmt::Let {
+                    pat,
+                    ty: fixture_ty,
+                    value: Some(value),
+                });
+                continue;
+            }
 
             let param_ty = p
                 .annotation

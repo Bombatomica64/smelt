@@ -495,10 +495,17 @@ fn resolve_manifest_path(manifest_dir: &Path, path: &Path) -> PathBuf {
 
 /// Return the generated Rust function name for a manifest module body.
 fn manifest_module_name(path: &Path) -> String {
-    path.file_stem()
+    let stem = path
+        .file_stem()
         .and_then(|stem| stem.to_str())
-        .unwrap_or("main")
-        .to_string()
+        .unwrap_or("main");
+    if stem != "index" {
+        return stem.to_owned();
+    }
+    path.parent()
+        .and_then(Path::file_name)
+        .and_then(|parent| parent.to_str())
+        .map_or_else(|| stem.to_owned(), |parent| format!("{parent}_{stem}"))
 }
 
 /// Print the HIR in compact or debug format.

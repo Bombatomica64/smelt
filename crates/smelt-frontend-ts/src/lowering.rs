@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 use crate::{HirCtx, SmeltError, camel_to_snake, test_support};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ClassElement, Declaration,
-    Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, ClassElement,
+    Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
     MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program, PropertyKey,
     SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement, TSType,
     TSTypeName,
@@ -18,11 +18,11 @@ use oxc::syntax::operator::{
     AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
 };
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, Class, DictProjectionOp, Expr, ExprKind,
-    Field, FileId, Function, FunctionOwner, Import, Interface, Item, Language, ListCallbackOp,
-    ListSearchOp, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
-    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
-    PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
+    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, Class, ConstItem, DictProjectionOp, Expr,
+    ExprKind, Field, FileId, Function, FunctionOwner, Import, Interface, Item, Language,
+    ListCallbackOp, ListSearchOp, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId,
+    NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig,
+    Pattern, PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
     StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
     Visibility,
 };
@@ -42,6 +42,15 @@ enum TestMatcher {
     HaveLength,
     /// `expect(actual).toHaveProperty(key)`.
     HaveProperty,
+}
+
+/// Literal value exported from another TypeScript module.
+#[derive(Debug, Clone)]
+struct ConstLiteral {
+    /// Literal expression to inline at import use sites.
+    literal: Literal,
+    /// HIR type of the literal.
+    ty: smelt_hir::TypeId,
 }
 
 impl TestMatcher {
@@ -162,12 +171,15 @@ struct ModuleBuilder<'ctx> {
     current_async: bool,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
+    /// Literal constant items visible from already-lowered modules.
+    const_literals: HashMap<String, ConstLiteral>,
 }
 
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Create a new module builder.
     fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
+        let const_literals = Self::visible_const_literals(ctx);
         Self {
             file_id,
             path,
@@ -180,6 +192,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_class: None,
             current_async: false,
             test_builtins: HashSet::new(),
+            const_literals,
         }
     }
 
@@ -213,6 +226,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
         (items, classes, interfaces)
     }
 
+    /// Collect literal constant items already present in the shared crate.
+    fn visible_const_literals(ctx: &HirCtx) -> HashMap<String, ConstLiteral> {
+        let mut values = HashMap::new();
+        for item in &ctx.krate.items {
+            let Item::Const(const_item) = item else {
+                continue;
+            };
+            let Some(name) = item_name(&ctx.krate, item) else {
+                continue;
+            };
+            if let Some(value) = const_literal_from_item(&ctx.krate, const_item) {
+                values.insert(name.to_owned(), value);
+            }
+        }
+        values
+    }
+
     /// Lower a TypeScript program to HIR module.
     fn program(&mut self, program: &Program<'_>) -> Result<ModuleId, Vec<SmeltError>> {
         let span = self.span(program.span.start, program.span.end);
@@ -227,6 +257,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             },
         );
 
+        let mut before_each = Vec::new();
+        let mut after_each = Vec::new();
         for statement in &program.body {
             if let Statement::ImportDeclaration(import) = statement {
                 self.import_declaration(import, &mut module);
@@ -254,9 +286,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Statement::ExpressionStatement(expr_stmt) = statement
+                && self.collect_lifecycle_hook(
+                    &expr_stmt.expression,
+                    &mut before_each,
+                    &mut after_each,
+                )
+            {
+                continue;
+            }
+            if let Statement::ExpressionStatement(expr_stmt) = statement
+                && let Some(table_call) = self.table_test_call(&expr_stmt.expression)
+            {
+                match self.table_test_declarations(table_call, None, &before_each, &after_each) {
+                    Ok(items) => module.items.extend(items),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
+            if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(test_call) = self.test_case_call(&expr_stmt.expression)
             {
-                match self.test_case_declaration(test_call, None) {
+                match self.test_case_declaration(test_call, None, &before_each, &after_each, &[]) {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),
                 }
@@ -265,7 +315,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(describe_call) = self.describe_call(&expr_stmt.expression)
             {
-                match self.describe_declaration(describe_call) {
+                match self.describe_declaration(describe_call, &before_each, &after_each) {
                     Ok(items) => module.items.extend(items),
                     Err(error) => errors.push(error),
                 }
@@ -287,6 +337,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 } else if let Declaration::TSInterfaceDeclaration(interface) = decl {
                     match self.interface_declaration(interface) {
                         Ok(item) => module.items.push(item),
+                        Err(error) => errors.push(error),
+                    }
+                } else if let Declaration::VariableDeclaration(variable) = decl {
+                    match self.const_item_declarations(variable) {
+                        Ok(items) => module.items.extend(items),
                         Err(error) => errors.push(error),
                     }
                 }
@@ -376,6 +431,88 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         if let Some(item) = self.interfaces.get(imported).copied() {
             self.interfaces.insert(local.to_owned(), item);
+        }
+        if let Some(value) = self.const_literals.get(imported).cloned() {
+            self.const_literals.insert(local.to_owned(), value);
+        }
+    }
+
+    /// Lower exported literal `const` declarations into importable HIR constant items.
+    fn const_item_declarations(
+        &mut self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+            return Err(SmeltError::unsupported(
+                self.span(decl.span.start, decl.span.end),
+                "exported variable declarations must use const",
+            ));
+        }
+        let mut items = Vec::new();
+        for declarator in &decl.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                return Err(SmeltError::unsupported(
+                    self.span(declarator.span.start, declarator.span.end),
+                    "exported const destructuring is not lowered yet",
+                ));
+            };
+            let init = declarator.init.as_ref().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(declarator.span.start, declarator.span.end),
+                    "exported const declarations require an initializer",
+                )
+            })?;
+            let value = self.literal_const_expression(init)?;
+            let span = self.span(binding.span.start, binding.span.end);
+            let mut body = Body::new(None, span);
+            let expr = body.push_expr(Expr {
+                kind: ExprKind::Literal(value.literal.clone()),
+                ty: value.ty,
+                span,
+            });
+            let body_id = self.ctx.krate.push_body(body);
+            let name_text = binding.name.as_str();
+            let name = self.intern_source_name(name_text);
+            let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+                name,
+                ty: value.ty,
+                value: expr,
+                body: body_id,
+                span,
+            }));
+            self.items.insert(name_text.to_owned(), item);
+            self.const_literals.insert(name_text.to_owned(), value);
+            items.push(item);
+        }
+        Ok(items)
+    }
+
+    /// Convert a supported TypeScript literal expression into an importable const value.
+    fn literal_const_expression(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Result<ConstLiteral, SmeltError> {
+        match expression {
+            Expression::NumericLiteral(lit) => Ok(ConstLiteral {
+                literal: Literal::Float(lit.value),
+                ty: self.ctx.krate.types.intern(Type::Float),
+            }),
+            Expression::StringLiteral(lit) => Ok(ConstLiteral {
+                literal: Literal::String(lit.value.to_string()),
+                ty: self.ctx.krate.types.intern(Type::String),
+            }),
+            Expression::BooleanLiteral(lit) => Ok(ConstLiteral {
+                literal: Literal::Bool(lit.value),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            }),
+            Expression::NullLiteral(_) => Ok(ConstLiteral {
+                literal: Literal::None,
+                ty: self.ctx.krate.types.intern(Type::None),
+            }),
+            _ => Err(SmeltError::unsupported(
+                self.span(expression.span().start, expression.span().end),
+                "exported const values currently support only primitive literals",
+            )),
         }
     }
 
@@ -1201,6 +1338,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Return whether an expression is a top-level Vitest organization call.
     fn is_test_framework_statement(&self, expression: &Expression<'_>) -> bool {
+        if self.table_test_call(expression).is_some() {
+            return true;
+        }
         let Expression::CallExpression(call) = expression else {
             return false;
         };
@@ -1222,6 +1362,41 @@ impl<'ctx> ModuleBuilder<'ctx> {
         (self.test_builtins.contains(name) && matches!(name, "it" | "test")).then_some(call)
     }
 
+    /// Return a supported `test.each(...)` or `describe.each(...)` outer call.
+    fn table_test_call<'a>(
+        &self,
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
+        let call = match expression {
+            Expression::CallExpression(call) => call,
+            Expression::ChainExpression(chain) => match &chain.expression {
+                ChainElement::CallExpression(call) => call,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        self.table_each_callee(&call.callee).then_some(call)
+    }
+
+    /// Return whether a callee is the invoked result of `.each(...)`.
+    fn table_each_callee(&self, callee: &Expression<'_>) -> bool {
+        let Expression::CallExpression(each_call) = callee else {
+            return false;
+        };
+        let Expression::StaticMemberExpression(member) = &each_call.callee else {
+            return false;
+        };
+        if member.property.name != "each" {
+            return false;
+        }
+        matches!(
+            &member.object,
+            Expression::Identifier(object)
+                if self.test_builtins.contains(object.name.as_str())
+                    && matches!(object.name.as_str(), "test" | "it" | "describe")
+        )
+    }
+
     /// Return a supported top-level `describe` call, if this expression is one.
     fn describe_call<'a>(
         &self,
@@ -1231,6 +1406,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return None;
         };
         self.is_describe_callee(&call.callee).then_some(call)
+    }
+
+    /// Collect a top-level `beforeEach` or `afterEach` callback.
+    fn collect_lifecycle_hook<'a>(
+        &self,
+        expression: &'a Expression<'a>,
+        before_each: &mut Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
+        after_each: &mut Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
+    ) -> bool {
+        let Expression::CallExpression(call) = expression else {
+            return false;
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return false;
+        };
+        let name = callee.name.as_str();
+        if !self.test_builtins.contains(name) || !matches!(name, "beforeEach" | "afterEach") {
+            return false;
+        }
+        let Some(callback_arg) = call.arguments.first() else {
+            return false;
+        };
+        let Ok(callback) = self.test_arrow_callback(callback_arg, "lifecycle callbacks") else {
+            return false;
+        };
+        if name == "beforeEach" {
+            before_each.push(callback);
+        } else {
+            after_each.push(callback);
+        }
+        true
     }
 
     /// Return whether a callee belongs to an imported test-framework API.
@@ -1274,6 +1480,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn describe_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        inherited_before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        inherited_after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
         let name_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -1290,6 +1498,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })?;
         let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
         let mut items = Vec::new();
+        let mut before_each = inherited_before_each.to_vec();
+        let mut after_each = inherited_after_each.to_vec();
         for statement in &arrow.body.statements {
             let Statement::ExpressionStatement(expr_stmt) = statement else {
                 return Err(SmeltError::unsupported(
@@ -1297,13 +1507,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "describe blocks only support direct it/test calls for now",
                 ));
             };
+            if self.collect_lifecycle_hook(&expr_stmt.expression, &mut before_each, &mut after_each)
+            {
+                continue;
+            }
+            if let Some(table_call) = self.table_test_call(&expr_stmt.expression) {
+                items.extend(self.table_test_declarations(
+                    table_call,
+                    Some(&group_name),
+                    &before_each,
+                    &after_each,
+                )?);
+                continue;
+            }
             let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
                 return Err(SmeltError::unsupported(
                     self.statement_span(statement),
                     "describe blocks only support direct it/test calls for now",
                 ));
             };
-            items.push(self.test_case_declaration(test_call, Some(&group_name))?);
+            items.push(self.test_case_declaration(
+                test_call,
+                Some(&group_name),
+                &before_each,
+                &after_each,
+                &[],
+            )?);
         }
         Ok(items)
     }
@@ -1313,6 +1542,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         group_name: Option<&str>,
+        before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let name_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -1328,15 +1560,53 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })?;
         let test_name = self.test_case_name(name_arg, group_name)?;
         let arrow = self.test_arrow_callback(body_arg, "test case callbacks")?;
+        self.test_function_from_arrow(
+            &test_name,
+            self.span(call.span.start, call.span.end),
+            arrow,
+            before_each,
+            after_each,
+            table_bindings,
+        )
+    }
 
+    /// Lower a prepared test callback into an HIR test function.
+    fn test_function_from_arrow(
+        &mut self,
+        test_name: &str,
+        span: Span,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_async = self.current_async;
         self.current_async = false;
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
         let mut errors = Vec::new();
+        for (name, value) in table_bindings {
+            if let Err(error) = self.bind_table_value(name, value, &mut body) {
+                errors.push(error);
+            }
+        }
+        for hook in before_each {
+            for statement in &hook.body.statements {
+                if let Err(error) = self.test_case_statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
+        }
         for statement in &arrow.body.statements {
             if let Err(error) = self.test_case_statement(statement, &mut body) {
                 errors.push(error);
+            }
+        }
+        for hook in after_each {
+            for statement in &hook.body.statements {
+                if let Err(error) = self.test_case_statement(statement, &mut body) {
+                    errors.push(error);
+                }
             }
         }
         self.locals = saved_locals;
@@ -1345,12 +1615,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(error);
         }
 
-        let name = self.intern_source_name(&test_name);
+        let name = self.intern_source_name(test_name);
         let body_id = self.ctx.krate.push_body(body);
         let none = self.ctx.krate.types.intern(Type::None);
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name,
-            span: self.span(call.span.start, call.span.end),
+            span,
             params: Vec::new(),
             return_ty: none,
             is_async: false,
@@ -1358,8 +1628,209 @@ impl<'ctx> ModuleBuilder<'ctx> {
             body: Some(body_id),
             owner: FunctionOwner::Module,
         }));
-        self.items.insert(test_name, item);
+        self.items.insert(test_name.to_owned(), item);
         Ok(item)
+    }
+
+    /// Lower `test.each` / `it.each` table rows into one Rust test per row.
+    fn table_test_declarations(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        group_name: Option<&str>,
+        before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let Expression::CallExpression(each_call) = &call.callee else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "table tests must call test.each(...) or describe.each(...)",
+            ));
+        };
+        let Expression::StaticMemberExpression(each_member) = &each_call.callee else {
+            return Err(SmeltError::unsupported(
+                self.span(each_call.span.start, each_call.span.end),
+                "table tests must call test.each(...) or describe.each(...)",
+            ));
+        };
+        let Expression::Identifier(test_api) = &each_member.object else {
+            return Err(SmeltError::unsupported(
+                self.span(each_member.span.start, each_member.span.end),
+                "table tests must be called on test, it, or describe",
+            ));
+        };
+        let rows = self.table_rows(each_call)?;
+        if test_api.name == "describe" {
+            return self.describe_each_declarations(
+                call,
+                group_name,
+                &rows,
+                before_each,
+                after_each,
+            );
+        }
+        let name_arg = call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "test.each calls require a string name",
+            )
+        })?;
+        let body_arg = call.arguments.get(1).ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "test.each calls require a callback",
+            )
+        })?;
+        let arrow = self.test_arrow_callback_with_params(body_arg, "test.each callbacks", true)?;
+        let mut items = Vec::new();
+        for (case_index, row) in rows.iter().enumerate() {
+            let case_group = group_name.map(|name| format!("{name} case {case_index}"));
+            let test_name = self.test_case_name(name_arg, case_group.as_deref())?;
+            let bindings = self.table_bindings(arrow, row)?;
+            items.push(self.test_function_from_arrow(
+                &test_name,
+                self.span(call.span.start, call.span.end),
+                arrow,
+                before_each,
+                after_each,
+                &bindings,
+            )?);
+        }
+        Ok(items)
+    }
+
+    /// Lower `describe.each` by flattening each row's direct tests.
+    fn describe_each_declarations<'a>(
+        &mut self,
+        call: &'a oxc::ast::ast::CallExpression<'a>,
+        group_name: Option<&str>,
+        rows: &[Vec<&'a ArrayExpressionElement<'a>>],
+        before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'a>],
+        after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'a>],
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let name_arg = call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "describe.each calls require a string name",
+            )
+        })?;
+        let body_arg = call.arguments.get(1).ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "describe.each calls require a callback",
+            )
+        })?;
+        let arrow =
+            self.test_arrow_callback_with_params(body_arg, "describe.each callbacks", true)?;
+        let mut items = Vec::new();
+        for (case_index, row) in rows.iter().enumerate() {
+            let row_group = self.test_title(name_arg)?;
+            let row_group = group_name.map_or_else(
+                || format!("{row_group} case {case_index}"),
+                |parent| format!("{parent} {row_group} case {case_index}"),
+            );
+            let bindings = self.table_bindings(arrow, row)?;
+            for statement in &arrow.body.statements {
+                let Statement::ExpressionStatement(expr_stmt) = statement else {
+                    return Err(SmeltError::unsupported(
+                        self.statement_span(statement),
+                        "describe.each blocks only support direct it/test calls for now",
+                    ));
+                };
+                let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
+                    return Err(SmeltError::unsupported(
+                        self.statement_span(statement),
+                        "describe.each blocks only support direct it/test calls for now",
+                    ));
+                };
+                items.push(self.test_case_declaration(
+                    test_call,
+                    Some(&row_group),
+                    before_each,
+                    after_each,
+                    &bindings,
+                )?);
+            }
+        }
+        Ok(items)
+    }
+
+    /// Parse the table literal from an `.each([...])` call.
+    fn table_rows<'a>(
+        &self,
+        each_call: &'a oxc::ast::ast::CallExpression<'a>,
+    ) -> Result<Vec<Vec<&'a ArrayExpressionElement<'a>>>, SmeltError> {
+        let [Argument::ArrayExpression(table)] = each_call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(each_call.span.start, each_call.span.end),
+                "table tests support only array literal tables",
+            ));
+        };
+        let mut rows = Vec::new();
+        for element in &table.elements {
+            let ArrayExpressionElement::ArrayExpression(row) = element else {
+                return Err(SmeltError::unsupported(
+                    self.span(element.span().start, element.span().end),
+                    "table test rows must be array literals",
+                ));
+            };
+            rows.push(row.elements.iter().collect());
+        }
+        Ok(rows)
+    }
+
+    /// Pair callback parameter names with one table row.
+    fn table_bindings<'a>(
+        &self,
+        arrow: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
+        row: &[&'a ArrayExpressionElement<'a>],
+    ) -> Result<Vec<(&'a str, &'a ArrayExpressionElement<'a>)>, SmeltError> {
+        if arrow.params.items.len() != row.len() {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.params.span.start, arrow.params.span.end),
+                "table test callback parameter count must match row width",
+            ));
+        }
+        arrow
+            .params
+            .items
+            .iter()
+            .zip(row)
+            .map(|(param, value)| {
+                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                    return Err(SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "table test callback parameters must be identifiers",
+                    ));
+                };
+                Ok((binding.name.as_str(), *value))
+            })
+            .collect()
+    }
+
+    /// Bind one `test.each` row value to a local used by the callback body.
+    fn bind_table_value(
+        &mut self,
+        name: &str,
+        value: &ArrayExpressionElement<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let expr = self.array_element(value, body)?;
+        let ty = Self::expr_ty(body, expr);
+        let symbol = self.intern_source_name(name);
+        let local = body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty,
+            mutable: false,
+            span: self.span(value.span().start, value.span().end),
+        });
+        self.locals.insert(name.to_owned(), local);
+        let pat = body.push_pattern(Pattern::Binding(local));
+        body.push_stmt(Stmt::Let {
+            pat,
+            ty,
+            value: Some(expr),
+        });
+        Ok(())
     }
 
     /// Convert a test-case name argument into a stable Rust function name.
@@ -1396,6 +1867,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
         argument: &'a Argument<'a>,
         context: &str,
     ) -> Result<&'a oxc::ast::ast::ArrowFunctionExpression<'a>, SmeltError> {
+        self.test_arrow_callback_with_params(argument, context, false)
+    }
+
+    /// Extract and validate an arrow callback, optionally allowing table-test parameters.
+    fn test_arrow_callback_with_params<'a>(
+        &self,
+        argument: &'a Argument<'a>,
+        context: &str,
+        allow_params: bool,
+    ) -> Result<&'a oxc::ast::ast::ArrowFunctionExpression<'a>, SmeltError> {
         let Argument::ArrowFunctionExpression(arrow) = argument else {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
@@ -1408,7 +1889,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 format!("async {context} are not lowered yet"),
             ));
         }
-        if !arrow.params.items.is_empty() {
+        if !allow_params && !arrow.params.items.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(arrow.params.span.start, arrow.params.span.end),
                 format!("{context} with parameters are not lowered yet"),
@@ -6236,6 +6717,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let Some(local) = self.locals.get(name).copied() else {
+            if let Some(value) = self.const_literals.get(name) {
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(value.literal.clone()),
+                    ty: value.ty,
+                    span: self.span(start, end),
+                }));
+            }
             return Err(SmeltError::unsupported(
                 self.span(start, end),
                 format!("unresolved identifier `{name}`"),
@@ -6501,6 +6989,22 @@ fn item_name<'a>(krate: &'a smelt_hir::Crate, item: &Item) -> Option<&'a str> {
         .names
         .get(symbol)
         .or_else(|| krate.symbols.get(symbol))
+}
+
+/// Return a literal value from a HIR constant item when it can be inlined safely.
+fn const_literal_from_item(
+    krate: &smelt_hir::Crate,
+    const_item: &ConstItem,
+) -> Option<ConstLiteral> {
+    let body = krate.bodies.get(usize::try_from(const_item.body.0).ok()?)?;
+    let expr = body.exprs.get(usize::try_from(const_item.value.0).ok()?)?;
+    let ExprKind::Literal(literal) = &expr.kind else {
+        return None;
+    };
+    Some(ConstLiteral {
+        literal: literal.clone(),
+        ty: const_item.ty,
+    })
 }
 
 /// Sanitize a source test title into a stable Rust identifier suffix.
