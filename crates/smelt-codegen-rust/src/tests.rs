@@ -365,6 +365,17 @@ const text = value.toString();
 }
 
 #[test]
+fn emits_typescript_number_parse_float() {
+    let source = source_for(
+        r#"
+const value = Number.parseFloat("42.5");
+"#,
+    );
+
+    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
+}
+
+#[test]
 fn emits_number_predicate_calls() {
     let source = source_for(
         r#"

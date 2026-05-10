@@ -369,6 +369,7 @@ runtime errors.
   - [x] `Math.random` with an explicit randomness/backend policy.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
     - [x] `Number.isFinite` and `Number.isNaN`.
+    - [x] `Number.parseFloat` with a string argument.
   - [ ] Numeric formatting: `toString`, `toFixed`, `toPrecision`, and `toExponential`.
     - [x] `number.toString()` without radix.
 - [ ] TypeScript object/record mappings:
