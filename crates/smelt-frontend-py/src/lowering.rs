@@ -2065,12 +2065,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             CmpOp::Gt => BinOp::Gt,
             CmpOp::GtE => BinOp::Gte,
             CmpOp::In | CmpOp::NotIn => return self.contains_compare(c, body, *op),
-            CmpOp::Is | CmpOp::IsNot => {
-                return Err(SmeltError::unsupported(
-                    span,
-                    format!("comparison operator '{op}' is not supported"),
-                ));
-            }
+            CmpOp::Is => BinOp::Eq,
+            CmpOp::IsNot => BinOp::NotEq,
         };
         let lhs = self.expression(&c.left, body)?;
         let [rhs_expr] = c.comparators.as_ref() else {
@@ -2307,6 +2303,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if matches!(name.id.as_str(), "list" | "set" | "dict" | "tuple")
                 && let Some(expr) =
                     self.container_constructor_call_expression(call, body, type_hint)?
+            {
+                return Ok(expr);
+            }
+            if matches!(name.id.as_str(), "bool" | "int" | "float" | "str")
+                && let Some(expr) = self.primitive_cast_call_expression(call, body)?
             {
                 return Ok(expr);
             }

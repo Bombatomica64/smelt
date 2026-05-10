@@ -416,7 +416,7 @@ runtime errors.
 - [ ] Python builtin mappings:
   - [x] `len(...)` for `list`, `dict`, `tuple`, and `str`.
   - [x] `abs(...)` for `int` and `float`.
-  - [ ] `str(...)`, `int(...)`, `float(...)`, and `bool(...)` conversions with strict semantic
+  - [x] `str(...)`, `int(...)`, `float(...)`, and `bool(...)` conversions with strict semantic
         differences documented.
   - [x] `range(...)` for `for` loops and materialized lists.
   - [x] `enumerate(...)` for list values, dict keys, and set values with default start.

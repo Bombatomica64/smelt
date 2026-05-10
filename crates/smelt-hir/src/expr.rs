@@ -113,6 +113,13 @@ pub enum ExprKind {
     },
     /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
     NumericRandom,
+    /// Convert a primitive value with a direct source-language conversion.
+    PrimitiveCast {
+        /// Primitive conversion to apply.
+        op: PrimitiveCastOp,
+        /// Value to convert.
+        operand: ExprId,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.
@@ -729,6 +736,19 @@ pub enum NumericUnaryFuncOp {
     Log2,
     /// Exponential function.
     Exp,
+}
+
+/// A directly lowered primitive conversion operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PrimitiveCastOp {
+    /// Convert to boolean.
+    ToBool,
+    /// Convert to integer.
+    ToInt,
+    /// Convert to floating-point number.
+    ToFloat,
+    /// Convert to string.
+    ToString,
 }
 
 /// A directly lowered numeric predicate.

@@ -239,6 +239,15 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("numeric_atan2 {}, {}", operand_text(y), operand_text(x))
         }
         Rvalue::NumericRandom => "numeric_random".to_owned(),
+        Rvalue::PrimitiveCast { op, operand } => {
+            let op_text = match op {
+                smelt_hir::PrimitiveCastOp::ToBool => "bool",
+                smelt_hir::PrimitiveCastOp::ToInt => "int",
+                smelt_hir::PrimitiveCastOp::ToFloat => "float",
+                smelt_hir::PrimitiveCastOp::ToString => "string",
+            };
+            format!("primitive_cast_{op_text} {}", operand_text(operand))
+        }
         Rvalue::StringCase { op, operand } => {
             let op_text = match op {
                 smelt_hir::StringCaseOp::Lower => "lower",

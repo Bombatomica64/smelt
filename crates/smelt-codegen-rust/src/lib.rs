@@ -1312,6 +1312,9 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::NumericPow { base, exponent } => self.numeric_pow_text(base, exponent),
             Rvalue::NumericAtan2 { y, x } => self.numeric_atan2_text(y, x),
             Rvalue::NumericRandom => Ok("rand::random::<f64>()".to_owned()),
+            Rvalue::PrimitiveCast { op, operand } => {
+                self.primitive_cast_text(*op, operand, dest_ty)
+            }
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
             Rvalue::StringAffix {
@@ -1785,6 +1788,69 @@ impl<'mir> FunctionEmitter<'mir> {
             Ok(format!("({operand_text} as f64)"))
         } else {
             Ok(operand_text)
+        }
+    }
+
+    /// Converts a primitive Python-style cast operation to Rust text.
+    fn primitive_cast_text(
+        &self,
+        op: smelt_hir::PrimitiveCastOp,
+        operand: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let operand_ty = self.operand_ty(operand)?;
+        let operand_type = self
+            .mir
+            .types
+            .get(operand_ty)
+            .ok_or_else(|| EmitError::new("primitive cast operand has unknown type"))?;
+        let dest_type = self
+            .mir
+            .types
+            .get(dest_ty)
+            .ok_or_else(|| EmitError::new("primitive cast destination has unknown type"))?;
+        let operand_text = self.operand_text(operand)?;
+        match (op, dest_type, operand_type) {
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Bool) => Ok(operand_text),
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Int) => {
+                Ok(format!("{operand_text} != 0"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Float) => {
+                Ok(format!("{operand_text} != 0.0"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::String) => {
+                Ok(format!("!{operand_text}.is_empty()"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Bool) => {
+                Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int) => Ok(operand_text),
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Float) => {
+                Ok(format!("{operand_text}.trunc() as i64"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(format!(
+                "{operand_text}.parse::<i64>().expect(\"int() parse failed\")"
+            )),
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Bool) => {
+                Ok(format!("if {operand_text} {{ 1.0 }} else {{ 0.0 }}"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Int) => {
+                Ok(format!("{operand_text} as f64"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Float) => Ok(operand_text),
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
+                "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
+            )),
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
+                "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
+            )),
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int | Type::Float) => {
+                Ok(format!("{operand_text}.to_string()"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::String) => Ok(operand_text),
+            _ => Err(EmitError::new(
+                "primitive cast must convert bool, int, float, or string to the matching destination type",
+            )),
         }
     }
 

@@ -423,6 +423,7 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, x, errors);
         }
         Rvalue::NumericRandom => {}
+        Rvalue::PrimitiveCast { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {
@@ -929,6 +930,9 @@ fn validate_rvalue(
             validate_operand(function, definitions, x, errors);
         }
         Rvalue::NumericRandom => {}
+        Rvalue::PrimitiveCast { operand, .. } => {
+            validate_operand(function, definitions, operand, errors);
+        }
         Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {

@@ -918,6 +918,30 @@ mixed: list[tuple[str, int]] = zip(lookup, items)
 }
 
 #[test]
+fn emits_python_primitive_conversions() {
+    let source = source_for_py(
+        r#"
+flag: bool = True
+digits: str = "42"
+ratio_text: str = "2.5"
+as_text: str = str(flag)
+as_int: int = int(3.8)
+parsed_int: int = int(digits)
+as_float: float = float(7)
+parsed_float: float = float(ratio_text)
+as_bool: bool = bool("")
+"#,
+    );
+
+    assert!(source.contains("\"True\".to_owned()"));
+    assert!(source.contains(".trunc() as i64"));
+    assert!(source.contains(".parse::<i64>().expect(\"int() parse failed\")"));
+    assert!(source.contains("as f64"));
+    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
+    assert!(source.contains(".is_empty()"));
+}
+
+#[test]
 fn emits_python_range_builtin() {
     let source = source_for_py(
         r#"
@@ -1179,6 +1203,8 @@ test("common matchers", () => {
   expect([1, 2, 3]).toContain(2);
   expect([1, 2, 3]).toHaveLength(3);
   expect(["a"]).toStrictEqual(["a"]);
+  expect({ name: "Ada" }).toHaveProperty("name");
+  U.deepStrictEqual([1, 2], [1, 2]);
 });
 "#,
     );
@@ -1187,6 +1213,8 @@ test("common matchers", () => {
     assert!(source.contains(".contains(&"));
     assert!(source.contains("expect(...).toHaveLength(...) failed"));
     assert!(source.contains("expect(...).toStrictEqual(...) failed"));
+    assert!(source.contains(".contains_key(&"));
+    assert!(source.contains("deepStrictEqual(...) failed"));
 }
 
 #[test]

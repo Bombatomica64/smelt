@@ -3,8 +3,8 @@
 use ruff_python_ast::{Expr, ExprSubscript};
 use ruff_text_size::Ranged;
 use smelt_hir::{
-    Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, RegexMatchOp, SetBinaryOp, SetRelationOp,
-    SetRemoveOp, Span, Type,
+    Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, PrimitiveCastOp, RegexMatchOp,
+    SetBinaryOp, SetRelationOp, SetRemoveOp, Span, Type,
 };
 
 use super::{ModuleBuilder, SmeltError};
@@ -159,6 +159,46 @@ impl ModuleBuilder<'_> {
             }
             _ => false,
         }
+    }
+
+    /// Lower primitive Python conversion builtins for bool, int, float, and string values.
+    pub(super) fn primitive_cast_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let (op, result_ty) = match name.id.as_str() {
+            "bool" => (PrimitiveCastOp::ToBool, Type::Bool),
+            "int" => (PrimitiveCastOp::ToInt, Type::Int),
+            "float" => (PrimitiveCastOp::ToFloat, Type::Float),
+            "str" => (PrimitiveCastOp::ToString, Type::String),
+            _ => return Ok(None),
+        };
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "primitive conversions currently support exactly one positional argument",
+            ));
+        }
+        let operand = self.expression(&call.arguments.args[0], body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "primitive conversions currently support bool, int, float, and str values",
+            ));
+        }
+        let ty = self.intern_type(result_ty);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::PrimitiveCast { op, operand },
+            ty,
+            span: self.span(call.range),
+        })))
     }
 
     /// Lower Python `sum(values)` calls for int and float lists.

@@ -4,9 +4,9 @@ use crate::{HirCtx, SmeltError, to_hir, to_hir_with_path};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
     Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    Pattern, PatternId, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
-    Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Symbol, Type,
+    Pattern, PatternId, PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp,
+    SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -471,6 +471,49 @@ fn pytest_plain_assert_lowers_to_conditional_failure() -> TestResult {
             .iter()
             .any(|stmt| matches!(stmt, Stmt::If { .. })),
         "expected assert to lower to if/throw shape",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn pytest_assert_not_and_identity_comparisons_lower() -> TestResult {
+    let source = py!(r#"
+def test_identity():
+    value: None = None
+    assert not False
+    assert value is None
+    assert value is not None
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_identity.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = *module
+        .items
+        .first()
+        .ok_or_else(|| "expected lowered pytest test function".to_owned())?;
+    let Item::Function(function) = ctx
+        .krate
+        .items
+        .get(usize::try_from(item_id.0).map_err(|err| err.to_string())?)
+        .ok_or_else(|| "missing lowered pytest test function item".to_owned())?
+    else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    let body_id = function
+        .body
+        .ok_or_else(|| "expected pytest test body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::UnaryOp { .. })),
+        "expected assert not to lower through unary not",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::BinOp { .. })),
+        "expected is/is not to lower through equality comparisons",
     )?;
     Ok(())
 }
@@ -2304,6 +2347,40 @@ float_total: float = sum(floats)
         .filter(|expr| matches!(expr.kind, ExprKind::ListSum { .. }))
         .count();
     ensure_eq(&sums, &2, "list sum count")
+}
+
+#[test]
+fn builtin_primitive_conversions_lower() -> TestResult {
+    let source = py!(r#"
+as_text: str = str(True)
+as_int: int = int(3.8)
+as_float: float = float(7)
+as_bool: bool = bool("")
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    for expected in [
+        PrimitiveCastOp::ToString,
+        PrimitiveCastOp::ToInt,
+        PrimitiveCastOp::ToFloat,
+        PrimitiveCastOp::ToBool,
+    ] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::PrimitiveCast { op, .. } if op == expected),
+            ),
+            "expected primitive conversion lowering",
+        )?;
+    }
+    Ok(())
 }
 
 #[test]

@@ -419,6 +419,13 @@ pub enum Rvalue {
     },
     /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
     NumericRandom,
+    /// Convert a primitive value to another primitive type.
+    PrimitiveCast {
+        /// Conversion operation to apply.
+        op: smelt_hir::PrimitiveCastOp,
+        /// Primitive operand to convert.
+        operand: Operand,
+    },
     /// Change the case of a string value.
     StringCase {
         /// Operation to apply to the string.
