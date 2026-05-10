@@ -628,6 +628,59 @@ def test_answer(answer):
 }
 
 #[test]
+fn pytest_fixture_rejects_autouse_and_non_default_scope() -> TestResult {
+    let autouse_source = py!(r#"
+import pytest
+
+@pytest.fixture(autouse=True)
+def answer() -> int:
+    return 41
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(autouse_source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("autouse=True is not supported"),
+        "expected autouse fixture rejection",
+    )?;
+
+    let scope_source = py!(r#"
+import pytest
+
+@pytest.fixture(scope="module")
+def answer() -> int:
+    return 41
+"#);
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(scope_source, &mut ctx)?;
+    ensure(
+        first_error(&errors)?
+            .message
+            .contains("supports only default function scope"),
+        "expected non-default fixture scope rejection",
+    )?;
+
+    let default_scope_source = py!(r#"
+import pytest
+
+@pytest.fixture(scope="function", autouse=False)
+def answer() -> int:
+    return 41
+
+def test_answer(answer):
+    assert answer == 41
+"#);
+    let mut ctx = HirCtx::new();
+    lower_path_module(
+        default_scope_source,
+        "tests/test_fixture_scope.py",
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
 fn pytest_skip_skipif_and_xfail_do_not_emit_runnable_tests() -> TestResult {
     let source = py!(r#"
 import pytest
