@@ -387,6 +387,19 @@ const value = Number.parseInt("42");
 }
 
 #[test]
+fn emits_typescript_global_numeric_parse_calls() {
+    let source = source_for(
+        r#"
+const intValue = parseInt("42");
+const floatValue = parseFloat("42.5");
+"#,
+    );
+
+    assert!(source.contains(".parse::<i64>().expect(\"int() parse failed\") as f64"));
+    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
+}
+
+#[test]
 fn emits_number_predicate_calls() {
     let source = source_for(
         r#"

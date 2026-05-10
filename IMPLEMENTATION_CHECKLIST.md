@@ -178,6 +178,10 @@ runtime errors.
 
 ## Phase 6: Standard Library Mapping
 
+- Estimated status: **72% complete / 28% missing** as of 2026-05-10. The remaining work is mostly
+  higher-risk semantic parity, Date/datetime/URL/IO/native-library mappings, callback closure
+  generality, and mapping-infrastructure cleanup rather than direct leaf stdlib calls.
+
 - [ ] Prefer direct semantic transpilation for stdlib operations whenever the Rust equivalent is
       straightforward and preserves source-language behavior.
   - [ ] Use a typed mapping registry instead of ad-hoc string matches:
@@ -371,6 +375,8 @@ runtime errors.
     - [x] `Number.isFinite` and `Number.isNaN`.
     - [x] `Number.parseFloat` with a string argument.
     - [x] `Number.parseInt` with a string argument and no radix.
+    - [x] Global `parseFloat` with a string argument.
+    - [x] Global `parseInt` with a string argument and no radix.
   - [ ] Numeric formatting: `toString`, `toFixed`, `toPrecision`, and `toExponential`.
     - [x] `number.toString()` without radix.
 - [ ] TypeScript object/record mappings:

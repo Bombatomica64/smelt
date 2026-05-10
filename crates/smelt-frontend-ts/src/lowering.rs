@@ -5613,7 +5613,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         ))
     }
 
-    /// Lower TypeScript `String(...)`, `Number(...)`, and `Boolean(...)` conversions.
+    /// Lower TypeScript global primitive conversion and numeric parse calls.
     fn primitive_cast_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -5624,8 +5624,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         };
         let (op, result_ty) = match callee.name.as_str() {
             "String" => (PrimitiveCastOp::ToString, Type::String),
-            "Number" => (PrimitiveCastOp::ToFloat, Type::Float),
+            "Number" | "parseFloat" => (PrimitiveCastOp::ToFloat, Type::Float),
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
+            "parseInt" => (PrimitiveCastOp::ToInt, Type::Float),
             _ => return Ok(None),
         };
         let [arg] = call.arguments.as_slice() else {
@@ -5649,6 +5650,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "String currently supports number and string arguments",
+            ));
+        }
+        if matches!(callee.name.as_str(), "parseFloat" | "parseInt")
+            && operand_type != Some(&Type::String)
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{} requires a string argument", callee.name),
             ));
         }
         let ty = self.ctx.krate.types.intern(result_ty);
