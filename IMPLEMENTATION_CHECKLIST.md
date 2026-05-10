@@ -395,6 +395,7 @@ runtime errors.
     - [x] `Set.add`, `Set.delete`, and `Set.clear`.
     - [x] `Set.size`.
     - [x] `Set.keys`, `Set.values`, and `Set.entries` as list projections.
+    - [x] `for...of` over `Set<T>` via value projection.
   - [ ] `Date.now`, construction from timestamp/string, `toISOString`, and basic getters, or
         explicitly defer Date support.
   - [ ] `RegExp.test`, `String.match`, and regex-backed `replace` using the Rust `regex` crate, or

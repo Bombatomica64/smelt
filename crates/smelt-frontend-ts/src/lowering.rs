@@ -988,6 +988,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ));
                 }
                 let iter = self.expression(&for_stmt.right, body)?;
+                let iter = self.for_of_iterable(iter, &for_stmt.right, body);
                 let pat = self.for_left_pattern(&for_stmt.left, body)?;
                 let loop_body = self.block_from_statement(&for_stmt.body, body)?;
                 body.push_stmt_to_block(
@@ -1339,6 +1340,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
         });
         self.locals.insert(name.to_owned(), local);
         Ok(body.push_pattern(Pattern::Binding(local)))
+    }
+
+    /// Adapt TypeScript for-of iterables whose Rust representation is not indexable.
+    fn for_of_iterable(
+        &mut self,
+        iter: smelt_hir::ExprId,
+        source: &Expression<'_>,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let iter_ty = Self::expr_ty(body, iter);
+        let Some(Type::Set(set_item_ty)) = self.ctx.krate.types.get(iter_ty) else {
+            return iter;
+        };
+        let item_ty = *set_item_ty;
+        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        body.push_expr(Expr {
+            kind: ExprKind::SetProjection {
+                op: SetProjectionOp::Values,
+                set: iter,
+            },
+            ty,
+            span: self.expression_span(source),
+        })
     }
 
     /// Convert a switch case label expression to a literal.

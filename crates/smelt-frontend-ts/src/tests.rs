@@ -1583,6 +1583,41 @@ for (let item: number of count) {
 }
 
 #[test]
+fn lowers_set_for_of_to_projection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: Set<number> = new Set([1, 2]);
+let total = 0;
+for (let item: number of values) {
+  total = total + item;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::SetProjection {
+                op: SetProjectionOp::Values,
+                ..
+            }
+        )),
+        "expected set for-of projection",
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_try_catch_finally_to_hir() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

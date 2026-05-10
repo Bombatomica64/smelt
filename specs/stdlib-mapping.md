@@ -170,6 +170,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `set.size` | `Len` | `Len` | `set.len() as f64` | Set receiver | Runtime dynamic receivers | Static set size only. |
 | `set.keys()` / `set.values()` | `SetProjection::Values` | `SetProjection::Values` | `set.iter().cloned().collect()` | No arguments | Iterator object identity/laziness | Returns a list rather than a JS iterator. |
 | `set.entries()` | `SetProjection::Entries` | `SetProjection::Entries` | `set.iter().map(|v| (v.clone(), v.clone())).collect()` | No arguments | Iterator object identity/laziness | Returns a list of tuples rather than a JS iterator. |
+| `for (... of set)` | `SetProjection::Values` plus `For` | `SetProjection::Values` plus indexed `For` | Project set values into a `Vec` and iterate by index | Typed loop binding over `Set<T>` | Direct JS iterator object semantics | Rust `HashSet` iteration order is nondeterministic. |
 | `new Map()` | `DictLit` | `Dict` | `HashMap::from([])` | `Map<K, V>` annotated target | Entry iterable construction | TypeScript `Map` is currently represented with the shared dictionary path. |
 | `map.has(k)` | `DictContainsKey` | `DictContainsKey` | `map.contains_key(&k)` | One key matching key type | Wrong arity or mismatched key type | Rust `HashMap` key semantics are used. |
 | `map.get(k)` | `DictGet` | `DictGet` | `map.get(&k).cloned()` | One key matching key type | Wrong arity or mismatched key type | TypeScript `undefined` is represented as `Option<V>`. |

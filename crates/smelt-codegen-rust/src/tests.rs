@@ -938,6 +938,23 @@ const empty: Set<string> = new Set();
 }
 
 #[test]
+fn emits_set_for_of_iteration() {
+    let source = source_for(
+        r#"
+const values: Set<number> = new Set([1, 2]);
+let total = 0;
+for (let item: number of values) {
+  total = total + item;
+}
+"#,
+    );
+
+    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains("while"));
+    assert!(source.contains("total ="));
+}
+
+#[test]
 fn emits_set_mutation_methods() {
     let ts_source = source_for(
         r#"
