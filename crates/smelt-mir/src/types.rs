@@ -546,6 +546,32 @@ pub enum Rvalue {
         /// Item to search for.
         item: Operand,
     },
+    /// Insert an item into a set.
+    SetAdd {
+        /// Set value to mutate.
+        set: Operand,
+        /// Item to insert.
+        item: Operand,
+    },
+    /// Remove an item from a set.
+    SetRemove {
+        /// Missing-item behavior.
+        op: smelt_hir::SetRemoveOp,
+        /// Set value to mutate.
+        set: Operand,
+        /// Item to remove.
+        item: Operand,
+    },
+    /// Clear all items from a set.
+    SetClear {
+        /// Set value to mutate.
+        set: Operand,
+    },
+    /// Return a shallow copy of a set.
+    SetCopy {
+        /// Set value to copy.
+        set: Operand,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.

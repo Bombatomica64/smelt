@@ -224,6 +224,12 @@ fn rewrite_rvalue(
         Rvalue::SetContains { set, item } => {
             rewrite_operand_except(set, aliases, dest) | rewrite_operand_except(item, aliases, dest)
         }
+        Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
+            rewrite_operand_except(set, aliases, dest) | rewrite_operand_except(item, aliases, dest)
+        }
+        Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
+            rewrite_operand_except(set, aliases, dest)
+        }
         Rvalue::ListConcat { left, right } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)

@@ -388,6 +388,7 @@ runtime errors.
     - [x] `Map<K, V>` type reference, annotated empty `new Map()`, `Map.has`, and `Map.get`.
   - [ ] `Set` construction, `add`, `has`, `delete`, `clear`, `size`, `values`, and iteration.
     - [x] `Set<T>` type reference, `new Set([literal values])`, annotated `new Set()`, and `Set.has`.
+    - [x] `Set.add`, `Set.delete`, and `Set.clear`.
   - [ ] `Date.now`, construction from timestamp/string, `toISOString`, and basic getters, or
         explicitly defer Date support.
   - [ ] `RegExp.test`, `String.match`, and regex-backed `replace` using the Rust `regex` crate, or
@@ -467,6 +468,7 @@ runtime errors.
   - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
         `difference`, and iteration.
     - [x] Set literals and `in` / `not in`.
+    - [x] Set `add`, `remove`, `discard`, `clear`, and `copy`.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.
 - [ ] Python standard-library module mappings:
   - [ ] `math`: `floor`, `ceil`, `trunc`, `sqrt`, `pow`, `sin`, `cos`, `tan`, logs, `isfinite`,

@@ -878,6 +878,36 @@ const empty: Set<string> = new Set();
 }
 
 #[test]
+fn emits_set_mutation_methods() {
+    let ts_source = source_for(
+        r#"
+let values: Set<number> = new Set([1, 2]);
+const same = values.add(3);
+const deleted = values.delete(2);
+values.clear();
+"#,
+    );
+    let py_source = source_for_py(
+        r#"
+values: set[int] = {1, 2}
+values.add(3)
+values.discard(2)
+values.remove(1)
+copy: set[int] = values.copy()
+values.clear()
+"#,
+    );
+
+    assert!(ts_source.contains(".insert(3.0)"));
+    assert!(ts_source.contains(".remove(&2.0)"));
+    assert!(ts_source.contains(".clear(); ()"));
+    assert!(py_source.contains(".insert(3)"));
+    assert!(py_source.contains(".remove(&2); ()"));
+    assert!(py_source.contains("panic!(\"set remove missing item\")"));
+    assert!(py_source.contains(".clone()"));
+}
+
+#[test]
 fn emits_map_constructor_has_and_get_methods() {
     let source = source_for(
         r#"

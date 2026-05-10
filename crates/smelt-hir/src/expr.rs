@@ -243,6 +243,32 @@ pub enum ExprKind {
         /// The item to search for.
         item: ExprId,
     },
+    /// Insert an item into a set.
+    SetAdd {
+        /// Set value to mutate.
+        set: ExprId,
+        /// Item to insert.
+        item: ExprId,
+    },
+    /// Remove an item from a set.
+    SetRemove {
+        /// Missing-item behavior.
+        op: SetRemoveOp,
+        /// Set value to mutate.
+        set: ExprId,
+        /// Item to remove.
+        item: ExprId,
+    },
+    /// Clear all items from a set.
+    SetClear {
+        /// Set value to mutate.
+        set: ExprId,
+    },
+    /// Return a shallow copy of a set.
+    SetCopy {
+        /// Set value to copy.
+        set: ExprId,
+    },
     /// Concatenate two lists into a new list.
     ListConcat {
         /// Left list value.
@@ -618,6 +644,17 @@ pub enum StringTrimSide {
     Start,
     /// Trim trailing whitespace.
     End,
+}
+
+/// A directly lowered set removal operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetRemoveOp {
+    /// Return whether an item was removed.
+    Delete,
+    /// Ignore missing items and return `None`.
+    Discard,
+    /// Panic when the item is missing and return `None`.
+    Remove,
 }
 
 /// A directly lowered string affix test.

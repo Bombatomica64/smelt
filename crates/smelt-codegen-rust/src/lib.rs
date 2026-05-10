@@ -1334,6 +1334,10 @@ impl<'mir> FunctionEmitter<'mir> {
             } => self.string_slice_text(operand, start.as_ref(), end.as_ref()),
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::SetContains { set, item } => self.set_contains_text(set, item),
+            Rvalue::SetAdd { set, item } => self.set_add_text(set, item, dest_ty),
+            Rvalue::SetRemove { op, set, item } => self.set_remove_text(*op, set, item, dest_ty),
+            Rvalue::SetClear { set } => self.collection_clear_text(set, dest_ty, "set"),
+            Rvalue::SetCopy { set } => self.set_copy_text(set, dest_ty),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
             Rvalue::ListCallback { op, list, callback } => {
@@ -2121,6 +2125,107 @@ impl<'mir> FunctionEmitter<'mir> {
         ))
     }
 
+    /// Validates a set receiver and item operand, returning the set type.
+    fn validate_set_item_operands(
+        &self,
+        set: &Operand,
+        item: &Operand,
+        context: &str,
+    ) -> Result<TypeId, EmitError> {
+        let set_ty = self.operand_ty(set)?;
+        let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
+            return Err(EmitError::new(format!("{context} receiver must be a set")));
+        };
+        if self.operand_ty(item)? != *item_ty {
+            return Err(EmitError::new(format!(
+                "{context} item must match the set element type"
+            )));
+        }
+        Ok(set_ty)
+    }
+
+    /// Converts a set insertion operation to Rust text.
+    fn set_add_text(
+        &self,
+        set: &Operand,
+        item: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let set_ty = self.validate_set_item_operands(set, item, "set add")?;
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = set else {
+            return Err(EmitError::new(
+                "set add receiver must be a mutable local for now",
+            ));
+        };
+        let set_text = self.local_name(*local)?;
+        let item_text = self.operand_text(item)?;
+        if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            Ok(format!("{{ {set_text}.insert({item_text}); () }}"))
+        } else if dest_ty == set_ty {
+            Ok(format!(
+                "{{ {set_text}.insert({item_text}); {set_text}.clone() }}"
+            ))
+        } else {
+            Err(EmitError::new(
+                "set add destination must be None or the receiver set type",
+            ))
+        }
+    }
+
+    /// Converts a set removal operation to Rust text.
+    fn set_remove_text(
+        &self,
+        op: smelt_hir::SetRemoveOp,
+        set: &Operand,
+        item: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        self.validate_set_item_operands(set, item, "set remove")?;
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = set else {
+            return Err(EmitError::new(
+                "set remove receiver must be a mutable local for now",
+            ));
+        };
+        let set_text = self.local_name(*local)?;
+        let item_text = self.operand_text(item)?;
+        match op {
+            smelt_hir::SetRemoveOp::Delete => {
+                if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
+                    return Err(EmitError::new("set delete destination must be bool"));
+                }
+                Ok(format!("{set_text}.remove(&{item_text})"))
+            }
+            smelt_hir::SetRemoveOp::Discard => {
+                if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+                    return Err(EmitError::new("set discard destination must be None"));
+                }
+                Ok(format!("{{ {set_text}.remove(&{item_text}); () }}"))
+            }
+            smelt_hir::SetRemoveOp::Remove => {
+                if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+                    return Err(EmitError::new("set remove destination must be None"));
+                }
+                Ok(format!(
+                    "{{ if !{set_text}.remove(&{item_text}) {{ panic!(\"set remove missing item\"); }} () }}"
+                ))
+            }
+        }
+    }
+
+    /// Converts a set copy operation to Rust text.
+    fn set_copy_text(&self, set: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let set_ty = self.operand_ty(set)?;
+        if !matches!(self.mir.types.get(set_ty), Some(Type::Set(_))) {
+            return Err(EmitError::new("set copy receiver must be a set"));
+        }
+        if dest_ty != set_ty {
+            return Err(EmitError::new(
+                "set copy destination must match the receiver set type",
+            ));
+        }
+        Ok(format!("{}.clone()", self.operand_text(set)?))
+    }
+
     /// Converts a list concatenation operation to Rust text.
     fn list_concat_text(&self, left: &Operand, right: &Operand) -> Result<String, EmitError> {
         let left_ty = self.operand_ty(left)?;
@@ -2577,6 +2682,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let expected_collection = match collection_name {
             "list" => matches!(self.mir.types.get(collection_ty), Some(Type::List(_))),
             "dict" => matches!(self.mir.types.get(collection_ty), Some(Type::Dict(_, _))),
+            "set" => matches!(self.mir.types.get(collection_ty), Some(Type::Set(_))),
             _ => false,
         };
         if !expected_collection {
@@ -3668,6 +3774,9 @@ fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
                     | Rvalue::ListSort { list }
                     | Rvalue::ListPop { list }
                     | Rvalue::ListShift { list }
+                    | Rvalue::SetAdd { set: list, .. }
+                    | Rvalue::SetRemove { set: list, .. }
+                    | Rvalue::SetClear { set: list }
                     | Rvalue::DictClear { dict: list }
                     | Rvalue::DictPop { dict: list, .. }
                     | Rvalue::DictSetDefault { dict: list, .. }

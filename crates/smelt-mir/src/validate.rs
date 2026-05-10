@@ -213,6 +213,13 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, set, errors);
             validate_operand_exists(function, item, errors);
         }
+        Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
+            validate_operand_exists(function, set, errors);
+            validate_operand_exists(function, item, errors);
+        }
+        Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
+            validate_operand_exists(function, set, errors);
+        }
         Rvalue::ListConcat { left, right } => {
             validate_operand_exists(function, left, errors);
             validate_operand_exists(function, right, errors);
@@ -663,6 +670,13 @@ fn validate_rvalue(
         Rvalue::SetContains { set, item } => {
             validate_operand(function, definitions, set, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
+            validate_operand(function, definitions, set, errors);
+            validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
+            validate_operand(function, definitions, set, errors);
         }
         Rvalue::ListConcat { left, right } => {
             validate_operand(function, definitions, left, errors);

@@ -2,7 +2,7 @@
 
 use ruff_python_ast::{Expr, ExprSubscript, UnaryOp as RuffUnaryOp};
 use ruff_text_size::Ranged;
-use smelt_hir::{Body, BoolFoldOp, Expr as HirExpr, ExprKind, RegexMatchOp, Type};
+use smelt_hir::{Body, BoolFoldOp, Expr as HirExpr, ExprKind, RegexMatchOp, SetRemoveOp, Type};
 
 use super::{ModuleBuilder, SmeltError};
 
@@ -781,7 +781,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower Python `list.clear()` and `dict.clear()` calls.
+    /// Lower Python `list.clear()`, `dict.clear()`, and `set.clear()` calls.
     pub(super) fn collection_clear_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,
@@ -804,9 +804,77 @@ impl ModuleBuilder<'_> {
         let kind = match self.ctx.krate.types.get(collection_ty) {
             Some(Type::List(_)) => ExprKind::ListClear { list: collection },
             Some(Type::Dict(_, _)) => ExprKind::DictClear { dict: collection },
+            Some(Type::Set(_)) => ExprKind::SetClear { set: collection },
             _ => return Ok(None),
         };
         let ty = self.intern_type(Type::None);
+        Ok(Some(body.push_expr(HirExpr {
+            kind,
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
+    /// Lower Python set mutation methods with direct `HashSet` semantics.
+    pub(super) fn set_method_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let method = attr.attr.as_str();
+        if !matches!(method, "add" | "discard" | "remove" | "copy") {
+            return Ok(None);
+        }
+        let set = self.expression(&attr.value, body)?;
+        let set_ty = Self::expr_ty(body, set);
+        let Some(Type::Set(set_element_ty)) = self.ctx.krate.types.get(set_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *set_element_ty;
+        if method == "copy" {
+            if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range),
+                    "set.copy() requires no arguments",
+                ));
+            }
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::SetCopy { set },
+                ty: set_ty,
+                span: self.span(call.range),
+            })));
+        }
+        if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "set add/discard/remove require exactly one item argument",
+            ));
+        }
+        let item = self.expression(&call.arguments.args[0], body)?;
+        if Self::expr_ty(body, item) != element_ty {
+            return Err(SmeltError::unsupported(
+                self.span(call.arguments.args[0].range()),
+                "set method item must match the set element type",
+            ));
+        }
+        let ty = self.intern_type(Type::None);
+        let kind = match method {
+            "add" => ExprKind::SetAdd { set, item },
+            "discard" => ExprKind::SetRemove {
+                op: SetRemoveOp::Discard,
+                set,
+                item,
+            },
+            "remove" => ExprKind::SetRemove {
+                op: SetRemoveOp::Remove,
+                set,
+                item,
+            },
+            _ => return Ok(None),
+        };
         Ok(Some(body.push_expr(HirExpr {
             kind,
             ty,

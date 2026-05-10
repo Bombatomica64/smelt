@@ -2135,6 +2135,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.collection_clear_call_expression(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.set_method_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.list_copy_call_expression(call, body)? {
             return Ok(expr);
         }

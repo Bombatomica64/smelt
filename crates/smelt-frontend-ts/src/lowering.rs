@@ -22,9 +22,9 @@ use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, Class, DictProjectionOp, Expr, ExprKind,
     Field, FileId, Function, FunctionOwner, Import, Interface, Item, Language, ListCallbackOp,
     ListSearchOp, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
-    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, SourceFile,
-    Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Type, UnaryOp, Visibility,
+    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, SetRemoveOp,
+    SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
 };
 
 /// Check whether an actual class field type satisfies an interface field.
@@ -1793,6 +1793,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(expr) = self.set_contains_call(call, body)? {
                     return Ok(expr);
                 }
+                if let Some(expr) = self.set_mutation_call(call, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.string_contains_call(call, body)? {
                     return Ok(expr);
                 }
@@ -3325,6 +3328,89 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower direct TypeScript `Set` mutation methods.
+    fn set_mutation_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let method = member.property.name.as_str();
+        if !matches!(method, "add" | "delete" | "clear") {
+            return Ok(None);
+        }
+        let set = self.expression(&member.object, body)?;
+        let set_ty = Self::expr_ty(body, set);
+        let Some(Type::Set(set_element_ty)) = self.ctx.krate.types.get(set_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *set_element_ty;
+        match method {
+            "add" => {
+                let [item_argument] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Set.add requires exactly one item argument",
+                    ));
+                };
+                let item = self.argument(item_argument, body)?;
+                if Self::expr_ty(body, item) != element_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Set.add item must match the set element type",
+                    ));
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::SetAdd { set, item },
+                    ty: set_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "delete" => {
+                let [item_argument] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Set.delete requires exactly one item argument",
+                    ));
+                };
+                let item = self.argument(item_argument, body)?;
+                if Self::expr_ty(body, item) != element_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Set.delete item must match the set element type",
+                    ));
+                }
+                let ty = self.ctx.krate.types.intern(Type::Bool);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::SetRemove {
+                        op: SetRemoveOp::Delete,
+                        set,
+                        item,
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "clear" => {
+                if !call.arguments.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "Set.clear requires no arguments",
+                    ));
+                }
+                let ty = self.ctx.krate.types.intern(Type::None);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::SetClear { set },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Lower direct TypeScript `Map.prototype.has`.

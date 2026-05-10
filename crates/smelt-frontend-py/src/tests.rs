@@ -4,8 +4,8 @@ use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
     Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    Pattern, PatternId, RegexMatchOp, Stmt, StringAffixOp, StringCaseOp, StringPredicateOp,
-    StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
+    Pattern, PatternId, RegexMatchOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
+    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -2258,6 +2258,54 @@ missing: bool = 4 not in values
         "set contains count",
     )?;
     Ok(())
+}
+
+#[test]
+fn set_mutation_methods_lower() -> TestResult {
+    let source = py!(r#"
+values: set[int] = {1, 2}
+values.add(3)
+values.discard(2)
+values.remove(1)
+copy: set[int] = values.copy()
+values.clear()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetAdd { .. })),
+        "expected set.add lowering",
+    )?;
+    for expected in [SetRemoveOp::Discard, SetRemoveOp::Remove] {
+        ensure(
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::SetRemove { op, .. } if op == expected)),
+            "expected set remove/discard lowering",
+        )?;
+    }
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetCopy { .. })),
+        "expected set.copy lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetClear { .. })),
+        "expected set.clear lowering",
+    )
 }
 
 #[test]

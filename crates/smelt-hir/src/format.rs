@@ -500,6 +500,19 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::SetContains { set, item } => {
             format!("set_contains {}, {}", expr_ref(*set), expr_ref(*item))
         }
+        ExprKind::SetAdd { set, item } => {
+            format!("set_add {}, {}", expr_ref(*set), expr_ref(*item))
+        }
+        ExprKind::SetRemove { op, set, item } => {
+            let op_name = match op {
+                crate::expr::SetRemoveOp::Delete => "delete",
+                crate::expr::SetRemoveOp::Discard => "discard",
+                crate::expr::SetRemoveOp::Remove => "remove",
+            };
+            format!("set_{op_name} {}, {}", expr_ref(*set), expr_ref(*item))
+        }
+        ExprKind::SetClear { set } => format!("set_clear {}", expr_ref(*set)),
+        ExprKind::SetCopy { set } => format!("set_copy {}", expr_ref(*set)),
         ExprKind::ListConcat { left, right } => {
             format!("list_concat {}, {}", expr_ref(*left), expr_ref(*right))
         }
@@ -721,6 +734,10 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringSlice { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::SetContains { .. }
+        | ExprKind::SetAdd { .. }
+        | ExprKind::SetRemove { .. }
+        | ExprKind::SetClear { .. }
+        | ExprKind::SetCopy { .. }
         | ExprKind::ListConcat { .. }
         | ExprKind::ListSearch { .. }
         | ExprKind::ListCallback { .. }

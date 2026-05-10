@@ -4,8 +4,8 @@ use super::*;
 use smelt_hir::{
     DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp, Literal,
     ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    RegexMatchOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Type,
+    RegexMatchOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -1246,6 +1246,48 @@ const empty: Set<string> = new Set();
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::SetContains { .. })),
         "Set.has did not lower to SetContains"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_set_mutation_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: Set<number> = new Set([1, 2]);
+const same = values.add(3);
+const deleted = values.delete(2);
+values.clear();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetAdd { .. })),
+        "expected Set.add lowering",
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::SetRemove {
+                    op: SetRemoveOp::Delete,
+                    ..
+                }
+            )
+        }),
+        "expected Set.delete lowering",
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetClear { .. })),
+        "expected Set.clear lowering",
     );
     Ok(())
 }

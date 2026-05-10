@@ -405,6 +405,23 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::SetContains { set, item } => {
             format!("set_contains {}, {}", operand_text(set), operand_text(item))
         }
+        Rvalue::SetAdd { set, item } => {
+            format!("set_add {}, {}", operand_text(set), operand_text(item))
+        }
+        Rvalue::SetRemove { op, set, item } => {
+            let op_text = match op {
+                smelt_hir::SetRemoveOp::Delete => "delete",
+                smelt_hir::SetRemoveOp::Discard => "discard",
+                smelt_hir::SetRemoveOp::Remove => "remove",
+            };
+            format!(
+                "set_{op_text} {}, {}",
+                operand_text(set),
+                operand_text(item)
+            )
+        }
+        Rvalue::SetClear { set } => format!("set_clear {}", operand_text(set)),
+        Rvalue::SetCopy { set } => format!("set_copy {}", operand_text(set)),
         Rvalue::ListConcat { left, right } => {
             format!(
                 "list_concat {}, {}",

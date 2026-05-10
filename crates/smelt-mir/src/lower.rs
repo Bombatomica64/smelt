@@ -1299,6 +1299,51 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::SetAdd { set, item } => {
+                let set_operand = self.lower_expr(*set)?;
+                let item_operand = self.lower_expr(*item)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetAdd {
+                        set: set_operand,
+                        item: item_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::SetRemove { op, set, item } => {
+                let set_operand = self.lower_expr(*set)?;
+                let item_operand = self.lower_expr(*item)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetRemove {
+                        op: *op,
+                        set: set_operand,
+                        item: item_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::SetClear { set } => {
+                let set_operand = self.lower_expr(*set)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetClear { set: set_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::SetCopy { set } => {
+                let set_operand = self.lower_expr(*set)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetCopy { set: set_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListConcat { left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
@@ -1954,6 +1999,10 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringSlice { .. }
             | ExprKind::ListContains { .. }
             | ExprKind::SetContains { .. }
+            | ExprKind::SetAdd { .. }
+            | ExprKind::SetRemove { .. }
+            | ExprKind::SetClear { .. }
+            | ExprKind::SetCopy { .. }
             | ExprKind::ListConcat { .. }
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }
