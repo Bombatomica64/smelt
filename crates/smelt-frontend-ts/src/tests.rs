@@ -4,8 +4,8 @@ use super::*;
 use smelt_hir::{
     BinOp, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp,
     Literal, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    RegexMatchOp, SetProjectionOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp,
-    StringReplaceOp, StringSearchOp, StringTrimSide, Type,
+    PrimitiveCastOp, RegexMatchOp, SetProjectionOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
+    StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -358,6 +358,36 @@ const positive = Math.abs(value);
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericAbs { .. }))
     );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_primitive_conversion_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const value = 42;
+const asText = String(value);
+const asNumber = Number("42");
+const asBool = Boolean("");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        PrimitiveCastOp::ToString,
+        PrimitiveCastOp::ToFloat,
+        PrimitiveCastOp::ToBool,
+    ] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::PrimitiveCast { op, .. } if op == expected)
+            )
+        );
+    }
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

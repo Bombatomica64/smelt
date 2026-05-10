@@ -22,8 +22,9 @@ use smelt_hir::{
     Field, FileId, Function, FunctionOwner, Import, Interface, Item, Language, ListCallbackOp,
     ListSearchOp, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
     NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
-    SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp,
-    StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp, Visibility,
+    PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
+    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
+    Visibility,
 };
 
 /// Vitest expectation matchers that can lower to direct HIR checks.
@@ -2336,6 +2337,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.fetch_call(call, body)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.primitive_cast_call(call, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.math_abs_call(call, body)? {
@@ -5393,6 +5397,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(expr) = self.fetch_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.primitive_cast_call(call, body)? {
+            return Ok(expr);
+        }
         if let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
             && object.name == "console"
@@ -5484,6 +5491,52 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Lower TypeScript `String(...)`, `Number(...)`, and `Boolean(...)` conversions.
+    fn primitive_cast_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        let (op, result_ty) = match callee.name.as_str() {
+            "String" => (PrimitiveCastOp::ToString, Type::String),
+            "Number" => (PrimitiveCastOp::ToFloat, Type::Float),
+            "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
+            _ => return Ok(None),
+        };
+        let [arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{} requires exactly one argument", callee.name),
+            ));
+        };
+        let operand = self.argument(arg, body)?;
+        let operand_type = self.ctx.krate.types.get(Self::expr_ty(body, operand));
+        if !matches!(
+            operand_type,
+            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{} requires a primitive argument", callee.name),
+            ));
+        }
+        if callee.name == "String" && matches!(operand_type, Some(Type::Bool)) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "String currently supports number and string arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(result_ty);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast { op, operand },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Extract target and value from assignment expression.

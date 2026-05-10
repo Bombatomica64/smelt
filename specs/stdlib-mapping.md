@@ -73,6 +73,7 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `Math.random()` | `NumericRandom` | `NumericRandom` | `rand::random::<f64>()` | No arguments | Any arguments | Uses the Rust `rand` crate; exact JS PRNG behavior is not modeled. |
 | `Number.isFinite(x)` | `NumericPredicate::IsFinite` | `NumericPredicate::IsFinite` | `x.is_finite()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
 | `Number.isNaN(x)` | `NumericPredicate::IsNaN` | `NumericPredicate::IsNaN` | `x.is_nan()` | One number | Non-number or wrong arity | Static TypeScript `number` inputs only; JS non-number false behavior is rejected. |
+| `String(value)` / `Number(value)` / `Boolean(value)` | `PrimitiveCast` | `PrimitiveCast` | `.to_string()`, string parse, numeric casts, or emptiness checks | One primitive argument; `String` supports number/string inputs | Object coercion, `String(bool)`, `Symbol`, `BigInt`, radix/options | Shared `PrimitiveCast` currently preserves Python bool string spelling, so TS `String(bool)` is rejected until source-specific bool text is modeled. |
 
 ## Python Math And Builtins
 

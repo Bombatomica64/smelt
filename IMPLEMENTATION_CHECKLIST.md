@@ -353,7 +353,7 @@ runtime errors.
     - [x] `String.prototype.at`.
   - [x] `String.prototype.repeat`.
   - [x] `String.prototype.padStart` and `padEnd`.
-  - [ ] `String(...)`, `Number(...)`, and `Boolean(...)` constructors/conversions or explicit
+  - [x] `String(...)`, `Number(...)`, and `Boolean(...)` constructors/conversions or explicit
         rejection where JS coercion would be misleading.
 - [ ] TypeScript number and `Math` mappings:
   - [x] `Math.abs`.

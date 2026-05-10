@@ -336,6 +336,23 @@ const sample = Math.random();
 }
 
 #[test]
+fn emits_typescript_primitive_conversions() {
+    let source = source_for(
+        r#"
+const value = 42;
+const digits = "42";
+const asText = String(value);
+const asNumber = Number(digits);
+const asBool = Boolean("");
+"#,
+    );
+
+    assert!(source.contains(".to_string()"));
+    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
+    assert!(source.contains(".is_empty()"));
+}
+
+#[test]
 fn emits_number_predicate_calls() {
     let source = source_for(
         r#"
