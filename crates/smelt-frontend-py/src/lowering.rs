@@ -2556,7 +2556,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ("list", [arg]) => self.list_constructor_from_arg(arg, body, span),
             ("set", [arg]) => self.set_constructor_from_arg(arg, body, span),
             ("dict", [arg]) => self.dict_constructor_from_arg(arg, body, span),
-            ("tuple", [arg]) => self.tuple_constructor_from_arg(arg, body, span),
+            ("tuple", [arg]) => self.tuple_constructor_from_arg(arg, body, span, type_hint),
             _ => Err(SmeltError::unsupported(
                 span,
                 "container constructors support zero arguments or one same-container argument",
@@ -2692,16 +2692,42 @@ impl<'ctx> ModuleBuilder<'ctx> {
         arg: &Expr,
         body: &mut Body,
         span: Span,
+        type_hint: Option<TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let source = self.expression(arg, body)?;
         let source_ty = Self::expr_ty(body, source);
-        let Some(Type::Tuple(_)) = self.ctx.krate.types.get(source_ty) else {
-            return Err(SmeltError::unsupported(
+        match self.ctx.krate.types.get(source_ty) {
+            Some(Type::Tuple(_)) => Ok(Some(source)),
+            Some(Type::List(item_ty)) => {
+                let Some(tuple_ty) = type_hint else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "tuple(list_value) requires a tuple type annotation",
+                    ));
+                };
+                let Some(Type::Tuple(items)) = self.ctx.krate.types.get(tuple_ty) else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "tuple(list_value) type annotation must be tuple[...]",
+                    ));
+                };
+                if !items.iter().all(|tuple_item| tuple_item == item_ty) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "tuple(list_value) annotation item types must match the list item type",
+                    ));
+                }
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::ListToTuple { list: source },
+                    ty: tuple_ty,
+                    span,
+                })))
+            }
+            _ => Err(SmeltError::unsupported(
                 span,
-                "tuple(value) currently requires a tuple value",
-            ));
-        };
-        Ok(Some(source))
+                "tuple(value) currently requires a tuple value or annotated list value",
+            )),
+        }
     }
 
     /// Return the shared item type for a non-empty homogeneous tuple.

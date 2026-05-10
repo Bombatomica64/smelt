@@ -1122,6 +1122,7 @@ fn container_constructors_lower() -> TestResult {
     let source = py!(r#"
 values: list[int] = [1, 2]
 copied_values: list[int] = list(values)
+value_tuple: tuple[int, int] = tuple(values)
 empty_values: list[int] = list()
 value_set: set[int] = set(values)
 items: set[int] = {1, 2}
@@ -1203,6 +1204,12 @@ coord_set: set[int] = set(coords)
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListToSet { .. })),
         "expected set(list_value) conversion lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListToTuple { .. })),
+        "expected tuple(list_value) conversion lowering",
     )?;
     ensure(
         body.exprs

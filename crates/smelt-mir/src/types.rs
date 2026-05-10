@@ -717,6 +717,11 @@ pub enum Rvalue {
         /// Tuple value to collect into a list.
         tuple: Operand,
     },
+    /// Convert a homogeneous list into a statically-sized tuple.
+    ListToTuple {
+        /// List value to collect into a tuple.
+        list: Operand,
+    },
     /// Convert a homogeneous tuple into a set by collecting unique items.
     TupleToSet {
         /// Tuple value to collect into a set.

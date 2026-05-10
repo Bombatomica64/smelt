@@ -612,6 +612,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListClear { list } => format!("list_clear {}", expr_ref(*list)),
         ExprKind::ListCopy { list } => format!("list_copy {}", expr_ref(*list)),
         ExprKind::TupleToList { tuple } => format!("tuple_to_list {}", expr_ref(*tuple)),
+        ExprKind::ListToTuple { list } => format!("list_to_tuple {}", expr_ref(*list)),
         ExprKind::TupleToSet { tuple } => format!("tuple_to_set {}", expr_ref(*tuple)),
         ExprKind::ListCount { list, item } => {
             format!("list_count {}, {}", expr_ref(*list), expr_ref(*item))
@@ -827,6 +828,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListClear { .. }
         | ExprKind::ListCopy { .. }
         | ExprKind::TupleToList { .. }
+        | ExprKind::ListToTuple { .. }
         | ExprKind::TupleToSet { .. }
         | ExprKind::ListCount { .. }
         | ExprKind::ListSum { .. }

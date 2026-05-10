@@ -1627,6 +1627,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListToTuple { list } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListToTuple { list: list_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::TupleToSet { tuple } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -2259,6 +2268,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListClear { .. }
             | ExprKind::ListCopy { .. }
             | ExprKind::TupleToList { .. }
+            | ExprKind::ListToTuple { .. }
             | ExprKind::TupleToSet { .. }
             | ExprKind::ListCount { .. }
             | ExprKind::ListSum { .. }

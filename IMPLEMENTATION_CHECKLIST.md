@@ -434,7 +434,8 @@ runtime errors.
     - [x] `list(set_value)` and `list(dict_value)`.
     - [x] `list(tuple_value)`, `set(list_value)`, and `set(tuple_value)` for homogeneous inputs.
     - [x] `dict(list_of_pair_tuples)` for statically typed 2-item tuple pairs.
-    - [ ] Remaining cross-iterable constructor forms such as `tuple(list_value)` and arbitrary `dict(iterable_pairs)`.
+    - [x] `tuple(list_value)` with a statically sized homogeneous tuple annotation and runtime length check.
+    - [ ] Remaining cross-iterable constructor forms such as arbitrary `dict(iterable_pairs)`.
   - [ ] `isinstance(...)` and `issubclass(...)` where static types make them decidable.
   - [ ] `print(...)` formatting parity and stderr support if needed.
 - [ ] Python string mappings:

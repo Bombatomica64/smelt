@@ -543,6 +543,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListClear { list } => format!("list_clear {}", operand_text(list)),
         Rvalue::ListCopy { list } => format!("list_copy {}", operand_text(list)),
         Rvalue::TupleToList { tuple } => format!("tuple_to_list {}", operand_text(tuple)),
+        Rvalue::ListToTuple { list } => format!("list_to_tuple {}", operand_text(list)),
         Rvalue::TupleToSet { tuple } => format!("tuple_to_set {}", operand_text(tuple)),
         Rvalue::ListCount { list, item } => {
             format!("list_count {}, {}", operand_text(list), operand_text(item))

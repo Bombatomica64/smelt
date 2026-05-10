@@ -546,6 +546,7 @@ fn emits_python_container_constructors() {
         r#"
 values: list[int] = [1, 2]
 copied_values: list[int] = list(values)
+value_tuple: tuple[int, int] = tuple(values)
 empty_values: list[int] = list()
 value_set: set[int] = set(values)
 items: set[int] = {1, 2}
@@ -572,6 +573,7 @@ coord_set: set[int] = set(coords)
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashMap<_, _>>()"));
+    assert!(source.contains("panic!(\"tuple() length mismatch\")"));
     assert!(source.contains("vec!["));
     assert!(source.contains("::std::collections::HashSet::from(["));
 }
@@ -1206,6 +1208,7 @@ test("common matchers", () => {
   expect([1, 2, 3]).toContain(2);
   expect([1, 2, 3]).toHaveLength(3);
   expect(["a"]).toStrictEqual(["a"]);
+  expect([1, 2, 3]).not.toContain(4);
   const user: Record<string, string> = { name: "Ada" };
   expect(user).toHaveProperty("name");
   U.deepStrictEqual([1, 2], [1, 2]);
@@ -1217,6 +1220,7 @@ test("common matchers", () => {
     assert!(source.contains(".contains(&"));
     assert!(source.contains("expect(...).toHaveLength(...) failed"));
     assert!(source.contains("expect(...).toStrictEqual(...) failed"));
+    assert!(source.matches('!').count() >= 2);
     assert!(source.contains(".contains_key(&"));
     assert!(source.contains("deepStrictEqual(...) failed"));
 }

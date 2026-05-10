@@ -1400,6 +1400,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
             Rvalue::ListCopy { list } => self.list_copy_text(list, dest_ty),
             Rvalue::TupleToList { tuple } => self.tuple_to_list_text(tuple, dest_ty),
+            Rvalue::ListToTuple { list } => self.list_to_tuple_text(list, dest_ty),
             Rvalue::TupleToSet { tuple } => self.tuple_to_set_text(tuple, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
             Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
@@ -3478,6 +3479,36 @@ impl<'mir> FunctionEmitter<'mir> {
             ));
         }
         Ok(format!("vec![{items_text}]"))
+    }
+
+    /// Converts a list-to-tuple constructor conversion to Rust text.
+    fn list_to_tuple_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list-to-tuple source must be a list"));
+        };
+        let Some(Type::Tuple(items)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("list-to-tuple destination must be a tuple"));
+        };
+        if !items.iter().all(|tuple_item| tuple_item == item_ty) {
+            return Err(EmitError::new(
+                "list-to-tuple destination items must match the list item type",
+            ));
+        }
+        let items_text = (0..items.len())
+            .map(|idx| format!("tuple_items[{idx}].clone()"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let tuple_text = if items.len() == 1 {
+            format!("({items_text},)")
+        } else {
+            format!("({items_text})")
+        };
+        Ok(format!(
+            "{{ let tuple_items = {}; if tuple_items.len() != {} {{ panic!(\"tuple() length mismatch\"); }} {tuple_text} }}",
+            self.operand_text(list)?,
+            items.len()
+        ))
     }
 
     /// Converts a homogeneous tuple-to-set constructor conversion to Rust text.

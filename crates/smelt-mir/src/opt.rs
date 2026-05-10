@@ -290,6 +290,7 @@ fn rewrite_rvalue(
         Rvalue::TupleToList { tuple } | Rvalue::TupleToSet { tuple } => {
             rewrite_operand_except(tuple, aliases, dest)
         }
+        Rvalue::ListToTuple { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListCount { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
