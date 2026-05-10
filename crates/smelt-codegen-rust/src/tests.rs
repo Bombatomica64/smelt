@@ -908,6 +908,20 @@ values.clear()
 }
 
 #[test]
+fn emits_map_and_set_size_properties() {
+    let source = source_for(
+        r#"
+const values: Set<number> = new Set([1, 2]);
+const mapping: Map<string, number> = new Map();
+const setSize = values.size;
+const mapSize = mapping.size;
+"#,
+    );
+
+    assert!(source.matches(".len() as f64").count() >= 2);
+}
+
+#[test]
 fn emits_python_set_algebra_methods() {
     let source = source_for_py(
         r#"

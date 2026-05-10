@@ -1293,6 +1293,31 @@ values.clear();
 }
 
 #[test]
+fn lowers_map_and_set_size_properties() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: Set<number> = new Set([1, 2]);
+const mapping: Map<string, number> = new Map();
+const setSize = values.size;
+const mapSize = mapping.size;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::Len { .. }))
+            .count(),
+        2,
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_map_constructor_has_and_get_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

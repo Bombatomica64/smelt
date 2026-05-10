@@ -1638,6 +1638,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 let field = self.intern_source_name(member.property.name.as_str());
                 if member.property.name == "length"
                     && self.supports_stdlib_length(Self::expr_ty(body, receiver))
+                    || member.property.name == "size"
+                        && self.supports_stdlib_size(Self::expr_ty(body, receiver))
                 {
                     let ty = self.ctx.krate.types.intern(Type::Float);
                     return Ok(body.push_expr(Expr {
@@ -4453,6 +4455,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let field = self.intern_source_name(member.property.name.as_str());
         if member.property.name == "length"
             && self.supports_stdlib_length(Self::expr_ty(body, receiver))
+            || member.property.name == "size"
+                && self.supports_stdlib_size(Self::expr_ty(body, receiver))
         {
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(body.push_expr(Expr {
@@ -5024,6 +5028,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
             Some(Type::List(_) | Type::String | Type::Tuple(_))
+        )
+    }
+
+    /// Returns true when TypeScript `.size` can lower directly to Rust `.len()`.
+    fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Dict(_, _) | Type::Set(_))
         )
     }
 
