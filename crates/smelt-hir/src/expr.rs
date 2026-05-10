@@ -250,6 +250,15 @@ pub enum ExprKind {
         /// Right set operand.
         right: ExprId,
     },
+    /// Test a relation between two sets.
+    SetRelation {
+        /// Set relation to evaluate.
+        op: SetRelationOp,
+        /// Left set operand.
+        left: ExprId,
+        /// Right set operand.
+        right: ExprId,
+    },
     /// Insert an item into a set.
     SetAdd {
         /// Set value to mutate.
@@ -752,6 +761,15 @@ pub enum SetBinaryOp {
     Difference,
     /// Return items present in exactly one set.
     SymmetricDifference,
+}
+
+/// A directly lowered set relation predicate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetRelationOp {
+    /// Test whether the left set is a subset of the right set.
+    IsSubset,
+    /// Test whether the left set is a superset of the right set.
+    IsSuperset,
 }
 
 /// A directly lowered set projection operation.

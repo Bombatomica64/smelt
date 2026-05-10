@@ -423,6 +423,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params,
             return_ty,
             is_async: function.r#async,
+            is_test: false,
             body: Some(body_id),
             owner: FunctionOwner::Module,
         }));
@@ -762,6 +763,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params,
             return_ty,
             is_async: method.value.r#async,
+            is_test: false,
             body: Some(body_id),
             owner: if is_constructor {
                 FunctionOwner::Constructor { class: class_name }
@@ -5485,6 +5487,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params: Vec::new(),
             return_ty: none,
             is_async: false,
+            is_test: false,
             body: None,
             owner: FunctionOwner::Module,
         }))

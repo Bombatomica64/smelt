@@ -4,8 +4,8 @@ use crate::{HirCtx, SmeltError, to_hir, to_hir_with_path};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
     Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    Pattern, PatternId, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRemoveOp, Stmt,
-    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    Pattern, PatternId, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
+    Stmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
     StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
@@ -2616,6 +2616,8 @@ common: set[int] = left.intersection(right)
 only_left: set[int] = left.difference(right)
 exclusive: set[int] = left.symmetric_difference(right)
 separate: bool = left.isdisjoint(right)
+subset: bool = left.issubset(right)
+superset: bool = left.issuperset(right)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -2646,6 +2648,14 @@ separate: bool = left.isdisjoint(right)
             .any(|expr| matches!(expr.kind, ExprKind::SetDisjoint { .. })),
         "expected set.isdisjoint() predicate lowering",
     )?;
+    for expected in [SetRelationOp::IsSubset, SetRelationOp::IsSuperset] {
+        ensure(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::SetRelation { op, .. } if op == expected),
+            ),
+            "expected set relation predicate lowering",
+        )?;
+    }
     Ok(())
 }
 

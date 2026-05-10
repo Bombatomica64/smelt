@@ -412,6 +412,17 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(right)
             )
         }
+        Rvalue::SetRelation { op, left, right } => {
+            let op_text = match op {
+                smelt_hir::SetRelationOp::IsSubset => "issubset",
+                smelt_hir::SetRelationOp::IsSuperset => "issuperset",
+            };
+            format!(
+                "set_{op_text} {}, {}",
+                operand_text(left),
+                operand_text(right)
+            )
+        }
         Rvalue::SetAdd { set, item } => {
             format!("set_add {}, {}", operand_text(set), operand_text(item))
         }

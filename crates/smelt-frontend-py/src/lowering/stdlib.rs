@@ -3,8 +3,8 @@
 use ruff_python_ast::{Expr, ExprSubscript};
 use ruff_text_size::Ranged;
 use smelt_hir::{
-    Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, RegexMatchOp, SetBinaryOp, SetRemoveOp,
-    Span, Type,
+    Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, RegexMatchOp, SetBinaryOp, SetRelationOp,
+    SetRemoveOp, Span, Type,
 };
 
 use super::{ModuleBuilder, SmeltError};
@@ -938,6 +938,8 @@ impl ModuleBuilder<'_> {
                 | "difference"
                 | "symmetric_difference"
                 | "isdisjoint"
+                | "issubset"
+                | "issuperset"
         ) {
             return Ok(None);
         }
@@ -1011,6 +1013,36 @@ impl ModuleBuilder<'_> {
             let ty = self.intern_type(Type::Bool);
             return Ok(Some(body.push_expr(HirExpr {
                 kind: ExprKind::SetDisjoint { left: set, right },
+                ty,
+                span: self.span(call.range),
+            })));
+        }
+        if matches!(method, "issubset" | "issuperset") {
+            if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range),
+                    "set.issubset()/issuperset() require exactly one set argument",
+                ));
+            }
+            let right = self.expression(&call.arguments.args[0], body)?;
+            if Self::expr_ty(body, right) != set_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(call.arguments.args[0].range()),
+                    "set.issubset()/issuperset() argument must match the receiver set type",
+                ));
+            }
+            let op = match method {
+                "issubset" => SetRelationOp::IsSubset,
+                "issuperset" => SetRelationOp::IsSuperset,
+                _ => return Ok(None),
+            };
+            let ty = self.intern_type(Type::Bool);
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::SetRelation {
+                    op,
+                    left: set,
+                    right,
+                },
                 ty,
                 span: self.span(call.range),
             })));

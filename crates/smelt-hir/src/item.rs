@@ -62,6 +62,8 @@ pub struct Function {
     pub return_ty: TypeId,
     /// Whether this function is async.
     pub is_async: bool,
+    /// Whether this function should be emitted as a native Rust test.
+    pub is_test: bool,
     /// Optional body of the function.
     pub body: Option<BodyId>,
     /// The owner of this function (module or class).

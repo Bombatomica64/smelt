@@ -33,6 +33,24 @@ fn source_for_py(py: &str) -> String {
     }
 }
 
+/// Converts Python source at `path` to generated Rust source.
+fn source_for_py_path(py: &str, path: &str) -> String {
+    let mut ctx = py_frontend::HirCtx::new();
+    assert!(
+        py_frontend::to_hir_with_path(py, FileId(0), path, &mut ctx).is_ok(),
+        "HIR"
+    );
+    let mut mir = match smelt_mir::lower_hir(&ctx.krate) {
+        Ok(mir) => mir,
+        Err(_) => panic!("MIR lowering failed"),
+    };
+    smelt_mir::opt::optimize(&mut mir);
+    match emit_source(&mir) {
+        Ok(source) => source,
+        Err(err) => panic!("Rust source: {err}"),
+    }
+}
+
 #[test]
 fn emits_main_with_console_log() {
     let source = source_for("let count = 42;\nconsole.log(count);\n");
@@ -1054,6 +1072,23 @@ for name in names:
 }
 
 #[test]
+fn emits_python_pytest_function_as_rust_test() {
+    let source = source_for_py_path(
+        r#"
+def test_truth():
+    assert True
+"#,
+        "tests/test_truth.py",
+    );
+
+    assert!(
+        source.contains("#[test]\nfn test_truth() -> Result<(), Box<dyn std::error::Error>> {")
+    );
+    assert!(source.contains("return Err(std::io::Error::new"));
+    assert!(source.contains("return Ok(());"));
+}
+
+#[test]
 fn emits_set_mutation_methods() {
     let ts_source = source_for(
         r#"
@@ -1136,6 +1171,8 @@ common: set[int] = left.intersection(right)
 only_left: set[int] = left.difference(right)
 exclusive: set[int] = left.symmetric_difference(right)
 separate: bool = left.isdisjoint(right)
+subset: bool = left.issubset(right)
+superset: bool = left.issuperset(right)
 "#,
     );
 
@@ -1144,6 +1181,8 @@ separate: bool = left.isdisjoint(right)
     assert!(source.contains(".difference(&"));
     assert!(source.contains(".symmetric_difference(&"));
     assert!(source.contains(".is_disjoint(&"));
+    assert!(source.contains(".is_subset(&"));
+    assert!(source.contains(".is_superset(&"));
     assert!(source.contains(".cloned().collect()"));
 }
 

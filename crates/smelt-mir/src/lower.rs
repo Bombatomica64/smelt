@@ -40,6 +40,19 @@ fn usize_from_u32(value: u32, context: &str) -> Result<usize, LowerError> {
     })
 }
 
+/// Finds the HIR function item that owns `body_id`, if any.
+fn function_item_for_body(
+    krate: &smelt_hir::Crate,
+    body_id: BodyId,
+) -> Option<&smelt_hir::Function> {
+    krate.items.iter().find_map(|item| {
+        let smelt_hir::Item::Function(function) = item else {
+            return None;
+        };
+        (function.body == Some(body_id)).then_some(function)
+    })
+}
+
 /// An error encountered during HIR to MIR lowering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -200,6 +213,9 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         let Some(body_id) = module.body else {
             continue;
         };
+        if module_has_test_items(krate, module) && body_is_empty(krate, body_id) {
+            continue;
+        }
         let Some(body) = krate.bodies.get(
             match usize_from_u32(body_id.0, "HIR body index does not fit in usize") {
                 Ok(value) => value,
@@ -269,6 +285,30 @@ struct LoweringCtx<'hir> {
     loop_bool_ty: TypeId,
 }
 
+/// Return whether `module` contains any function marked as a source test.
+fn module_has_test_items(krate: &smelt_hir::Crate, module: &smelt_hir::Module) -> bool {
+    module.items.iter().any(|item_id| {
+        krate
+            .items
+            .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
+            .is_some_and(
+                |item| matches!(item, smelt_hir::Item::Function(function) if function.is_test),
+            )
+    })
+}
+
+/// Return whether a HIR body has no executable statements or tail expression.
+fn body_is_empty(krate: &smelt_hir::Crate, body_id: BodyId) -> bool {
+    krate
+        .bodies
+        .get(usize::try_from(body_id.0).unwrap_or(usize::MAX))
+        .is_some_and(|body| {
+            body.blocks
+                .get(usize::try_from(body.root.0).unwrap_or(usize::MAX))
+                .is_some_and(|block| block.stmts.is_empty() && block.tail.is_none())
+        })
+}
+
 /// Target blocks for break and continue statements.
 #[derive(Debug, Clone, Copy)]
 struct LoopTargets {
@@ -327,6 +367,9 @@ impl<'hir> LoweringCtx<'hir> {
         };
         let mut function = MirFunction::new(function_id, name, origin, return_ty, span);
         function.is_async = is_async;
+        if let Some(hir_function) = function_item_for_body(krate, body_id) {
+            function.is_test = hir_function.is_test;
+        }
         let mut locals = HashMap::new();
 
         for (idx, local) in body.locals.iter().enumerate() {
@@ -1301,6 +1344,20 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::SetRelation { op, left, right } => {
+                let left_operand = self.lower_expr(*left)?;
+                let right_operand = self.lower_expr(*right)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetRelation {
+                        op: *op,
+                        left: left_operand,
+                        right: right_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::SetAdd { set, item } => {
                 let set_operand = self.lower_expr(*set)?;
                 let item_operand = self.lower_expr(*item)?;
@@ -2136,6 +2193,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListContains { .. }
             | ExprKind::SetContains { .. }
             | ExprKind::SetDisjoint { .. }
+            | ExprKind::SetRelation { .. }
             | ExprKind::SetAdd { .. }
             | ExprKind::SetRemove { .. }
             | ExprKind::SetClear { .. }

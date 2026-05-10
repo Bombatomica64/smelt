@@ -489,7 +489,14 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Emits a free function definition.
     fn emit(&mut self, out: &mut String) -> Result<(), EmitError> {
         let name = self.symbol_name(self.function.name)?;
-        if name == "main" && self.function.return_ty == self.none_ty {
+        if self.function.is_test {
+            if self.function.is_async {
+                out.push_str("#[tokio::test]\n");
+            } else {
+                out.push_str("#[test]\n");
+            }
+        }
+        if !self.function.is_test && name == "main" && self.function.return_ty == self.none_ty {
             if self.function.can_throw {
                 if self.function.is_async {
                     out.push_str(
@@ -1349,6 +1356,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::SetContains { set, item } => self.set_contains_text(set, item),
             Rvalue::SetDisjoint { left, right } => self.set_disjoint_text(left, right),
+            Rvalue::SetRelation { op, left, right } => self.set_relation_text(*op, left, right),
             Rvalue::SetAdd { set, item } => self.set_add_text(set, item, dest_ty),
             Rvalue::SetRemove { op, set, item } => self.set_remove_text(*op, set, item, dest_ty),
             Rvalue::SetClear { set } => self.collection_clear_text(set, dest_ty, "set"),
@@ -2164,20 +2172,50 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Converts a set disjointness predicate to Rust text.
     fn set_disjoint_text(&self, left: &Operand, right: &Operand) -> Result<String, EmitError> {
-        let left_ty = self.operand_ty(left)?;
-        if self.operand_ty(right)? != left_ty {
-            return Err(EmitError::new(
-                "set isdisjoint operands must have the same set type",
-            ));
-        }
-        if !matches!(self.mir.types.get(left_ty), Some(Type::Set(_))) {
-            return Err(EmitError::new("set isdisjoint operands must be sets"));
-        }
+        self.validate_set_pair_operands(left, right, "set isdisjoint")?;
         Ok(format!(
             "{}.is_disjoint(&{})",
             self.operand_text(left)?,
             self.operand_text(right)?
         ))
+    }
+
+    /// Converts a set relation predicate to Rust text.
+    fn set_relation_text(
+        &self,
+        op: smelt_hir::SetRelationOp,
+        left: &Operand,
+        right: &Operand,
+    ) -> Result<String, EmitError> {
+        self.validate_set_pair_operands(left, right, "set relation")?;
+        let method = match op {
+            smelt_hir::SetRelationOp::IsSubset => "is_subset",
+            smelt_hir::SetRelationOp::IsSuperset => "is_superset",
+        };
+        Ok(format!(
+            "{}.{method}(&{})",
+            self.operand_text(left)?,
+            self.operand_text(right)?
+        ))
+    }
+
+    /// Validates two same-typed set operands.
+    fn validate_set_pair_operands(
+        &self,
+        left: &Operand,
+        right: &Operand,
+        context: &str,
+    ) -> Result<TypeId, EmitError> {
+        let left_ty = self.operand_ty(left)?;
+        if self.operand_ty(right)? != left_ty {
+            return Err(EmitError::new(format!(
+                "{context} operands must have the same set type"
+            )));
+        }
+        if !matches!(self.mir.types.get(left_ty), Some(Type::Set(_))) {
+            return Err(EmitError::new(format!("{context} operands must be sets")));
+        }
+        Ok(left_ty)
     }
 
     /// Validates a set receiver and item operand, returning the set type.

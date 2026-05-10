@@ -556,6 +556,15 @@ pub enum Rvalue {
         /// Right set operand.
         right: Operand,
     },
+    /// Test a relation between two sets.
+    SetRelation {
+        /// Set relation to evaluate.
+        op: smelt_hir::SetRelationOp,
+        /// Left set operand.
+        left: Operand,
+        /// Right set operand.
+        right: Operand,
+    },
     /// Insert an item into a set.
     SetAdd {
         /// Set value to mutate.

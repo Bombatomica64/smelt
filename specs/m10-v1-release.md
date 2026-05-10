@@ -46,6 +46,7 @@ Plain markdown is fine; mdBook or a simple static site generator is fine. No fan
 - **The FastAPI demo walkthrough.** Same.
 - **FAQ.** "Why does it clone everything?" "Why no LSP?" "Will it ever support `any`?" etc.
 - **Roadmap.** What's coming in v1.1, v2.0.
+- **Testing strategy.** Explain how source-language tests will lower to native Rust tests over time; summarize `specs/testing-strategy.md`.
 
 ### Examples
 
@@ -74,6 +75,7 @@ Each example has its own README explaining what it demonstrates.
 - [ ] The "supported subset" doc lists every feature with a green check.
 - [ ] The "unsupported subset" doc lists every known limitation honestly.
 - [ ] CI is green on the release commit.
+- [ ] The docs explain the difference between current snapshot/runtime tests and future `smelt test` source-test lowering.
 
 ## Out of Scope
 

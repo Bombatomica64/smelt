@@ -37,6 +37,8 @@ Source (.ts / .py)
    Rust crate ──> cargo build
 ```
 
+Tests follow the same philosophy. Source-language tests should eventually lower into Rust `#[test]` functions and run through `cargo test`; see `specs/testing-strategy.md`.
+
 ## Design Principles
 
 **Two IRs, not one.** HIR keeps high-level constructs (classes, methods, exceptions, comprehensions) so frontend lowering stays simple. MIR is closer to Rust's mental model so codegen stays simple. Lowering passes between them are where the interesting work happens.
@@ -89,12 +91,19 @@ Source (.ts / .py)
 - Provides helpers for things that don't have a direct Rust equivalent and need glue (e.g. JS-style coercions, Python-ish dict helpers if needed).
 - Kept as small as possible — anything that can be lowered inline should be.
 
+### `smelt-test`
+
+- A small Rust crate for generated tests, added when `smelt test` lands.
+- Provides assertion helpers and limited pytest/Vitest/Jest compatibility glue.
+- Does not embed pytest, Vitest, Node, or CPython; frontends lower supported test APIs into native Rust tests.
+
 ### `smelt-cli`
 
 - Reads `Smelt.toml`.
 - Discovers source files.
 - Drives the pipeline.
 - Surfaces errors with source locations in `file:line:col` format.
+- Eventually drives `smelt test` by emitting Rust tests and invoking `cargo test`.
 
 ## Cross-Language Imports
 

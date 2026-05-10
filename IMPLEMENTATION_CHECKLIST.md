@@ -481,11 +481,11 @@ runtime errors.
     - [x] Dict `clear`.
     - [x] Dict `copy`.
   - [ ] Set construction and `add`, `remove`, `discard`, `contains`, `union`, `intersection`,
-        `difference`, `symmetric_difference`, `isdisjoint`, and iteration.
+        `difference`, `symmetric_difference`, `isdisjoint`, `issubset`, `issuperset`, and iteration.
     - [x] Set literals and `in` / `not in`.
     - [x] Set `add`, `remove`, `discard`, `clear`, and `copy`.
     - [x] Set `union`, `intersection`, `difference`, and `symmetric_difference`.
-    - [x] Set `isdisjoint`.
+    - [x] Set `isdisjoint`, `issubset`, and `issuperset`.
     - [x] Set iteration in `for` loops via value projection.
   - [x] Dict iteration in `for` loops via key projection.
   - [ ] List, dict, and set comprehensions once comprehension lowering is in scope.

@@ -11,8 +11,9 @@ use std::convert::TryFrom;
 
 use ruff_python_ast::{
     BoolOp, CmpOp, ElifElseClause, Expr, ModModule, Number, Operator, Pattern as RuffPattern,
-    PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAugAssign, StmtClassDef, StmtFor,
-    StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch, UnaryOp as RuffUnaryOp,
+    PatternMatchAs, Singleton, Stmt, StmtAnnAssign, StmtAssert, StmtAugAssign, StmtClassDef,
+    StmtFor, StmtFunctionDef, StmtIf, StmtImport, StmtImportFrom, StmtMatch,
+    UnaryOp as RuffUnaryOp,
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
@@ -535,6 +536,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params,
             return_ty,
             is_async: false,
+            is_test: false,
             body: Some(body_id),
             owner,
         });
@@ -635,6 +637,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params,
             return_ty: none_ty,
             is_async: false,
+            is_test: false,
             body: Some(body_id),
             owner: FunctionOwner::Constructor { class: class_sym },
         });
@@ -743,6 +746,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params,
             return_ty,
             is_async: func.is_async,
+            is_test: self.is_pytest_test_function(func),
             body: Some(body_id),
             owner: FunctionOwner::Module,
         });
@@ -1087,6 +1091,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Ok(())
             }
 
+            // `assert expr[, message]`
+            Stmt::Assert(assert_stmt) => self.assert_statement(assert_stmt, body, block),
+
             // Standalone expression statement (e.g. a function call).
             Stmt::Expr(s) => {
                 let expr_id = self.expression(&s.value, body)?;
@@ -1123,7 +1130,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             | Stmt::TypeAlias(_)
             | Stmt::With(_)
             | Stmt::Try(_)
-            | Stmt::Assert(_)
             | Stmt::Global(_)
             | Stmt::Nonlocal(_)
             | Stmt::IpyEscapeCommand(_) => Err(SmeltError::unsupported(
@@ -1167,6 +1173,59 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let pat = body.push_pattern(HirPattern::Binding(local));
         body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value });
         Ok(())
+    }
+
+    /// Lower a Python assert statement to a conditional failure path.
+    fn assert_statement(
+        &mut self,
+        assert_stmt: &StmtAssert,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let cond = self.expression(&assert_stmt.test, body)?;
+        let bool_ty = self.intern_type(Type::Bool);
+        let negated = body.push_expr(HirExpr {
+            kind: ExprKind::UnaryOp {
+                op: UnaryOp::Not,
+                operand: cond,
+            },
+            ty: bool_ty,
+            span: self.span(assert_stmt.range),
+        });
+        let failure_block = body.push_block(self.span(assert_stmt.range));
+        let message = assert_stmt
+            .msg
+            .as_deref()
+            .map(|expr| self.expression(expr, body))
+            .transpose()?
+            .unwrap_or_else(|| {
+                self.string_literal_expr("assertion failed", assert_stmt.range, body)
+            });
+        body.push_stmt_to_block(failure_block, HirStmt::Throw(message));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::If {
+                cond: negated,
+                then_block: failure_block,
+                else_block: None,
+            },
+        );
+        Ok(())
+    }
+
+    /// Create a string literal expression for synthesized diagnostics.
+    fn string_literal_expr(
+        &mut self,
+        value: &str,
+        range: TextRange,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let ty = self.intern_type(Type::String);
+        body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::String(value.to_owned())),
+            ty,
+            span: self.span(range),
+        })
     }
 
     /// Return whether an assignment target needs pattern-based binding.
@@ -3776,6 +3835,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params: Vec::new(),
             return_ty: none_ty,
             is_async: false,
+            is_test: false,
             body: None,
             owner: FunctionOwner::Module,
         });

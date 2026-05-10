@@ -503,6 +503,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::SetDisjoint { left, right } => {
             format!("set_isdisjoint {}, {}", expr_ref(*left), expr_ref(*right))
         }
+        ExprKind::SetRelation { op, left, right } => {
+            let op_text = match op {
+                crate::expr::SetRelationOp::IsSubset => "issubset",
+                crate::expr::SetRelationOp::IsSuperset => "issuperset",
+            };
+            format!("set_{op_text} {}, {}", expr_ref(*left), expr_ref(*right))
+        }
         ExprKind::SetAdd { set, item } => {
             format!("set_add {}, {}", expr_ref(*set), expr_ref(*item))
         }
@@ -781,6 +788,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListContains { .. }
         | ExprKind::SetContains { .. }
         | ExprKind::SetDisjoint { .. }
+        | ExprKind::SetRelation { .. }
         | ExprKind::SetAdd { .. }
         | ExprKind::SetRemove { .. }
         | ExprKind::SetClear { .. }

@@ -228,6 +228,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
         }
+        Rvalue::SetRelation { left, right, .. } => {
+            rewrite_operand_except(left, aliases, dest)
+                | rewrite_operand_except(right, aliases, dest)
+        }
         Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
             rewrite_operand_except(set, aliases, dest) | rewrite_operand_except(item, aliases, dest)
         }
