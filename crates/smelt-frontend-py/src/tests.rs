@@ -4,8 +4,9 @@ use crate::{HirCtx, SmeltError, to_hir};
 use smelt_hir::{
     AsyncOp, Body, BodyId, BoolFoldOp, DictProjectionOp, ExprKind, FileId, Item, ItemId, Language,
     Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    Pattern, PatternId, RegexMatchOp, SetBinaryOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type,
+    Pattern, PatternId, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRemoveOp, Stmt,
+    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Symbol, Type,
 };
 use std::convert::TryFrom;
 
@@ -1014,6 +1015,8 @@ empty_names: dict[str, int] = dict()
 coords: tuple[int, int] = (1, 2)
 same_coords: tuple[int, int] = tuple(coords)
 empty_tuple: tuple[()] = tuple()
+item_list: list[int] = list(items)
+name_keys: list[str] = list(names)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -1042,6 +1045,30 @@ empty_tuple: tuple[()] = tuple()
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::DictCopy { .. })),
         "expected dict constructor copy lowering",
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::SetProjection {
+                    op: SetProjectionOp::Values,
+                    ..
+                }
+            )
+        }),
+        "expected list(set_value) to lower through set values projection",
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::DictProjection {
+                    op: DictProjectionOp::Keys,
+                    ..
+                }
+            )
+        }),
+        "expected list(dict_value) to lower through dict keys projection",
     )?;
     ensure(
         body.exprs

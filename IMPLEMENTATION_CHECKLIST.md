@@ -430,6 +430,7 @@ runtime errors.
   - [ ] `list(...)`, `dict(...)`, `tuple(...)`, and `set(...)` constructors.
     - [x] Empty annotated `list()`, `dict()`, `set()`, and `tuple()`.
     - [x] Same-container copy forms: `list(list_value)`, `dict(dict_value)`, `set(set_value)`, and `tuple(tuple_value)`.
+    - [x] `list(set_value)` and `list(dict_value)`.
     - [ ] Cross-iterable constructor forms such as `list(tuple_value)`, `set(list_value)`, `tuple(list_value)`, and `dict(iterable_pairs)`.
   - [ ] `isinstance(...)` and `issubclass(...)` where static types make them decidable.
   - [ ] `print(...)` formatting parity and stderr support if needed.

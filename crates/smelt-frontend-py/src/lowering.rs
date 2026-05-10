@@ -19,9 +19,9 @@ use smelt_hir::{
     AsyncOp, BinOp, Body, Class, ClassKind, DictProjectionOp, Expr as HirExpr, ExprKind, Field,
     FileId, Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal,
     LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, Param, Pattern as HirPattern, SourceFile, Span, Stmt as HirStmt,
-    StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
+    NumericUnaryFuncOp, Param, Pattern as HirPattern, SetProjectionOp, SourceFile, Span,
+    Stmt as HirStmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
 };
 
 use crate::helpers::{
@@ -2454,17 +2454,36 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let source = self.expression(arg, body)?;
         let source_ty = Self::expr_ty(body, source);
-        let Some(Type::List(_)) = self.ctx.krate.types.get(source_ty) else {
-            return Err(SmeltError::unsupported(
-                span,
-                "list(value) currently requires a list value",
-            ));
+        let (kind, ty) = match self.ctx.krate.types.get(source_ty) {
+            Some(Type::List(_)) => (ExprKind::ListCopy { list: source }, source_ty),
+            Some(Type::Set(item_type)) => {
+                let item_ty = *item_type;
+                (
+                    ExprKind::SetProjection {
+                        op: SetProjectionOp::Values,
+                        set: source,
+                    },
+                    self.intern_type(Type::List(item_ty)),
+                )
+            }
+            Some(Type::Dict(key_type, _)) => {
+                let key_ty = *key_type;
+                (
+                    ExprKind::DictProjection {
+                        op: DictProjectionOp::Keys,
+                        dict: source,
+                    },
+                    self.intern_type(Type::List(key_ty)),
+                )
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "list(value) currently requires a list, set, or dict value",
+                ));
+            }
         };
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListCopy { list: source },
-            ty: source_ty,
-            span,
-        })))
+        Ok(Some(body.push_expr(HirExpr { kind, ty, span })))
     }
 
     /// Lower `set(value)` for the currently supported direct container inputs.

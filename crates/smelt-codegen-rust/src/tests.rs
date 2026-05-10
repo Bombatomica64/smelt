@@ -535,6 +535,8 @@ empty_items: set[int] = set()
 names: dict[str, int] = {"Ada": 1}
 copied_names: dict[str, int] = dict(names)
 empty_names: dict[str, int] = dict()
+item_list: list[int] = list(items)
+name_keys: list[str] = list(names)
 "#,
     );
 
@@ -542,6 +544,8 @@ empty_names: dict[str, int] = dict()
     assert!(source.contains("vec![]"));
     assert!(source.contains("::std::collections::HashSet::from([])"));
     assert!(source.contains("::std::collections::HashMap::from([])"));
+    assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
 }
 
 #[test]
