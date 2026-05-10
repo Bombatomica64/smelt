@@ -23,6 +23,52 @@ For v1, Smelt should not try to transpile Vitest or pytest internals. The v1 goa
 
 Do not rely on external repo tests as a signal until the workspace's own checks are green.
 
+### External Probe: 2026-05-10
+
+Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big-probe`.
+
+`date-fns/date-fns`:
+
+- Manifest slice:
+  - `src/constants/index.ts`
+  - `src/quartersToMonths/index.ts`
+  - `src/quartersToMonths/test.ts`
+- `vitest` globals are no longer the first failure.
+- Full slice still fails in `src/quartersToMonths/index.ts` on unresolved imported constant `monthsInQuarter`.
+- Test file alone fails on unresolved imported function `quartersToMonths`.
+- Next blocker is still the TypeScript import/export graph, not Vitest public API lowering.
+
+`Textualize/rich`:
+
+- Manifest slice:
+  - `rich/_null_file.py`
+  - `tests/test_null_file.py`
+- Pytest unannotated test discovery is no longer the first failure.
+- Library file still fails on `class NullFile(IO[str])` because complex generic base classes are unsupported.
+- `NULL_FILE = NullFile()` is then unresolved because the class failed to lower.
+- Test file alone fails on local variable `file = NullFile()` being unresolved because imported module symbols are not available in that isolated run.
+- Next blockers are Python class/protocol support and import binding, not plain pytest discovery.
+
+`Effect-TS/effect`:
+
+- Manifest slice:
+  - `packages/effect/src/Number.ts`
+  - `packages/typeclass/src/data/Number.ts`
+  - `packages/typeclass/test/data/Number.test.ts`
+- `@effect/vitest` and `describe.concurrent` are no longer the first failures.
+- Slice still fails on unresolved namespace import `NumberInstances`.
+- Next blockers are TypeScript namespace import/export binding and exported object/arrow-function runtime subset.
+
+`encode/httpx`:
+
+- Manifest slice:
+  - `httpx/_status_codes.py`
+  - `tests/test_status_codes.py`
+- Pytest unannotated test discovery is no longer the first failure.
+- Library file still fails on untyped `cls` in `codes.__new__`, unresolved `__all__`, and unresolved class name `codes`.
+- Test file alone fails on unresolved module import `httpx` and method/member calls such as `httpx.codes.get_reason_phrase(...)`.
+- Next blockers are Python module/package imports, `IntEnum`/class body handling, classmethod/`cls`, and member-call lowering.
+
 ## Priority 0: Existing Workspace Health
 
 - [x] Fix `smelt-codegen-rust::tests::emits_typescript_tuple_index`.
