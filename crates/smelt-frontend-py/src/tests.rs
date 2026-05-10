@@ -441,6 +441,41 @@ fn pytest_suffix_test_function_without_return_annotation_lowers_to_none() -> Tes
 }
 
 #[test]
+fn pytest_plain_assert_lowers_to_conditional_failure() -> TestResult {
+    let source = py!("def test_truth():\n    assert True\n");
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_module(source, "tests/test_truth.py", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let item_id = *module
+        .items
+        .first()
+        .ok_or_else(|| "expected lowered pytest test function".to_owned())?;
+    let Item::Function(function) = ctx
+        .krate
+        .items
+        .get(usize::try_from(item_id.0).map_err(|err| err.to_string())?)
+        .ok_or_else(|| "missing lowered pytest test function item".to_owned())?
+    else {
+        return Err("expected pytest test function item".to_owned());
+    };
+    ensure(
+        function.is_test,
+        "pytest test function should be marked as test",
+    )?;
+    let body_id = function
+        .body
+        .ok_or_else(|| "expected pytest test body".to_owned())?;
+    let body = body(&ctx, body_id)?;
+    ensure(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::If { .. })),
+        "expected assert to lower to if/throw shape",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn print_call_lowers() -> TestResult {
     let source = py!(r#"
 x: int = 1
@@ -2580,6 +2615,7 @@ merged: set[int] = left.union(right)
 common: set[int] = left.intersection(right)
 only_left: set[int] = left.difference(right)
 exclusive: set[int] = left.symmetric_difference(right)
+separate: bool = left.isdisjoint(right)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -2604,6 +2640,12 @@ exclusive: set[int] = left.symmetric_difference(right)
             "expected set algebra lowering",
         )?;
     }
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetDisjoint { .. })),
+        "expected set.isdisjoint() predicate lowering",
+    )?;
     Ok(())
 }
 

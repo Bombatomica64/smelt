@@ -937,6 +937,7 @@ impl ModuleBuilder<'_> {
                 | "intersection"
                 | "difference"
                 | "symmetric_difference"
+                | "isdisjoint"
         ) {
             return Ok(None);
         }
@@ -990,6 +991,27 @@ impl ModuleBuilder<'_> {
                     right,
                 },
                 ty: set_ty,
+                span: self.span(call.range),
+            })));
+        }
+        if method == "isdisjoint" {
+            if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range),
+                    "set.isdisjoint() requires exactly one set argument",
+                ));
+            }
+            let right = self.expression(&call.arguments.args[0], body)?;
+            if Self::expr_ty(body, right) != set_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(call.arguments.args[0].range()),
+                    "set.isdisjoint() argument must match the receiver set type",
+                ));
+            }
+            let ty = self.intern_type(Type::Bool);
+            return Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::SetDisjoint { left: set, right },
+                ty,
                 span: self.span(call.range),
             })));
         }

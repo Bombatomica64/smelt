@@ -1135,6 +1135,7 @@ merged: set[int] = left.union(right)
 common: set[int] = left.intersection(right)
 only_left: set[int] = left.difference(right)
 exclusive: set[int] = left.symmetric_difference(right)
+separate: bool = left.isdisjoint(right)
 "#,
     );
 
@@ -1142,6 +1143,7 @@ exclusive: set[int] = left.symmetric_difference(right)
     assert!(source.contains(".intersection(&"));
     assert!(source.contains(".difference(&"));
     assert!(source.contains(".symmetric_difference(&"));
+    assert!(source.contains(".is_disjoint(&"));
     assert!(source.contains(".cloned().collect()"));
 }
 

@@ -243,6 +243,13 @@ pub enum ExprKind {
         /// The item to search for.
         item: ExprId,
     },
+    /// Test whether two sets have no shared items.
+    SetDisjoint {
+        /// Left set operand.
+        left: ExprId,
+        /// Right set operand.
+        right: ExprId,
+    },
     /// Insert an item into a set.
     SetAdd {
         /// Set value to mutate.

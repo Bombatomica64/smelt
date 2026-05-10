@@ -1288,6 +1288,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::SetDisjoint { left, right } => {
+                let left_operand = self.lower_expr(*left)?;
+                let right_operand = self.lower_expr(*right)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::SetDisjoint {
+                        left: left_operand,
+                        right: right_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::SetAdd { set, item } => {
                 let set_operand = self.lower_expr(*set)?;
                 let item_operand = self.lower_expr(*item)?;
@@ -2122,6 +2135,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringSlice { .. }
             | ExprKind::ListContains { .. }
             | ExprKind::SetContains { .. }
+            | ExprKind::SetDisjoint { .. }
             | ExprKind::SetAdd { .. }
             | ExprKind::SetRemove { .. }
             | ExprKind::SetClear { .. }

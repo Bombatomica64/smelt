@@ -500,6 +500,9 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::SetContains { set, item } => {
             format!("set_contains {}, {}", expr_ref(*set), expr_ref(*item))
         }
+        ExprKind::SetDisjoint { left, right } => {
+            format!("set_isdisjoint {}, {}", expr_ref(*left), expr_ref(*right))
+        }
         ExprKind::SetAdd { set, item } => {
             format!("set_add {}, {}", expr_ref(*set), expr_ref(*item))
         }
@@ -777,6 +780,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::StringSlice { .. }
         | ExprKind::ListContains { .. }
         | ExprKind::SetContains { .. }
+        | ExprKind::SetDisjoint { .. }
         | ExprKind::SetAdd { .. }
         | ExprKind::SetRemove { .. }
         | ExprKind::SetClear { .. }

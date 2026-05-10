@@ -125,6 +125,8 @@ pub struct MirFunction {
     pub origin: HirOrigin,
     /// Whether this is an async function.
     pub is_async: bool,
+    /// Whether this function should be emitted as a native Rust test.
+    pub is_test: bool,
     /// Whether this function can return through an uncaught throw path.
     pub can_throw: bool,
     /// Parameter local IDs.
@@ -153,6 +155,7 @@ impl MirFunction {
             name,
             origin,
             is_async: false,
+            is_test: false,
             can_throw: false,
             params: Vec::new(),
             return_ty,
@@ -545,6 +548,13 @@ pub enum Rvalue {
         set: Operand,
         /// Item to search for.
         item: Operand,
+    },
+    /// Test whether two sets have no shared items.
+    SetDisjoint {
+        /// Left set operand.
+        left: Operand,
+        /// Right set operand.
+        right: Operand,
     },
     /// Insert an item into a set.
     SetAdd {

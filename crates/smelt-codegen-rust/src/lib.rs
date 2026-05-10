@@ -1348,6 +1348,7 @@ impl<'mir> FunctionEmitter<'mir> {
             } => self.string_slice_text(operand, start.as_ref(), end.as_ref()),
             Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
             Rvalue::SetContains { set, item } => self.set_contains_text(set, item),
+            Rvalue::SetDisjoint { left, right } => self.set_disjoint_text(left, right),
             Rvalue::SetAdd { set, item } => self.set_add_text(set, item, dest_ty),
             Rvalue::SetRemove { op, set, item } => self.set_remove_text(*op, set, item, dest_ty),
             Rvalue::SetClear { set } => self.collection_clear_text(set, dest_ty, "set"),
@@ -2158,6 +2159,24 @@ impl<'mir> FunctionEmitter<'mir> {
             "{}.contains(&{})",
             self.operand_text(set)?,
             self.operand_text(item)?
+        ))
+    }
+
+    /// Converts a set disjointness predicate to Rust text.
+    fn set_disjoint_text(&self, left: &Operand, right: &Operand) -> Result<String, EmitError> {
+        let left_ty = self.operand_ty(left)?;
+        if self.operand_ty(right)? != left_ty {
+            return Err(EmitError::new(
+                "set isdisjoint operands must have the same set type",
+            ));
+        }
+        if !matches!(self.mir.types.get(left_ty), Some(Type::Set(_))) {
+            return Err(EmitError::new("set isdisjoint operands must be sets"));
+        }
+        Ok(format!(
+            "{}.is_disjoint(&{})",
+            self.operand_text(left)?,
+            self.operand_text(right)?
         ))
     }
 

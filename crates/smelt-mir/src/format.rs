@@ -405,6 +405,13 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::SetContains { set, item } => {
             format!("set_contains {}, {}", operand_text(set), operand_text(item))
         }
+        Rvalue::SetDisjoint { left, right } => {
+            format!(
+                "set_isdisjoint {}, {}",
+                operand_text(left),
+                operand_text(right)
+            )
+        }
         Rvalue::SetAdd { set, item } => {
             format!("set_add {}, {}", operand_text(set), operand_text(item))
         }

@@ -213,6 +213,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, set, errors);
             validate_operand_exists(function, item, errors);
         }
+        Rvalue::SetDisjoint { left, right } => {
+            validate_operand_exists(function, left, errors);
+            validate_operand_exists(function, right, errors);
+        }
         Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
             validate_operand_exists(function, set, errors);
             validate_operand_exists(function, item, errors);
@@ -705,6 +709,10 @@ fn validate_rvalue(
         Rvalue::SetContains { set, item } => {
             validate_operand(function, definitions, set, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::SetDisjoint { left, right } => {
+            validate_operand(function, definitions, left, errors);
+            validate_operand(function, definitions, right, errors);
         }
         Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
             validate_operand(function, definitions, set, errors);
