@@ -242,7 +242,7 @@ TypeScript:
 - [x] String `.toLowerCase`
 - [ ] `Date` should be rejected clearly unless implemented.
 - [ ] `instanceof`
-- [ ] `Infinity`
+- [x] `Infinity`
 - [ ] Array iteration and readonly array parameters
 - [ ] Exported object constants
   - [x] Exported primitive literal constants.

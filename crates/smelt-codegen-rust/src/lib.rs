@@ -4438,6 +4438,16 @@ fn constant_text(constant: &Constant) -> String {
         Constant::Bool(value) => value.to_string(),
         Constant::Int(value) => value.to_string(),
         Constant::Float(value) => {
+            if value.is_infinite() {
+                return if value.is_sign_negative() {
+                    "f64::NEG_INFINITY".to_owned()
+                } else {
+                    "f64::INFINITY".to_owned()
+                };
+            }
+            if value.is_nan() {
+                return "f64::NAN".to_owned();
+            }
             if value.fract() == 0.0 {
                 format!("{value:.1}")
             } else {
@@ -4455,6 +4465,16 @@ fn hir_literal_text(literal: &smelt_hir::Literal) -> String {
         smelt_hir::Literal::Bool(value) => value.to_string(),
         smelt_hir::Literal::Int(value) => value.to_string(),
         smelt_hir::Literal::Float(value) => {
+            if value.is_infinite() {
+                return if value.is_sign_negative() {
+                    "f64::NEG_INFINITY".to_owned()
+                } else {
+                    "f64::INFINITY".to_owned()
+                };
+            }
+            if value.is_nan() {
+                return "f64::NAN".to_owned();
+            }
             if value.fract() == 0.0 {
                 format!("{value:.1}")
             } else {

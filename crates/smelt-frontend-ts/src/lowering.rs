@@ -6710,12 +6710,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
     /// Create an identifier expression from a local variable.
     fn identifier_expression(
-        &self,
+        &mut self,
         name: &str,
         start: u32,
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if name == "Infinity" {
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(f64::INFINITY)),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         let Some(local) = self.locals.get(name).copied() else {
             if let Some(value) = self.const_literals.get(name) {
                 return Ok(body.push_expr(Expr {

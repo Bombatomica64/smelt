@@ -387,6 +387,18 @@ const value = Number.parseInt("42");
 }
 
 #[test]
+fn emits_typescript_infinity_identifier() {
+    let source = source_for(
+        r#"
+const upper = Infinity;
+const lower = -Infinity;
+"#,
+    );
+
+    assert!(source.contains("f64::INFINITY"));
+}
+
+#[test]
 fn emits_typescript_global_numeric_parse_calls() {
     let source = source_for(
         r#"
