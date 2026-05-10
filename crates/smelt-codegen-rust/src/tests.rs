@@ -491,6 +491,28 @@ copied: list[int] = values.copy()
 }
 
 #[test]
+fn emits_python_container_constructors() {
+    let source = source_for_py(
+        r#"
+values: list[int] = [1, 2]
+copied_values: list[int] = list(values)
+empty_values: list[int] = list()
+items: set[int] = {1, 2}
+copied_items: set[int] = set(items)
+empty_items: set[int] = set()
+names: dict[str, int] = {"Ada": 1}
+copied_names: dict[str, int] = dict(names)
+empty_names: dict[str, int] = dict()
+"#,
+    );
+
+    assert!(source.matches(".clone().clone()").count() >= 3);
+    assert!(source.contains("vec![]"));
+    assert!(source.contains("::std::collections::HashSet::from([])"));
+    assert!(source.contains("::std::collections::HashMap::from([])"));
+}
+
+#[test]
 fn emits_python_list_count_method() {
     let source = source_for_py(
         r#"

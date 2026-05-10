@@ -1000,6 +1000,78 @@ copied: list[int] = values.copy()
 }
 
 #[test]
+fn container_constructors_lower() -> TestResult {
+    let source = py!(r#"
+values: list[int] = [1, 2]
+copied_values: list[int] = list(values)
+empty_values: list[int] = list()
+items: set[int] = {1, 2}
+copied_items: set[int] = set(items)
+empty_items: set[int] = set()
+names: dict[str, int] = {"Ada": 1}
+copied_names: dict[str, int] = dict(names)
+empty_names: dict[str, int] = dict()
+coords: tuple[int, int] = (1, 2)
+same_coords: tuple[int, int] = tuple(coords)
+empty_tuple: tuple[()] = tuple()
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCopy { .. })),
+        "expected list constructor copy lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::SetCopy { .. })),
+        "expected set constructor copy lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictCopy { .. })),
+        "expected dict constructor copy lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::ListLit(ref items) if items.is_empty()))
+            .count()
+            >= 1,
+        "expected empty list constructor lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::SetLit(ref items) if items.is_empty()))
+            .count()
+            >= 1,
+        "expected empty set constructor lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(
+                |expr| matches!(expr.kind, ExprKind::DictLit(ref entries) if entries.is_empty()),
+            )
+            .count()
+            >= 1,
+        "expected empty dict constructor lowering",
+    )
+}
+
+#[test]
 fn list_count_method_lowers() -> TestResult {
     let source = py!(r#"
 values: list[int] = [1, 2, 1]

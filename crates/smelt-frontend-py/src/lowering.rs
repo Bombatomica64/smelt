@@ -2189,6 +2189,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
         if let Expr::Name(name) = call.func.as_ref() {
+            if matches!(name.id.as_str(), "list" | "set" | "dict" | "tuple")
+                && let Some(expr) =
+                    self.container_constructor_call_expression(call, body, type_hint)?
+            {
+                return Ok(expr);
+            }
             if name.id.as_str() == "abs" {
                 return self.numeric_abs_call_expression(call, body);
             }
@@ -2316,6 +2322,194 @@ impl<'ctx> ModuleBuilder<'ctx> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// Lower direct Python container constructor calls.
+    fn container_constructor_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        type_hint: Option<TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let constructor = name.id.as_str();
+        if !matches!(constructor, "list" | "set" | "dict" | "tuple") {
+            return Ok(None);
+        }
+        let span = self.span(call.range);
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "container constructors do not support keyword arguments yet",
+            ));
+        }
+        match (constructor, call.arguments.args.as_ref()) {
+            ("list", []) => {
+                let Some(ty) = type_hint else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "empty list() requires a list type annotation",
+                    ));
+                };
+                if !matches!(self.ctx.krate.types.get(ty), Some(Type::List(_))) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "list() type annotation must be list[T]",
+                    ));
+                }
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::ListLit(Vec::new()),
+                    ty,
+                    span,
+                })))
+            }
+            ("set", []) => {
+                let Some(ty) = type_hint else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "empty set() requires a set type annotation",
+                    ));
+                };
+                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Set(_))) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "set() type annotation must be set[T]",
+                    ));
+                }
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::SetLit(Vec::new()),
+                    ty,
+                    span,
+                })))
+            }
+            ("dict", []) => {
+                let Some(ty) = type_hint else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "empty dict() requires a dict type annotation",
+                    ));
+                };
+                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "dict() type annotation must be dict[K, V]",
+                    ));
+                }
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::DictLit(Vec::new()),
+                    ty,
+                    span,
+                })))
+            }
+            ("tuple", []) => {
+                let ty = type_hint.unwrap_or_else(|| self.intern_type(Type::Tuple(Vec::new())));
+                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "tuple() type annotation must be tuple[...]",
+                    ));
+                }
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::TupleLit(Vec::new()),
+                    ty,
+                    span,
+                })))
+            }
+            ("list", [arg]) => self.list_constructor_from_arg(arg, body, span),
+            ("set", [arg]) => self.set_constructor_from_arg(arg, body, span),
+            ("dict", [arg]) => self.dict_constructor_from_arg(arg, body, span),
+            ("tuple", [arg]) => self.tuple_constructor_from_arg(arg, body, span),
+            _ => Err(SmeltError::unsupported(
+                span,
+                "container constructors support zero arguments or one same-container argument",
+            )),
+        }
+    }
+
+    /// Lower `list(value)` for the currently supported direct container inputs.
+    fn list_constructor_from_arg(
+        &mut self,
+        arg: &Expr,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let source = self.expression(arg, body)?;
+        let source_ty = Self::expr_ty(body, source);
+        let Some(Type::List(_)) = self.ctx.krate.types.get(source_ty) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "list(value) currently requires a list value",
+            ));
+        };
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListCopy { list: source },
+            ty: source_ty,
+            span,
+        })))
+    }
+
+    /// Lower `set(value)` for the currently supported direct container inputs.
+    fn set_constructor_from_arg(
+        &mut self,
+        arg: &Expr,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let source = self.expression(arg, body)?;
+        let source_ty = Self::expr_ty(body, source);
+        let Some(Type::Set(_)) = self.ctx.krate.types.get(source_ty) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "set(value) currently requires a set value",
+            ));
+        };
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::SetCopy { set: source },
+            ty: source_ty,
+            span,
+        })))
+    }
+
+    /// Lower `dict(value)` for the currently supported direct container inputs.
+    fn dict_constructor_from_arg(
+        &mut self,
+        arg: &Expr,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let source = self.expression(arg, body)?;
+        let source_ty = Self::expr_ty(body, source);
+        let Some(Type::Dict(_, _)) = self.ctx.krate.types.get(source_ty) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "dict(value) currently requires a dict value",
+            ));
+        };
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::DictCopy { dict: source },
+            ty: source_ty,
+            span,
+        })))
+    }
+
+    /// Lower `tuple(value)` for the currently supported direct container inputs.
+    fn tuple_constructor_from_arg(
+        &mut self,
+        arg: &Expr,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let source = self.expression(arg, body)?;
+        let source_ty = Self::expr_ty(body, source);
+        let Some(Type::Tuple(_)) = self.ctx.krate.types.get(source_ty) else {
+            return Err(SmeltError::unsupported(
+                span,
+                "tuple(value) currently requires a tuple value",
+            ));
+        };
+        Ok(Some(source))
     }
 
     /// Lower direct Python `abs(...)` calls for numeric values.
