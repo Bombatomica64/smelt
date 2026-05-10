@@ -400,6 +400,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(y, aliases, dest) | rewrite_operand_except(x, aliases, dest)
         }
         Rvalue::NumericRandom => false,
+        Rvalue::NumericRandomInt { start, end } => {
+            rewrite_operand_except(start, aliases, dest)
+                | rewrite_operand_except(end, aliases, dest)
+        }
         Rvalue::PrimitiveCast { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {

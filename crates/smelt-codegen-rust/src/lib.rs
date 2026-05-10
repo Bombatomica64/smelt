@@ -333,10 +333,10 @@ fn needs_rand(mir: &Mir) -> bool {
                 matches!(
                     statement,
                     Statement::Assign {
-                        value: Rvalue::NumericRandom,
+                        value: Rvalue::NumericRandom | Rvalue::NumericRandomInt { .. },
                         ..
                     } | Statement::AssignPlace {
-                        value: Rvalue::NumericRandom,
+                        value: Rvalue::NumericRandom | Rvalue::NumericRandomInt { .. },
                         ..
                     }
                 )
@@ -1312,6 +1312,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::NumericPow { base, exponent } => self.numeric_pow_text(base, exponent),
             Rvalue::NumericAtan2 { y, x } => self.numeric_atan2_text(y, x),
             Rvalue::NumericRandom => Ok("rand::random::<f64>()".to_owned()),
+            Rvalue::NumericRandomInt { start, end } => self.numeric_random_int_text(start, end),
             Rvalue::PrimitiveCast { op, operand } => {
                 self.primitive_cast_text(*op, operand, dest_ty)
             }
@@ -1778,6 +1779,20 @@ impl<'mir> FunctionEmitter<'mir> {
         let y_text = self.float_operand_text(y_operand)?;
         let x_text = self.float_operand_text(x_operand)?;
         Ok(format!("{y_text}.atan2({x_text})"))
+    }
+
+    /// Converts an inclusive integer random operation to Rust text.
+    fn numeric_random_int_text(&self, start: &Operand, end: &Operand) -> Result<String, EmitError> {
+        if self.mir.types.get(self.operand_ty(start)?) != Some(&Type::Int)
+            || self.mir.types.get(self.operand_ty(end)?) != Some(&Type::Int)
+        {
+            return Err(EmitError::new("random integer bounds must be integers"));
+        }
+        Ok(format!(
+            "rand::random_range({}..={})",
+            self.operand_text(start)?,
+            self.operand_text(end)?
+        ))
     }
 
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.

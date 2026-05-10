@@ -419,6 +419,13 @@ pub enum Rvalue {
     },
     /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
     NumericRandom,
+    /// Generate a pseudo-random integer in an inclusive range.
+    NumericRandomInt {
+        /// Inclusive lower bound.
+        start: Operand,
+        /// Inclusive upper bound.
+        end: Operand,
+    },
     /// Convert a primitive value to another primitive type.
     PrimitiveCast {
         /// Conversion operation to apply.

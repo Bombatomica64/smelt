@@ -2305,6 +2305,7 @@ fn random_module_functions_lower() -> TestResult {
     let source = py!(r#"
 import random
 sample: float = random.random()
+roll: int = random.randint(1, 6)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -2321,6 +2322,12 @@ sample: float = random.random()
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::NumericRandom)),
         "expected random.random lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericRandomInt { .. })),
+        "expected random.randint lowering",
     )?;
     Ok(())
 }

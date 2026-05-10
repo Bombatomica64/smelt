@@ -1084,6 +1084,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::NumericRandomInt { start, end } => {
+                let start_operand = self.lower_expr(*start)?;
+                let end_operand = self.lower_expr(*end)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericRandomInt {
+                        start: start_operand,
+                        end: end_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::PrimitiveCast { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -2228,6 +2241,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::NumericPow { .. }
             | ExprKind::NumericAtan2 { .. }
             | ExprKind::NumericRandom
+            | ExprKind::NumericRandomInt { .. }
             | ExprKind::PrimitiveCast { .. }
             | ExprKind::StringCase { .. }
             | ExprKind::StringTrim { .. }

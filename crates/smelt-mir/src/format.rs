@@ -239,6 +239,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("numeric_atan2 {}, {}", operand_text(y), operand_text(x))
         }
         Rvalue::NumericRandom => "numeric_random".to_owned(),
+        Rvalue::NumericRandomInt { start, end } => {
+            format!(
+                "numeric_random_int {}, {}",
+                operand_text(start),
+                operand_text(end)
+            )
+        }
         Rvalue::PrimitiveCast { op, operand } => {
             let op_text = match op {
                 smelt_hir::PrimitiveCastOp::ToBool => "bool",

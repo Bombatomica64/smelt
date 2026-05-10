@@ -113,6 +113,13 @@ pub enum ExprKind {
     },
     /// Generate a pseudo-random floating-point value in the half-open range `[0, 1)`.
     NumericRandom,
+    /// Generate a pseudo-random integer in an inclusive range.
+    NumericRandomInt {
+        /// Inclusive lower bound.
+        start: ExprId,
+        /// Inclusive upper bound.
+        end: ExprId,
+    },
     /// Convert a primitive value with a direct source-language conversion.
     PrimitiveCast {
         /// Primitive conversion to apply.

@@ -2995,22 +2995,51 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let Expr::Name(module) = attr.value.as_ref() else {
             return Ok(None);
         };
-        if module.id.as_str() != "random" || attr.attr.as_str() != "random" {
+        if module.id.as_str() != "random" {
             return Ok(None);
         }
         let span = self.span(call.range);
-        if !call.arguments.args.is_empty() {
-            return Err(SmeltError::unsupported(
-                span,
-                "random.random() requires no arguments",
-            ));
+        match attr.attr.as_str() {
+            "random" => {
+                if !call.arguments.args.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "random.random() requires no arguments",
+                    ));
+                }
+                let ty = self.intern_type(Type::Float);
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::NumericRandom,
+                    ty,
+                    span,
+                })))
+            }
+            "randint" => {
+                if call.arguments.args.len() != 2 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "random.randint() requires exactly two integer arguments",
+                    ));
+                }
+                let start = self.expression(&call.arguments.args[0], body)?;
+                let end = self.expression(&call.arguments.args[1], body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, start)) != Some(&Type::Int)
+                    || self.ctx.krate.types.get(Self::expr_ty(body, end)) != Some(&Type::Int)
+                {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "random.randint() requires integer bounds",
+                    ));
+                }
+                let ty = self.intern_type(Type::Int);
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::NumericRandomInt { start, end },
+                    ty,
+                    span,
+                })))
+            }
+            _ => Ok(None),
         }
-        let ty = self.intern_type(Type::Float);
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::NumericRandom,
-            ty,
-            span,
-        })))
     }
 
     /// Lower direct Python `min(...)` and `max(...)` calls.

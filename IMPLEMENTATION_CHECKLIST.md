@@ -514,6 +514,7 @@ runtime errors.
   - [ ] `sys`: argv, stdin/stdout/stderr basics.
   - [ ] `random`: random, randint, choice, shuffle with an explicit RNG policy.
     - [x] `random.random`.
+    - [x] `random.randint`.
   - [ ] `collections`: `defaultdict`, `Counter`, and `deque`, or targeted rejection.
   - [ ] `itertools`: `chain`, `islice`, `count`, `repeat`, `product`, and `zip_longest`, or
         targeted rejection.

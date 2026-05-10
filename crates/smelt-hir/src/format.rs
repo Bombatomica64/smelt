@@ -342,6 +342,13 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!("numeric_atan2 {}, {}", expr_ref(*y), expr_ref(*x))
         }
         ExprKind::NumericRandom => "numeric_random".to_owned(),
+        ExprKind::NumericRandomInt { start, end } => {
+            format!(
+                "numeric_random_int {}, {}",
+                expr_ref(*start),
+                expr_ref(*end)
+            )
+        }
         ExprKind::PrimitiveCast { op, operand } => {
             let op_name = match op {
                 crate::expr::PrimitiveCastOp::ToBool => "bool",
@@ -788,6 +795,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::NumericPow { .. }
         | ExprKind::NumericAtan2 { .. }
         | ExprKind::NumericRandom
+        | ExprKind::NumericRandomInt { .. }
         | ExprKind::PrimitiveCast { .. }
         | ExprKind::StringCase { .. }
         | ExprKind::StringTrim { .. }
