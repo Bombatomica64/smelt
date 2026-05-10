@@ -255,7 +255,7 @@ runtime errors.
   - [x] TypeScript `Array.prototype.slice` with omitted and positive indexes.
   - [x] TypeScript `String.prototype.slice` with omitted and positive indexes.
   - [x] Python list slicing with positive indexes.
-  - [ ] Python tuple slicing with positive indexes.
+  - [x] Python tuple slicing with positive indexes.
   - [x] Python string slicing with positive indexes.
   - [x] Shared slice-bound policy: HIR/MIR uses Python-style negative-index normalization; TypeScript `slice` lowers to that shared semantic because supported JS slice bounds match it.
   - [x] Shared element-index policy: HIR/MIR uses Python-style negative-index normalization for list/string element access; TypeScript `.at(...)` lowers to it, while negative bracket indexes are rejected because JavaScript treats them as property lookups.
@@ -465,7 +465,7 @@ runtime errors.
     - [x] `list.index`.
     - [x] `list.reverse`.
     - [x] `list.sort`.
-  - [ ] Tuple indexing/slicing parity with Python negative indexes.
+  - [x] Tuple indexing/slicing parity with Python negative indexes for static integer indexes and static slice bounds.
   - [ ] Dict `get`, `setdefault`, `keys`, `values`, `items`, `update`, `pop`, `clear`, and `copy`.
     - [x] Dict `get`.
     - [x] Dict `setdefault`.

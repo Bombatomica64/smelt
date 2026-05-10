@@ -1226,10 +1226,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     .map(|item| self.operand_text(item))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                if items_text.contains(',') {
-                    Ok(format!("({items_text})"))
-                } else {
+                if items.is_empty() {
+                    Ok("()".to_owned())
+                } else if items.len() == 1 {
                     Ok(format!("({items_text},)"))
+                } else {
+                    Ok(format!("({items_text})"))
                 }
             }
             Rvalue::Binary { op, lhs, rhs } => {
@@ -1386,6 +1388,10 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
+            Rvalue::TupleIndex { tuple, index } => self.tuple_index_text(tuple, *index, dest_ty),
+            Rvalue::TupleSlice { tuple, start, end } => {
+                self.tuple_slice_text(tuple, *start, *end, dest_ty)
+            }
             Rvalue::DictContainsKey { dict, key } => self.dict_contains_key_text(dict, key),
             Rvalue::DictSet {
                 dict,
@@ -3095,6 +3101,66 @@ impl<'mir> FunctionEmitter<'mir> {
             .join(" || "))
     }
 
+    /// Converts a statically-known tuple index operation to Rust text.
+    fn tuple_index_text(
+        &self,
+        tuple: &Operand,
+        index: usize,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let tuple_ty = self.operand_ty(tuple)?;
+        let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
+            return Err(EmitError::new("tuple index receiver must be a tuple"));
+        };
+        let Some(item_ty) = items.get(index) else {
+            return Err(EmitError::new("tuple index is out of bounds"));
+        };
+        if *item_ty != dest_ty {
+            return Err(EmitError::new(
+                "tuple index destination must match the tuple field type",
+            ));
+        }
+        Ok(format!("{}.{}.clone()", self.operand_text(tuple)?, index))
+    }
+
+    /// Converts a statically-known tuple slice operation to Rust text.
+    fn tuple_slice_text(
+        &self,
+        tuple: &Operand,
+        start: usize,
+        end: usize,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let tuple_ty = self.operand_ty(tuple)?;
+        let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
+            return Err(EmitError::new("tuple slice receiver must be a tuple"));
+        };
+        if start > end || end > items.len() {
+            return Err(EmitError::new("tuple slice bounds are out of range"));
+        }
+        let Some(Type::Tuple(dest_items)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("tuple slice destination must be a tuple"));
+        };
+        let Some(selected_items) = items.get(start..end) else {
+            return Err(EmitError::new("tuple slice bounds are out of range"));
+        };
+        if dest_items.as_slice() != selected_items {
+            return Err(EmitError::new(
+                "tuple slice destination must match selected tuple field types",
+            ));
+        }
+        let tuple_text = self.operand_text(tuple)?;
+        let items_text = (start..end)
+            .map(|idx| format!("{tuple_text}.{idx}.clone()"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if end.checked_sub(start) == Some(1) {
+            Ok(format!("({items_text},)"))
+        } else {
+            Ok(format!("({items_text})"))
+        }
+    }
+
     /// Converts a dictionary key containment operation to Rust text.
     fn dict_contains_key_text(&self, dict: &Operand, key: &Operand) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
@@ -3838,7 +3904,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     .map(|item| self.type_text(*item))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                Ok(format!("({items_text})"))
+                if items.len() == 1 {
+                    Ok(format!("({items_text},)"))
+                } else {
+                    Ok(format!("({items_text})"))
+                }
             }
             Type::Optional(item) => Ok(format!("Option<{}>", self.type_text(*item)?)),
             Type::Union(_) => Err(EmitError::new("union type codegen is not implemented yet")),

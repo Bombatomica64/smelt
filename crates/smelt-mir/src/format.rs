@@ -538,6 +538,12 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(item)
             )
         }
+        Rvalue::TupleIndex { tuple, index } => {
+            format!("tuple_index {}, {}", operand_text(tuple), index)
+        }
+        Rvalue::TupleSlice { tuple, start, end } => {
+            format!("tuple_slice {}, {}, {}", operand_text(tuple), start, end)
+        }
         Rvalue::DictContainsKey { dict, key } => {
             format!(
                 "dict_contains_key {}, {}",

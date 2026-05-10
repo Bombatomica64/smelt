@@ -3,7 +3,8 @@
 use ruff_python_ast::{Expr, ExprSubscript};
 use ruff_text_size::Ranged;
 use smelt_hir::{
-    Body, BoolFoldOp, Expr as HirExpr, ExprKind, RegexMatchOp, SetBinaryOp, SetRemoveOp, Type,
+    Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, RegexMatchOp, SetBinaryOp, SetRemoveOp,
+    Span, Type,
 };
 
 use super::{ModuleBuilder, SmeltError};
@@ -1068,9 +1069,46 @@ impl ModuleBuilder<'_> {
                     span: self.span(sub.range),
                 })))
             }
+            Some(Type::Tuple(items)) => {
+                let item_tys = items.clone();
+                let raw_start = match slice.lower.as_deref() {
+                    Some(expr) => Self::static_int_literal(expr)?.ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(expr.range()),
+                            "tuple slice bounds must be static integer literals",
+                        )
+                    })?,
+                    None => 0,
+                };
+                let raw_end = match slice.upper.as_deref() {
+                    Some(expr) => Self::static_int_literal(expr)?.ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(expr.range()),
+                            "tuple slice bounds must be static integer literals",
+                        )
+                    })?,
+                    None => i64::try_from(item_tys.len()).map_err(|_err| {
+                        SmeltError::unsupported(self.span(sub.range), "tuple length is too large")
+                    })?,
+                };
+                let (normalized_start, normalized_end) =
+                    Self::normalize_tuple_slice(raw_start, raw_end, item_tys.len())?;
+                let ty = self.intern_type(Type::Tuple(
+                    item_tys[normalized_start..normalized_end].to_vec(),
+                ));
+                Ok(Some(body.push_expr(HirExpr {
+                    kind: ExprKind::TupleSlice {
+                        tuple: receiver,
+                        start: normalized_start,
+                        end: normalized_end,
+                    },
+                    ty,
+                    span: self.span(sub.range),
+                })))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(sub.range),
-                "slicing requires a list or string receiver",
+                "slicing requires a list, string, or tuple receiver",
             )),
         }
     }
@@ -1089,5 +1127,33 @@ impl ModuleBuilder<'_> {
             ));
         }
         Ok(bound)
+    }
+
+    /// Normalize Python tuple slice bounds for statically-known tuple lengths.
+    fn normalize_tuple_slice(
+        start: i64,
+        end: i64,
+        len: usize,
+    ) -> Result<(usize, usize), SmeltError> {
+        let span = Span::new(FileId(0), 0, 0);
+        let len_i64 = i64::try_from(len)
+            .map_err(|_err| SmeltError::unsupported(span, "tuple length is too large"))?;
+        let normalize = |index: i64| -> Result<i64, SmeltError> {
+            if index < 0 {
+                let shifted = len_i64
+                    .checked_add(index)
+                    .ok_or_else(|| SmeltError::unsupported(span, "tuple slice bound is invalid"))?;
+                Ok(shifted.clamp(0, len_i64))
+            } else {
+                Ok(index.clamp(0, len_i64))
+            }
+        };
+        let normalized_start = normalize(start)?;
+        let normalized_end = normalize(end)?;
+        let start_index = usize::try_from(normalized_start)
+            .map_err(|_err| SmeltError::unsupported(span, "tuple slice start is invalid"))?;
+        let end_index = usize::try_from(normalized_end)
+            .map_err(|_err| SmeltError::unsupported(span, "tuple slice end is invalid"))?;
+        Ok((start_index, end_index.max(start_index)))
     }
 }

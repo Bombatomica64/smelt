@@ -192,6 +192,8 @@ This document lists direct stdlib mappings currently lowered through HIR/MIR and
 | `set.intersection(other)` | `SetBinary::Intersection` | `SetBinary::Intersection` | `set.intersection(&other).cloned().collect()` | One same-typed set argument | Multiple arguments, arbitrary iterables | Rust `HashSet` order is not deterministic. |
 | `set.difference(other)` | `SetBinary::Difference` | `SetBinary::Difference` | `set.difference(&other).cloned().collect()` | One same-typed set argument | Multiple arguments, arbitrary iterables | Rust `HashSet` order is not deterministic. |
 | `x in tuple` / `x not in tuple` | `TupleContains` plus optional `UnaryOp::Not` | `TupleContains` plus optional `Unary` | Equality chain over tuple fields | Item matching at least one tuple element type | Mismatched types | Rust equality semantics are used. |
+| `tuple[i]` | `TupleIndex` | `TupleIndex` | `tuple.i.clone()` | Static integer index, including negative indexes | Dynamic indexes | Heterogeneous tuple typing requires static indexes; out-of-range indexes are rejected while lowering. |
+| `tuple[start:end]` | `TupleSlice` | `TupleSlice` | Tuple of cloned fields | Static integer bounds or omitted bounds, including negative bounds | Dynamic bounds and step | Bounds are normalized with Python slice clamping during frontend lowering. |
 | `k in dict` / `k not in dict` | `DictContainsKey` plus optional `UnaryOp::Not` | `DictContainsKey` plus optional `Unary` | `dict.contains_key(&k)` | Key matching dict key type | Mismatched key type | Rust `HashMap` key semantics are used. |
 
 ## Dictionary Projections

@@ -736,6 +736,22 @@ pub enum Rvalue {
         /// Item to search for.
         item: Operand,
     },
+    /// Read one statically-known tuple field by index.
+    TupleIndex {
+        /// Tuple value to read from.
+        tuple: Operand,
+        /// Zero-based tuple item index.
+        index: usize,
+    },
+    /// Build a tuple from a statically-known slice of another tuple.
+    TupleSlice {
+        /// Tuple value to slice.
+        tuple: Operand,
+        /// Inclusive normalized start index.
+        start: usize,
+        /// Exclusive normalized end index.
+        end: usize,
+    },
     /// Test whether a dictionary contains a key.
     DictContainsKey {
         /// Dictionary value to search in.

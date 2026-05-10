@@ -684,6 +684,12 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::SetLit(items) => collection_text("set{", "}", items),
         ExprKind::DictLit(items) => dict_lit_text(items),
         ExprKind::TupleLit(items) => collection_text("(", ")", items),
+        ExprKind::TupleIndex { tuple, index } => {
+            format!("tuple_index {}, {}", expr_ref(*tuple), index)
+        }
+        ExprKind::TupleSlice { tuple, start, end } => {
+            format!("tuple_slice {}, {}, {}", expr_ref(*tuple), start, end)
+        }
         ExprKind::Await(await_expr) => format!("await {}", expr_ref(*await_expr)),
         ExprKind::AsyncOp { op, args } => async_op_text(*op, args),
     }
@@ -811,6 +817,8 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::SetLit(_)
         | ExprKind::DictLit(_)
         | ExprKind::TupleLit(_)
+        | ExprKind::TupleIndex { .. }
+        | ExprKind::TupleSlice { .. }
         | ExprKind::Await(_)
         | ExprKind::AsyncOp { .. } => "invalid call".to_owned(),
     }

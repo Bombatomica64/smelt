@@ -305,6 +305,9 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, tuple, errors);
             validate_operand_exists(function, item, errors);
         }
+        Rvalue::TupleIndex { tuple, .. } | Rvalue::TupleSlice { tuple, .. } => {
+            validate_operand_exists(function, tuple, errors);
+        }
         Rvalue::DictContainsKey { dict, key } => {
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, key, errors);
@@ -782,6 +785,9 @@ fn validate_rvalue(
         Rvalue::TupleContains { tuple, item } => {
             validate_operand(function, definitions, tuple, errors);
             validate_operand(function, definitions, item, errors);
+        }
+        Rvalue::TupleIndex { tuple, .. } | Rvalue::TupleSlice { tuple, .. } => {
+            validate_operand(function, definitions, tuple, errors);
         }
         Rvalue::DictContainsKey { dict, key } => {
             validate_operand(function, definitions, dict, errors);

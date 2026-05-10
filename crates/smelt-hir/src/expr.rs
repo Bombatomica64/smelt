@@ -569,6 +569,22 @@ pub enum ExprKind {
     DictLit(Vec<(ExprId, ExprId)>),
     /// A tuple literal.
     TupleLit(Vec<ExprId>),
+    /// Read one statically-known tuple field by index.
+    TupleIndex {
+        /// Tuple value to read from.
+        tuple: ExprId,
+        /// Zero-based tuple item index after source-language normalization.
+        index: usize,
+    },
+    /// Build a tuple from a statically-known slice of another tuple.
+    TupleSlice {
+        /// Tuple value to slice.
+        tuple: ExprId,
+        /// Inclusive normalized start index.
+        start: usize,
+        /// Exclusive normalized end index.
+        end: usize,
+    },
     /// A constructor call.
     New {
         /// The class being instantiated.

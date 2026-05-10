@@ -389,6 +389,24 @@ last_char: str = word[-1]
 }
 
 #[test]
+fn emits_python_tuple_index_and_slice() {
+    let source = source_for_py(
+        r#"
+pair: tuple[str, int] = ("Ada", 1)
+name: str = pair[0]
+rank: int = pair[-1]
+tail: tuple[int] = pair[1:]
+empty: tuple[()] = pair[:0]
+"#,
+    );
+
+    assert!(source.contains(".0.clone()"));
+    assert!(source.contains(".1.clone()"));
+    assert!(source.contains(".1.clone(),)"));
+    assert!(source.contains(": () = ();"));
+}
+
+#[test]
 fn emits_python_list_append_method() {
     let source = source_for_py(
         r#"

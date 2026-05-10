@@ -1722,6 +1722,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
                 let receiver = self.expression(&sub.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
+                if let Some((index, ty)) =
+                    self.tuple_index_subscript(receiver_ty, &sub.slice, self.span(sub.range))?
+                {
+                    return Ok(body.push_expr(HirExpr {
+                        kind: ExprKind::TupleIndex {
+                            tuple: receiver,
+                            index,
+                        },
+                        ty,
+                        span: self.span(sub.range),
+                    }));
+                }
                 let index_ty = self.index_type(receiver_ty)?;
                 let index = self.expression(&sub.slice, body)?;
                 Ok(body.push_expr(HirExpr {
@@ -3513,6 +3525,85 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 "subscript access requires a list, set, dict, tuple, or string",
             )),
         }
+    }
+
+    /// Lower a tuple subscript when the index is a static integer literal.
+    fn tuple_index_subscript(
+        &self,
+        tuple_ty: TypeId,
+        index_expr: &Expr,
+        span: Span,
+    ) -> Result<Option<(usize, TypeId)>, SmeltError> {
+        let Some(items) = self.ctx.krate.types.get(tuple_ty).and_then(|ty| {
+            if let Type::Tuple(items) = ty {
+                Some(items.clone())
+            } else {
+                None
+            }
+        }) else {
+            return Ok(None);
+        };
+        let Some(raw_index) = Self::static_int_literal(index_expr)? else {
+            return Err(SmeltError::unsupported(
+                span,
+                "tuple indexing requires a static integer index",
+            ));
+        };
+        let index = Self::normalize_tuple_index(raw_index, items.len(), span)?;
+        let ty = items[index];
+        Ok(Some((index, ty)))
+    }
+
+    /// Extract a signed integer literal without lowering it into the HIR body.
+    fn static_int_literal(expr: &Expr) -> Result<Option<i64>, SmeltError> {
+        match expr {
+            Expr::NumberLiteral(number) => match &number.value {
+                Number::Int(value) => value.as_i64().map(Some).ok_or_else(|| {
+                    SmeltError::unsupported(
+                        Span::new(FileId(0), 0, 0),
+                        "integer literal out of i64 range",
+                    )
+                }),
+                Number::Float(_) | Number::Complex { .. } => Ok(None),
+            },
+            Expr::UnaryOp(unary) if unary.op == RuffUnaryOp::USub => {
+                let Expr::NumberLiteral(number) = unary.operand.as_ref() else {
+                    return Ok(None);
+                };
+                match &number.value {
+                    Number::Int(value) => value
+                        .as_i64()
+                        .and_then(i64::checked_neg)
+                        .map(Some)
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                Span::new(FileId(0), 0, 0),
+                                "integer literal out of i64 range",
+                            )
+                        }),
+                    Number::Float(_) | Number::Complex { .. } => Ok(None),
+                }
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Normalize a Python tuple index and reject out-of-range indexes.
+    fn normalize_tuple_index(index: i64, len: usize, span: Span) -> Result<usize, SmeltError> {
+        let len_i64 = i64::try_from(len)
+            .map_err(|_err| SmeltError::unsupported(span, "tuple length does not fit in i64"))?;
+        let normalized = if index < 0 {
+            len_i64
+                .checked_add(index)
+                .ok_or_else(|| SmeltError::unsupported(span, "tuple index is out of range"))?
+        } else {
+            index
+        };
+        if normalized < 0 || normalized >= len_i64 {
+            return Err(SmeltError::unsupported(span, "tuple index is out of range"));
+        }
+        usize::try_from(normalized)
+            .map_err(|_err| SmeltError::unsupported(span, "tuple index is out of range"))
     }
 
     /// Infer one item type from a Python iterable type.

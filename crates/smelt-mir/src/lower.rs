@@ -1636,6 +1636,31 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::TupleIndex { tuple, index } => {
+                let tuple_operand = self.lower_expr(*tuple)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::TupleIndex {
+                        tuple: tuple_operand,
+                        index: *index,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::TupleSlice { tuple, start, end } => {
+                let tuple_operand = self.lower_expr(*tuple)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::TupleSlice {
+                        tuple: tuple_operand,
+                        start: *start,
+                        end: *end,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DictContainsKey { dict, key } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let key_operand = self.lower_expr(*key)?;
@@ -2081,6 +2106,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListPop { .. }
             | ExprKind::ListShift { .. }
             | ExprKind::TupleContains { .. }
+            | ExprKind::TupleIndex { .. }
+            | ExprKind::TupleSlice { .. }
             | ExprKind::DictContainsKey { .. }
             | ExprKind::DictSet { .. }
             | ExprKind::DictRemoveKey { .. }

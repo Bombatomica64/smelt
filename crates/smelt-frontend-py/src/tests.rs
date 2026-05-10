@@ -2432,6 +2432,61 @@ missing: bool = 4 not in values
 }
 
 #[test]
+fn tuple_index_and_slice_lower() -> TestResult {
+    let source = py!(r#"
+pair: tuple[str, int] = ("Ada", 1)
+name: str = pair[0]
+rank: int = pair[-1]
+tail: tuple[int] = pair[1:]
+empty: tuple[()] = pair[:0]
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::TupleIndex { .. }))
+            .count()
+            >= 2,
+        "expected tuple index lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::TupleSlice { .. }))
+            .count()
+            >= 2,
+        "expected tuple slice lowering",
+    )
+}
+
+#[test]
+fn unsupported_dynamic_tuple_index_rejects() -> TestResult {
+    let mut ctx = HirCtx::new();
+    let errors = lower_errors(
+        py!(r#"
+pair: tuple[str, int] = ("Ada", 1)
+i: int = 0
+bad: str = pair[i]
+"#),
+        &mut ctx,
+    )?;
+    let error = first_error(&errors)?;
+    ensure(
+        error.message.contains("static integer index"),
+        "expected dynamic tuple index diagnostic",
+    )
+}
+
+#[test]
 fn dict_key_contains_comparison_lowers() -> TestResult {
     let source = py!(r#"
 values: dict[str, int] = {"a": 1}
