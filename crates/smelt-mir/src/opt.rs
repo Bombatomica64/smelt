@@ -230,6 +230,7 @@ fn rewrite_rvalue(
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
             rewrite_operand_except(set, aliases, dest)
         }
+        Rvalue::ListToSet { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::SetBinary { left, right, .. } => {
             rewrite_operand_except(left, aliases, dest)
                 | rewrite_operand_except(right, aliases, dest)
@@ -276,6 +277,9 @@ fn rewrite_rvalue(
         Rvalue::ListReverse { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListClear { list } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListCopy { list } => rewrite_operand_except(list, aliases, dest),
+        Rvalue::TupleToList { tuple } | Rvalue::TupleToSet { tuple } => {
+            rewrite_operand_except(tuple, aliases, dest)
+        }
         Rvalue::ListCount { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)

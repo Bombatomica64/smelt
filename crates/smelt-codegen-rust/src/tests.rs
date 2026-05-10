@@ -529,6 +529,7 @@ fn emits_python_container_constructors() {
 values: list[int] = [1, 2]
 copied_values: list[int] = list(values)
 empty_values: list[int] = list()
+value_set: set[int] = set(values)
 items: set[int] = {1, 2}
 copied_items: set[int] = set(items)
 empty_items: set[int] = set()
@@ -537,6 +538,9 @@ copied_names: dict[str, int] = dict(names)
 empty_names: dict[str, int] = dict()
 item_list: list[int] = list(items)
 name_keys: list[str] = list(names)
+coords: tuple[int, int] = (1, 2)
+coord_list: list[int] = list(coords)
+coord_set: set[int] = set(coords)
 "#,
     );
 
@@ -546,6 +550,9 @@ name_keys: list[str] = list(names)
     assert!(source.contains("::std::collections::HashMap::from([])"));
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
+    assert!(source.contains("vec!["));
+    assert!(source.contains("::std::collections::HashSet::from(["));
 }
 
 #[test]

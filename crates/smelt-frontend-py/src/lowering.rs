@@ -2476,10 +2476,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     self.intern_type(Type::List(key_ty)),
                 )
             }
+            Some(Type::Tuple(items)) => {
+                let item_ty = Self::homogeneous_tuple_item_ty(items, span)?;
+                (
+                    ExprKind::TupleToList { tuple: source },
+                    self.intern_type(Type::List(item_ty)),
+                )
+            }
             _ => {
                 return Err(SmeltError::unsupported(
                     span,
-                    "list(value) currently requires a list, set, or dict value",
+                    "list(value) currently requires a list, set, dict, or homogeneous tuple value",
                 ));
             }
         };
@@ -2495,17 +2502,30 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let source = self.expression(arg, body)?;
         let source_ty = Self::expr_ty(body, source);
-        let Some(Type::Set(_)) = self.ctx.krate.types.get(source_ty) else {
-            return Err(SmeltError::unsupported(
-                span,
-                "set(value) currently requires a set value",
-            ));
+        let (kind, ty) = match self.ctx.krate.types.get(source_ty) {
+            Some(Type::Set(_)) => (ExprKind::SetCopy { set: source }, source_ty),
+            Some(Type::List(item_type)) => {
+                let item_ty = *item_type;
+                (
+                    ExprKind::ListToSet { list: source },
+                    self.intern_type(Type::Set(item_ty)),
+                )
+            }
+            Some(Type::Tuple(items)) => {
+                let item_ty = Self::homogeneous_tuple_item_ty(items, span)?;
+                (
+                    ExprKind::TupleToSet { tuple: source },
+                    self.intern_type(Type::Set(item_ty)),
+                )
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "set(value) currently requires a set, list, or homogeneous tuple value",
+                ));
+            }
         };
-        Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::SetCopy { set: source },
-            ty: source_ty,
-            span,
-        })))
+        Ok(Some(body.push_expr(HirExpr { kind, ty, span })))
     }
 
     /// Lower `dict(value)` for the currently supported direct container inputs.
@@ -2546,6 +2566,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ));
         };
         Ok(Some(source))
+    }
+
+    /// Return the shared item type for a non-empty homogeneous tuple.
+    fn homogeneous_tuple_item_ty(items: &[TypeId], span: Span) -> Result<TypeId, SmeltError> {
+        let Some(first_ty) = items.first().copied() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "tuple conversion requires a non-empty homogeneous tuple",
+            ));
+        };
+        if !items.iter().all(|item| *item == first_ty) {
+            return Err(SmeltError::unsupported(
+                span,
+                "tuple conversion requires homogeneous tuple item types",
+            ));
+        }
+        Ok(first_ty)
     }
 
     /// Lower direct Python `abs(...)` calls for numeric values.

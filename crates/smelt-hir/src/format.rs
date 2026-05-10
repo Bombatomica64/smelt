@@ -513,6 +513,7 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::SetClear { set } => format!("set_clear {}", expr_ref(*set)),
         ExprKind::SetCopy { set } => format!("set_copy {}", expr_ref(*set)),
+        ExprKind::ListToSet { list } => format!("list_to_set {}", expr_ref(*list)),
         ExprKind::SetBinary { op, left, right } => {
             let op_name = match op {
                 crate::expr::SetBinaryOp::Union => "union",
@@ -587,6 +588,8 @@ fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListReverse { list } => format!("list_reverse {}", expr_ref(*list)),
         ExprKind::ListClear { list } => format!("list_clear {}", expr_ref(*list)),
         ExprKind::ListCopy { list } => format!("list_copy {}", expr_ref(*list)),
+        ExprKind::TupleToList { tuple } => format!("tuple_to_list {}", expr_ref(*tuple)),
+        ExprKind::TupleToSet { tuple } => format!("tuple_to_set {}", expr_ref(*tuple)),
         ExprKind::ListCount { list, item } => {
             format!("list_count {}, {}", expr_ref(*list), expr_ref(*item))
         }
@@ -776,6 +779,7 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::SetRemove { .. }
         | ExprKind::SetClear { .. }
         | ExprKind::SetCopy { .. }
+        | ExprKind::ListToSet { .. }
         | ExprKind::SetBinary { .. }
         | ExprKind::SetProjection { .. }
         | ExprKind::ListConcat { .. }
@@ -790,6 +794,8 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         | ExprKind::ListReverse { .. }
         | ExprKind::ListClear { .. }
         | ExprKind::ListCopy { .. }
+        | ExprKind::TupleToList { .. }
+        | ExprKind::TupleToSet { .. }
         | ExprKind::ListCount { .. }
         | ExprKind::ListSum { .. }
         | ExprKind::ListBoolFold { .. }

@@ -574,10 +574,25 @@ pub enum ExprKind {
     ListLit(Vec<ExprId>),
     /// A set literal.
     SetLit(Vec<ExprId>),
+    /// Convert a list into a set by collecting unique items.
+    ListToSet {
+        /// List value to collect into a set.
+        list: ExprId,
+    },
     /// A dictionary literal.
     DictLit(Vec<(ExprId, ExprId)>),
     /// A tuple literal.
     TupleLit(Vec<ExprId>),
+    /// Convert a homogeneous tuple into a list.
+    TupleToList {
+        /// Tuple value to collect into a list.
+        tuple: ExprId,
+    },
+    /// Convert a homogeneous tuple into a set by collecting unique items.
+    TupleToSet {
+        /// Tuple value to collect into a set.
+        tuple: ExprId,
+    },
     /// Read one statically-known tuple field by index.
     TupleIndex {
         /// Tuple value to read from.

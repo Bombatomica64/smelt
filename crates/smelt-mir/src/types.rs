@@ -572,6 +572,11 @@ pub enum Rvalue {
         /// Set value to copy.
         set: Operand,
     },
+    /// Convert a list into a set by collecting unique items.
+    ListToSet {
+        /// List value to collect into a set.
+        list: Operand,
+    },
     /// Combine two sets into a new set.
     SetBinary {
         /// Set operation to apply.
@@ -675,6 +680,16 @@ pub enum Rvalue {
     ListCopy {
         /// List value to copy.
         list: Operand,
+    },
+    /// Convert a homogeneous tuple into a list.
+    TupleToList {
+        /// Tuple value to collect into a list.
+        tuple: Operand,
+    },
+    /// Convert a homogeneous tuple into a set by collecting unique items.
+    TupleToSet {
+        /// Tuple value to collect into a set.
+        tuple: Operand,
     },
     /// Count list items equal to a target item.
     ListCount {

@@ -422,6 +422,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         }
         Rvalue::SetClear { set } => format!("set_clear {}", operand_text(set)),
         Rvalue::SetCopy { set } => format!("set_copy {}", operand_text(set)),
+        Rvalue::ListToSet { list } => format!("list_to_set {}", operand_text(list)),
         Rvalue::SetBinary { op, left, right } => {
             let op_text = match op {
                 smelt_hir::SetBinaryOp::Union => "union",
@@ -510,6 +511,8 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListReverse { list } => format!("list_reverse {}", operand_text(list)),
         Rvalue::ListClear { list } => format!("list_clear {}", operand_text(list)),
         Rvalue::ListCopy { list } => format!("list_copy {}", operand_text(list)),
+        Rvalue::TupleToList { tuple } => format!("tuple_to_list {}", operand_text(tuple)),
+        Rvalue::TupleToSet { tuple } => format!("tuple_to_set {}", operand_text(tuple)),
         Rvalue::ListCount { list, item } => {
             format!("list_count {}, {}", operand_text(list), operand_text(item))
         }

@@ -1352,6 +1352,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::SetRemove { op, set, item } => self.set_remove_text(*op, set, item, dest_ty),
             Rvalue::SetClear { set } => self.collection_clear_text(set, dest_ty, "set"),
             Rvalue::SetCopy { set } => self.set_copy_text(set, dest_ty),
+            Rvalue::ListToSet { list } => self.list_to_set_text(list, dest_ty),
             Rvalue::SetBinary { op, left, right } => {
                 self.set_binary_text(*op, left, right, dest_ty)
             }
@@ -1378,6 +1379,8 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListReverse { list } => self.list_reverse_text(list, dest_ty),
             Rvalue::ListClear { list } => self.collection_clear_text(list, dest_ty, "list"),
             Rvalue::ListCopy { list } => self.list_copy_text(list, dest_ty),
+            Rvalue::TupleToList { tuple } => self.tuple_to_list_text(tuple, dest_ty),
+            Rvalue::TupleToSet { tuple } => self.tuple_to_set_text(tuple, dest_ty),
             Rvalue::ListCount { list, item } => self.list_count_text(list, item, dest_ty),
             Rvalue::ListSum { list } => self.list_sum_text(list, dest_ty),
             Rvalue::ListBoolFold { op, list } => self.list_bool_fold_text(*op, list),
@@ -2329,6 +2332,24 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Converts a list-to-set constructor conversion to Rust text.
+    fn list_to_set_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list-to-set source must be a list"));
+        };
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Set(dest_item)) if dest_item == item_ty)
+        {
+            return Err(EmitError::new(
+                "list-to-set destination must be set of the list item type",
+            ));
+        }
+        Ok(format!(
+            "{}.iter().cloned().collect::<::std::collections::HashSet<_>>()",
+            self.operand_text(list)?
+        ))
+    }
+
     /// Converts a list concatenation operation to Rust text.
     fn list_concat_text(&self, left: &Operand, right: &Operand) -> Result<String, EmitError> {
         let left_ty = self.operand_ty(left)?;
@@ -3188,6 +3209,66 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             Ok(format!("({items_text})"))
         }
+    }
+
+    /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
+    fn tuple_to_list_text(&self, tuple: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "list")?;
+        let tuple_text = self.operand_text(tuple)?;
+        let items_text = (0..items.len())
+            .map(|idx| format!("{tuple_text}.{idx}.clone()"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::List(dest_item)) if *dest_item == item_ty)
+        {
+            return Err(EmitError::new(
+                "tuple-to-list destination must be list of the tuple item type",
+            ));
+        }
+        Ok(format!("vec![{items_text}]"))
+    }
+
+    /// Converts a homogeneous tuple-to-set constructor conversion to Rust text.
+    fn tuple_to_set_text(&self, tuple: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "set")?;
+        let tuple_text = self.operand_text(tuple)?;
+        let items_text = (0..items.len())
+            .map(|idx| format!("{tuple_text}.{idx}.clone()"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Set(dest_item)) if *dest_item == item_ty)
+        {
+            return Err(EmitError::new(
+                "tuple-to-set destination must be set of the tuple item type",
+            ));
+        }
+        Ok(format!("::std::collections::HashSet::from([{items_text}])"))
+    }
+
+    /// Returns tuple fields and their shared item type for homogeneous tuple conversions.
+    fn homogeneous_tuple_conversion_parts(
+        &self,
+        tuple: &Operand,
+        _dest_ty: TypeId,
+        conversion_name: &str,
+    ) -> Result<(&[TypeId], TypeId), EmitError> {
+        let tuple_ty = self.operand_ty(tuple)?;
+        let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
+            return Err(EmitError::new(format!(
+                "tuple-to-{conversion_name} source must be a tuple"
+            )));
+        };
+        let Some(first_ty) = items.first().copied() else {
+            return Err(EmitError::new(format!(
+                "tuple-to-{conversion_name} requires a non-empty tuple"
+            )));
+        };
+        if !items.iter().all(|item| *item == first_ty) {
+            return Err(EmitError::new(format!(
+                "tuple-to-{conversion_name} requires homogeneous tuple items"
+            )));
+        }
+        Ok((items.as_slice(), first_ty))
     }
 
     /// Converts a dictionary key containment operation to Rust text.

@@ -1006,6 +1006,7 @@ fn container_constructors_lower() -> TestResult {
 values: list[int] = [1, 2]
 copied_values: list[int] = list(values)
 empty_values: list[int] = list()
+value_set: set[int] = set(values)
 items: set[int] = {1, 2}
 copied_items: set[int] = set(items)
 empty_items: set[int] = set()
@@ -1017,6 +1018,8 @@ same_coords: tuple[int, int] = tuple(coords)
 empty_tuple: tuple[()] = tuple()
 item_list: list[int] = list(items)
 name_keys: list[str] = list(names)
+coord_list: list[int] = list(coords)
+coord_set: set[int] = set(coords)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -1069,6 +1072,24 @@ name_keys: list[str] = list(names)
             )
         }),
         "expected list(dict_value) to lower through dict keys projection",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListToSet { .. })),
+        "expected set(list_value) conversion lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::TupleToList { .. })),
+        "expected list(tuple_value) conversion lowering",
+    )?;
+    ensure(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::TupleToSet { .. })),
+        "expected set(tuple_value) conversion lowering",
     )?;
     ensure(
         body.exprs

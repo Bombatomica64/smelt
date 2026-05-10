@@ -220,6 +220,9 @@ fn validate_rvalue_exists(
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
             validate_operand_exists(function, set, errors);
         }
+        Rvalue::ListToSet { list } => {
+            validate_operand_exists(function, list, errors);
+        }
         Rvalue::SetBinary { left, right, .. } => {
             validate_operand_exists(function, left, errors);
             validate_operand_exists(function, right, errors);
@@ -274,6 +277,9 @@ fn validate_rvalue_exists(
         }
         Rvalue::ListCopy { list } => {
             validate_operand_exists(function, list, errors);
+        }
+        Rvalue::TupleToList { tuple } | Rvalue::TupleToSet { tuple } => {
+            validate_operand_exists(function, tuple, errors);
         }
         Rvalue::ListCount { list, item } => {
             validate_operand_exists(function, list, errors);
@@ -706,6 +712,9 @@ fn validate_rvalue(
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
             validate_operand(function, definitions, set, errors);
         }
+        Rvalue::ListToSet { list } => {
+            validate_operand(function, definitions, list, errors);
+        }
         Rvalue::SetBinary { left, right, .. } => {
             validate_operand(function, definitions, left, errors);
             validate_operand(function, definitions, right, errors);
@@ -760,6 +769,9 @@ fn validate_rvalue(
         }
         Rvalue::ListCopy { list } => {
             validate_operand(function, definitions, list, errors);
+        }
+        Rvalue::TupleToList { tuple } | Rvalue::TupleToSet { tuple } => {
+            validate_operand(function, definitions, tuple, errors);
         }
         Rvalue::ListCount { list, item } => {
             validate_operand(function, definitions, list, errors);

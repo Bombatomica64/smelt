@@ -1344,6 +1344,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListToSet { list } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListToSet { list: list_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::SetBinary { op, left, right } => {
                 let left_operand = self.lower_expr(*left)?;
                 let right_operand = self.lower_expr(*right)?;
@@ -1524,6 +1533,28 @@ impl<'hir> LoweringCtx<'hir> {
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListCopy { list: list_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::TupleToList { tuple } => {
+                let tuple_operand = self.lower_expr(*tuple)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::TupleToList {
+                        tuple: tuple_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::TupleToSet { tuple } => {
+                let tuple_operand = self.lower_expr(*tuple)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::TupleToSet {
+                        tuple: tuple_operand,
+                    },
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -2097,6 +2128,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::SetRemove { .. }
             | ExprKind::SetClear { .. }
             | ExprKind::SetCopy { .. }
+            | ExprKind::ListToSet { .. }
             | ExprKind::SetBinary { .. }
             | ExprKind::SetProjection { .. }
             | ExprKind::ListConcat { .. }
@@ -2111,6 +2143,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListReverse { .. }
             | ExprKind::ListClear { .. }
             | ExprKind::ListCopy { .. }
+            | ExprKind::TupleToList { .. }
+            | ExprKind::TupleToSet { .. }
             | ExprKind::ListCount { .. }
             | ExprKind::ListSum { .. }
             | ExprKind::ListBoolFold { .. }
