@@ -2,7 +2,6 @@
 
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
-use oxc::syntax::operator::UnaryOperator;
 use smelt_hir::{Body, Expr, ExprKind, RegexMatchOp, Type};
 
 use super::{ModuleBuilder, SmeltError};
@@ -370,15 +369,6 @@ impl ModuleBuilder<'_> {
                 "slice currently supports only omitted, start, and end arguments",
             ));
         }
-        for argument in &call.arguments {
-            if is_negative_numeric_literal(argument) {
-                return Err(SmeltError::unsupported(
-                    self.span(argument.span().start, argument.span().end),
-                    "slice negative indexes are not supported yet",
-                ));
-            }
-        }
-
         let operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         let start = call
@@ -436,13 +426,4 @@ impl ModuleBuilder<'_> {
         }
         Ok(index)
     }
-}
-
-/// Return true for syntactic negative numeric literal arguments.
-fn is_negative_numeric_literal(argument: &Argument<'_>) -> bool {
-    let Argument::UnaryExpression(unary) = argument else {
-        return false;
-    };
-    unary.operator == UnaryOperator::UnaryNegation
-        && matches!(unary.argument, Expression::NumericLiteral(_))
 }

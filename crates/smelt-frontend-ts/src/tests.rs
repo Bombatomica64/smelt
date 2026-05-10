@@ -635,10 +635,12 @@ const values: number[] = [1, 2, 3, 4];
 const allValues = values.slice();
 const tailValues = values.slice(1);
 const midValues = values.slice(1, 3);
+const lastValues = values.slice(-2);
 const word = "smelting";
 const allText = word.slice();
 const tailText = word.slice(1);
 const midText = word.slice(1, 4);
+const lastText = word.slice(-3);
 "#),
         &mut ctx,
     )?;
@@ -655,8 +657,8 @@ const midText = word.slice(1, 4);
         .iter()
         .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
         .count();
-    ensure_eq!(list_slices, 3);
-    ensure_eq!(string_slices, 3);
+    ensure_eq!(list_slices, 4);
+    ensure_eq!(string_slices, 4);
     Ok(())
 }
 
@@ -846,16 +848,6 @@ values.shift(0);
 
 #[test]
 fn rejects_unsupported_slice_argument_forms() -> Result<(), String> {
-    let mut ctx = HirCtx::new();
-    let negative = lowering_errors(
-        ts!(r#"
-const values: number[] = [1, 2, 3];
-const bad = values.slice(-1);
-"#),
-        &mut ctx,
-    )?;
-    assert_unsupported_ts(&negative, "negative indexes")?;
-
     let mut ctx = HirCtx::new();
     let too_many = lowering_errors(
         ts!(r#"

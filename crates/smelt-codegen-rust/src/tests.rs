@@ -352,19 +352,21 @@ values: list[int] = [1, 2, 3, 4]
 all_values: list[int] = values[:]
 tail_values: list[int] = values[1:]
 mid_values: list[int] = values[1:3]
+last_values: list[int] = values[-2:]
 word: str = "smelting"
 all_text: str = word[:]
 tail_text: str = word[1:]
 mid_text: str = word[1:4]
+last_text: str = word[-3:]
 "#,
     );
 
     assert!(source.contains(".iter().skip(0usize).take("));
-    assert!(source.contains(".iter().skip((1 as usize)).take("));
-    assert!(source.contains(".take((3 as usize).saturating_sub((1 as usize)))"));
+    assert!(source.contains("let index = 1 as i64"));
+    assert!(source.contains("clamp(0, len) as usize"));
     assert!(source.contains(".cloned().collect::<Vec<_>>();"));
     assert!(source.contains(".chars().skip(0usize).take("));
-    assert!(source.contains(".chars().skip((1 as usize)).take("));
+    assert!(source.matches("if index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));
 }
 
@@ -1034,19 +1036,21 @@ const values: number[] = [1, 2, 3, 4];
 const allValues = values.slice();
 const tailValues = values.slice(1);
 const midValues = values.slice(1, 3);
+const lastValues = values.slice(-2);
 const word = "smelting";
 const allText = word.slice();
 const tailText = word.slice(1);
 const midText = word.slice(1, 4);
+const lastText = word.slice(-3);
 "#,
     );
 
     assert!(source.contains(".iter().skip(0usize).take("));
-    assert!(source.contains(".iter().skip((1.0 as usize)).take("));
-    assert!(source.contains(".take((3.0 as usize).saturating_sub((1.0 as usize)))"));
+    assert!(source.contains("let index = 1.0 as i64"));
+    assert!(source.contains("clamp(0, len) as usize"));
     assert!(source.contains(".cloned().collect::<Vec<_>>();"));
     assert!(source.contains(".chars().skip(0usize).take("));
-    assert!(source.contains(".chars().skip((1.0 as usize)).take("));
+    assert!(source.matches("if index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));
 }
 

@@ -257,7 +257,7 @@ runtime errors.
   - [x] Python list slicing with positive indexes.
   - [ ] Python tuple slicing with positive indexes.
   - [x] Python string slicing with positive indexes.
-  - [ ] Decide one shared policy for negative indexes before enabling negative-index forms.
+  - [x] Shared slice-bound policy: HIR/MIR uses Python-style negative-index normalization; TypeScript `slice` lowers to that shared semantic because supported JS slice bounds match it.
 - [ ] Batch E, callback-heavy methods after closure support:
   - [x] TypeScript `Array.prototype.map` with capture-free expression callbacks.
   - [x] TypeScript `Array.prototype.filter` with capture-free expression callbacks.
@@ -323,8 +323,7 @@ runtime errors.
   - [x] `Array.prototype.pop`.
   - [x] `Array.prototype.shift`.
   - [x] `Array.prototype.unshift`.
-  - [ ] `Array.prototype.slice` with positive, omitted, and negative indexes.
-    - [x] Positive and omitted indexes.
+  - [x] `Array.prototype.slice` with positive, omitted, and negative indexes.
   - [ ] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
   - [x] `Array.prototype.concat`.
   - [x] `Array.prototype.join`.
@@ -343,7 +342,7 @@ runtime errors.
   - [x] `String.prototype.startsWith` and `endsWith`.
   - [x] `String.prototype.indexOf` and `lastIndexOf`.
   - [ ] `String.prototype.slice` and `substring`, including Unicode/index semantics decision.
-    - [x] `String.prototype.slice` with positive and omitted indexes.
+    - [x] `String.prototype.slice` with positive, omitted, and negative indexes.
   - [x] `String.prototype.replace` for literal strings.
   - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.

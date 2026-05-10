@@ -2091,7 +2091,8 @@ impl<'mir> FunctionEmitter<'mir> {
         self.validate_optional_numeric_index(start, "string slice start index")?;
         self.validate_optional_numeric_index(end, "string slice end index")?;
         let operand_text = self.operand_text(operand)?;
-        let start_text = self.slice_start_text(start)?;
+        let len_source = format!("{operand_text}.chars().count()");
+        let start_text = self.slice_start_text(start, &len_source)?;
         let len_text = self.slice_len_text(&operand_text, start, end, SliceLenKind::Chars)?;
         Ok(format!(
             "{operand_text}.chars().skip({start_text}).take({len_text}).collect::<String>()"
@@ -2481,7 +2482,8 @@ impl<'mir> FunctionEmitter<'mir> {
         self.validate_optional_numeric_index(start, "list slice start index")?;
         self.validate_optional_numeric_index(end, "list slice end index")?;
         let list_text = self.operand_text(list)?;
-        let start_text = self.slice_start_text(start)?;
+        let len_source = format!("{list_text}.len()");
+        let start_text = self.slice_start_text(start, &len_source)?;
         let len_text = self.slice_len_text(&list_text, start, end, SliceLenKind::Len)?;
         Ok(format!(
             "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
@@ -2973,15 +2975,19 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(())
     }
 
-    /// Converts an optional slice start to a Rust `usize` expression.
-    fn slice_start_text(&self, maybe_start: Option<&Operand>) -> Result<String, EmitError> {
+    /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
+    fn slice_start_text(
+        &self,
+        maybe_start: Option<&Operand>,
+        len_expr: &str,
+    ) -> Result<String, EmitError> {
         maybe_start.map_or_else(
             || Ok("0usize".to_owned()),
-            |bound| Ok(format!("({} as usize)", self.operand_text(bound)?)),
+            |bound| self.normalized_slice_bound_text(bound, len_expr),
         )
     }
 
-    /// Converts optional slice bounds to a Rust `take` length expression.
+    /// Converts optional Python-style slice bounds to a Rust `take` length expression.
     fn slice_len_text(
         &self,
         receiver_text: &str,
@@ -2989,15 +2995,32 @@ impl<'mir> FunctionEmitter<'mir> {
         maybe_end: Option<&Operand>,
         kind: SliceLenKind,
     ) -> Result<String, EmitError> {
-        let start_text = self.slice_start_text(maybe_start)?;
+        let len_source = match kind {
+            SliceLenKind::Len => format!("{receiver_text}.len()"),
+            SliceLenKind::Chars => format!("{receiver_text}.chars().count()"),
+        };
+        let start_text = self.slice_start_text(maybe_start, &len_source)?;
         let end_text = match maybe_end {
-            Some(bound) => format!("({} as usize)", self.operand_text(bound)?),
-            None => match kind {
-                SliceLenKind::Len => format!("{receiver_text}.len()"),
-                SliceLenKind::Chars => format!("{receiver_text}.chars().count()"),
-            },
+            Some(bound) => self.normalized_slice_bound_text(bound, &len_source)?,
+            None => len_source,
         };
         Ok(format!("{end_text}.saturating_sub({start_text})"))
+    }
+
+    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
+    ///
+    /// Negative bounds are interpreted relative to collection length; all bounds
+    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
+    /// `slice` behavior for the supported numeric subset.
+    fn normalized_slice_bound_text(
+        &self,
+        bound: &Operand,
+        len_expr: &str,
+    ) -> Result<String, EmitError> {
+        let bound_text = self.operand_text(bound)?;
+        Ok(format!(
+            "{{ let len = {len_expr} as i64; let index = {bound_text} as i64; if index < 0 {{ (len + index).clamp(0, len) as usize }} else {{ index.clamp(0, len) as usize }} }}"
+        ))
     }
 
     /// Converts a tuple containment operation to Rust text.

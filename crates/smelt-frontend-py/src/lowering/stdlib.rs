@@ -1,6 +1,6 @@
 //! Focused Python standard-library and built-in operation lowering helpers.
 
-use ruff_python_ast::{Expr, ExprSubscript, UnaryOp as RuffUnaryOp};
+use ruff_python_ast::{Expr, ExprSubscript};
 use ruff_text_size::Ranged;
 use smelt_hir::{
     Body, BoolFoldOp, Expr as HirExpr, ExprKind, RegexMatchOp, SetBinaryOp, SetRemoveOp, Type,
@@ -1018,7 +1018,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower Python list and string slicing with omitted or positive bounds.
+    /// Lower Python list and string slicing with Python-style clamped bounds.
     pub(super) fn slice_subscript(
         &mut self,
         sub: &ExprSubscript,
@@ -1033,18 +1033,6 @@ impl ModuleBuilder<'_> {
                 "slice steps are not supported yet",
             ));
         }
-        for bound in [slice.lower.as_deref(), slice.upper.as_deref()]
-            .into_iter()
-            .flatten()
-        {
-            if is_negative_numeric_literal(bound) {
-                return Err(SmeltError::unsupported(
-                    self.span(bound.range()),
-                    "slice negative indexes are not supported yet",
-                ));
-            }
-        }
-
         let receiver = self.expression(&sub.value, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let lower = slice
@@ -1102,12 +1090,4 @@ impl ModuleBuilder<'_> {
         }
         Ok(bound)
     }
-}
-
-/// Return true for syntactic negative numeric literal bounds.
-fn is_negative_numeric_literal(expr: &Expr) -> bool {
-    let Expr::UnaryOp(unary) = expr else {
-        return false;
-    };
-    unary.op == RuffUnaryOp::USub && matches!(unary.operand.as_ref(), Expr::NumberLiteral(_))
 }

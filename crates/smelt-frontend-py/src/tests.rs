@@ -796,10 +796,12 @@ values: list[int] = [1, 2, 3, 4]
 all_values: list[int] = values[:]
 tail_values: list[int] = values[1:]
 mid_values: list[int] = values[1:3]
+last_values: list[int] = values[-2:]
 word: str = "smelting"
 all_text: str = word[:]
 tail_text: str = word[1:]
 mid_text: str = word[1:4]
+last_text: str = word[-3:]
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -821,8 +823,8 @@ mid_text: str = word[1:4]
         .iter()
         .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
         .count();
-    ensure_eq(&list_slices, &3, "list slice count")?;
-    ensure_eq(&string_slices, &3, "string slice count")?;
+    ensure_eq(&list_slices, &4, "list slice count")?;
+    ensure_eq(&string_slices, &4, "string slice count")?;
     Ok(())
 }
 
@@ -1777,20 +1779,6 @@ copied: dict[str, int] = mapping.copy(1)
 
 #[test]
 fn unsupported_slice_forms_reject() -> TestResult {
-    let mut ctx = HirCtx::new();
-    let negative = lower_errors(
-        py!(r#"
-values: list[int] = [1, 2, 3]
-bad: list[int] = values[-1:]
-"#),
-        &mut ctx,
-    )?;
-    let error = first_error(&negative)?;
-    ensure(
-        error.message.contains("negative indexes"),
-        "expected negative index diagnostic",
-    )?;
-
     let mut ctx = HirCtx::new();
     let step = lower_errors(
         py!(r#"
