@@ -259,12 +259,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
+        let implemented_functions = implemented_function_names(program);
         for statement in &program.body {
             if let Statement::ImportDeclaration(import) = statement {
                 self.import_declaration(import, &mut module);
                 continue;
             }
             if let Statement::FunctionDeclaration(function) = statement {
+                if is_implemented_overload_signature(function, &implemented_functions) {
+                    continue;
+                }
                 match self.function_declaration(function) {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),
@@ -325,6 +329,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 && let Some(decl) = &export.declaration
             {
                 if let Declaration::FunctionDeclaration(function) = decl {
+                    if is_implemented_overload_signature(function, &implemented_functions) {
+                        continue;
+                    }
                     match self.function_declaration(function) {
                         Ok(item) => module.items.push(item),
                         Err(error) => errors.push(error),
@@ -7086,6 +7093,42 @@ fn module_export_name(name: &ModuleExportName<'_>) -> String {
         ModuleExportName::IdentifierReference(ident) => ident.name.as_str().to_owned(),
         ModuleExportName::StringLiteral(literal) => literal.value.as_str().to_owned(),
     }
+}
+
+/// Return top-level function names that have concrete implementation bodies.
+fn implemented_function_names(program: &Program<'_>) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for statement in &program.body {
+        match statement {
+            Statement::FunctionDeclaration(function) if function.body.is_some() => {
+                if let Some(id) = &function.id {
+                    names.insert(id.name.to_string());
+                }
+            }
+            Statement::ExportNamedDeclaration(export) => {
+                if let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+                    && function.body.is_some()
+                    && let Some(id) = &function.id
+                {
+                    names.insert(id.name.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    names
+}
+
+/// Return true for a TypeScript overload signature backed by an implementation.
+fn is_implemented_overload_signature(
+    function: &oxc::ast::ast::Function<'_>,
+    implemented_functions: &HashSet<String>,
+) -> bool {
+    function.body.is_none()
+        && function
+            .id
+            .as_ref()
+            .is_some_and(|id| implemented_functions.contains(id.name.as_str()))
 }
 
 /// Determine HIR visibility from TypeScript accessibility metadata.

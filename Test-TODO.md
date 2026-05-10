@@ -247,7 +247,7 @@ TypeScript:
 - [ ] Exported object constants
   - [x] Exported primitive literal constants.
 - [ ] Arrow functions assigned to `const`
-- [ ] Function overload declarations should be ignored/merged with implementation when safe.
+- [x] Function overload declarations should be ignored/merged with implementation when safe.
 
 Python:
 

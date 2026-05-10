@@ -618,6 +618,46 @@ const result = value instanceof Box;
 }
 
 #[test]
+fn ignores_safe_function_overload_signatures() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function double(value: number): number;
+function double(value: number): number {
+  return value * 2;
+}
+
+export function identity(value: string): string;
+export function identity(value: string): string {
+  return value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
+
+    let first = function_item(&ctx, module, 0)?;
+    let second = function_item(&ctx, module, 1)?;
+    ensure!(first.body.is_some());
+    ensure!(second.body.is_some());
+    Ok(())
+}
+
+#[test]
+fn rejects_unimplemented_function_overload_signature() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+function missing(value: number): number;
+"#),
+        &mut ctx,
+    )?;
+
+    assert_unsupported_ts(&errors, "declare functions are not lowered yet")
+}
+
+#[test]
 fn lowers_global_numeric_parse_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
