@@ -17,9 +17,12 @@ For v1, Smelt should not try to transpile Vitest or pytest internals. The v1 goa
 
 ## Current Baseline
 
-- `cargo check`: passed in the latest implementation run.
-- `cargo test`: passed in the latest implementation run.
-- `cargo clippy`: passed in the latest implementation run.
+- Docs-only Slice 9/10 updates do not change Rust source or generated test behavior.
+- Latest verification after the docs-only update is blocked by concurrent source changes:
+  - `cargo test` fails because `crates/smelt-frontend-py/src/lowering.rs` has unread
+    `enum_members` and `class_methods` fields.
+  - `cargo check` and `cargo clippy` fail on the same Python fields and unused
+    `PureMathCall` / `pure_math_call` in `crates/smelt-frontend-ts/src/lowering/stdlib_dispatch.rs`.
 
 Do not rely on external repo tests as a signal until the workspace's own checks are green.
 
@@ -40,6 +43,8 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   and `-maxTime`.
 - Next blocker is any remaining non-foldable exported constant expression shape in the target slice,
   not Vitest public API lowering.
+- Phase 6 exit status: not green yet. First-green acceptance remains generated Rust `cargo test`
+  passing all four `quartersToMonths` cases.
 
 `Textualize/rich`:
 
@@ -51,6 +56,8 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   NullFile()` still needs module-level constructed constant support.
 - Test file alone fails on local variable `file = NullFile()` being unresolved because imported module symbols are not available in that isolated run.
 - Next blockers are Python class/protocol support and import binding, not plain pytest discovery.
+- Phase 6 exit status: not green yet. First-green acceptance remains generated Rust `cargo test`
+  passing the Rich-like `NullFile` fixture.
 
 `Effect-TS/effect`:
 
@@ -66,6 +73,8 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   non-primitive value expressions such as `dual(...)` helpers.
 - Next blockers are remaining exported constant expression shapes outside the primitive folder and
   the Effect runtime subset.
+- Phase 6 exit status: documented pass/fail required before close. Current first unsupported
+  construct remains exported non-primitive value expressions such as `dual(...)`.
 
 `encode/httpx`:
 
@@ -77,6 +86,8 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
 - Test file alone can resolve direct package namespace members such as `httpx.add(...)`; deeper
   class-level member calls such as `httpx.codes.get_reason_phrase(...)` still need object model work.
 - Next blockers are `IntEnum`/class body handling, classmethod/`cls`, and class-level member-call lowering.
+- Phase 6 exit status: documented pass/fail required before close. Current first unsupported
+  construct remains class body/classmethod support around `codes.__new__`, `cls`, and class-level calls.
 
 ## Priority 0: Existing Workspace Health
 
@@ -362,9 +373,9 @@ First success means:
 
 ## Acceptance Criteria
 
-- [ ] Root `Test-TODO.md` is the main implementation checklist for `smelt test`.
-- [ ] `specs/test-framework-repo-survey.md` uses date-fns, Effect, Rich, and HTTPX as primary survey targets.
-- [ ] Zod and Pydantic are documented only as deferred stress targets.
-- [ ] The first external TypeScript target is date-fns `quartersToMonths`.
-- [ ] The first external Python target is Rich `NullFile`.
+- [x] Root `Test-TODO.md` is the main implementation checklist for `smelt test`.
+- [x] `specs/test-framework-repo-survey.md` uses date-fns, Effect, Rich, and HTTPX as primary survey targets.
+- [x] Zod and Pydantic are documented only as deferred stress targets.
+- [x] The first external TypeScript target is date-fns `quartersToMonths`.
+- [x] The first external Python target is Rich `NullFile`.
 - [ ] Every unsupported source test feature listed above either lowers correctly or produces a clear source-located Smelt error.

@@ -188,6 +188,8 @@ pub struct HirCtx {
     /// Module/package namespace exports visible to later files.
     pub module_namespaces:
         std::collections::HashMap<String, std::collections::HashMap<String, smelt_hir::ItemId>>,
+    /// Targeted Python `IntEnum` member values visible to later files.
+    pub enum_members: std::collections::HashMap<String, std::collections::HashMap<String, i64>>,
 }
 
 impl HirCtx {
@@ -197,6 +199,7 @@ impl HirCtx {
         Self {
             krate: HirCrate::new(),
             module_namespaces: std::collections::HashMap::new(),
+            enum_members: std::collections::HashMap::new(),
         }
     }
 }

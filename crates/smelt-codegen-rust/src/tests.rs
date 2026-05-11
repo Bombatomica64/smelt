@@ -2,6 +2,7 @@ use super::*;
 use smelt_frontend_py as py_frontend;
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::FileId;
+use smelt_stdlib::BackendDependency;
 
 /// Converts TypeScript source to generated Rust source.
 fn source_for(ts: &str) -> String {
@@ -1872,9 +1873,12 @@ fn emits_python_requests_get_as_blocking_reqwest_text() {
 
 #[test]
 fn injects_reqwest_dependency_for_http_mapping() {
-    let manifest = cargo_toml(
-        &EmitOptions::default(),
-        &[GeneratedDep::Tokio, GeneratedDep::Reqwest],
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &[
+            GeneratedDep::Tokio,
+            GeneratedDep::Stdlib(BackendDependency::Reqwest),
+        ],
     );
 
     assert!(manifest.contains("tokio = { version = \"1\""));
@@ -1883,23 +1887,52 @@ fn injects_reqwest_dependency_for_http_mapping() {
 
 #[test]
 fn injects_serde_json_dependency_for_json_mapping() {
-    let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::SerdeJson]);
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &[GeneratedDep::Stdlib(BackendDependency::SerdeJson)],
+    );
 
     assert!(manifest.contains("serde_json = \"1\""));
 }
 
 #[test]
 fn injects_rand_dependency_for_random_mapping() {
-    let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::Rand]);
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &[GeneratedDep::Stdlib(BackendDependency::Rand)],
+    );
 
     assert!(manifest.contains("rand = \"0.9\""));
 }
 
 #[test]
 fn injects_regex_dependency_for_regex_mapping() {
-    let manifest = cargo_toml(&EmitOptions::default(), &[GeneratedDep::Regex]);
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &[GeneratedDep::Stdlib(BackendDependency::Regex)],
+    );
 
     assert!(manifest.contains("regex = \"1\""));
+}
+
+#[test]
+fn injects_chrono_dependency_for_date_mapping() {
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &[GeneratedDep::Stdlib(BackendDependency::Chrono)],
+    );
+
+    assert!(manifest.contains("chrono = \"0.4\""));
+}
+
+#[test]
+fn injects_url_dependency_for_url_mapping() {
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &[GeneratedDep::Stdlib(BackendDependency::Url)],
+    );
+
+    assert!(manifest.contains("url = \"2\""));
 }
 
 #[test]

@@ -1145,6 +1145,7 @@ dependencies = [
  "smelt-frontend-ts",
  "smelt-hir",
  "smelt-mir",
+ "smelt-stdlib",
 ]
 
 [[package]]
@@ -1157,6 +1158,7 @@ dependencies = [
  "ruff_text_size",
  "smelt-asyncio",
  "smelt-hir",
+ "smelt-stdlib",
 ]
 
 [[package]]
@@ -1166,6 +1168,7 @@ dependencies = [
  "oxc",
  "pico-args",
  "smelt-hir",
+ "smelt-stdlib",
 ]
 
 [[package]]

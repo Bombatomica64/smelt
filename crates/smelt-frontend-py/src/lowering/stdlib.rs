@@ -6,8 +6,9 @@ use smelt_hir::{
     Body, BoolFoldOp, Expr as HirExpr, ExprKind, FileId, PrimitiveCastOp, RegexMatchOp,
     SetBinaryOp, SetRelationOp, SetRemoveOp, Span, Type,
 };
+use smelt_stdlib::RuleId;
 
-use super::{ModuleBuilder, SmeltError};
+use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
 
 impl ModuleBuilder<'_> {
     /// Lower Python `json.dumps(value)` calls for JSON-compatible values.
@@ -16,6 +17,9 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::PyJsonDumps) {
+            return Ok(None);
+        }
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
@@ -53,6 +57,9 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::PyJsonLoads) {
+            return Ok(None);
+        }
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
@@ -100,6 +107,9 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+            return Ok(None);
+        };
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
@@ -109,10 +119,10 @@ impl ModuleBuilder<'_> {
         if module.id.as_str() != "re" {
             return Ok(None);
         }
-        let op = match attr.attr.as_str() {
-            "search" => RegexMatchOp::Search,
-            "match" => RegexMatchOp::Match,
-            "fullmatch" => RegexMatchOp::FullMatch,
+        let op = match rule {
+            RuleId::PyReSearch => RegexMatchOp::Search,
+            RuleId::PyReMatch => RegexMatchOp::Match,
+            RuleId::PyReFullMatch => RegexMatchOp::FullMatch,
             _ => return Ok(None),
         };
         if call.arguments.args.len() != 2 || !call.arguments.keywords.is_empty() {

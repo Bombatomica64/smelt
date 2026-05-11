@@ -11,6 +11,5 @@ pub mod rules;
 pub use deps::BackendDependency;
 pub use diagnostics::{StdlibDiagnostic, UnsupportedForm};
 pub use rules::{
-    ApiNamespace, ApiShape, ArgShape, EffectKind, ReceiverKind, ReturnShape, RuleId,
-    SourceLanguage,
+    ApiNamespace, ApiShape, ArgShape, EffectKind, ReceiverKind, ReturnShape, RuleId, SourceLanguage,
 };

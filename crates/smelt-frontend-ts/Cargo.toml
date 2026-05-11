@@ -9,6 +9,7 @@ workspace = true
 
 [dependencies]
 smelt-hir = { path = "../smelt-hir" }
+smelt-stdlib = { path = "../smelt-stdlib" }
 oxc = { version = "0.124.0", features = ["semantic"] }
 
 [dev-dependencies]

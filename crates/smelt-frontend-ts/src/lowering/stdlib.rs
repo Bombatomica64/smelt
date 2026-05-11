@@ -3,8 +3,9 @@
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, RegexMatchOp, Type};
+use smelt_stdlib::RuleId;
 
-use super::{ModuleBuilder, SmeltError};
+use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
 
 impl ModuleBuilder<'_> {
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
@@ -13,6 +14,9 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonStringify) {
+            return Ok(None);
+        }
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
@@ -49,6 +53,9 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse) {
+            return Ok(None);
+        }
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
@@ -103,6 +110,9 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsRegExpTest) {
+            return Ok(None);
+        }
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };

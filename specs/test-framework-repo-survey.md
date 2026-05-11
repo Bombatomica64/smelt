@@ -6,6 +6,15 @@ This survey checks whether smelt can consume tests from real TypeScript and Pyth
 
 The primary targets are typed libraries with real test suites. Zod and Pydantic are intentionally deferred because they mostly stress runtime schema systems, metaprogramming, and advanced type machinery rather than the first version of Smelt's typed-source test path.
 
+## Phase 6 Target Status
+
+| Repo | Target slice | Phase 6 status | Current first blocker |
+| --- | --- | --- | --- |
+| `date-fns/date-fns` | `src/constants/index.ts`, `src/quartersToMonths/index.ts`, `src/quartersToMonths/test.ts` | First TypeScript green target; not accepted until generated Rust tests pass. | Remaining exported constant-expression shapes in the target slice, if any. |
+| `Textualize/rich` | `rich/_null_file.py`, `tests/test_null_file.py` | First Python green target; not accepted until generated Rust tests pass. | Module-level constructed constants, package import binding, and `NullFile` protocol methods. |
+| `Effect-TS/effect` | Numeric typeclass slice | Later TypeScript stress target; pass/fail plus first unsupported construct must be recorded for Phase 6 exit. | Exported non-primitive value expressions such as `dual(...)` and the minimal Effect runtime subset. |
+| `encode/httpx` | `httpx/_status_codes.py`, `tests/test_status_codes.py` | Later Python stress target; pass/fail plus first unsupported construct must be recorded for Phase 6 exit. | `IntEnum`, class body self-reference, `classmethod`/`cls`, and class-level member calls. |
+
 ## Repositories
 
 Temporary clones used during the survey:
@@ -39,7 +48,7 @@ Common matcher/helper counts from the cloned repos:
 | `.toHaveLength` | 0 | 36 |
 | Effect-style helper assertions | 0 | required, e.g. `U.deepStrictEqual(...)` |
 
-Immediate test-framework blockers:
+Immediate test-framework blockers as of the original survey:
 
 - Imported Vitest globals are unresolved. Example: `describe`, `it`, `test`, and `expect` from `vitest` currently fail before any test body lowering.
 - `@effect/vitest` must be treated as a Vitest-compatible source of test framework globals.
@@ -48,7 +57,7 @@ Immediate test-framework blockers:
 - `expect(...).toBeInstanceOf(...)` is common in date-fns and is not in `smelt-test` yet.
 - `expect(...).toThrow(ErrorType)` and message matching are needed beyond the current `to_throw()` panic check.
 
-Immediate source-language blockers:
+Immediate source-language blockers as of the original survey:
 
 - Import/export resolution is too weak for real module slices. A manifest containing date-fns `src/constants/index.ts`, `src/quartersToMonths/index.ts`, and `src/quartersToMonths/test.ts` still fails with unresolved imported constant `monthsInQuarter`.
 - Real TS libraries use `Math.trunc`, `Math.pow`, `Date`, `isNaN`, `instanceof`, `Infinity`, string case methods, array iteration, and readonly array parameters.
@@ -62,6 +71,12 @@ Representative failures:
 - `Effect/packages/typeclass/src/data/Number.ts`: `dump-hir` exits successfully but produces effectively empty HIR because current lowering misses or export-skips most declarations in that file.
 - `Effect/packages/effect/src/Number.ts`: same as above.
 - `Effect/packages/typeclass/test/data/Number.test.ts`: unresolved identifier `describe`.
+
+Current Phase 6 notes:
+
+- Vitest globals and `@effect/vitest` imports are no longer the first blockers for the narrow first-green slices.
+- date-fns has progressed to the `quartersToMonths` manifest target; the acceptance signal is generated Rust `cargo test`, not only frontend lowering.
+- Effect still needs a documented pass/fail status on the numeric slice with the first unsupported construct recorded.
 
 ## Python Findings
 
@@ -79,7 +94,7 @@ Common pytest feature counts:
 | `pytest.raises` | 51 | 128 |
 | `skip` / `skipif` / `xfail` | 39 | 1 |
 
-Immediate test-framework blockers:
+Immediate test-framework blockers as of the original survey:
 
 - Pytest test functions commonly omit `-> None`. smelt currently rejects them as untyped functions.
 - `pytest.raises` needs context-manager lowering with optional exception type and message matching.
@@ -88,7 +103,7 @@ Immediate test-framework blockers:
 - Autouse fixtures and scoped fixtures should be rejected clearly at first unless explicitly supported.
 - `skip`, `skipif`, and `xfail` need explicit Rust-side handling or early rejection.
 
-Immediate source-language blockers:
+Immediate source-language blockers as of the original survey:
 
 - Rich uses standard-library protocols and classes such as `IO[str]`, context managers, iterators, `Optional`, `Iterable`, `Iterator`, and `Type`.
 - Rich uses `TYPE_CHECKING`, forward/type-only imports, dunder names such as `__name__`, and many rich object equality comparisons.
@@ -103,6 +118,12 @@ Representative failures:
 - `httpx/httpx/_status_codes.py`: untyped `cls` parameter in `codes.__new__`, unresolved `__all__`, unresolved `codes`.
 - `httpx/tests/test_status_codes.py`: every top-level test function is rejected for missing explicit return annotation.
 - `httpx/httpx/_utils.py`: unsupported `is`, ternary expressions, `try`, limited method/member calls, unresolved `typing`.
+
+Current Phase 6 notes:
+
+- Pytest-mode unannotated `test_*` functions are no longer the first blocker for Rich and HTTPX target slices.
+- Rich has progressed to package/import binding and `NullFile` object protocol support.
+- HTTPX has progressed to enum/classmethod/class-level member-call support as the first status-code slice blocker.
 
 ## Deferred Stress Targets
 
@@ -132,4 +153,3 @@ Representative failures:
 6. Use date-fns as the first TS external target and Rich as the first Python external target.
    - date-fns has simple arithmetic tests that look close once imports and Vitest globals work.
    - Rich has simple assertion tests, but needs relaxed return annotations for test functions and basic class/protocol support.
-

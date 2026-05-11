@@ -143,14 +143,15 @@ fn exported_foldable_constants_are_visible_to_later_modules() -> Result<(), Stri
 export const base = Math.pow(10, 2);
 export const maxTime = base * 5;
 export const minTime = -maxTime;
+export const rounded = Math.trunc((+minTime) / 3);
 "#),
         "src/constants.ts",
         &mut ctx,
     )?;
     let module_id = lower_path_ok(
         ts!(r#"
-import { minTime } from "./constants";
-const value = minTime;
+import { minTime, rounded } from "./constants";
+const value = minTime + rounded;
 "#),
         "src/main.ts",
         &mut ctx,
@@ -160,6 +161,57 @@ const value = minTime;
     ensure!(body.exprs.iter().any(
         |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -500.0)
     ));
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -166.0)
+    ));
+    Ok(())
+}
+
+#[test]
+fn date_fns_constant_slice_folds_importable_numeric_consts() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export const daysInWeek = 7;
+export const daysInYear = 365.2425;
+export const maxTime = Math.pow(10, 8) * 24 * 60 * 60 * 1000;
+export const minTime = -maxTime;
+export const secondsInHour = 3600;
+export const secondsInDay = secondsInHour * 24;
+export const secondsInWeek = secondsInDay * +daysInWeek;
+export const secondsInYear = secondsInDay * (daysInYear);
+export const secondsInMonth = secondsInYear / 12;
+export const secondsInQuarter = Math.trunc(secondsInMonth * 3);
+export const monthsInQuarter = 3;
+export const constructFromSymbol = Symbol.for("constructDateFrom");
+"#),
+        "src/constants/index.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { monthsInQuarter, secondsInQuarter, minTime } from "../constants/index.ts";
+
+export function quartersToMonths(quarters: number): number {
+  return Math.trunc(quarters * monthsInQuarter + secondsInQuarter * 0 + minTime * 0);
+}
+"#),
+        "src/quartersToMonths/index.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 3.0)
+        )
+    );
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == -8640000000000000.0)
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -886,6 +938,38 @@ const date = new Date();
         &mut ctx,
     )?;
     assert_unsupported_ts(&new_date_errors, "TypeScript Date is not supported yet")?;
+    Ok(())
+}
+
+#[test]
+fn rejects_deferred_url_and_object_apis_with_targeted_diagnostics() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let url_errors = lowering_errors(
+        ts!(r#"
+const url = new URL("https://example.com");
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&url_errors, "TypeScript URL is not supported yet")?;
+
+    let mut ctx = HirCtx::new();
+    let assign_errors = lowering_errors(
+        ts!(r#"
+const merged = Object.assign({}, { value: 1 });
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&assign_errors, "Object.fromEntries/Object.assign")?;
+
+    let mut ctx = HirCtx::new();
+    let splice_errors = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const removed = values.splice(1, 1);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&splice_errors, "Array.splice/String.replaceAll")?;
     Ok(())
 }
 

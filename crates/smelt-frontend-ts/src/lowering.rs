@@ -1,6 +1,7 @@
 //! TypeScript AST lowering into Smelt HIR.
 
 mod stdlib;
+mod stdlib_dispatch;
 use std::collections::{HashMap, HashSet};
 
 use crate::{HirCtx, SmeltError, camel_to_snake, test_support};
@@ -26,6 +27,7 @@ use smelt_hir::{
     StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
     UnknownKind, Visibility,
 };
+use smelt_stdlib::RuleId;
 
 /// Vitest expectation matchers that can lower to direct HIR checks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -590,7 +592,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
-            let value = self.literal_const_expression(init)?;
+            let value = match self.literal_const_expression(init) {
+                Ok(value) => value,
+                Err(error) if Self::is_known_non_importable_exported_const(init) => {
+                    drop(error);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             let span = self.span(binding.span.start, binding.span.end);
             let mut body = Body::new(None, span);
             let expr = body.push_expr(Expr {
@@ -823,6 +832,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         ),
                     )
                 }),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.literal_const_expression(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                self.literal_const_expression(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.literal_const_expression(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.literal_const_expression(&non_null.expression)
+            }
             Expression::UnaryExpression(unary) => self.unary_literal_const_expression(unary),
             Expression::BinaryExpression(binary) => self.binary_literal_const_expression(binary),
             Expression::CallExpression(call) => self.call_literal_const_expression(call),
@@ -833,6 +854,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Return whether an exported const has known metadata value that is safe to skip.
+    fn is_known_non_importable_exported_const(expression: &Expression<'_>) -> bool {
+        let Expression::CallExpression(call) = expression else {
+            return false;
+        };
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return false;
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return false;
+        };
+        object.name == "Symbol" && member.property.name == "for"
+    }
+
     /// Fold a supported unary expression inside an exported const initializer.
     fn unary_literal_const_expression(
         &mut self,
@@ -840,6 +875,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<ConstLiteral, SmeltError> {
         let value = self.literal_const_expression(&unary.argument)?;
         match (unary.operator, value.literal) {
+            (UnaryOperator::UnaryPlus, Literal::Float(number)) => Ok(ConstLiteral {
+                literal: Literal::Float(number),
+                ty: self.ctx.krate.types.intern(Type::Float),
+            }),
             (UnaryOperator::UnaryNegation, Literal::Float(number)) => Ok(ConstLiteral {
                 literal: Literal::Float(-number),
                 ty: self.ctx.krate.types.intern(Type::Float),
@@ -850,7 +889,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }),
             _ => Err(SmeltError::unsupported(
                 self.span(unary.span.start, unary.span.end),
-                "exported const unary expressions currently support numeric negation and boolean not",
+                "exported const unary expressions currently support numeric plus, numeric negation, and boolean not",
             )),
         }
     }
@@ -903,36 +942,63 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        let Some(op) = stdlib_dispatch::pure_math_call(call) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "exported const call expressions currently support only selected Math calls",
             ));
         };
-        let Expression::Identifier(object) = &member.object else {
-            return Err(SmeltError::unsupported(
-                self.span(member.span.start, member.span.end),
-                "exported const Math calls require a direct Math receiver",
-            ));
-        };
-        if object.name != "Math" || member.property.name != "pow" {
-            return Err(SmeltError::unsupported(
+        let args = call
+            .arguments
+            .iter()
+            .map(|argument| self.number_literal_const_argument(argument))
+            .collect::<Result<Vec<_>, _>>()?;
+        let value = Self::fold_pure_math_const(op, &args).ok_or_else(|| {
+            SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "exported const call expressions currently support only Math.pow",
-            ));
-        }
-        let [base_arg, exponent_arg] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "Math.pow in exported const expressions requires exactly two arguments",
-            ));
-        };
-        let base = self.number_literal_const_argument(base_arg)?;
-        let exponent = self.number_literal_const_argument(exponent_arg)?;
+                "exported const Math call has an unsupported argument count",
+            )
+        })?;
         Ok(ConstLiteral {
-            literal: Literal::Float(base.powf(exponent)),
+            literal: Literal::Float(value),
             ty: self.ctx.krate.types.intern(Type::Float),
         })
+    }
+
+    /// Fold one pure numeric Math operation using JavaScript-compatible f64 behavior.
+    fn fold_pure_math_const(op: stdlib_dispatch::PureMathCall, args: &[f64]) -> Option<f64> {
+        use stdlib_dispatch::PureMathCall;
+        match op {
+            PureMathCall::Abs => single_arg(args).map(f64::abs),
+            PureMathCall::Floor => single_arg(args).map(f64::floor),
+            PureMathCall::Ceil => single_arg(args).map(f64::ceil),
+            PureMathCall::Round => single_arg(args).map(f64::round),
+            PureMathCall::Trunc => single_arg(args).map(f64::trunc),
+            PureMathCall::Max => Some(args.iter().copied().fold(f64::NEG_INFINITY, f64::max)),
+            PureMathCall::Min => Some(args.iter().copied().fold(f64::INFINITY, f64::min)),
+            PureMathCall::Hypot => Some(args.iter().map(|arg| arg * arg).sum::<f64>().sqrt()),
+            PureMathCall::Sqrt => single_arg(args).map(f64::sqrt),
+            PureMathCall::Cbrt => single_arg(args).map(f64::cbrt),
+            PureMathCall::Sign => single_arg(args).map(|arg| {
+                if arg.is_nan() || arg == 0.0_f64 {
+                    arg
+                } else {
+                    arg.signum()
+                }
+            }),
+            PureMathCall::Sin => single_arg(args).map(f64::sin),
+            PureMathCall::Cos => single_arg(args).map(f64::cos),
+            PureMathCall::Tan => single_arg(args).map(f64::tan),
+            PureMathCall::Asin => single_arg(args).map(f64::asin),
+            PureMathCall::Acos => single_arg(args).map(f64::acos),
+            PureMathCall::Atan => single_arg(args).map(f64::atan),
+            PureMathCall::Log => single_arg(args).map(f64::ln),
+            PureMathCall::Log10 => single_arg(args).map(f64::log10),
+            PureMathCall::Log2 => single_arg(args).map(f64::log2),
+            PureMathCall::Exp => single_arg(args).map(f64::exp),
+            PureMathCall::Pow => two_args(args).map(|(base, exponent)| base.powf(exponent)),
+            PureMathCall::Atan2 => two_args(args).map(|(y, x)| y.atan2(x)),
+        }
     }
 
     /// Fold one numeric argument in an exported const call expression.
@@ -957,6 +1023,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ));
                 };
                 *value
+            }
+            Argument::CallExpression(call) => {
+                let ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                } = self.call_literal_const_expression(call)?
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "exported const Math arguments must be numeric",
+                    ));
+                };
+                value
             }
             Argument::UnaryExpression(unary) => {
                 let ConstLiteral {
@@ -984,10 +1063,62 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 };
                 value
             }
+            Argument::ParenthesizedExpression(parenthesized) => {
+                let ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                } = self.literal_const_expression(&parenthesized.expression)?
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(parenthesized.span.start, parenthesized.span.end),
+                        "exported const Math arguments must be numeric",
+                    ));
+                };
+                value
+            }
+            Argument::TSAsExpression(as_expr) => {
+                let ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                } = self.literal_const_expression(&as_expr.expression)?
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(as_expr.span.start, as_expr.span.end),
+                        "exported const Math arguments must be numeric",
+                    ));
+                };
+                value
+            }
+            Argument::TSSatisfiesExpression(satisfies) => {
+                let ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                } = self.literal_const_expression(&satisfies.expression)?
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(satisfies.span.start, satisfies.span.end),
+                        "exported const Math arguments must be numeric",
+                    ));
+                };
+                value
+            }
+            Argument::TSNonNullExpression(non_null) => {
+                let ConstLiteral {
+                    literal: Literal::Float(value),
+                    ..
+                } = self.literal_const_expression(&non_null.expression)?
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(non_null.span.start, non_null.span.end),
+                        "exported const Math arguments must be numeric",
+                    ));
+                };
+                value
+            }
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(argument.span().start, argument.span().end),
-                    "exported const Math.pow arguments must be foldable numeric expressions",
+                    "exported const Math arguments must be foldable numeric expressions",
                 ));
             }
         };
@@ -3576,6 +3707,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 if let Some(error) = self.unsupported_date_call(call) {
                     return Err(error);
                 }
+                if let Some(error) = self.unsupported_url_call(call) {
+                    return Err(error);
+                }
+                if let Some(error) = self.unsupported_object_collection_call(call) {
+                    return Err(error);
+                }
                 if let Some(expr) = self.promise_static_call(call, body)? {
                     return Ok(expr);
                 }
@@ -3842,6 +3979,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Expression::TSNonNullExpression(non_null) => {
                 self.expression(&non_null.expression, body)
             }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.expression_with_hint(&parenthesized.expression, body, type_hint)
+            }
             Expression::NewExpression(new_expr) => {
                 if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
                     return Ok(expr);
@@ -3859,6 +3999,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
                         "TypeScript Date is not supported yet; Date.now, construction, parsing, and formatting need a Date mapping policy",
+                    ));
+                }
+                if callee.name == "URL" {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "TypeScript URL is not supported yet; URL construction and URL field access need a URL mapping policy",
                     ));
                 }
                 let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
@@ -4336,12 +4482,56 @@ impl<'ctx> ModuleBuilder<'ctx> {
         })
     }
 
+    /// Return a targeted diagnostic for unsupported TypeScript `URL` APIs.
+    fn unsupported_url_call(&self, call: &oxc::ast::ast::CallExpression<'_>) -> Option<SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
+        };
+        let is_url =
+            matches!(&member.object, Expression::Identifier(object) if object.name == "URL");
+        is_url.then(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "TypeScript URL is not supported yet; URL construction and URL field access need a URL mapping policy",
+            )
+        })
+    }
+
+    /// Return targeted diagnostics for deferred object and collection APIs.
+    fn unsupported_object_collection_call(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
+        };
+        let message = match &member.object {
+            Expression::Identifier(object)
+                if object.name == "Object"
+                    && matches!(member.property.name.as_str(), "fromEntries" | "assign") =>
+            {
+                "TypeScript Object.fromEntries/Object.assign are not supported yet; object merge/projection semantics need a dedicated mapping"
+            }
+            _ if matches!(member.property.name.as_str(), "splice" | "replaceAll") => {
+                "TypeScript Array.splice/String.replaceAll are not supported yet; mutation and replacement semantics need a dedicated mapping"
+            }
+            _ => return None,
+        };
+        Some(SmeltError::unsupported(
+            self.span(call.span.start, call.span.end),
+            message,
+        ))
+    }
+
     /// Lower TypeScript `fetch(url)` into an async HTTP GET text operation.
     fn fetch_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsFetch) {
+            return Ok(None);
+        }
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
@@ -4780,6 +4970,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsMathRandom) {
+            return Ok(None);
+        }
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
@@ -8295,6 +8488,22 @@ fn implemented_function_names(program: &Program<'_>) -> HashSet<String> {
         }
     }
     names
+}
+
+/// Return the only argument when a pure Math constant call is unary.
+fn single_arg(args: &[f64]) -> Option<f64> {
+    let [arg] = args else {
+        return None;
+    };
+    Some(*arg)
+}
+
+/// Return both arguments when a pure Math constant call is binary.
+fn two_args(args: &[f64]) -> Option<(f64, f64)> {
+    let [lhs, rhs] = args else {
+        return None;
+    };
+    Some((*lhs, *rhs))
 }
 
 /// Return true for a TypeScript overload signature backed by an implementation.

@@ -85,6 +85,27 @@ fn cargo_run_manifest(manifest: &Path) -> TestResult<String> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+/// Runs `cargo test --manifest-path` for a generated crate and returns stdout.
+fn cargo_test_manifest(manifest: &Path) -> TestResult<String> {
+    let output = Command::new("cargo")
+        .arg("test")
+        .arg("--quiet")
+        .arg("--manifest-path")
+        .arg(manifest)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "generated crate tests failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        ))
+        .into());
+    }
+
+    Ok(String::from_utf8(output.stdout)?)
+}
+
 /// Converts a path to UTF-8 for CLI arguments.
 fn utf8_path(path: &Path) -> Result<String, io::Error> {
     path.to_str().map(ToOwned::to_owned).ok_or_else(|| {
@@ -287,6 +308,92 @@ clone-strategy = "aggressive"
     let generated = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
     ensure(generated.contains("fn main()"), "missing fn main")?;
     ensure(generated.contains("println!"), "missing println")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_python_rich_like_null_file_package_fixture() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/rich"))?;
+    fs::create_dir_all(project_path.join("tests"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "rich-null-file"
+version = "0.1.0"
+
+[sources]
+entries = ["src/rich/_null_file.py", "src/rich/__init__.py", "tests/test_null_file.py", "src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "rich_null_file"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/rich/_null_file.py"),
+        r#"
+class NullFile:
+    def write(self, text: str) -> int:
+        return 0
+    def __enter__(self) -> NullFile:
+        return self
+    def __exit__(self, *_args: object) -> None:
+        pass
+    def __iter__(self) -> NullFile:
+        return self
+    def __next__(self) -> str:
+        raise StopIteration
+    def __str__(self) -> str:
+        return ""
+
+NULL_FILE = NullFile()
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/rich/__init__.py"),
+        r#"
+from ._null_file import NULL_FILE, NullFile
+
+__all__ = ["NULL_FILE", "NullFile"]
+"#,
+    )?;
+    fs::write(
+        project_path.join("tests/test_null_file.py"),
+        r#"
+from rich import NULL_FILE, NullFile
+
+def test_null_file_protocols():
+    value: NullFile = NULL_FILE
+    text: str = str(value)
+    assert text == ""
+    with value as handle:
+        assert handle.write("ignored") == 0
+    for line in value:
+        assert line == ""
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.py"),
+        r#"
+print("rich-null-file")
+"#,
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+    let test_stdout = cargo_test_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure(
+        test_stdout.contains("test result: ok"),
+        "generated Rich-like NullFile tests did not pass",
+    )?;
 
     Ok(())
 }
@@ -603,6 +710,116 @@ const result = quartersToMonths(2);\nconsole.log(result);\n",
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"6\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_runs_date_fns_quarters_to_months_tests() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/constants"))?;
+    fs::create_dir_all(project_path.join("src/quartersToMonths"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "date-fns-quarters-to-months"
+version = "0.1.0"
+
+[sources]
+entries = [
+  "src/quartersToMonths/test.ts",
+  "src/quartersToMonths/index.ts",
+  "src/constants/index.ts",
+]
+
+[output]
+target = "./dist"
+crate-name = "date_fns_quarters_to_months"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/constants/index.ts"),
+        r#"
+export const daysInWeek = 7;
+export const daysInYear = 365.2425;
+export const maxTime = Math.pow(10, 8) * 24 * 60 * 60 * 1000;
+export const minTime = -maxTime;
+export const millisecondsInWeek = 604800000;
+export const millisecondsInDay = 86400000;
+export const millisecondsInMinute = 60000;
+export const millisecondsInHour = 3600000;
+export const millisecondsInSecond = 1000;
+export const minutesInYear = 525600;
+export const minutesInMonth = 43200;
+export const minutesInDay = 1440;
+export const minutesInHour = 60;
+export const monthsInQuarter = 3;
+export const monthsInYear = 12;
+export const quartersInYear = 4;
+export const secondsInHour = 3600;
+export const secondsInMinute = 60;
+export const secondsInDay = secondsInHour * 24;
+export const secondsInWeek = secondsInDay * 7;
+export const secondsInYear = secondsInDay * daysInYear;
+export const secondsInMonth = secondsInYear / 12;
+export const secondsInQuarter = secondsInMonth * 3;
+export const constructFromSymbol = Symbol.for("constructDateFrom");
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/quartersToMonths/index.ts"),
+        r#"
+import { monthsInQuarter } from "../constants/index.ts";
+
+export function quartersToMonths(quarters: number): number {
+  return Math.trunc(quarters * monthsInQuarter);
+}
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/quartersToMonths/test.ts"),
+        r#"
+import { describe, expect, it } from "vitest";
+import { quartersToMonths } from "./index.ts";
+
+describe("quartersToMonths", () => {
+  it("converts quarters to months", () => {
+    expect(quartersToMonths(1)).toBe(3);
+    expect(quartersToMonths(2)).toBe(6);
+  });
+
+  it("uses floor rounding", () => {
+    expect(quartersToMonths(1.5)).toBe(4);
+    expect(quartersToMonths(0.3)).toBe(0);
+  });
+
+  it("handles border values", () => {
+    expect(quartersToMonths(0.4)).toBe(1);
+    expect(quartersToMonths(0)).toBe(0);
+  });
+
+  it("properly works with negative numbers", () => {
+    expect(quartersToMonths(12.34)).toBe(37);
+    expect(quartersToMonths(-12.34)).toBe(-37);
+  });
+});
+"#,
+    )?;
+
+    let manifest = project_path.join("Smelt.toml");
+    let manifest_arg = utf8_path(&manifest)?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let test_stdout = cargo_test_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure(
+        test_stdout.contains("test result: ok"),
+        "generated tests did not pass",
+    )?;
 
     Ok(())
 }

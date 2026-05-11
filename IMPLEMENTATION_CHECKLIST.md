@@ -178,14 +178,19 @@ runtime errors.
 
 ## Phase 6: Standard Library Mapping
 
-- Estimated status: **72% complete / 28% missing** as of 2026-05-10. The remaining work is mostly
-  higher-risk semantic parity, Date/datetime/URL/IO/native-library mappings, callback closure
-  generality, and mapping-infrastructure cleanup rather than direct leaf stdlib calls.
+- Estimated status: **registry-first completion in progress** as of 2026-05-10. Slice 1 has started
+  migrating touched stdlib families behind dispatch modules and centralized backend dependency
+  metadata. Phase 6 is not closed until the first-green repo targets and documented exit criteria
+  below pass. Current repo verification is blocked by source-level unused/dead-code errors in
+  concurrent frontend work, not by the docs-only Slice 9/10 changes.
 
 - [ ] Prefer direct semantic transpilation for stdlib operations whenever the Rust equivalent is
       straightforward and preserves source-language behavior.
   - [ ] Use a typed mapping registry instead of ad-hoc string matches:
         `(language, receiver/function, receiver type, argument shape) -> lowering rule`.
+    - [x] Initial frontend dispatch modules exist for touched JSON, regex basics, random basics,
+          `fetch`, and `requests.get` families.
+    - [ ] Finish shared `smelt-stdlib` rule metadata coverage for all migrated families.
   - [ ] Keep rules able to lower to inline Rust/MIR operations before considering runtime helpers.
 - [ ] Keep `smelt-runtime` as a last-resort compatibility layer, not the default stdlib strategy.
   - [ ] Runtime helpers must justify behavior that cannot stay readable or correct as inline Rust.
@@ -195,10 +200,9 @@ runtime errors.
   - [ ] Only call native APIs with stable C ABI boundaries and clear ownership/error semantics.
   - [ ] Do not treat arbitrary `PyObject*`/CPython-extension APIs as "direct C" without an explicit
         hybrid backend decision.
-  - [ ] Make NumPy the first required Python native-library target because too much practical Python
-        depends on it.
-  - [ ] Design NumPy around array/tensor semantics first, then choose whether each operation maps to
-        Rust-native arrays/crates, C ABI calls, or a deliberately hybrid path.
+  - [x] Defer NumPy from Phase 6 implementation with a written decision note.
+  - [x] Keep pandas explicitly out of scope for v1 Phase 6.
+  - [ ] Add targeted diagnostics for recognized NumPy/pandas imports if encountered.
 - [x] First direct-transpile stdlib slice:
   - [x] TypeScript `Array.prototype.length`.
   - [x] TypeScript `String.prototype.length`.
@@ -294,23 +298,28 @@ runtime errors.
     - [x] TypeScript `Math.random`.
     - [x] Python `random.random`.
 - [ ] Batch G, native/data libraries:
+  - [x] Create `specs/native-data-libraries.md`.
+  - [x] Record that NumPy is deferred from Phase 6 implementation.
+  - [x] Record that pandas is explicitly out of scope for v1 Phase 6.
   - [ ] NumPy scalar dtype model.
   - [ ] NumPy one-dimensional array construction and indexing.
   - [ ] NumPy shape/size/ndim metadata.
   - [ ] NumPy elementwise arithmetic.
   - [ ] NumPy reductions.
   - [ ] NumPy broadcasting.
-  - [ ] Decide whether pandas is explicitly out of scope for v1.
 - [ ] Mapping infrastructure and shared semantics:
   - [ ] Add a typed stdlib mapping registry shared by frontend lowering and Rust codegen.
+    - [x] Start registry-backed frontend dispatch for touched families.
   - [ ] Represent mapping rules with receiver kind, receiver type, function/member name, argument
         shape, return type, side-effect behavior, and required backend dependencies.
+    - [x] Start centralized backend dependency metadata for touched dependency-backed families.
   - [ ] Produce a dedicated unsupported-stdlib diagnostic that names the source API and nearest
         supported alternatives.
   - [ ] Add golden tests for every supported mapping across HIR, MIR, generated Rust, and runtime
         stdout where applicable.
   - [ ] Document each mapping in `specs/stdlib-mapping.md` with source semantics, Rust output, and
         known semantic differences.
+    - [x] Add expanded registry-format rows for touched JSON, regex, random, and HTTP APIs.
   - [ ] Add dependency-injection plumbing for mappings that need crates such as `serde_json`,
         `reqwest`, `chrono`, `regex`, `url`, `ndarray`, or `numpy` bindings.
 - [ ] TypeScript array/list mappings:
@@ -541,14 +550,23 @@ runtime errors.
         broad compatibility shim.
   - [ ] Async HTTP mapping compatible with the Phase 5 runtime model.
 - [ ] Python native/data-library mappings:
+  - [x] NumPy/pandas Phase 6 decision note exists.
+  - [ ] Targeted diagnostics for NumPy/pandas imports.
   - [ ] NumPy array construction and dtype model.
   - [ ] NumPy shape, ndim, size, indexing, slicing, reshape, transpose, and astype.
   - [ ] NumPy elementwise arithmetic, comparisons, reductions, and broadcasting policy.
   - [ ] NumPy `zeros`, `ones`, `empty`, `arange`, `linspace`, `concatenate`, `stack`, and `where`.
   - [ ] Decide per NumPy operation whether it lowers to Rust-native arrays/crates, C ABI calls, or
         a deliberately hybrid backend.
-  - [ ] Pandas support decision: explicit defer unless a concrete mapping plan exists.
+  - [x] Pandas support decision: explicitly out of scope for v1 Phase 6.
 - [ ] Phase 6 exit criteria:
+  - [ ] date-fns `quartersToMonths` first-green target passes generated Rust `cargo test`.
+  - [ ] Rich `NullFile` first-green target passes generated Rust `cargo test`.
+  - [ ] Effect numeric slice has documented pass/fail status and first unsupported construct.
+  - [ ] HTTPX status-code slice has documented pass/fail status and first unsupported construct.
+  - [ ] Registry dispatch exists and is used for all touched families.
+  - [x] NumPy/pandas decision note exists.
+  - [ ] Date/datetime, URL, Python IO, and regex expansion have implemented subsets or targeted diagnostics.
   - [ ] Every checked mapping has unit tests in the relevant frontend crate.
   - [ ] Every checked mapping has MIR lowering coverage.
   - [ ] Every checked mapping has Rust codegen coverage.

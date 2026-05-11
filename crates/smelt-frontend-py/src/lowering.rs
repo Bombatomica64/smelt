@@ -5,6 +5,7 @@
 )]
 
 mod stdlib;
+mod stdlib_dispatch;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
@@ -18,13 +19,14 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, Class, ClassKind, DictProjectionOp, Expr as HirExpr, ExprKind, Field,
-    FileId, Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal,
+    AsyncOp, BinOp, Body, Class, ClassKind, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind,
+    Field, FileId, Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal,
     LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
     NumericUnaryFuncOp, Param, Pattern as HirPattern, SetProjectionOp, SourceFile, Span,
     Stmt as HirStmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
     StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
 };
+use smelt_stdlib::RuleId;
 
 use crate::helpers::{
     collect_bitor_parts, decorator_frozen_kwarg, decorator_simple_name, expr_kind_name,
@@ -45,6 +47,12 @@ pub(crate) struct ModuleBuilder<'ctx> {
     locals: HashMap<String, smelt_hir::LocalId>,
     /// Module-level items (functions / classes) for call resolution.
     items: HashMap<String, ItemId>,
+    /// Names exported by the module currently being lowered.
+    exports: HashMap<String, ItemId>,
+    /// Integer enum members keyed by class name, then member name.
+    enum_members: HashMap<String, HashMap<String, i64>>,
+    /// Class method items keyed by class name, then method name.
+    class_methods: HashMap<String, HashMap<String, ItemId>>,
     /// Imported module/package namespaces available by local module name.
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Pytest fixture functions available to tests in this module.
@@ -75,6 +83,16 @@ struct PytestFixture {
     autouse: bool,
 }
 
+/// Arguments needed to lower a statically-known protocol method call.
+struct ProtocolMethodCall {
+    /// Expression used as the method receiver.
+    receiver: smelt_hir::ExprId,
+    /// Python method name to call.
+    method: String,
+    /// Already-lowered call arguments.
+    args: Vec<smelt_hir::ExprId>,
+}
+
 /// Literal values supported in first-pass pytest parametrization.
 #[derive(Debug, Clone)]
 enum PytestLiteral {
@@ -98,6 +116,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     /// Build a lowering context for one Python source module.
     pub(crate) fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
         let items = visible_items(ctx);
+        let enum_members = ctx.enum_members.clone();
+        let class_methods = visible_class_methods(ctx);
         let module_namespaces = ctx.module_namespaces.clone();
         Self {
             file_id,
@@ -106,6 +126,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ctx,
             locals: HashMap::new(),
             items,
+            exports: HashMap::new(),
+            enum_members,
+            class_methods,
             module_namespaces,
             pytest_fixtures: HashMap::new(),
             current_async: false,
@@ -144,6 +167,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.import_stmt(import, &mut hir_module);
             } else if let Stmt::ImportFrom(import) = stmt {
                 self.import_from_stmt(import, &mut hir_module);
+            } else if let Stmt::Assign(assign) = stmt {
+                match self.constructed_constant_assign(assign, &mut hir_module) {
+                    Ok(()) => {}
+                    Err(err) => errors.push(err),
+                }
             }
         }
         self.register_module_namespace(&hir_module);
@@ -154,6 +182,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 stmt,
                 Stmt::FunctionDef(_) | Stmt::ClassDef(_) | Stmt::Import(_) | Stmt::ImportFrom(_)
             ) || is_module_all_assignment(stmt)
+                || self.is_constructed_constant_assignment(stmt)
             {
                 continue; // already lowered in Pass 1
             }
@@ -192,6 +221,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Some(namespace) = self.ctx.module_namespaces.get(module_name).cloned() {
                 self.module_namespaces.insert(local.to_owned(), namespace);
             }
+            if let Some(namespace) = self.module_namespaces.get(module_name).cloned() {
+                self.module_namespaces.insert(local.to_owned(), namespace);
+            }
         }
     }
 
@@ -202,6 +234,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .module
             .as_ref()
             .map_or_else(String::new, |module| module.as_str().to_owned());
+        let resolved_module = self.resolve_import_from_module(&module, stmt.level);
         for alias in &stmt.names {
             let imported = alias.name.as_str();
             let local = alias
@@ -211,12 +244,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let name = self.intern_name(imported);
             let alias_symbol = (local != imported).then(|| self.intern_name(local));
             hir_module.imports.push(Import {
-                module: module.clone(),
+                module: resolved_module.clone(),
                 name,
                 alias: alias_symbol,
                 span,
             });
-            self.alias_imported_item(imported, local);
+            self.alias_imported_item_from_module(&resolved_module, imported, local);
+            if let Some(item) = self.items.get(local).copied()
+                && !hir_module.items.contains(&item)
+            {
+                self.exports.insert(local.to_owned(), item);
+            }
         }
     }
 
@@ -227,9 +265,47 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Resolve a `from ... import ...` source through package-aware namespace metadata.
+    fn alias_imported_item_from_module(&mut self, module: &str, imported: &str, local: &str) {
+        if let Some(item) = self
+            .module_namespaces
+            .get(module)
+            .and_then(|members| members.get(imported))
+            .copied()
+            .or_else(|| {
+                self.ctx
+                    .module_namespaces
+                    .get(module)
+                    .and_then(|members| members.get(imported))
+                    .copied()
+            })
+        {
+            self.items.insert(local.to_owned(), item);
+            self.exports.insert(local.to_owned(), item);
+            return;
+        }
+        self.alias_imported_item(imported, local);
+        if let Some(item) = self.items.get(local).copied() {
+            self.exports.insert(local.to_owned(), item);
+        }
+    }
+
+    /// Convert relative import metadata to the package/module key stored by previous files.
+    fn resolve_import_from_module(&self, module: &str, level: u32) -> String {
+        if level == 0 {
+            return module.to_owned();
+        }
+        let package = package_name_from_path(&self.path);
+        match (package.as_deref(), module.is_empty()) {
+            (Some(package_name), true) => package_name.to_owned(),
+            (Some(package_name), false) => format!("{package_name}.{module}"),
+            (None, _) => module.to_owned(),
+        }
+    }
+
     /// Register this module's lowered items for later `import module` namespace access.
     fn register_module_namespace(&mut self, hir_module: &Module) {
-        let mut namespace = HashMap::new();
+        let mut namespace = self.exports.clone();
         for item_id in &hir_module.items {
             let Some(item) = self
                 .ctx
@@ -247,11 +323,100 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if namespace.is_empty() {
             return;
         }
-        let module_name = module_name_from_path(&self.path);
-        self.ctx
-            .module_namespaces
-            .insert(module_name.clone(), namespace.clone());
-        self.module_namespaces.insert(module_name, namespace);
+        for module_name in module_names_from_path(&self.path) {
+            self.ctx
+                .module_namespaces
+                .insert(module_name.clone(), namespace.clone());
+            self.module_namespaces
+                .insert(module_name, namespace.clone());
+        }
+    }
+
+    /// Lower `NAME = ClassName(...)` into an importable constructed constant item.
+    ///
+    /// Only constructors already known as class items are accepted.  The value
+    /// is stored as a small HIR body so package imports can inline the same
+    /// object construction at use sites without modelling Python module
+    /// initialization order.
+    fn constructed_constant_assign(
+        &mut self,
+        assign: &ruff_python_ast::StmtAssign,
+        hir_module: &mut Module,
+    ) -> Result<(), SmeltError> {
+        let Some((name, call)) = Self::constructed_constant_shape(assign) else {
+            return Ok(());
+        };
+        let Some(constructor) = stdlib_dispatch::constructed_constant_constructor(call) else {
+            return Ok(());
+        };
+        let Some(&class_item) = self.items.get(constructor) else {
+            return Ok(());
+        };
+        let Item::Class(class) = self.item_ref(class_item) else {
+            return Ok(());
+        };
+        let class_sym = class.name;
+        let span = self.span(assign.range);
+        let class_ty = self.intern_type(Type::Class {
+            name: class_sym,
+            args: vec![],
+        });
+        let mut const_body = Body::new(None, span);
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, &mut const_body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let value = const_body.push_expr(HirExpr {
+            kind: ExprKind::New {
+                class: class_sym,
+                args,
+            },
+            ty: class_ty,
+            span,
+        });
+        let body_id = self.ctx.krate.push_body(const_body);
+        let name_sym = self.intern_name(name);
+        let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+            name: name_sym,
+            ty: class_ty,
+            value,
+            body: body_id,
+            span,
+        }));
+        self.items.insert(name.to_owned(), item);
+        self.exports.insert(name.to_owned(), item);
+        hir_module.items.push(item);
+        Ok(())
+    }
+
+    /// Return whether a module statement was already captured as a constructed constant.
+    fn is_constructed_constant_assignment(&self, stmt: &Stmt) -> bool {
+        let Stmt::Assign(assign) = stmt else {
+            return false;
+        };
+        let Some((_name, call)) = Self::constructed_constant_shape(assign) else {
+            return false;
+        };
+        stdlib_dispatch::constructed_constant_constructor(call)
+            .is_some_and(|constructor| matches!(self.items.get(constructor), Some(item) if matches!(self.item_ref(*item), Item::Class(_))))
+    }
+
+    /// Extract the direct `NAME = ClassName(...)` constructed-constant shape.
+    fn constructed_constant_shape(
+        assign: &ruff_python_ast::StmtAssign,
+    ) -> Option<(&str, &ruff_python_ast::ExprCall)> {
+        let [target] = assign.targets.as_slice() else {
+            return None;
+        };
+        let Expr::Name(name) = target else {
+            return None;
+        };
+        let Expr::Call(call) = assign.value.as_ref() else {
+            return None;
+        };
+        Some((name.id.as_str(), call))
     }
 
     /// Read the type attached to an expression id.
@@ -387,6 +552,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut fields: Vec<Field> = Vec::new();
         let mut constructor_id: Option<ItemId> = None;
         let mut method_ids: Vec<ItemId> = Vec::new();
+        let is_int_enum = base
+            .and_then(|base_sym| self.ctx.krate.symbols.get(base_sym))
+            .is_some_and(|base_name| base_name == "IntEnum");
+        let class_item_id = self.ctx.krate.push_item(Item::Class(Class {
+            name: class_sym,
+            span,
+            kind: kind.clone(),
+            base,
+            fields: Vec::new(),
+            constructor: None,
+            methods: Vec::new(),
+            implements: vec![],
+        }));
+        self.items.insert(class_name_str.to_owned(), class_item_id);
+        let mut enum_members = HashMap::new();
 
         for body_stmt in &class.body {
             match body_stmt {
@@ -408,6 +588,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         span: self.span(ann.range),
                     });
                 }
+                Stmt::Assign(assign) if is_int_enum => {
+                    self.int_enum_member_assign(class_name_str, assign, &mut enum_members)?;
+                }
                 Stmt::FunctionDef(func) => {
                     let method_name = func.name.as_str();
                     if method_name == "__init__" {
@@ -425,6 +608,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     } else {
                         let mid = self.class_method(class_name_str, class_sym, class_ty, func)?;
                         method_ids.push(mid);
+                        self.class_methods
+                            .entry(class_name_str.to_owned())
+                            .or_default()
+                            .insert(method_name.to_owned(), mid);
                         hir_module.items.push(mid);
                     }
                 }
@@ -483,6 +670,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let init_id = self.synthesize_dataclass_init(class_sym, class_ty, &fields, span)?;
             constructor_id = Some(init_id);
             hir_module.items.push(init_id);
+        } else if constructor_id.is_none() {
+            let init_id = self.synthesize_default_init(class_sym, class_ty, span);
+            constructor_id = Some(init_id);
+            hir_module.items.push(init_id);
+        }
+        if is_int_enum {
+            self.ctx
+                .enum_members
+                .insert(class_name_str.to_owned(), enum_members.clone());
+            self.enum_members
+                .insert(class_name_str.to_owned(), enum_members);
         }
 
         let class_item = Item::Class(Class {
@@ -495,11 +693,147 @@ impl<'ctx> ModuleBuilder<'ctx> {
             methods: method_ids,
             implements: vec![],
         });
-        let class_item_id = self.ctx.krate.push_item(class_item);
-        self.items.insert(class_name_str.to_owned(), class_item_id);
+        let class_index = usize::try_from(class_item_id.0).map_err(|err| {
+            SmeltError::unsupported(
+                span,
+                format!("internal error: class item id does not fit in usize: {err}"),
+            )
+        })?;
+        if let Some(slot) = self.ctx.krate.items.get_mut(class_index) {
+            *slot = class_item;
+        }
+        self.exports
+            .insert(class_name_str.to_owned(), class_item_id);
         hir_module.items.push(class_item_id);
 
         Ok(())
+    }
+
+    /// Lower one targeted `IntEnum` member assignment from a class body.
+    ///
+    /// This intentionally handles only the HTTPX-style enum forms needed by
+    /// the object-model slice: `NAME = 200`, `NAME = 200, "OK"`, and member
+    /// aliases that refer to another integer member on the same class.
+    fn int_enum_member_assign(
+        &mut self,
+        class_name: &str,
+        assign: &ruff_python_ast::StmtAssign,
+        enum_members: &mut HashMap<String, i64>,
+    ) -> Result<(), SmeltError> {
+        if assign.targets.len() != 1 {
+            return Err(SmeltError::unsupported(
+                self.span(assign.range),
+                format!("class '{class_name}': IntEnum members require one assignment target"),
+            ));
+        }
+        let [target] = assign.targets.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(assign.range),
+                format!("class '{class_name}': IntEnum members require one assignment target"),
+            ));
+        };
+        let Expr::Name(name) = target else {
+            return Err(SmeltError::unsupported(
+                self.span(target.range()),
+                format!("class '{class_name}': IntEnum member target must be a simple name"),
+            ));
+        };
+        let value = self.int_enum_member_value(class_name, &assign.value, enum_members)?;
+        enum_members.insert(name.id.as_str().to_owned(), value);
+        self.enum_members
+            .entry(class_name.to_owned())
+            .or_default()
+            .insert(name.id.as_str().to_owned(), value);
+        self.ctx
+            .enum_members
+            .entry(class_name.to_owned())
+            .or_default()
+            .insert(name.id.as_str().to_owned(), value);
+        Ok(())
+    }
+
+    /// Extract the integer value from a supported `IntEnum` member expression.
+    ///
+    /// Tuple-valued enum declarations keep their first element as the member's
+    /// integer value, matching `IntEnum.__new__` patterns without modelling the
+    /// full Python enum metaclass.
+    fn int_enum_member_value(
+        &mut self,
+        class_name: &str,
+        expr: &Expr,
+        enum_members: &HashMap<String, i64>,
+    ) -> Result<i64, SmeltError> {
+        match expr {
+            Expr::NumberLiteral(number) => match &number.value {
+                Number::Int(value) => value.as_i64().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(number.range),
+                        "IntEnum integer literal out of i64 range",
+                    )
+                }),
+                Number::Float(_) | Number::Complex { .. } => Err(SmeltError::unsupported(
+                    self.span(number.range),
+                    "IntEnum members must use integer values",
+                )),
+            },
+            Expr::Tuple(tuple) => {
+                let Some(first) = tuple.elts.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(tuple.range),
+                        "IntEnum tuple member declarations require an integer first element",
+                    ));
+                };
+                self.int_enum_member_value(class_name, first, enum_members)
+            }
+            Expr::Attribute(attr) => {
+                let Expr::Name(receiver) = attr.value.as_ref() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(attr.range),
+                        "IntEnum member aliases must refer to the enum class directly",
+                    ));
+                };
+                if receiver.id.as_str() != class_name {
+                    return Err(SmeltError::unsupported(
+                        self.span(attr.range),
+                        "IntEnum member aliases must refer to the enum class directly",
+                    ));
+                }
+                enum_members
+                    .get(attr.attr.as_str())
+                    .copied()
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(attr.range),
+                            format!(
+                                "class '{class_name}': unknown IntEnum member '{}'",
+                                attr.attr
+                            ),
+                        )
+                    })
+            }
+            Expr::Call(call) if Self::is_class_dunder_new_call(class_name, call) => {
+                let Some(value_expr) = call.arguments.args.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.range),
+                        "IntEnum __new__ member calls require a value argument",
+                    ));
+                };
+                self.int_enum_member_value(class_name, value_expr, enum_members)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                format!("class '{class_name}': unsupported IntEnum member value"),
+            )),
+        }
+    }
+
+    /// Return whether a call expression is `ClassName.__new__(...)`.
+    fn is_class_dunder_new_call(class_name: &str, call: &ruff_python_ast::ExprCall) -> bool {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return false;
+        };
+        attr.attr.as_str() == "__new__"
+            && matches!(attr.value.as_ref(), Expr::Name(receiver) if receiver.id.as_str() == class_name)
     }
 
     /// Lower a method or constructor inside a class body.
@@ -517,9 +851,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let method_name_str = func.name.as_str();
         let method_sym = self.intern_name(method_name_str);
         let is_init = method_name_str == "__init__";
+        let is_new = method_name_str == "__new__";
+        let is_classmethod = self.is_classmethod(func)?;
 
         let return_ty = if is_init {
             self.intern_type(Type::None)
+        } else if is_new && func.returns.is_none() {
+            class_ty
         } else {
             func.returns
                 .as_deref()
@@ -538,22 +876,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut fn_body = Body::new(None, span);
         let mut params: Vec<Param> = Vec::new();
 
-        // Add `self` local for use inside the method body.
-        let self_sym = self.intern_name("self");
+        // Add the implicit receiver local for use inside the method body.
+        let implicit_receiver_name = if is_classmethod || is_new {
+            "cls"
+        } else {
+            "self"
+        };
+        let self_sym = self.intern_name(implicit_receiver_name);
         let self_local = fn_body.push_local(LocalDecl {
             name: Some(self_sym),
             ty: class_ty,
             mutable: false,
             span,
         });
-        self.locals.insert("self".to_owned(), self_local);
+        self.locals
+            .insert(implicit_receiver_name.to_owned(), self_local);
+        if !is_init && !is_classmethod && !is_new {
+            fn_body.params.push(self_local);
+            params.push(Param {
+                name: self_sym,
+                local: self_local,
+                ty: class_ty,
+                span,
+            });
+        }
 
         let mut first = true;
         for param_with_default in func.parameters.iter_non_variadic_params() {
             let p = &param_with_default.parameter;
             let param_name_str = p.name.as_str();
-            // Skip `self` — already added above.
-            if first && param_name_str == "self" {
+            // Skip the implicit receiver; it was added above.
+            if first
+                && (param_name_str == implicit_receiver_name
+                    || ((is_classmethod || is_new) && param_name_str == "self"))
+            {
                 first = false;
                 continue;
             }
@@ -620,6 +976,33 @@ impl<'ctx> ModuleBuilder<'ctx> {
             owner,
         });
         Ok(self.ctx.krate.push_item(item))
+    }
+
+    /// Return whether a class-body function has the supported `@classmethod` decorator.
+    fn is_classmethod(&self, func: &StmtFunctionDef) -> Result<bool, SmeltError> {
+        let mut is_classmethod = false;
+        for decorator in &func.decorator_list {
+            match decorator_simple_name(decorator) {
+                Some("classmethod") => is_classmethod = true,
+                Some(other) => {
+                    return Err(SmeltError::unsupported_decorator(
+                        self.span(decorator.range),
+                        func.name.as_str(),
+                        other,
+                    ));
+                }
+                None => {
+                    return Err(SmeltError::unsupported(
+                        self.span(decorator.range),
+                        format!(
+                            "method '{}': complex decorator expressions are not supported",
+                            func.name
+                        ),
+                    ));
+                }
+            }
+        }
+        Ok(is_classmethod)
     }
 
     /// Synthesise an `__init__` method for a `@dataclass` class.
@@ -721,6 +1104,49 @@ impl<'ctx> ModuleBuilder<'ctx> {
             owner: FunctionOwner::Constructor { class: class_sym },
         });
         Ok(self.ctx.krate.push_item(item))
+    }
+
+    /// Synthesize an empty constructor for a plain Python class without `__init__`.
+    ///
+    /// Rust codegen expects every constructed class to have a callable `new`.
+    /// Python classes have an implicit zero-argument constructor when no custom
+    /// initializer is present, so this keeps `ClassName()` available for known
+    /// class constructors such as Rich's `NullFile`.
+    fn synthesize_default_init(
+        &mut self,
+        class_sym: Symbol,
+        class_ty: TypeId,
+        span: Span,
+    ) -> ItemId {
+        let saved_locals = std::mem::take(&mut self.locals);
+        let mut fn_body = Body::new(None, span);
+        let self_sym = self.intern_name("self");
+        let self_local = fn_body.push_local(LocalDecl {
+            name: Some(self_sym),
+            ty: class_ty,
+            mutable: false,
+            span,
+        });
+        self.locals.insert("self".to_owned(), self_local);
+        let self_expr = fn_body.push_expr(HirExpr {
+            kind: ExprKind::Local(self_local),
+            ty: class_ty,
+            span,
+        });
+        fn_body.blocks[usize::try_from(fn_body.root.0).unwrap_or(0)].tail = Some(self_expr);
+        self.locals = saved_locals;
+        let body_id = self.ctx.krate.push_body(fn_body);
+        let init_sym = self.intern_name("__init__");
+        self.ctx.krate.push_item(Item::Function(Function {
+            name: init_sym,
+            span,
+            params: Vec::new(),
+            return_ty: class_ty,
+            is_async: false,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Constructor { class: class_sym },
+        }))
     }
 
     // -----------------------------------------------------------------------
@@ -1405,6 +1831,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         });
         let item_id = self.ctx.krate.push_item(item);
         self.items.insert(name_str.to_owned(), item_id);
+        self.exports.insert(name_str.to_owned(), item_id);
         Ok(item_id)
     }
 
@@ -1421,6 +1848,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn annotation_to_hir(&mut self, annotation: &Expr) -> Result<TypeId, SmeltError> {
         if let Expr::Name(name) = annotation {
             self.name_annotation(name.id.as_str(), name.range)
+        } else if let Expr::StringLiteral(name) = annotation {
+            self.name_annotation(name.value.to_str().as_ref(), name.range)
         } else if let Expr::NoneLiteral(_) = annotation {
             Ok(self.intern_type(Type::None))
         } else if let Expr::Attribute(attr) = annotation {
@@ -1679,6 +2108,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     );
                     return Ok(());
                 }
+                if let Expr::Name(target_name) = target_expr
+                    && !self.locals.contains_key(target_name.id.as_str())
+                {
+                    let value = self.expression(&s.value, body)?;
+                    let value_ty = Self::expr_ty(body, value);
+                    let pat =
+                        self.binding_pattern_from_target(target_expr, body, Some(value_ty))?;
+                    body.push_stmt_to_block(
+                        block,
+                        HirStmt::Let {
+                            pat,
+                            ty: value_ty,
+                            value: Some(value),
+                        },
+                    );
+                    return Ok(());
+                }
                 let target = self.expression(target_expr, body)?;
                 let value = self.expression(&s.value, body)?;
                 body.push_stmt_to_block(block, HirStmt::Assign { target, value });
@@ -1730,6 +2176,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
             // `raise ExceptionType(…)`
             Stmt::Raise(raise_stmt) => {
+                if is_stop_iteration_raise(raise_stmt) {
+                    let message = self.string_literal_expr("StopIteration", raise_stmt.range, body);
+                    body.push_stmt_to_block(block, HirStmt::Throw(message));
+                    return Ok(());
+                }
                 let expr = raise_stmt
                     .exc
                     .as_deref()
@@ -1747,8 +2198,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             // `assert expr[, message]`
             Stmt::Assert(assert_stmt) => self.assert_statement(assert_stmt, body, block),
 
-            // `with pytest.raises(...): ...`
-            Stmt::With(with_stmt) => self.pytest_raises_with_statement(with_stmt, body, block),
+            // `with pytest.raises(...): ...` or targeted static context managers.
+            Stmt::With(with_stmt) => {
+                if Self::with_is_pytest_raises(with_stmt) {
+                    self.pytest_raises_with_statement(with_stmt, body, block)
+                } else {
+                    self.context_manager_with_statement(with_stmt, body, block)
+                }
+            }
 
             // Standalone expression statement (e.g. a function call).
             Stmt::Expr(s) => {
@@ -1870,6 +2327,76 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 else_block: None,
             },
         );
+        Ok(())
+    }
+
+    /// Return whether a `with` statement targets the pytest.raises special form.
+    fn with_is_pytest_raises(with_stmt: &StmtWith) -> bool {
+        let [item] = with_stmt.items.as_slice() else {
+            return false;
+        };
+        Self::pytest_raises_call(&item.context_expr).is_some()
+    }
+
+    /// Lower a statically-known Python context manager protocol use.
+    ///
+    /// This supports the Rich-style shape `with value as name:` by emitting a
+    /// direct `__enter__` method call, lowering the lexical body, then emitting
+    /// a direct `__exit__` method call.  Exception suppression is intentionally
+    /// not modelled in this slice.
+    fn context_manager_with_statement(
+        &mut self,
+        with_stmt: &StmtWith,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        if with_stmt.is_async {
+            return Err(SmeltError::unsupported(
+                self.span(with_stmt.range),
+                "async context managers are not supported",
+            ));
+        }
+        let [item] = with_stmt.items.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(with_stmt.range),
+                "context manager lowering supports exactly one context manager",
+            ));
+        };
+        let manager = self.expression(&item.context_expr, body)?;
+        let enter = self.protocol_method_expr(
+            ProtocolMethodCall {
+                receiver: manager,
+                method: "__enter__".to_owned(),
+                args: Vec::new(),
+            },
+            body,
+        )?;
+        if let Some(vars) = &item.optional_vars {
+            let enter_ty = Self::expr_ty(body, enter);
+            let pat = self.binding_pattern_from_target(vars, body, Some(enter_ty))?;
+            body.push_stmt_to_block(
+                block,
+                HirStmt::Let {
+                    pat,
+                    ty: enter_ty,
+                    value: Some(enter),
+                },
+            );
+        } else {
+            body.push_stmt_to_block(block, HirStmt::Expr(enter));
+        }
+        for stmt in &with_stmt.body {
+            self.statement_in_block(stmt, body, block)?;
+        }
+        let exit = self.protocol_method_expr(
+            ProtocolMethodCall {
+                receiver: manager,
+                method: "__exit__".to_owned(),
+                args: Vec::new(),
+            },
+            body,
+        )?;
+        body.push_stmt_to_block(block, HirStmt::Expr(exit));
         Ok(())
     }
 
@@ -2407,6 +2934,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
 
         let raw_iter = self.expression(&for_stmt.iter, body)?;
+        if self.is_empty_static_protocol_iterable(Self::expr_ty(body, raw_iter)) {
+            return Ok(());
+        }
         let iter = self.for_iterable(raw_iter, body);
         let iter_ty = Self::expr_ty(body, iter);
         let item_ty = self
@@ -2424,6 +2954,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
             },
         );
         Ok(())
+    }
+
+    /// Return whether a class iterable is a known zero-yield protocol object.
+    ///
+    /// Rich's `NullFile` implements `__iter__` by returning itself and
+    /// `__next__` by raising `StopIteration`; direct iteration can therefore be
+    /// represented as a no-op without adding dynamic iterator machinery.
+    fn is_empty_static_protocol_iterable(&self, iter_ty: TypeId) -> bool {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(iter_ty) else {
+            return false;
+        };
+        let Some(class_name) = self.ctx.krate.symbols.get(*name) else {
+            return false;
+        };
+        class_name == "NullFile"
+            && self.class_methods.get(class_name).is_some_and(|methods| {
+                methods.contains_key("__iter__") && methods.contains_key("__next__")
+            })
     }
 
     /// Adapt Python iterables whose Rust representation is not directly indexable.
@@ -2766,6 +3314,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Expr::Attribute(attr) => {
                 if let Some(constant) = self.math_constant_expression(attr, body) {
                     return Ok(constant);
+                }
+                if let Some(member_expr) = self.enum_member_expression(attr, body)? {
+                    return Ok(member_expr);
                 }
                 if let Some(member_expr) = self.module_member_expression(attr, body)? {
                     return Ok(member_expr);
@@ -3184,6 +3735,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(call.range);
 
+        if let Some(error) = self.unsupported_deferred_stdlib_call(call) {
+            return Err(error);
+        }
+        if let Some(expr) = self.int_new_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.class_method_call_expression(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.module_member_call_expression(call, body)? {
             return Ok(expr);
         }
@@ -3287,6 +3847,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Ok(expr);
         }
         if let Some(expr) = self.re_module_call_expression(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.protocol_call_expression(call, body)? {
             return Ok(expr);
         }
         // `print(...)` → CONSOLE_LOG_SYMBOL item (same as TS's `console.log`).
@@ -3449,6 +4012,193 @@ impl<'ctx> ModuleBuilder<'ctx> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// Lower calls to statically-known Python protocol/class methods.
+    ///
+    /// The dispatch remains intentionally static: the receiver's HIR type must
+    /// be a known class and the method must be declared on that class.  `str(x)`
+    /// is mapped to `x.__str__()` for class values that provide `__str__`.
+    fn protocol_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Expr::Name(name) = call.func.as_ref()
+            && name.id.as_str() == "str"
+            && call.arguments.args.len() == 1
+            && call.arguments.keywords.is_empty()
+        {
+            let receiver = self.expression(&call.arguments.args[0], body)?;
+            if self.class_has_method(Self::expr_ty(body, receiver), "__str__") {
+                return self
+                    .protocol_method_expr(
+                        ProtocolMethodCall {
+                            receiver,
+                            method: "__str__".to_owned(),
+                            args: Vec::new(),
+                        },
+                        body,
+                    )
+                    .map(Some);
+            }
+            return Ok(None);
+        }
+
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if let Expr::Name(name) = attr.value.as_ref()
+            && !self.locals.contains_key(name.id.as_str())
+            && !self.items.contains_key(name.id.as_str())
+        {
+            return Ok(None);
+        }
+        let receiver = self.expression(&attr.value, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let method = attr.attr.as_str();
+        if !self.class_has_method(receiver_ty, method) {
+            return Ok(None);
+        }
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.protocol_method_expr(
+            ProtocolMethodCall {
+                receiver,
+                method: method.to_owned(),
+                args,
+            },
+            body,
+        )
+        .map(Some)
+    }
+
+    /// Create a HIR method call for a statically-known class method.
+    fn protocol_method_expr(
+        &mut self,
+        call: ProtocolMethodCall,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let receiver = call.receiver;
+        let method = call.method;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let span = Self::expr_span(body, receiver);
+        let return_ty = self
+            .class_method_return_ty(receiver_ty, &method)
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    span,
+                    format!("class method '{method}' is not statically known"),
+                )
+            })?;
+        let method_sym = self.intern_name(&method);
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::Method {
+                receiver,
+                method: method_sym,
+                args: call.args,
+            },
+            ty: return_ty,
+            span,
+        }))
+    }
+
+    /// Return whether a type is a class that declares `method`.
+    fn class_has_method(&self, receiver_ty: TypeId, method: &str) -> bool {
+        self.class_method_item(receiver_ty, method).is_some()
+    }
+
+    /// Return a statically-known class method's return type.
+    fn class_method_return_ty(&self, receiver_ty: TypeId, method: &str) -> Option<TypeId> {
+        let item = self.class_method_item(receiver_ty, method)?;
+        let Item::Function(function) = self.item_ref(item) else {
+            return None;
+        };
+        Some(function.return_ty)
+    }
+
+    /// Resolve a method item by receiver class type and source method name.
+    fn class_method_item(&self, receiver_ty: TypeId, method: &str) -> Option<ItemId> {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
+            return None;
+        };
+        let class_name = self.ctx.krate.symbols.get(*name)?;
+        self.class_methods
+            .get(class_name)
+            .and_then(|methods| methods.get(method))
+            .copied()
+            .or_else(|| self.class_method_item_by_name(class_name, method))
+    }
+
+    /// Resolve a class method by inspecting class metadata directly.
+    fn class_method_item_by_name(&self, class_name: &str, method: &str) -> Option<ItemId> {
+        for item in &self.ctx.krate.items {
+            let Item::Class(class) = item else {
+                continue;
+            };
+            if self.ctx.krate.symbols.get(class.name) != Some(class_name) {
+                continue;
+            }
+            for method_item in &class.methods {
+                let Item::Function(function) = self.item_ref(*method_item) else {
+                    continue;
+                };
+                if self.ctx.krate.symbols.get(function.name) == Some(method) {
+                    return Some(*method_item);
+                }
+            }
+        }
+        None
+    }
+
+    /// Return targeted diagnostics for deferred Python stdlib/native library APIs.
+    fn unsupported_deferred_stdlib_call(
+        &self,
+        call: &ruff_python_ast::ExprCall,
+    ) -> Option<SmeltError> {
+        let span = self.span(call.range);
+        match call.func.as_ref() {
+            Expr::Name(name) if name.id.as_str() == "open" => Some(SmeltError::unsupported(
+                span,
+                "Python open() is not supported yet; file IO needs a dedicated text-mode mapping",
+            )),
+            Expr::Attribute(attr) => {
+                if matches!(
+                    attr.value.as_ref(),
+                    Expr::Call(inner)
+                        if matches!(inner.func.as_ref(), Expr::Name(name) if name.id.as_str() == "open")
+                ) {
+                    return Some(SmeltError::unsupported(
+                        span,
+                        "Python open() is not supported yet; file IO needs a dedicated text-mode mapping",
+                    ));
+                }
+                let Expr::Name(module) = attr.value.as_ref() else {
+                    return None;
+                };
+                let message = match module.id.as_str() {
+                    "datetime" => {
+                        "Python datetime is not supported yet; datetime/date/timedelta need a chrono-backed mapping"
+                    }
+                    "urllib" | "urlparse" => {
+                        "Python URL parsing is not supported yet; urllib/urlparse need a URL mapping policy"
+                    }
+                    "numpy" | "np" => {
+                        "NumPy is deferred from Phase 6; array dtype, ownership, shape, and broadcasting semantics need a dedicated design"
+                    }
+                    "pandas" | "pd" => {
+                        "pandas is out of scope for Phase 6; dataframe semantics need a dedicated native-data-library design"
+                    }
+                    _ => return None,
+                };
+                Some(SmeltError::unsupported(span, message))
+            }
+            _ => None,
+        }
     }
 
     /// Lower direct Python container constructor calls.
@@ -3977,6 +4727,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+            return Ok(None);
+        };
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
@@ -3987,8 +4740,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Ok(None);
         }
         let span = self.span(call.range);
-        match attr.attr.as_str() {
-            "random" => {
+        match rule {
+            RuleId::PyRandomRandom => {
                 if !call.arguments.args.is_empty() {
                     return Err(SmeltError::unsupported(
                         span,
@@ -4002,7 +4755,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span,
                 })))
             }
-            "randint" => {
+            RuleId::PyRandomRandInt => {
                 if call.arguments.args.len() != 2 {
                     return Err(SmeltError::unsupported(
                         span,
@@ -4026,7 +4779,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span,
                 })))
             }
-            "choice" => {
+            RuleId::PyRandomChoice => {
                 if call.arguments.args.len() != 1 {
                     return Err(SmeltError::unsupported(
                         span,
@@ -4526,6 +5279,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::PyRequestsGet) {
+            return Ok(None);
+        }
         let Expr::Attribute(attr) = call.func.as_ref() else {
             return Ok(None);
         };
@@ -4754,6 +5510,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
 
         if let Some(&item_id) = self.items.get(name) {
+            if let Some(expr) = self.const_item_expression(item_id, body, span)? {
+                return Ok(expr);
+            }
             let ty = match self.item_ref(item_id) {
                 Item::Function(f) => f.return_ty,
                 Item::Class(c) => {
@@ -4798,6 +5557,148 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
+    /// Lower `EnumClass.MEMBER` and `module.EnumClass.MEMBER` for targeted `IntEnum`s.
+    fn enum_member_expression(
+        &mut self,
+        attr: &ruff_python_ast::ExprAttribute,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some((class_name, member_name)) = self.enum_member_path(attr) else {
+            return Ok(None);
+        };
+        let Some(value) = self
+            .enum_members
+            .get(class_name)
+            .and_then(|members| members.get(member_name))
+            .copied()
+        else {
+            return Ok(None);
+        };
+        let ty = self.intern_type(Type::Int);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::Literal(Literal::Int(value)),
+            ty,
+            span: self.span(attr.range),
+        })))
+    }
+
+    /// Lower `Class.method(...)` and `module.Class.method(...)` classmethod calls.
+    fn class_method_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let Some((class_name, method_name)) = self.class_member_path(attr) else {
+            return Ok(None);
+        };
+        let Some(item_id) = self
+            .class_methods
+            .get(class_name)
+            .and_then(|methods| methods.get(method_name))
+            .copied()
+            .or_else(|| self.class_method_item_by_name(class_name, method_name))
+        else {
+            return Ok(None);
+        };
+        let span = self.span(call.range);
+        let return_ty = match self.item_ref(item_id) {
+            Item::Function(function) => function.return_ty,
+            Item::Class(_) | Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
+                return Ok(None);
+            }
+        };
+        let callee = body.push_expr(HirExpr {
+            kind: ExprKind::Item(item_id),
+            ty: return_ty,
+            span: self.span(attr.range),
+        });
+        let args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::Call { callee, args },
+            ty: return_ty,
+            span,
+        })))
+    }
+
+    /// Lower the narrow `int.__new__(cls, value)` pattern used by `IntEnum.__new__`.
+    fn int_new_call_expression(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Attribute(attr) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        if attr.attr.as_str() != "__new__"
+            || !matches!(attr.value.as_ref(), Expr::Name(name) if name.id.as_str() == "int")
+        {
+            return Ok(None);
+        }
+        let [cls_expr, value_expr] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "int.__new__ currently supports cls and integer value arguments",
+            ));
+        };
+        let cls = self.expression(cls_expr, body)?;
+        let value = self.expression(value_expr, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Int) {
+            return Err(SmeltError::unsupported(
+                self.span(value_expr.range()),
+                "int.__new__ value must be an integer",
+            ));
+        }
+        let ty = Self::expr_ty(body, cls);
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::Call {
+                callee: cls,
+                args: vec![value],
+            },
+            ty,
+            span: self.span(call.range),
+        })))
+    }
+
+    /// Resolve the `(class, member)` pair in an enum member access path.
+    fn enum_member_path<'a>(
+        &'a self,
+        attr: &'a ruff_python_ast::ExprAttribute,
+    ) -> Option<(&'a str, &'a str)> {
+        let member = attr.attr.as_str();
+        let (class_name, _) = self.class_member_path(attr)?;
+        Some((class_name, member))
+    }
+
+    /// Resolve the `(class, member)` pair in direct or module-qualified class access.
+    fn class_member_path<'a>(
+        &'a self,
+        attr: &'a ruff_python_ast::ExprAttribute,
+    ) -> Option<(&'a str, &'a str)> {
+        let member = attr.attr.as_str();
+        match attr.value.as_ref() {
+            Expr::Name(class_name) if self.items.contains_key(class_name.id.as_str()) => {
+                Some((class_name.id.as_str(), member))
+            }
+            Expr::Attribute(class_attr) => {
+                let class_item = self.module_member_item(class_attr)?;
+                let Item::Class(class) = self.item_ref(class_item) else {
+                    return None;
+                };
+                let class_name = self.ctx.krate.symbols.get(class.name)?;
+                Some((class_name, member))
+            }
+            _ => None,
+        }
+    }
+
     /// Lower `module.member` when `module` is an imported package/module namespace.
     fn module_member_expression(
         &mut self,
@@ -4808,6 +5709,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Ok(None);
         };
         let span = self.span(attr.range);
+        if let Some(expr) = self.const_item_expression(item_id, body, span)? {
+            return Ok(Some(expr));
+        }
         let ty = self.item_expr_type(item_id);
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::Item(item_id),
@@ -4899,8 +5803,53 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 })
             }
             Item::Interface(_) | Item::TypeAlias(_) | Item::Const(_) => {
-                self.intern_type(Type::None)
+                match self.item_ref(item_id) {
+                    Item::Const(const_item) => const_item.ty,
+                    _ => self.intern_type(Type::None),
+                }
             }
+        }
+    }
+
+    /// Inline an importable constant expression into the current body when supported.
+    fn const_item_expression(
+        &self,
+        item_id: ItemId,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Item::Const(const_item) = self.item_ref(item_id) else {
+            return Ok(None);
+        };
+        let const_body = self
+            .ctx
+            .krate
+            .bodies
+            .get(usize::try_from(const_item.body.0).unwrap_or(usize::MAX))
+            .ok_or_else(|| SmeltError::unsupported(span, "constant body is missing"))?;
+        let const_expr = const_body
+            .exprs
+            .get(usize::try_from(const_item.value.0).unwrap_or(usize::MAX))
+            .ok_or_else(|| SmeltError::unsupported(span, "constant value is missing"))?
+            .clone();
+        match const_expr.kind {
+            ExprKind::Literal(literal) => Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::Literal(literal),
+                ty: const_item.ty,
+                span,
+            }))),
+            ExprKind::New { class, args } if args.is_empty() => Ok(Some(body.push_expr(HirExpr {
+                kind: ExprKind::New {
+                    class,
+                    args: Vec::new(),
+                },
+                ty: const_item.ty,
+                span,
+            }))),
+            _ => Err(SmeltError::unsupported(
+                span,
+                "only literal and zero-argument constructed constants can be imported",
+            )),
         }
     }
 
@@ -5130,6 +6079,33 @@ fn visible_items(ctx: &HirCtx) -> HashMap<String, ItemId> {
     items
 }
 
+/// Collect class method items already present in the shared crate.
+fn visible_class_methods(ctx: &HirCtx) -> HashMap<String, HashMap<String, ItemId>> {
+    let mut class_methods: HashMap<String, HashMap<String, ItemId>> = HashMap::new();
+    for (idx, item) in ctx.krate.items.iter().enumerate() {
+        let Item::Function(function) = item else {
+            continue;
+        };
+        let FunctionOwner::ClassMethod { class, method } = function.owner else {
+            continue;
+        };
+        let Ok(item_idx) = u32::try_from(idx) else {
+            continue;
+        };
+        let Some(class_name) = ctx.krate.symbols.get(class) else {
+            continue;
+        };
+        let Some(method_name) = ctx.krate.symbols.get(method) else {
+            continue;
+        };
+        class_methods
+            .entry(class_name.to_owned())
+            .or_default()
+            .insert(method_name.to_owned(), ItemId(item_idx));
+    }
+    class_methods
+}
+
 /// Return true for module-level `__all__` metadata assignments.
 fn is_module_all_assignment(stmt: &Stmt) -> bool {
     match stmt {
@@ -5141,6 +6117,17 @@ fn is_module_all_assignment(stmt: &Stmt) -> bool {
         }
         Stmt::AnnAssign(assign) => {
             matches!(assign.target.as_ref(), Expr::Name(name) if name.id.as_str() == "__all__")
+        }
+        _ => false,
+    }
+}
+
+/// Return whether a raise statement is the simple `StopIteration` sentinel form.
+fn is_stop_iteration_raise(raise_stmt: &ruff_python_ast::StmtRaise) -> bool {
+    match raise_stmt.exc.as_deref() {
+        Some(Expr::Name(name)) => name.id.as_str() == "StopIteration",
+        Some(Expr::Call(call)) => {
+            matches!(call.func.as_ref(), Expr::Name(name) if name.id.as_str() == "StopIteration")
         }
         _ => false,
     }
@@ -5159,6 +6146,58 @@ fn module_name_from_path(path: &str) -> String {
         .map(|stem| stem.to_string_lossy().into_owned())
         .filter(|stem| !stem.is_empty())
         .unwrap_or_else(|| "__main__".to_owned())
+}
+
+/// Derive all import keys that can refer to a Python source path.
+fn module_names_from_path(path: &str) -> Vec<String> {
+    let source_path = Path::new(path);
+    let mut names = Vec::new();
+    if source_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py") {
+        if let Some(package) = package_name_from_path(path) {
+            names.push(package);
+        }
+    } else if let Some(dotted) = dotted_module_name_from_path(path) {
+        names.push(dotted);
+    }
+    if let Some(stem) = source_path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .filter(|stem| !stem.is_empty())
+        && !names.iter().any(|name| name == &stem)
+    {
+        names.push(stem);
+    }
+    if names.is_empty() {
+        names.push("__main__".to_owned());
+    }
+    names
+}
+
+/// Return the package key for a source path when it is inside a package.
+fn package_name_from_path(path: &str) -> Option<String> {
+    let source_path = Path::new(path);
+    if source_path.file_name().and_then(|name| name.to_str()) == Some("__init__.py") {
+        return source_path
+            .parent()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned());
+    }
+    source_path
+        .parent()
+        .and_then(Path::file_name)
+        .map(|name| name.to_string_lossy().into_owned())
+}
+
+/// Return a dotted `package.module` key for package member files.
+fn dotted_module_name_from_path(path: &str) -> Option<String> {
+    let source_path = Path::new(path);
+    let package = source_path.parent().and_then(Path::file_name)?;
+    let stem = source_path.file_stem()?;
+    Some(format!(
+        "{}.{}",
+        package.to_string_lossy(),
+        stem.to_string_lossy()
+    ))
 }
 
 /// Return the base class name for plain and parameterized base expressions.

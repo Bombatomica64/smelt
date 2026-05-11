@@ -31,11 +31,7 @@ pub struct StdlibDiagnostic {
 impl StdlibDiagnostic {
     /// Create a diagnostic for an unsupported known API form.
     #[must_use]
-    pub const fn unsupported(
-        rule: RuleId,
-        form: UnsupportedForm,
-        message: &'static str,
-    ) -> Self {
+    pub const fn unsupported(rule: RuleId, form: UnsupportedForm, message: &'static str) -> Self {
         Self {
             rule,
             form,

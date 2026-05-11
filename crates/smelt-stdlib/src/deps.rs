@@ -23,7 +23,9 @@ impl BackendDependency {
     #[must_use]
     pub const fn cargo_dependency(self) -> &'static str {
         match self {
-            Self::Reqwest => "reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n",
+            Self::Reqwest => {
+                "reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n"
+            }
             Self::SerdeJson => "serde_json = \"1\"\n",
             Self::Regex => "regex = \"1\"\n",
             Self::Rand => "rand = \"0.9\"\n",

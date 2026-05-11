@@ -219,9 +219,15 @@ struct FrontendLoweringState {
     ts_object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
+    /// Python `IntEnum` member values visible to later manifest entries.
+    py_enum_members: HashMap<String, HashMap<String, i64>>,
 }
 
 /// Lower one manifest file with the language-specific frontend.
+#[expect(
+    clippy::too_many_lines,
+    reason = "manifest lowering keeps language state transfer together"
+)]
 fn lower_manifest_file(
     krate: smelt_hir::Crate,
     state: FrontendLoweringState,
@@ -256,6 +262,7 @@ fn lower_manifest_file(
                     ts_export_aliases: ctx.export_aliases,
                     ts_object_namespaces: ctx.object_namespaces,
                     py_module_namespaces: state.py_module_namespaces,
+                    py_enum_members: state.py_enum_members,
                 },
             ))
         }
@@ -263,6 +270,7 @@ fn lower_manifest_file(
             let mut ctx = smelt_frontend_py::HirCtx {
                 krate,
                 module_namespaces: state.py_module_namespaces,
+                enum_members: state.py_enum_members,
             };
             let module = smelt_frontend_py::to_hir_with_path(
                 &source,
@@ -283,6 +291,7 @@ fn lower_manifest_file(
                     ts_export_aliases: state.ts_export_aliases,
                     ts_object_namespaces: state.ts_object_namespaces,
                     py_module_namespaces: ctx.module_namespaces,
+                    py_enum_members: ctx.enum_members,
                 },
             ))
         }
