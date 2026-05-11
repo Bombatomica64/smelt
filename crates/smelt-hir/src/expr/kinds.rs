@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use super::{
-    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, DictProjectionOp, ListCallbackOp, ListSearchOp,
-    Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
+    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, DictProjectionOp, ListCallbackOp, ListProjectionOp,
+    ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
     PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
     StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
     StringTrimSide, UnaryOp, UnknownKind, UrlField,
@@ -214,6 +214,37 @@ pub enum ExprKind {
         list: ExprId,
         start: Option<ExprId>,
         end: Option<ExprId>,
+    },
+    ListSplice {
+        list: ExprId,
+        start: ExprId,
+        delete_count: Option<ExprId>,
+        items: Vec<ExprId>,
+        mutate: bool,
+    },
+    ListFill {
+        list: ExprId,
+        value: ExprId,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
+    },
+    ListCopyWithin {
+        list: ExprId,
+        target: ExprId,
+        start: ExprId,
+        end: Option<ExprId>,
+    },
+    ListWith {
+        list: ExprId,
+        index: ExprId,
+        value: ExprId,
+    },
+    ListFlat {
+        list: ExprId,
+    },
+    ListProjection {
+        op: ListProjectionOp,
+        list: ExprId,
     },
     ListPush {
         list: ExprId,

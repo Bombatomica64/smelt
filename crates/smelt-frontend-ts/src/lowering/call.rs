@@ -140,6 +140,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.list_sort_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.modern_array_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.list_pop_call(call, body)? {
             return Ok(expr);
         }

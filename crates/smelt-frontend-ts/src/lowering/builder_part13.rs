@@ -182,6 +182,14 @@ impl ModuleBuilder<'_> {
                 self.require_callback_ty(callback.ty, bool_ty, call, "array findIndex")?;
                 self.ctx.krate.types.intern(Type::Float)
             }
+            ListCallbackOp::FindLast => {
+                self.require_callback_ty(callback.ty, bool_ty, call, "array findLast")?;
+                self.ctx.krate.types.intern(Type::Optional(element_ty))
+            }
+            ListCallbackOp::FindLastIndex => {
+                self.require_callback_ty(callback.ty, bool_ty, call, "array findLastIndex")?;
+                self.ctx.krate.types.intern(Type::Float)
+            }
             ListCallbackOp::Some => {
                 self.require_callback_ty(callback.ty, bool_ty, call, "array some")?;
                 bool_ty
@@ -191,6 +199,15 @@ impl ModuleBuilder<'_> {
                 bool_ty
             }
             ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
+            ListCallbackOp::FlatMap => {
+                let Some(Type::List(item_ty)) = self.ctx.krate.types.get(callback.ty) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "array flatMap callback must return an array",
+                    ));
+                };
+                self.ctx.krate.types.intern(Type::List(*item_ty))
+            }
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListCallback { op, list, callback },
@@ -368,6 +385,106 @@ impl ModuleBuilder<'_> {
                 kind: CallbackExprKind::Literal(Literal::None),
                 ty: self.ctx.krate.types.intern(Type::None),
             }),
+            Expression::ArrayExpression(array) => {
+                let mut items = Vec::new();
+                for element in &array.elements {
+                    let expr = match element {
+                        ArrayExpressionElement::SpreadElement(_) => {
+                            return Err(SmeltError::unsupported(
+                                self.span(element.span().start, element.span().end),
+                                "callback array spread elements are not supported yet",
+                            ));
+                        }
+                        ArrayExpressionElement::Elision(_) => {
+                            return Err(SmeltError::unsupported(
+                                self.span(element.span().start, element.span().end),
+                                "callback array elisions are not supported",
+                            ));
+                        }
+                        ArrayExpressionElement::NumericLiteral(literal) => CallbackExpr {
+                            kind: CallbackExprKind::Literal(Literal::Float(literal.value)),
+                            ty: self.ctx.krate.types.intern(Type::Float),
+                        },
+                        ArrayExpressionElement::StringLiteral(literal) => CallbackExpr {
+                            kind: CallbackExprKind::Literal(Literal::String(
+                                literal.value.to_string(),
+                            )),
+                            ty: self.ctx.krate.types.intern(Type::String),
+                        },
+                        ArrayExpressionElement::BooleanLiteral(literal) => CallbackExpr {
+                            kind: CallbackExprKind::Literal(Literal::Bool(literal.value)),
+                            ty: self.ctx.krate.types.intern(Type::Bool),
+                        },
+                        ArrayExpressionElement::Identifier(identifier) => {
+                            let Some((index, ty)) = params.get(identifier.name.as_str()).copied()
+                            else {
+                                return Err(SmeltError::unsupported(
+                                    self.span(identifier.span.start, identifier.span.end),
+                                    "callback captures are not supported yet",
+                                ));
+                            };
+                            CallbackExpr {
+                                kind: CallbackExprKind::Param(index),
+                                ty,
+                            }
+                        }
+                        ArrayExpressionElement::BinaryExpression(binary) => {
+                            let op = self.callback_binary_op(
+                                binary.operator,
+                                binary.span.start,
+                                binary.span.end,
+                            )?;
+                            let lhs = self.callback_expression(&binary.left, params)?;
+                            let rhs = self.callback_expression(&binary.right, params)?;
+                            let ty = if matches!(
+                                op,
+                                BinOp::Eq
+                                    | BinOp::NotEq
+                                    | BinOp::Lt
+                                    | BinOp::Lte
+                                    | BinOp::Gt
+                                    | BinOp::Gte
+                            ) {
+                                self.ctx.krate.types.intern(Type::Bool)
+                            } else {
+                                lhs.ty
+                            };
+                            CallbackExpr {
+                                kind: CallbackExprKind::Binary {
+                                    op,
+                                    lhs: Box::new(lhs),
+                                    rhs: Box::new(rhs),
+                                },
+                                ty,
+                            }
+                        }
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(element.span().start, element.span().end),
+                                "callback array element kind is not supported yet",
+                            ));
+                        }
+                    };
+                    items.push(expr);
+                }
+                let Some(first) = items.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "callback empty arrays require type context",
+                    ));
+                };
+                let item_ty = first.ty;
+                if !items.iter().all(|item| item.ty == item_ty) {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "callback array literal items must have one type",
+                    ));
+                }
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::ListLit(items),
+                    ty: self.ctx.krate.types.intern(Type::List(item_ty)),
+                })
+            }
             Expression::ParenthesizedExpression(parenthesized) => {
                 self.callback_expression(&parenthesized.expression, params)
             }

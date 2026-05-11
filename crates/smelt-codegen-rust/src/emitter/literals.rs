@@ -79,6 +79,11 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
                     | Rvalue::ListInsert { list, .. }
                     | Rvalue::ListUnshift { list, .. }
                     | Rvalue::ListReverse { list }
+                    | Rvalue::ListSplice {
+                        list, mutate: true, ..
+                    }
+                    | Rvalue::ListFill { list, .. }
+                    | Rvalue::ListCopyWithin { list, .. }
                     | Rvalue::ListClear { list }
                     | Rvalue::ListRemove { list, .. }
                     | Rvalue::ListSort { list, .. }

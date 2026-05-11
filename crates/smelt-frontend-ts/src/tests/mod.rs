@@ -2,10 +2,11 @@
 
 use super::*;
 use smelt_hir::{
-    BinOp, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListSearchOp,
-    Literal, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    PrimitiveCastOp, RegexMatchOp, SetProjectionOp, SetRemoveOp, Stmt, StringAffixOp, StringCaseOp,
-    StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
+    BinOp, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListProjectionOp,
+    ListSearchOp, Literal, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetProjectionOp, SetRemoveOp, Stmt,
+    StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide,
+    Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.
@@ -95,6 +96,9 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
     match &callback.kind {
         smelt_hir::CallbackExprKind::Param(index) => *index == target,
         smelt_hir::CallbackExprKind::Literal(_) => false,
+        smelt_hir::CallbackExprKind::ListLit(items) => {
+            items.iter().any(|item| callback_has_param(item, target))
+        }
         smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_param(operand, target),
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_param(lhs, target) || callback_has_param(rhs, target)

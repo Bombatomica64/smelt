@@ -425,6 +425,88 @@ const total = values.reduce((acc, value, index) => acc + value + index);
 }
 
 #[test]
+fn lowers_modern_array_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [1, 2, 3, 4];
+let nested: number[][] = [[1], [2, 3]];
+const spliced = values.splice(1, 2, 9);
+const copiedSplice = values.toSpliced(1, 1, 8);
+const filled = values.fill(0, 1, 3);
+const copiedWithin = values.copyWithin(0, 1, 3);
+const replaced = values.with(1, 7);
+const flat = nested.flat();
+const flatMapped = values.flatMap((value, index) => [value + index]);
+const sorted = values.toSorted((left, right) => right - left);
+const reversed = values.toReversed();
+const last = values.findLast((value, index) => value > index);
+const lastIndex = values.findLastIndex((value, index) => value > index);
+const keys = values.keys();
+const vals = values.values();
+const entries = values.entries();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::ListSplice { .. }))
+            .count(),
+        2
+    );
+    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListFill { .. })));
+    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListCopyWithin { .. })));
+    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListWith { .. })));
+    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListFlat { .. })));
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListCallback {
+            op: ListCallbackOp::FlatMap,
+            ..
+        }
+    )));
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListSort {
+            comparator: Some(_),
+            ..
+        }
+    )));
+    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListReversed { .. })));
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListCallback {
+            op: ListCallbackOp::FindLast,
+            ..
+        }
+    )));
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListCallback {
+            op: ListCallbackOp::FindLastIndex,
+            ..
+        }
+    )));
+    for expected in [
+        ListProjectionOp::Keys,
+        ListProjectionOp::Values,
+        ListProjectionOp::Entries,
+    ] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::ListProjection { op, .. } if op == expected)
+            ),
+            "missing list projection {expected:?}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn rejects_array_callback_captures() {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(

@@ -288,6 +288,55 @@ fn rewrite_rvalue(
                 | rewrite_optional_operand_except(start, aliases, dest)
                 | rewrite_optional_operand_except(end, aliases, dest)
         }
+        Rvalue::ListSplice {
+            list,
+            start,
+            delete_count,
+            items,
+            ..
+        } => {
+            let mut changed = rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(start, aliases, dest)
+                | rewrite_optional_operand_except(delete_count, aliases, dest);
+            for item in items {
+                changed |= rewrite_operand_except(item, aliases, dest);
+            }
+            changed
+        }
+        Rvalue::ListFill {
+            list,
+            value: fill_value,
+            start,
+            end,
+        } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(fill_value, aliases, dest)
+                | rewrite_optional_operand_except(start, aliases, dest)
+                | rewrite_optional_operand_except(end, aliases, dest)
+        }
+        Rvalue::ListCopyWithin {
+            list,
+            target,
+            start,
+            end,
+        } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(target, aliases, dest)
+                | rewrite_operand_except(start, aliases, dest)
+                | rewrite_optional_operand_except(end, aliases, dest)
+        }
+        Rvalue::ListWith {
+            list,
+            index,
+            value: replacement,
+        } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(index, aliases, dest)
+                | rewrite_operand_except(replacement, aliases, dest)
+        }
+        Rvalue::ListFlat { list } | Rvalue::ListProjection { list, .. } => {
+            rewrite_operand_except(list, aliases, dest)
+        }
         Rvalue::ListPush { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)

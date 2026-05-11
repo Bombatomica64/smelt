@@ -287,6 +287,54 @@ fn validate_rvalue_exists(
             validate_optional_operand_exists(function, start.as_ref(), errors);
             validate_optional_operand_exists(function, end.as_ref(), errors);
         }
+        Rvalue::ListSplice {
+            list,
+            start,
+            delete_count,
+            items,
+            ..
+        } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, start, errors);
+            validate_optional_operand_exists(function, delete_count.as_ref(), errors);
+            for item in items {
+                validate_operand_exists(function, item, errors);
+            }
+        }
+        Rvalue::ListFill {
+            list,
+            value: fill_value,
+            start,
+            end,
+        } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, fill_value, errors);
+            validate_optional_operand_exists(function, start.as_ref(), errors);
+            validate_optional_operand_exists(function, end.as_ref(), errors);
+        }
+        Rvalue::ListCopyWithin {
+            list,
+            target,
+            start,
+            end,
+        } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, target, errors);
+            validate_operand_exists(function, start, errors);
+            validate_optional_operand_exists(function, end.as_ref(), errors);
+        }
+        Rvalue::ListWith {
+            list,
+            index,
+            value: replacement,
+        } => {
+            validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, index, errors);
+            validate_operand_exists(function, replacement, errors);
+        }
+        Rvalue::ListFlat { list } | Rvalue::ListProjection { list, .. } => {
+            validate_operand_exists(function, list, errors);
+        }
         Rvalue::ListPush { list, item } => {
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
@@ -852,6 +900,54 @@ fn validate_rvalue(
             validate_operand(function, definitions, list, errors);
             validate_optional_operand(function, definitions, start.as_ref(), errors);
             validate_optional_operand(function, definitions, end.as_ref(), errors);
+        }
+        Rvalue::ListSplice {
+            list,
+            start,
+            delete_count,
+            items,
+            ..
+        } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, start, errors);
+            validate_optional_operand(function, definitions, delete_count.as_ref(), errors);
+            for item in items {
+                validate_operand(function, definitions, item, errors);
+            }
+        }
+        Rvalue::ListFill {
+            list,
+            value: fill_value,
+            start,
+            end,
+        } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, fill_value, errors);
+            validate_optional_operand(function, definitions, start.as_ref(), errors);
+            validate_optional_operand(function, definitions, end.as_ref(), errors);
+        }
+        Rvalue::ListCopyWithin {
+            list,
+            target,
+            start,
+            end,
+        } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, target, errors);
+            validate_operand(function, definitions, start, errors);
+            validate_optional_operand(function, definitions, end.as_ref(), errors);
+        }
+        Rvalue::ListWith {
+            list,
+            index,
+            value: replacement,
+        } => {
+            validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, index, errors);
+            validate_operand(function, definitions, replacement, errors);
+        }
+        Rvalue::ListFlat { list } | Rvalue::ListProjection { list, .. } => {
+            validate_operand(function, definitions, list, errors);
         }
         Rvalue::ListPush { list, item } => {
             validate_operand(function, definitions, list, errors);

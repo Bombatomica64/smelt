@@ -1634,6 +1634,114 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListSplice {
+                list,
+                start,
+                delete_count,
+                items,
+                mutate,
+            } => {
+                let list_operand = self.lower_expr(*list)?;
+                let start_operand = self.lower_expr(*start)?;
+                let delete_count_operand =
+                    delete_count.map(|count| self.lower_expr(count)).transpose()?;
+                let item_operands = items
+                    .iter()
+                    .map(|item| self.lower_expr(*item))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListSplice {
+                        list: list_operand,
+                        start: start_operand,
+                        delete_count: delete_count_operand,
+                        items: item_operands,
+                        mutate: *mutate,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListFill {
+                list,
+                value,
+                start,
+                end,
+            } => {
+                let list_operand = self.lower_expr(*list)?;
+                let value_operand = self.lower_expr(*value)?;
+                let start_operand = start.map(|bound| self.lower_expr(bound)).transpose()?;
+                let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListFill {
+                        list: list_operand,
+                        value: value_operand,
+                        start: start_operand,
+                        end: end_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListCopyWithin {
+                list,
+                target,
+                start,
+                end,
+            } => {
+                let list_operand = self.lower_expr(*list)?;
+                let target_operand = self.lower_expr(*target)?;
+                let start_operand = self.lower_expr(*start)?;
+                let end_operand = end.map(|bound| self.lower_expr(bound)).transpose()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListCopyWithin {
+                        list: list_operand,
+                        target: target_operand,
+                        start: start_operand,
+                        end: end_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListWith { list, index, value } => {
+                let list_operand = self.lower_expr(*list)?;
+                let index_operand = self.lower_expr(*index)?;
+                let value_operand = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListWith {
+                        list: list_operand,
+                        index: index_operand,
+                        value: value_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListFlat { list } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListFlat { list: list_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListProjection { op, list } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListProjection {
+                        op: *op,
+                        list: list_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::ListPush { list, item } => {
                 let list_operand = self.lower_expr(*list)?;
                 let item_operand = self.lower_expr(*item)?;
@@ -2430,6 +2538,12 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListCallback { .. }
             | ExprKind::ListReduce { .. }
             | ExprKind::ListSlice { .. }
+            | ExprKind::ListSplice { .. }
+            | ExprKind::ListFill { .. }
+            | ExprKind::ListCopyWithin { .. }
+            | ExprKind::ListWith { .. }
+            | ExprKind::ListFlat { .. }
+            | ExprKind::ListProjection { .. }
             | ExprKind::ListPush { .. }
             | ExprKind::ListExtend { .. }
             | ExprKind::ListInsert { .. }

@@ -331,7 +331,7 @@ runtime errors.
     - [x] Add expanded registry-format rows for touched Date/datetime and URL/urlparse APIs.
   - [x] Add dependency-injection plumbing for mappings that need crates such as `serde_json`,
         `reqwest`, `chrono`, `regex`, `url`, `ndarray`, or `numpy` bindings.
-- [ ] TypeScript array/list mappings:
+- [x] TypeScript array/list mappings:
   - [x] `Array.prototype.includes`.
   - [x] `Array.prototype.map` with capture-free callbacks.
   - [x] Array callback index parameters for capture-free callbacks.
@@ -349,7 +349,7 @@ runtime errors.
   - [x] `Array.prototype.shift`.
   - [x] `Array.prototype.unshift`.
   - [x] `Array.prototype.slice` with positive, omitted, and negative indexes.
-  - [x] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
+  - [x] `Array.prototype.splice`.
   - [x] `Array.prototype.concat`.
   - [x] `Array.prototype.join`.
   - [x] `Array.prototype.indexOf` and `lastIndexOf`.
@@ -358,6 +358,13 @@ runtime errors.
   - [x] `Array.prototype.sort` with comparator support.
     - [x] `Array.prototype.sort()` without a comparator.
     - [x] Comparator callbacks.
+  - [x] `Array.prototype.flat` for one-level nested arrays.
+  - [x] `Array.prototype.flatMap` with capture-free callbacks returning arrays.
+  - [x] `Array.prototype.fill`.
+  - [x] `Array.prototype.copyWithin`.
+  - [x] `Array.prototype.findLast` and `findLastIndex` with capture-free callbacks.
+  - [x] `Array.prototype.toSorted`, `toReversed`, `toSpliced`, and `with`.
+  - [x] `Array.prototype.entries`, `keys`, and `values`.
   - [x] `Array.isArray` as a typed no-op/guard where static types make it decidable.
 - [ ] TypeScript string mappings:
   - [x] `String.prototype.toLowerCase`.

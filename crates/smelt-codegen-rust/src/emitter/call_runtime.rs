@@ -232,6 +232,34 @@ impl FunctionEmitter<'_> {
             Rvalue::ListSlice { list, start, end } => {
                 self.list_slice_text(list, start.as_ref(), end.as_ref())
             }
+            Rvalue::ListSplice {
+                list,
+                start,
+                delete_count,
+                items,
+                mutate,
+            } => self.list_splice_text(list, start, delete_count.as_ref(), items, *mutate, dest_ty),
+            Rvalue::ListFill {
+                list,
+                value: fill_value,
+                start,
+                end,
+            } => self.list_fill_text(list, fill_value, start.as_ref(), end.as_ref(), dest_ty),
+            Rvalue::ListCopyWithin {
+                list,
+                target,
+                start,
+                end,
+            } => self.list_copy_within_text(list, target, start, end.as_ref(), dest_ty),
+            Rvalue::ListWith {
+                list,
+                index,
+                value: replacement,
+            } => {
+                self.list_with_text(list, index, replacement, dest_ty)
+            }
+            Rvalue::ListFlat { list } => self.list_flat_text(list, dest_ty),
+            Rvalue::ListProjection { op, list } => self.list_projection_text(*op, list, dest_ty),
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
             Rvalue::ListExtend { list, other } => self.list_extend_text(list, other, dest_ty),
             Rvalue::ListInsert { list, index, item } => {

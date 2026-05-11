@@ -562,9 +562,12 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::ListCallbackOp::Filter => "filter",
                 smelt_hir::ListCallbackOp::Find => "find_callback",
                 smelt_hir::ListCallbackOp::FindIndex => "find_index",
+                smelt_hir::ListCallbackOp::FindLast => "find_last_callback",
+                smelt_hir::ListCallbackOp::FindLastIndex => "find_last_index",
                 smelt_hir::ListCallbackOp::Some => "some",
                 smelt_hir::ListCallbackOp::Every => "every",
                 smelt_hir::ListCallbackOp::ForEach => "for_each",
+                smelt_hir::ListCallbackOp::FlatMap => "flat_map",
             };
             format!("list_{op_text} {} <callback>", operand_text(list))
         }
@@ -579,6 +582,63 @@ fn rvalue_text(value: &Rvalue) -> String {
             optional_operand_text(start.as_ref()),
             optional_operand_text(end.as_ref())
         ),
+        Rvalue::ListSplice {
+            list,
+            start,
+            delete_count,
+            items,
+            mutate,
+        } => format!(
+            "list_splice {}, {}, {}, [{}], {}",
+            operand_text(list),
+            operand_text(start),
+            optional_operand_text(delete_count.as_ref()),
+            items.iter().map(operand_text).collect::<Vec<_>>().join(", "),
+            mutate
+        ),
+        Rvalue::ListFill {
+            list,
+            value: fill_value,
+            start,
+            end,
+        } => format!(
+            "list_fill {}, {}, {}, {}",
+            operand_text(list),
+            operand_text(fill_value),
+            optional_operand_text(start.as_ref()),
+            optional_operand_text(end.as_ref())
+        ),
+        Rvalue::ListCopyWithin {
+            list,
+            target,
+            start,
+            end,
+        } => format!(
+            "list_copy_within {}, {}, {}, {}",
+            operand_text(list),
+            operand_text(target),
+            operand_text(start),
+            optional_operand_text(end.as_ref())
+        ),
+        Rvalue::ListWith {
+            list,
+            index,
+            value: replacement,
+        } => format!(
+            "list_with {}, {}, {}",
+            operand_text(list),
+            operand_text(index),
+            operand_text(replacement)
+        ),
+        Rvalue::ListFlat { list } => format!("list_flat {}", operand_text(list)),
+        Rvalue::ListProjection { op, list } => {
+            let op_text = match op {
+                smelt_hir::ListProjectionOp::Keys => "keys",
+                smelt_hir::ListProjectionOp::Values => "values",
+                smelt_hir::ListProjectionOp::Entries => "entries",
+            };
+            format!("list_{op_text} {}", operand_text(list))
+        }
         Rvalue::ListPush { list, item } => {
             format!("list_push {}, {}", operand_text(list), operand_text(item))
         }

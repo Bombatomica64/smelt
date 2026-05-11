@@ -364,8 +364,8 @@ impl ModuleBuilder<'_> {
             {
                 "TypeScript Object.assign is not supported yet; object merge semantics need a dedicated mapping"
             }
-            _ if matches!(member.property.name.as_str(), "splice" | "replaceAll") => {
-                "TypeScript Array.splice/String.replaceAll are not supported yet; mutation and replacement semantics need a dedicated mapping"
+            _ if member.property.name == "replaceAll" => {
+                "TypeScript String.replaceAll is not supported yet; replacement semantics need a dedicated mapping"
             }
             _ => return None,
         };

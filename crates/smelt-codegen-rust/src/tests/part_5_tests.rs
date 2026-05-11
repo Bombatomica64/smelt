@@ -370,3 +370,38 @@ const sortedByNumber = values.sort((left, right) => left - right);
     assert!(source.contains("if ordering < 0.0"));
     assert!(source.contains(".clone()"));
 }
+
+#[test]
+fn emits_modern_array_methods() {
+    let source = source_for(
+        r#"
+let values: number[] = [1, 2, 3, 4];
+let nested: number[][] = [[1], [2, 3]];
+const spliced = values.splice(1, 2, 9);
+const copiedSplice = values.toSpliced(1, 1, 8);
+const filled = values.fill(0, 1, 3);
+const copiedWithin = values.copyWithin(0, 1, 3);
+const replaced = values.with(1, 7);
+const flat = nested.flat();
+const flatMapped = values.flatMap((value, index) => [value + index]);
+const sorted = values.toSorted((left, right) => right - left);
+const reversed = values.toReversed();
+const last = values.findLast((value, index) => value > index);
+const lastIndex = values.findLastIndex((value, index) => value > index);
+const keys = values.keys();
+const vals = values.values();
+const entries = values.entries();
+"#,
+    );
+
+    assert!(source.contains(".splice("));
+    assert!(source.contains("copy_items"));
+    assert!(source.contains("fill_index"));
+    assert!(source.contains("with_items"));
+    assert!(source.contains(".flat_map(|items| items.iter().cloned())"));
+    assert!(source.contains(".iter().enumerate().flat_map("));
+    assert!(source.contains(".iter().enumerate().rev().find("));
+    assert!(source.contains(".iter().enumerate().rposition("));
+    assert!(source.contains("(0.."));
+    assert!(source.contains(".iter().cloned().enumerate().map(|(idx, item)|"));
+}

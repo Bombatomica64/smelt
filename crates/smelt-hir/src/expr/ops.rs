@@ -254,11 +254,27 @@ pub enum ListCallbackOp {
     Find,
     /// Return the first index where the callback returns true, or -1.
     FindIndex,
+    /// Return the last item where the callback returns true.
+    FindLast,
+    /// Return the last index where the callback returns true, or -1.
+    FindLastIndex,
     /// Return true if any item satisfies the callback.
     Some,
     /// Return true if every item satisfies the callback.
     Every,
     /// Evaluate the callback for each item and return `None`.
     ForEach,
+    /// Transform each item into a list and flatten one level.
+    FlatMap,
 }
 
+/// A directly lowered list projection operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ListProjectionOp {
+    /// Project numeric array indexes.
+    Keys,
+    /// Project array values as a shallow copy.
+    Values,
+    /// Project index-value entries.
+    Entries,
+}

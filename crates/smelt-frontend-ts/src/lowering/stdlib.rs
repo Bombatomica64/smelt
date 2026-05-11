@@ -2,7 +2,7 @@
 
 use oxc::ast::ast::{Argument, CallExpression, Expression};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, RegexMatchOp, Type};
+use smelt_hir::{Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, RegexMatchOp, Type};
 use smelt_stdlib::RuleId;
 
 use super::{stdlib_dispatch, ModuleBuilder, SmeltError};
@@ -376,6 +376,299 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower modern TypeScript array APIs that materialize lists directly.
+    pub(super) fn modern_array_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let method = member.property.name.as_str();
+        if !matches!(
+            method,
+            "splice"
+                | "toSpliced"
+                | "fill"
+                | "copyWithin"
+                | "with"
+                | "flat"
+                | "flatMap"
+                | "toSorted"
+                | "toReversed"
+                | "findLast"
+                | "findLastIndex"
+                | "keys"
+                | "values"
+                | "entries"
+        ) {
+            return Ok(None);
+        }
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *list_element_ty;
+        let span = self.span(call.span.start, call.span.end);
+        match method {
+            "splice" | "toSpliced" => {
+                let [start_arg, rest @ ..] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(span, "array splice requires a start argument"));
+                };
+                let start = self.slice_index_argument(start_arg, body)?;
+                let delete_count = rest
+                    .first()
+                    .map(|argument| self.slice_index_argument(argument, body))
+                    .transpose()?;
+                let item_args = if delete_count.is_some() {
+                    rest.get(1..).unwrap_or(&[])
+                } else {
+                    rest
+                };
+                let mut items = Vec::with_capacity(item_args.len());
+                for argument in item_args {
+                    let item = self.argument(argument, body)?;
+                    if Self::expr_ty(body, item) != element_ty {
+                        return Err(SmeltError::unsupported(
+                            self.span(argument.span().start, argument.span().end),
+                            "array splice replacement items must match the array element type",
+                        ));
+                    }
+                    items.push(item);
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListSplice {
+                        list,
+                        start,
+                        delete_count,
+                        items,
+                        mutate: method == "splice",
+                    },
+                    ty: list_ty,
+                    span,
+                })))
+            }
+            "fill" => {
+                let [value_arg, rest @ ..] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(span, "array fill requires a value argument"));
+                };
+                if rest.len() > 2 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array fill supports value, start, and end arguments",
+                    ));
+                }
+                let value = self.argument(value_arg, body)?;
+                if Self::expr_ty(body, value) != element_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(value_arg.span().start, value_arg.span().end),
+                        "array fill value must match the array element type",
+                    ));
+                }
+                let start = rest.first().map(|argument| self.slice_index_argument(argument, body)).transpose()?;
+                let end = rest.get(1).map(|argument| self.slice_index_argument(argument, body)).transpose()?;
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListFill {
+                        list,
+                        value,
+                        start,
+                        end,
+                    },
+                    ty: list_ty,
+                    span,
+                })))
+            }
+            "copyWithin" => {
+                let [target_arg, start_arg, rest @ ..] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array copyWithin requires target and start arguments",
+                    ));
+                };
+                if rest.len() > 1 {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array copyWithin supports target, start, and end arguments",
+                    ));
+                }
+                let target = self.slice_index_argument(target_arg, body)?;
+                let start = self.slice_index_argument(start_arg, body)?;
+                let end = rest.first().map(|argument| self.slice_index_argument(argument, body)).transpose()?;
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListCopyWithin {
+                        list,
+                        target,
+                        start,
+                        end,
+                    },
+                    ty: list_ty,
+                    span,
+                })))
+            }
+            "with" => {
+                let [index_arg, value_arg] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(span, "array with requires index and value arguments"));
+                };
+                let index = self.slice_index_argument(index_arg, body)?;
+                let value = self.argument(value_arg, body)?;
+                if Self::expr_ty(body, value) != element_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(value_arg.span().start, value_arg.span().end),
+                        "array with value must match the array element type",
+                    ));
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListWith { list, index, value },
+                    ty: list_ty,
+                    span,
+                })))
+            }
+            "flat" => {
+                if call.arguments.len() > 1 {
+                    return Err(SmeltError::unsupported(span, "array flat supports depth 0 or 1"));
+                }
+                let Some(Type::List(flat_item_ty)) = self.ctx.krate.types.get(element_ty) else {
+                    return Ok(None);
+                };
+                let ty = self.ctx.krate.types.intern(Type::List(*flat_item_ty));
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListFlat { list },
+                    ty,
+                    span,
+                })))
+            }
+            "flatMap" => {
+                let [callback_arg] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(span, "array flatMap requires one callback argument"));
+                };
+                let index_ty = self.ctx.krate.types.intern(Type::Float);
+                let callback = self.capture_free_arrow_callback(callback_arg, &[element_ty, index_ty])?;
+                let Some(Type::List(flat_item_ty)) = self.ctx.krate.types.get(callback.ty) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(callback_arg.span().start, callback_arg.span().end),
+                        "array flatMap callback must return an array",
+                    ));
+                };
+                let ty = self.ctx.krate.types.intern(Type::List(*flat_item_ty));
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListCallback {
+                        op: ListCallbackOp::FlatMap,
+                        list,
+                        callback,
+                    },
+                    ty,
+                    span,
+                })))
+            }
+            "toSorted" => {
+                let comparator_argument = match call.arguments.as_slice() {
+                    [] => None,
+                    [argument] => Some(argument),
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            "array toSorted requires at most one comparator argument",
+                        ));
+                    }
+                };
+                let comparator = if let Some(argument) = comparator_argument {
+                    let callback = self.capture_free_arrow_callback(argument, &[element_ty, element_ty])?;
+                    let number_ty = self.ctx.krate.types.intern(Type::Float);
+                    self.require_callback_ty(callback.ty, number_ty, call, "array toSorted")?;
+                    Some(callback)
+                } else {
+                    None
+                };
+                let sorted = body.push_expr(Expr {
+                    kind: ExprKind::ListCopy { list },
+                    ty: list_ty,
+                    span,
+                });
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListSort {
+                        list: sorted,
+                        comparator,
+                    },
+                    ty: list_ty,
+                    span,
+                })))
+            }
+            "toReversed" => {
+                if !call.arguments.is_empty() {
+                    return Err(SmeltError::unsupported(span, "array toReversed requires no arguments"));
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListReversed { list },
+                    ty: list_ty,
+                    span,
+                })))
+            }
+            "findLast" | "findLastIndex" => {
+                let [callback_arg] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array findLast/findLastIndex requires one callback argument",
+                    ));
+                };
+                let index_ty = self.ctx.krate.types.intern(Type::Float);
+                let callback = self.capture_free_arrow_callback(callback_arg, &[element_ty, index_ty])?;
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                let context = if method == "findLast" {
+                    "array findLast"
+                } else {
+                    "array findLastIndex"
+                };
+                self.require_callback_ty(callback.ty, bool_ty, call, context)?;
+                let op = if method == "findLast" {
+                    ListCallbackOp::FindLast
+                } else {
+                    ListCallbackOp::FindLastIndex
+                };
+                let ty = if method == "findLast" {
+                    self.ctx.krate.types.intern(Type::Optional(element_ty))
+                } else {
+                    index_ty
+                };
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListCallback { op, list, callback },
+                    ty,
+                    span,
+                })))
+            }
+            "keys" | "values" | "entries" => {
+                if !call.arguments.is_empty() {
+                    return Err(SmeltError::unsupported(span, "array projection methods require no arguments"));
+                }
+                let op = match method {
+                    "keys" => ListProjectionOp::Keys,
+                    "values" => ListProjectionOp::Values,
+                    "entries" => ListProjectionOp::Entries,
+                    _ => return Ok(None),
+                };
+                let ty = match op {
+                    ListProjectionOp::Keys => {
+                        let int_ty = self.ctx.krate.types.intern(Type::Int);
+                        self.ctx.krate.types.intern(Type::List(int_ty))
+                    }
+                    ListProjectionOp::Values => list_ty,
+                    ListProjectionOp::Entries => {
+                        let int_ty = self.ctx.krate.types.intern(Type::Int);
+                        let tuple_ty = self.ctx.krate.types.intern(Type::Tuple(vec![int_ty, element_ty]));
+                        self.ctx.krate.types.intern(Type::List(tuple_ty))
+                    }
+                };
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListProjection { op, list },
+                    ty,
+                    span,
+                })))
+            }
+            _ => Ok(None),
+        }
     }
 
     /// Lower direct TypeScript `Array.prototype.unshift` calls.

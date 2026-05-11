@@ -22,6 +22,8 @@ pub enum CallbackExprKind {
     Param(usize),
     /// A literal value.
     Literal(Literal),
+    /// A list literal built inside a callback.
+    ListLit(Vec<CallbackExpr>),
     /// A unary operation.
     Unary {
         /// Operation to apply.
@@ -39,4 +41,3 @@ pub enum CallbackExprKind {
         rhs: Box<CallbackExpr>,
     },
 }
-

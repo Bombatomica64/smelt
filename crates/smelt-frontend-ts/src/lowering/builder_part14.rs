@@ -291,6 +291,40 @@ impl ModuleBuilder<'_> {
                 self.logical_expression(logical, body)
             }
             ArrayExpressionElement::UnaryExpression(unary) => self.unary_expression(unary, body),
+            ArrayExpressionElement::ArrayExpression(array) => {
+                let mut items = Vec::new();
+                for nested_element in &array.elements {
+                    let item = match nested_element {
+                        ArrayExpressionElement::SpreadElement(_) => {
+                            return Err(SmeltError::unsupported(
+                                self.span(nested_element.span().start, nested_element.span().end),
+                                "array spread elements are not lowered yet",
+                            ));
+                        }
+                        ArrayExpressionElement::Elision(_) => {
+                            return Err(SmeltError::unsupported(
+                                self.span(nested_element.span().start, nested_element.span().end),
+                                "array elisions are not lowered",
+                            ));
+                        }
+                        _ => self.array_element(nested_element, body)?,
+                    };
+                    items.push(item);
+                }
+                let Some(first) = items.first().copied() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "empty nested arrays require an explicit type annotation",
+                    ));
+                };
+                let item_ty = Self::expr_ty(body, first);
+                let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListLit(items),
+                    ty,
+                    span: self.span(array.span.start, array.span.end),
+                }))
+            }
             ArrayExpressionElement::CallExpression(call) => self.call_expression(call, body),
             ArrayExpressionElement::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)

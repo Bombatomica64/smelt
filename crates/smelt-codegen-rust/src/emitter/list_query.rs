@@ -101,6 +101,28 @@ impl FunctionEmitter<'_> {
                     "{list_text}.iter().enumerate().position({closure}).map_or(-1.0, |idx| idx as f64)"
                 ))
             }
+            smelt_hir::ListCallbackOp::FindLast => {
+                self.validate_bool_callback(callback, "array findLast")?;
+                if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
+                    return Err(EmitError::new(
+                        "array findLast destination must be optional element type",
+                    ));
+                }
+                Ok(format!(
+                    "{list_text}.iter().enumerate().rev().find({ref_closure}).map(|(_, item)| item.clone())"
+                ))
+            }
+            smelt_hir::ListCallbackOp::FindLastIndex => {
+                self.validate_bool_callback(callback, "array findLastIndex")?;
+                if self.mir.types.get(dest_ty) != Some(&Type::Float) {
+                    return Err(EmitError::new(
+                        "array findLastIndex destination must be a number",
+                    ));
+                }
+                Ok(format!(
+                    "{list_text}.iter().enumerate().rposition({closure}).map_or(-1.0, |idx| idx as f64)"
+                ))
+            }
             smelt_hir::ListCallbackOp::Some => {
                 self.validate_bool_callback(callback, "array some")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
@@ -121,6 +143,19 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(format!(
                     "{{ {list_text}.iter().enumerate().for_each(|(index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); let _ = {callback_text}; }}); () }}"
+                ))
+            }
+            smelt_hir::ListCallbackOp::FlatMap => {
+                let Some(Type::List(callback_item_ty)) = self.mir.types.get(callback.ty) else {
+                    return Err(EmitError::new("array flatMap callback must return an array"));
+                };
+                if self.mir.types.get(dest_ty) != Some(&Type::List(*callback_item_ty)) {
+                    return Err(EmitError::new(
+                        "array flatMap destination must match callback array item type",
+                    ));
+                }
+                Ok(format!(
+                    "{list_text}.iter().enumerate().flat_map({closure}).collect::<Vec<_>>()"
                 ))
             }
         }
@@ -216,6 +251,14 @@ impl FunctionEmitter<'_> {
                 .map(|param| (*param).to_owned())
                 .ok_or_else(|| EmitError::new("callback parameter index is out of bounds")),
             smelt_hir::CallbackExprKind::Literal(literal) => Ok(hir_literal_text(literal)),
+            smelt_hir::CallbackExprKind::ListLit(items) => {
+                let items_text = items
+                    .iter()
+                    .map(|item| Self::callback_expr_text(item, params))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                Ok(format!("vec![{items_text}]"))
+            }
             smelt_hir::CallbackExprKind::Unary { op, operand } => {
                 let op_text = match op {
                     smelt_hir::UnaryOp::Not => "!",

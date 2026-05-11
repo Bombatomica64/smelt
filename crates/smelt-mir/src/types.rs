@@ -722,6 +722,62 @@ pub enum Rvalue {
         /// Exclusive end index, or omitted for collection length.
         end: Option<Operand>,
     },
+    /// Remove and optionally insert list items.
+    ListSplice {
+        /// List value to mutate or copy.
+        list: Operand,
+        /// Start index.
+        start: Operand,
+        /// Number of items to delete, or omitted to delete through the end.
+        delete_count: Option<Operand>,
+        /// Replacement items.
+        items: Vec<Operand>,
+        /// Whether to mutate the source list and return removed items.
+        mutate: bool,
+    },
+    /// Fill a list range with one value.
+    ListFill {
+        /// List value to mutate.
+        list: Operand,
+        /// Value to assign.
+        value: Operand,
+        /// Inclusive start index, or omitted for zero.
+        start: Option<Operand>,
+        /// Exclusive end index, or omitted for collection length.
+        end: Option<Operand>,
+    },
+    /// Copy a range inside a list.
+    ListCopyWithin {
+        /// List value to mutate.
+        list: Operand,
+        /// Target index.
+        target: Operand,
+        /// Source start index.
+        start: Operand,
+        /// Source end index, or omitted for collection length.
+        end: Option<Operand>,
+    },
+    /// Return a copied list with one replaced item.
+    ListWith {
+        /// List value to copy.
+        list: Operand,
+        /// Index to replace.
+        index: Operand,
+        /// Replacement value.
+        value: Operand,
+    },
+    /// Flatten one list nesting level.
+    ListFlat {
+        /// List value to flatten.
+        list: Operand,
+    },
+    /// Project array keys, values, or entries.
+    ListProjection {
+        /// Projection operation.
+        op: smelt_hir::ListProjectionOp,
+        /// List value to project.
+        list: Operand,
+    },
     /// Push one item into a list and return the new length.
     ListPush {
         /// List value to mutate.

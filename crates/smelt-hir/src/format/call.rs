@@ -333,9 +333,12 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::ListCallbackOp::Filter => "filter",
                 crate::expr::ListCallbackOp::Find => "find_callback",
                 crate::expr::ListCallbackOp::FindIndex => "find_index",
+                crate::expr::ListCallbackOp::FindLast => "find_last_callback",
+                crate::expr::ListCallbackOp::FindLastIndex => "find_last_index",
                 crate::expr::ListCallbackOp::Some => "some",
                 crate::expr::ListCallbackOp::Every => "every",
                 crate::expr::ListCallbackOp::ForEach => "for_each",
+                crate::expr::ListCallbackOp::FlatMap => "flat_map",
             };
             format!("list_{op_name} {} <callback>", expr_ref(*list))
         }
@@ -352,6 +355,63 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             optional_expr_ref(*start),
             optional_expr_ref(*end)
         ),
+        ExprKind::ListSplice {
+            list,
+            start,
+            delete_count,
+            items,
+            mutate,
+        } => format!(
+            "list_splice {}, {}, {}, [{}], {}",
+            expr_ref(*list),
+            expr_ref(*start),
+            optional_expr_ref(*delete_count),
+            items
+                .iter()
+                .map(|item| expr_ref(*item))
+                .collect::<Vec<_>>()
+                .join(", "),
+            mutate
+        ),
+        ExprKind::ListFill {
+            list,
+            value,
+            start,
+            end,
+        } => format!(
+            "list_fill {}, {}, {}, {}",
+            expr_ref(*list),
+            expr_ref(*value),
+            optional_expr_ref(*start),
+            optional_expr_ref(*end)
+        ),
+        ExprKind::ListCopyWithin {
+            list,
+            target,
+            start,
+            end,
+        } => format!(
+            "list_copy_within {}, {}, {}, {}",
+            expr_ref(*list),
+            expr_ref(*target),
+            expr_ref(*start),
+            optional_expr_ref(*end)
+        ),
+        ExprKind::ListWith { list, index, value } => format!(
+            "list_with {}, {}, {}",
+            expr_ref(*list),
+            expr_ref(*index),
+            expr_ref(*value)
+        ),
+        ExprKind::ListFlat { list } => format!("list_flat {}", expr_ref(*list)),
+        ExprKind::ListProjection { op, list } => {
+            let op_name = match op {
+                crate::expr::ListProjectionOp::Keys => "keys",
+                crate::expr::ListProjectionOp::Values => "values",
+                crate::expr::ListProjectionOp::Entries => "entries",
+            };
+            format!("list_{op_name} {}", expr_ref(*list))
+        }
         ExprKind::ListPush { list, item } => {
             format!("list_push {}, {}", expr_ref(*list), expr_ref(*item))
         }

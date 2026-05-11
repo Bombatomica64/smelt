@@ -319,16 +319,6 @@ const merged = Object.assign({}, { value: 1 });
     assert_unsupported_ts(&assign_errors, "Object.assign")?;
 
     let mut ctx = HirCtx::new();
-    let splice_errors = lowering_errors(
-        ts!(r#"
-const values: number[] = [1, 2, 3];
-const removed = values.splice(1, 1);
-"#),
-        &mut ctx,
-    )?;
-    assert_unsupported_ts(&splice_errors, "Array.splice/String.replaceAll")?;
-
-    let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
 const values: number[] = [3, 1, 2];
