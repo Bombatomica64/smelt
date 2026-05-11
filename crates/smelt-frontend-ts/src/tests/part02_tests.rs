@@ -27,8 +27,8 @@ console.log(x);
 "),
         &mut ctx,
     )?;
-    let module = module(&ctx, module_id)?;
-    let body = module_body(&ctx, module)?;
+    let url_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, url_module)?;
 
     ensure_eq!(body.locals.len(), 1);
     ensure_eq!(body.stmts.len(), 2);
@@ -301,8 +301,8 @@ const host = new URL("https://example.com/path?q=1").hostname;
 "#),
         &mut ctx,
     )?;
-    let module = module(&ctx, module_id)?;
-    let body = module_body(&ctx, module)?;
+    let url_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, url_module)?;
     ensure!(
         body.exprs
             .iter()
@@ -316,7 +316,7 @@ const merged = Object.assign({}, { value: 1 });
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&assign_errors, "Object.fromEntries/Object.assign")?;
+    assert_unsupported_ts(&assign_errors, "Object.assign")?;
 
     let mut ctx = HirCtx::new();
     let splice_errors = lowering_errors(
@@ -327,6 +327,30 @@ const removed = values.splice(1, 1);
         &mut ctx,
     )?;
     assert_unsupported_ts(&splice_errors, "Array.splice/String.replaceAll")?;
+
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [3, 1, 2];
+const sorted = values.sort();
+const sortedByCompare = values.sort((left, right) => left - right);
+"#),
+        &mut ctx,
+    )?;
+    let sort_module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, sort_module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListSort { .. }))
+    );
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        &expr.kind,
+        ExprKind::ListSort {
+            comparator: Some(callback),
+            ..
+        } if callback_has_param(callback, 1)
+    )));
     Ok(())
 }
 

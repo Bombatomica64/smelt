@@ -90,6 +90,18 @@ fn module_body<'a>(
         .ok_or_else(|| format!("missing body {body_id:?} in lowered crate"))
 }
 
+/// Return whether a lowered capture-free callback references a parameter index.
+fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool {
+    match &callback.kind {
+        smelt_hir::CallbackExprKind::Param(index) => *index == target,
+        smelt_hir::CallbackExprKind::Literal(_) => false,
+        smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_param(operand, target),
+        smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
+            callback_has_param(lhs, target) || callback_has_param(rhs, target)
+        }
+    }
+}
+
 /// Get a function item at the provided module item index.
 fn function_item<'a>(
     ctx: &'a HirCtx,

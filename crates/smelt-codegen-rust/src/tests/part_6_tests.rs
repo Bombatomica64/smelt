@@ -56,6 +56,7 @@ const mapping: Record<string, number> = { a: 1, b: 2 };
 const keys = Object.keys(mapping);
 const values = Object.values(mapping);
 const entries = Object.entries(mapping);
+const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 "#,
     );
 
@@ -66,6 +67,7 @@ const entries = Object.entries(mapping);
             ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();"
         )
     );
+    assert!(source.contains("HashMap::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"));
 }
 
 #[test]

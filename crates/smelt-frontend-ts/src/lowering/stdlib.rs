@@ -5,7 +5,7 @@ use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, RegexMatchOp, Type};
 use smelt_stdlib::RuleId;
 
-use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
+use super::{stdlib_dispatch, ModuleBuilder, SmeltError};
 
 impl ModuleBuilder<'_> {
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
@@ -273,6 +273,66 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower direct TypeScript `Array.prototype.sort` calls with an optional comparator.
+    pub(super) fn list_sort_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "sort" {
+            return Ok(None);
+        }
+        let comparator_argument = match call.arguments.as_slice() {
+            [] => None,
+            [argument] => Some(argument),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array sort requires at most one comparator argument",
+                ));
+            }
+        };
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let element_ty = *list_element_ty;
+        let comparator = if let Some(argument) = comparator_argument {
+            let callback =
+                self.capture_free_arrow_callback(argument, &[element_ty, element_ty])?;
+            let number_ty = self.ctx.krate.types.intern(Type::Float);
+            self.require_callback_ty(callback.ty, number_ty, call, "array sort")?;
+            Some(callback)
+        } else {
+            None
+        };
+        if comparator.is_some() {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListSort { list, comparator },
+                ty: list_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        if !matches!(
+            self.ctx.krate.types.get(element_ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(member.object.span().start, member.object.span().end),
+                "array sort supports boolean, number, and string arrays for now",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListSort { list, comparator },
+            ty: list_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript `Array.prototype.push` calls.
     pub(super) fn list_push_call(
         &mut self,
@@ -361,7 +421,8 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower direct TypeScript `Array.prototype.slice` and `String.prototype.slice` calls.
+    /// Lower direct TypeScript `Array.prototype.slice`, `String.prototype.slice`, and
+    /// positive-bound `String.prototype.substring` calls.
     pub(super) fn collection_slice_call(
         &mut self,
         call: &CallExpression<'_>,
@@ -370,17 +431,21 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "slice" {
+        let method = member.property.name.as_str();
+        if !matches!(method, "slice" | "substring") {
             return Ok(None);
         }
         if call.arguments.len() > 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "slice currently supports only omitted, start, and end arguments",
+                "slice/substring currently support only omitted, start, and end arguments",
             ));
         }
         let operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
+        if method == "substring" && self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
+            return Ok(None);
+        }
         let start = call
             .arguments
             .first()
@@ -405,7 +470,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.span.start, call.span.end),
                 })))
             }
-            Some(Type::List(_)) => Ok(Some(body.push_expr(Expr {
+            Some(Type::List(_)) if method == "slice" => Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ListSlice {
                     list: operand,
                     start,
@@ -416,7 +481,7 @@ impl ModuleBuilder<'_> {
             }))),
             _ => Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "slice requires a string or array receiver",
+                "slice/substring requires a string receiver, or an array receiver for slice",
             )),
         }
     }

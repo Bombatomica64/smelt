@@ -373,6 +373,58 @@ const total = values.reduce((acc, value) => acc + value, 0);
 }
 
 #[test]
+fn lowers_array_callback_index_parameters() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const mapped = values.map((value, index) => value + index);
+const filtered = values.filter((value, index) => value > index);
+const found = values.find((value, index) => value === index);
+const foundIndex = values.findIndex((value, index) => value === index);
+const hasAny = values.some((value, index) => value > index);
+const hasEvery = values.every((value, index) => value >= index);
+values.forEach((value, index) => value + index);
+const total = values.reduce((acc, value, index) => acc + value + index);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        ListCallbackOp::Map,
+        ListCallbackOp::Filter,
+        ListCallbackOp::Find,
+        ListCallbackOp::FindIndex,
+        ListCallbackOp::Some,
+        ListCallbackOp::Every,
+        ListCallbackOp::ForEach,
+    ] {
+        ensure!(
+            body.exprs.iter().any(|expr| matches!(
+                &expr.kind,
+                ExprKind::ListCallback { op, callback, .. }
+                    if *op == expected && callback_has_param(callback, 1)
+            )),
+            "missing callback index param for {expected:?}"
+        );
+    }
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListReduce {
+                initial: None,
+                callback,
+                ..
+            } if callback_has_param(callback, 2)
+        )),
+        "missing reduce without initial value using callback index param"
+    );
+    Ok(())
+}
+
+#[test]
 fn rejects_array_callback_captures() {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
@@ -408,6 +460,7 @@ const allText = word.slice();
 const tailText = word.slice(1);
 const midText = word.slice(1, 4);
 const lastText = word.slice(-3);
+const subText = word.substring(1, 4);
 "#),
         &mut ctx,
     )?;
@@ -425,7 +478,7 @@ const lastText = word.slice(-3);
         .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
         .count();
     ensure_eq!(list_slices, 4);
-    ensure_eq!(string_slices, 4);
+    ensure_eq!(string_slices, 5);
     Ok(())
 }
 
@@ -518,4 +571,3 @@ const item = values.pop();
     ensure_eq!(pops, 2);
     Ok(())
 }
-

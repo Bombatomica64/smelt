@@ -164,7 +164,9 @@ impl ModuleBuilder<'_> {
             ));
         };
         let element_ty = *list_element_ty;
-        let callback = self.capture_free_arrow_callback(callback_argument, &[element_ty])?;
+        let index_ty = self.ctx.krate.types.intern(Type::Float);
+        let callback =
+            self.capture_free_arrow_callback(callback_argument, &[element_ty, index_ty])?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let ty = match op {
             ListCallbackOp::Map => self.ctx.krate.types.intern(Type::List(callback.ty)),
@@ -197,7 +199,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower `Array.prototype.reduce` with an explicit initial value.
+    /// Lower `Array.prototype.reduce`, including element-typed calls without an initial value.
     fn list_reduce_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -209,10 +211,10 @@ impl ModuleBuilder<'_> {
         if member.property.name != "reduce" {
             return Ok(None);
         }
-        let [callback_argument, initial_argument] = call.arguments.as_slice() else {
+        let ([callback_argument] | [callback_argument, _]) = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "array reduce currently requires callback and explicit initial value",
+                "array reduce requires callback and at most one initial value",
             ));
         };
         let list = self.expression(&member.object, body)?;
@@ -224,18 +226,25 @@ impl ModuleBuilder<'_> {
             ));
         };
         let element_ty = *list_element_ty;
-        let initial = self.argument(initial_argument, body)?;
-        let initial_ty = Self::expr_ty(body, initial);
-        let callback =
-            self.capture_free_arrow_callback(callback_argument, &[initial_ty, element_ty])?;
-        self.require_callback_ty(callback.ty, initial_ty, call, "array reduce")?;
+        let initial = if let [_, initial_argument] = call.arguments.as_slice() {
+            Some(self.argument(initial_argument, body)?)
+        } else {
+            None
+        };
+        let accumulator_ty = initial.map_or(element_ty, |initial| Self::expr_ty(body, initial));
+        let index_ty = self.ctx.krate.types.intern(Type::Float);
+        let callback = self.capture_free_arrow_callback(
+            callback_argument,
+            &[accumulator_ty, element_ty, index_ty],
+        )?;
+        self.require_callback_ty(callback.ty, accumulator_ty, call, "array reduce")?;
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListReduce {
                 list,
                 initial,
                 callback,
             },
-            ty: initial_ty,
+            ty: accumulator_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
@@ -276,7 +285,7 @@ impl ModuleBuilder<'_> {
                 "async, generic, and rest-parameter callbacks are not supported yet",
             ));
         }
-        if arrow.params.items.len() != expected_param_tys.len() {
+        if arrow.params.items.is_empty() || arrow.params.items.len() > expected_param_tys.len() {
             return Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
                 "array callback parameter count is not supported for this method",

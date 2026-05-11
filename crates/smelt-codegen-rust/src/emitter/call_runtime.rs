@@ -228,7 +228,7 @@ impl FunctionEmitter<'_> {
                 list,
                 initial,
                 callback,
-            } => self.list_reduce_text(list, initial, callback, dest_ty),
+            } => self.list_reduce_text(list, initial.as_ref(), callback, dest_ty),
             Rvalue::ListSlice { list, start, end } => {
                 self.list_slice_text(list, start.as_ref(), end.as_ref())
             }
@@ -257,7 +257,7 @@ impl FunctionEmitter<'_> {
             Rvalue::ListRandomChoice { list } => self.list_random_choice_text(list, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
-            Rvalue::ListSort { list } => self.list_sort_text(list, dest_ty),
+            Rvalue::ListSort { list, comparator } => self.list_sort_text(list, comparator.as_ref(), dest_ty),
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),

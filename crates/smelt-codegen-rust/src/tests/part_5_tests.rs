@@ -36,11 +36,8 @@ test("adds numbers", () => {
 "#,
     );
 
-    assert!(
-        source.contains(
-            "#[test]\nfn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"
-        )
-    );
+    assert!(source
+        .contains("#[test]\nfn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"));
     assert!(source.contains("1.0 + 1.0"));
     assert!(source.contains("!= 2.0"));
     assert!(source.contains("return Ok(());"));
@@ -156,11 +153,8 @@ const mapEntries = mapping.entries();
 
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".values().cloned().collect::<Vec<_>>()"));
-    assert!(
-        source.contains(
-            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
-        )
-    );
+    assert!(source
+        .contains(".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"));
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(".iter().map(|value| (value.clone(), value.clone())).collect::<Vec<_>>()")
@@ -357,5 +351,22 @@ const reversed = values.reverse();
 
     assert!(source.contains("let mut"));
     assert!(source.contains(".reverse();"));
+    assert!(source.contains(".clone()"));
+}
+
+#[test]
+fn emits_array_sort_method() {
+    let source = source_for(
+        r#"
+let values: number[] = [10, 2];
+values.sort();
+const sorted = values.sort();
+const sortedByNumber = values.sort((left, right) => left - right);
+"#,
+    );
+
+    assert!(source.contains("let mut"));
+    assert!(source.contains(".sort_by(|left, right| left.to_string().cmp(&right.to_string()))"));
+    assert!(source.contains("if ordering < 0.0"));
     assert!(source.contains(".clone()"));
 }

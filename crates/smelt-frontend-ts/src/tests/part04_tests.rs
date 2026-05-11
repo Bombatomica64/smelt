@@ -236,6 +236,7 @@ const mapping: Record<string, number> = { a: 1, b: 2 };
 const keys = Object.keys(mapping);
 const values = Object.values(mapping);
 const entries = Object.entries(mapping);
+const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 "#),
         &mut ctx,
     )?;
@@ -251,6 +252,11 @@ const entries = Object.entries(mapping);
             |expr| matches!(expr.kind, ExprKind::DictProjection { op, .. } if op == expected)
         ));
     }
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_)))
+    );
     Ok(())
 }
 
@@ -489,4 +495,3 @@ const empty: Set<string> = new Set();
     );
     Ok(())
 }
-

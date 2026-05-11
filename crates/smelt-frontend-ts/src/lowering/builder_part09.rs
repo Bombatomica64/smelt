@@ -360,9 +360,9 @@ impl ModuleBuilder<'_> {
         let message = match &member.object {
             Expression::Identifier(object)
                 if object.name == "Object"
-                    && matches!(member.property.name.as_str(), "fromEntries" | "assign") =>
+                    && member.property.name == "assign" =>
             {
-                "TypeScript Object.fromEntries/Object.assign are not supported yet; object merge/projection semantics need a dedicated mapping"
+                "TypeScript Object.assign is not supported yet; object merge semantics need a dedicated mapping"
             }
             _ if matches!(member.property.name.as_str(), "splice" | "replaceAll") => {
                 "TypeScript Array.splice/String.replaceAll are not supported yet; mutation and replacement semantics need a dedicated mapping"
@@ -427,9 +427,8 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if let Expression::StaticMemberExpression(member) = &call.callee
-            && matches!(&member.object, Expression::Identifier(object) if object.name == "Date")
-            && member.property.name == "now"
+        if matches!(&call.callee, Expression::StaticMemberExpression(_))
+            && stdlib_dispatch::call_rule(call) == Some(RuleId::TsDateNow)
         {
             if !call.arguments.is_empty() {
                 return Err(SmeltError::unsupported(
@@ -448,7 +447,7 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        if member.property.name != "toISOString" {
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsDateToIsoString) {
             return Ok(None);
         }
         let Expression::NewExpression(new_expr) = &member.object else {

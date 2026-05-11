@@ -293,7 +293,7 @@ result: None = values.sort(True)
     ensure(
         first_error(&positional_arg)?
             .message
-            .contains("no arguments"),
+            .contains("no positional arguments"),
         "expected list sort positional arg diagnostic",
     )?;
 
@@ -306,7 +306,9 @@ result: None = values.sort(reverse=True)
         &mut ctx,
     )?;
     ensure(
-        first_error(&keyword_arg)?.message.contains("no arguments"),
+        first_error(&keyword_arg)?
+            .message
+            .contains("key=None and reverse=False"),
         "expected list sort keyword diagnostic",
     )
 }

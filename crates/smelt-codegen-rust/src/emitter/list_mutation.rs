@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a list push operation to Rust text.
     pub(super) fn list_push_text(
         &self,
@@ -161,7 +160,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list reverse operation to Rust text.
     /// Converts a list reverse operation to Rust text.
-    pub(super) fn list_reverse_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_reverse_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("list reverse receiver must be a list"));
@@ -190,7 +193,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list pop operation to Rust text.
     /// Converts a list pop operation to Rust text.
-    pub(super) fn list_pop_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_pop_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list pop receiver must be a list"));
@@ -219,7 +226,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list shift operation to Rust text.
     /// Converts a list shift operation to Rust text.
-    pub(super) fn list_shift_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_shift_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list shift receiver must be a list"));
@@ -310,35 +321,58 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list sort operation to Rust text.
     ///
-    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
-    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
-    /// until Python-compatible edge semantics are modeled explicitly.
-    /// Converts a list sort operation to Rust text.
-    ///
-    /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
-    /// lists use `partial_cmp` and panic on unordered values such as `NaN`
-    /// until Python-compatible edge semantics are modeled explicitly.
-    pub(super) fn list_sort_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    /// Python callers use a `None` destination and get source-compatible scalar
+    /// ordering for the currently supported item types. TypeScript callers use
+    /// the list destination, so codegen sorts by stringified item text to match
+    /// JavaScript's no-comparator `Array.prototype.sort` behavior.
+    pub(super) fn list_sort_text(
+        &self,
+        list: &Operand,
+        comparator: Option<&smelt_hir::CallbackExpr>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list sort receiver must be a list"));
         };
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
-            return Err(EmitError::new("list sort destination must be None"));
-        }
+        let returns_list = if dest_ty == list_ty {
+            true
+        } else if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            false
+        } else {
+            return Err(EmitError::new("list sort destination must be list or None"));
+        };
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list sort receiver must be a mutable local for now",
             ));
         };
         let list_text = self.local_name(*local)?;
-        match self.mir.types.get(*item_ty) {
-            Some(Type::Bool | Type::Int | Type::String) => {
-                Ok(format!("{{ {list_text}.sort(); () }}"))
+        let result_text = if returns_list {
+            format!("{list_text}.clone()")
+        } else {
+            "()".to_owned()
+        };
+        if let Some(comparator_callback) = comparator {
+            if !returns_list {
+                return Err(EmitError::new(
+                    "comparator sort is only supported for array sort",
+                ));
             }
-            Some(Type::Float) => Ok(format!(
-                "{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); () }}"
+            if self.mir.types.get(comparator_callback.ty) != Some(&Type::Float) {
+                return Err(EmitError::new("array sort comparator must return a number"));
+            }
+            let callback_text = Self::callback_expr_text(comparator_callback, &["left", "right"])?;
+            return Ok(format!(
+                "{{ {list_text}.sort_by(|left, right| {{ let left = left.clone(); let right = right.clone(); let ordering = {callback_text}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"
+            ));
+        }
+        match self.mir.types.get(*item_ty) {
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) if returns_list => Ok(format!(
+                "{{ {list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string())); {result_text} }}"
             )),
+            Some(Type::Bool | Type::Int | Type::String) => Ok(format!("{{ {list_text}.sort(); {result_text} }}")),
+            Some(Type::Float) => Ok(format!("{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}")),
             _ => Err(EmitError::new(
                 "list sort supports bool, int, float, and string items",
             )),
@@ -346,5 +380,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Validates that an optional slice index is numeric.
-
 }

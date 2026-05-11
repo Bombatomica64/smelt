@@ -152,6 +152,54 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower TypeScript `Object.fromEntries([[key, value], ...])` to a dictionary literal.
+    fn object_from_entries_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object" || member.property.name != "fromEntries" {
+            return Ok(None);
+        }
+        let [Argument::ArrayExpression(entries_array)] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.fromEntries currently requires one array literal of [key, value] pairs",
+            ));
+        };
+        let entries = self.map_constructor_entries(entries_array, body)?;
+        let Some((first_key, first_value)) = entries.first().copied() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.fromEntries empty arrays require a target type annotation",
+            ));
+        };
+        let key_ty = Self::expr_ty(body, first_key);
+        let value_ty = Self::expr_ty(body, first_value);
+        for (entry_key, entry_value) in &entries {
+            if Self::expr_ty(body, *entry_key) != key_ty
+                || Self::expr_ty(body, *entry_value) != value_ty
+            {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Object.fromEntries key and value types must be homogeneous",
+                ));
+            }
+        }
+        let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower direct TypeScript object key ownership checks.
     fn object_has_own_call(
         &mut self,

@@ -117,12 +117,33 @@ fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Opt
         Expression::Identifier(object) if object.name == "Math" && property == "random" => {
             Some(RuleId::TsMathRandom)
         }
+        Expression::Identifier(object) if object.name == "Date" && property == "now" => {
+            Some(RuleId::TsDateNow)
+        }
         Expression::NewExpression(new_expr) if property == "test" => {
             let Expression::Identifier(callee) = &new_expr.callee else {
                 return None;
             };
             (callee.name == "RegExp").then_some(RuleId::TsRegExpTest)
         }
+        Expression::NewExpression(new_expr) if property == "toISOString" => {
+            let Expression::Identifier(callee) = &new_expr.callee else {
+                return None;
+            };
+            (callee.name == "Date").then_some(RuleId::TsDateToIsoString)
+        }
         _ => None,
     }
+}
+
+/// Return the shared stdlib rule matching a TypeScript property expression.
+#[must_use]
+pub(super) fn property_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Option<RuleId> {
+    let Expression::NewExpression(new_expr) = &member.object else {
+        return None;
+    };
+    let Expression::Identifier(callee) = &new_expr.callee else {
+        return None;
+    };
+    (callee.name == "URL").then_some(RuleId::TsUrlField)
 }

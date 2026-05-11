@@ -285,8 +285,10 @@ fn list_sort_method_lowers() -> TestResult {
     let source = py!(r#"
 ints: list[int] = [2, 1]
 int_result: None = ints.sort()
+int_keyword_result: None = ints.sort(reverse=False)
 floats: list[float] = [2.0, 1.0]
 float_result: None = floats.sort()
+float_keyword_result: None = floats.sort(key=None)
 "#);
     let mut ctx = HirCtx::new();
     let module_id = lower_module(source, &mut ctx)?;
@@ -300,9 +302,17 @@ float_result: None = floats.sort()
     let sorts = body
         .exprs
         .iter()
-        .filter(|expr| matches!(expr.kind, ExprKind::ListSort { .. }))
+        .filter(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::ListSort {
+                    comparator: None,
+                    ..
+                }
+            )
+        })
         .count();
-    ensure_eq(&sorts, &2, "list sort count")
+    ensure_eq(&sorts, &4, "list sort count")
 }
 
 #[test]

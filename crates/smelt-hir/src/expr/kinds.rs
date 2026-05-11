@@ -207,7 +207,7 @@ pub enum ExprKind {
     },
     ListReduce {
         list: ExprId,
-        initial: ExprId,
+        initial: Option<ExprId>,
         callback: CallbackExpr,
     },
     ListSlice {
@@ -283,6 +283,7 @@ pub enum ExprKind {
     },
     ListSort {
         list: ExprId,
+        comparator: Option<CallbackExpr>,
     },
     ListPop {
         list: ExprId,

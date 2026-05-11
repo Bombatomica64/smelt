@@ -1607,7 +1607,7 @@ impl<'hir> LoweringCtx<'hir> {
                 callback,
             } => {
                 let list_operand = self.lower_expr(*list)?;
-                let initial_operand = self.lower_expr(*initial)?;
+                let initial_operand = initial.map(|expr| self.lower_expr(expr)).transpose()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
@@ -1873,12 +1873,15 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::ListSort { list } => {
+            ExprKind::ListSort { list, comparator } => {
                 let list_operand = self.lower_expr(*list)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
-                    value: Rvalue::ListSort { list: list_operand },
+                    value: Rvalue::ListSort {
+                        list: list_operand,
+                        comparator: comparator.clone(),
+                    },
                 });
                 Operand::Copy(Place::Local(dest))
             }

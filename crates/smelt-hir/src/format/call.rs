@@ -343,7 +343,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             format!(
                 "list_reduce {}, {} <callback>",
                 expr_ref(*list),
-                expr_ref(*initial)
+                initial.map(expr_ref).unwrap_or_else(|| "_".to_owned())
             )
         }
         ExprKind::ListSlice { list, start, end } => format!(
@@ -411,7 +411,16 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ListRemove { list, item } => {
             format!("list_remove {}, {}", expr_ref(*list), expr_ref(*item))
         }
-        ExprKind::ListSort { list } => format!("list_sort {}", expr_ref(*list)),
+        ExprKind::ListSort {
+            list, comparator, ..
+        } => {
+            let comparator_text = if comparator.is_some() {
+                " <comparator>"
+            } else {
+                ""
+            };
+            format!("list_sort {}{}", expr_ref(*list), comparator_text)
+        }
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),
         ExprKind::TupleContains { tuple, item } => {

@@ -52,16 +52,20 @@ impl FunctionEmitter<'_> {
         };
         let element_ty = *list_element_ty;
         let list_text = self.operand_text(list)?;
-        let callback_text = Self::callback_expr_text(callback, &["item"])?;
-        let closure = format!("|item| {{ let item = (*item).clone(); {callback_text} }}");
-        let ref_closure = format!("|item| {{ let item = (**item).clone(); {callback_text} }}");
+        let callback_text = Self::callback_expr_text(callback, &["item", "index", "array"])?;
+        let closure = format!(
+            "|(index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}"
+        );
+        let ref_closure = format!(
+            "|(index, item)| {{ let item = (**item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}"
+        );
         match op {
             smelt_hir::ListCallbackOp::Map => {
                 if self.mir.types.get(dest_ty) != Some(&Type::List(callback.ty)) {
                     return Err(EmitError::new("array map destination must be a list"));
                 }
                 Ok(format!(
-                    "{list_text}.iter().map({closure}).collect::<Vec<_>>()"
+                    "{list_text}.iter().enumerate().map({closure}).collect::<Vec<_>>()"
                 ))
             }
             smelt_hir::ListCallbackOp::Filter => {
@@ -72,7 +76,7 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 Ok(format!(
-                    "{list_text}.iter().filter({ref_closure}).cloned().collect::<Vec<_>>()"
+                    "{list_text}.iter().enumerate().filter({ref_closure}).map(|(_, item)| item.clone()).collect::<Vec<_>>()"
                 ))
             }
             smelt_hir::ListCallbackOp::Find => {
@@ -82,7 +86,9 @@ impl FunctionEmitter<'_> {
                         "array find destination must be optional element type",
                     ));
                 }
-                Ok(format!("{list_text}.iter().find({ref_closure}).cloned()"))
+                Ok(format!(
+                    "{list_text}.iter().enumerate().find({ref_closure}).map(|(_, item)| item.clone())"
+                ))
             }
             smelt_hir::ListCallbackOp::FindIndex => {
                 self.validate_bool_callback(callback, "array findIndex")?;
@@ -92,7 +98,7 @@ impl FunctionEmitter<'_> {
                     ));
                 }
                 Ok(format!(
-                    "{list_text}.iter().position({closure}).map_or(-1.0, |idx| idx as f64)"
+                    "{list_text}.iter().enumerate().position({closure}).map_or(-1.0, |idx| idx as f64)"
                 ))
             }
             smelt_hir::ListCallbackOp::Some => {
@@ -100,21 +106,21 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
                     return Err(EmitError::new("array some destination must be boolean"));
                 }
-                Ok(format!("{list_text}.iter().any({closure})"))
+                Ok(format!("{list_text}.iter().enumerate().any({closure})"))
             }
             smelt_hir::ListCallbackOp::Every => {
                 self.validate_bool_callback(callback, "array every")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
                     return Err(EmitError::new("array every destination must be boolean"));
                 }
-                Ok(format!("{list_text}.iter().all({closure})"))
+                Ok(format!("{list_text}.iter().enumerate().all({closure})"))
             }
             smelt_hir::ListCallbackOp::ForEach => {
                 if dest_ty != self.none_ty {
                     return Err(EmitError::new("array forEach destination must be none"));
                 }
                 Ok(format!(
-                    "{{ {list_text}.iter().for_each(|item| {{ let item = (*item).clone(); let _ = {callback_text}; }}); () }}"
+                    "{{ {list_text}.iter().enumerate().for_each(|(index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); let _ = {callback_text}; }}); () }}"
                 ))
             }
         }
@@ -131,25 +137,43 @@ impl FunctionEmitter<'_> {
     pub(super) fn list_reduce_text(
         &self,
         list: &Operand,
-        initial: &Operand,
+        initial: Option<&Operand>,
         callback: &smelt_hir::CallbackExpr,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+        let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array reduce receiver must be a list"));
+        };
+        let element_ty = *list_element_ty;
+        if let Some(initial_operand) = initial {
+            if self.operand_ty(initial_operand)? != dest_ty {
+                return Err(EmitError::new(
+                    "array reduce initial value and callback result must match the destination type",
+                ));
+            }
         }
-        if self.operand_ty(initial)? != dest_ty || callback.ty != dest_ty {
+        if callback.ty != dest_ty {
             return Err(EmitError::new(
                 "array reduce initial value and callback result must match the destination type",
             ));
         }
         let list_text = self.operand_text(list)?;
-        let initial_text = self.operand_text(initial)?;
-        let callback_text = Self::callback_expr_text(callback, &["acc", "item"])?;
-        Ok(format!(
-            "{list_text}.iter().fold({initial_text}, |acc, item| {{ let item = (*item).clone(); {callback_text} }})"
-        ))
+        let callback_text = Self::callback_expr_text(callback, &["acc", "item", "index", "array"])?;
+        if let Some(initial_operand) = initial {
+            let initial_text = self.operand_text(initial_operand)?;
+            Ok(format!(
+                "{list_text}.iter().enumerate().fold({initial_text}, |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }})"
+            ))
+        } else if dest_ty == element_ty {
+            Ok(format!(
+                "{{ let mut reduce_items = {list_text}.iter().enumerate(); let (_, first) = reduce_items.next().expect(\"reduce of empty array with no initial value\"); reduce_items.fold(first.clone(), |acc, (index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}) }}"
+            ))
+        } else {
+            Err(EmitError::new(
+                "array reduce without an initial value must produce the element type",
+            ))
+        }
     }
 
     /// Validates that a lowered callback expression returns a boolean.

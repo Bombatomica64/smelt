@@ -280,7 +280,7 @@ fn validate_rvalue_exists(
         }
         Rvalue::ListReduce { list, initial, .. } => {
             validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, initial, errors);
+            validate_optional_operand_exists(function, initial.as_ref(), errors);
         }
         Rvalue::ListSlice { list, start, end } => {
             validate_operand_exists(function, list, errors);
@@ -352,7 +352,7 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
         }
-        Rvalue::ListSort { list } => {
+        Rvalue::ListSort { list, .. } => {
             validate_operand_exists(function, list, errors);
         }
         Rvalue::ListPop { list } => {
@@ -846,7 +846,7 @@ fn validate_rvalue(
         }
         Rvalue::ListReduce { list, initial, .. } => {
             validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, initial, errors);
+            validate_optional_operand(function, definitions, initial.as_ref(), errors);
         }
         Rvalue::ListSlice { list, start, end } => {
             validate_operand(function, definitions, list, errors);
@@ -918,7 +918,7 @@ fn validate_rvalue(
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
         }
-        Rvalue::ListSort { list } => {
+        Rvalue::ListSort { list, .. } => {
             validate_operand(function, definitions, list, errors);
         }
         Rvalue::ListPop { list } => {

@@ -190,6 +190,8 @@ runtime errors.
         `(language, receiver/function, receiver type, argument shape) -> lowering rule`.
     - [x] Initial frontend dispatch modules exist for touched JSON, regex basics, random basics,
           `fetch`, and `requests.get` families.
+    - [x] Shared rule IDs and frontend dispatch coverage include implemented Date/datetime and
+          URL/urlparse mappings.
     - [ ] Finish shared `smelt-stdlib` rule metadata coverage for all migrated families.
   - [ ] Keep rules able to lower to inline Rust/MIR operations before considering runtime helpers.
 - [ ] Keep `smelt-runtime` as a last-resort compatibility layer, not the default stdlib strategy.
@@ -326,15 +328,17 @@ runtime errors.
   - [ ] Document each mapping in `specs/stdlib-mapping.md` with source semantics, Rust output, and
         known semantic differences.
     - [x] Add expanded registry-format rows for touched JSON, regex, random, and HTTP APIs.
+    - [x] Add expanded registry-format rows for touched Date/datetime and URL/urlparse APIs.
   - [x] Add dependency-injection plumbing for mappings that need crates such as `serde_json`,
         `reqwest`, `chrono`, `regex`, `url`, `ndarray`, or `numpy` bindings.
 - [ ] TypeScript array/list mappings:
   - [x] `Array.prototype.includes`.
   - [x] `Array.prototype.map` with capture-free callbacks.
+  - [x] Array callback index parameters for capture-free callbacks.
   - [ ] `Array.prototype.map` with captured closures once closure captures land.
   - [x] `Array.prototype.filter` with capture-free callbacks.
   - [x] `Array.prototype.reduce` with explicit initial value and capture-free callback.
-  - [ ] `Array.prototype.reduce` without initial value, including empty-array rejection/semantics.
+  - [x] `Array.prototype.reduce` without initial value, including empty-array rejection/semantics.
   - [x] `Array.prototype.forEach` with capture-free callbacks.
   - [x] `Array.prototype.find` returning nullable/optional result with capture-free callbacks.
   - [x] `Array.prototype.findIndex` with capture-free callbacks.
@@ -345,13 +349,15 @@ runtime errors.
   - [x] `Array.prototype.shift`.
   - [x] `Array.prototype.unshift`.
   - [x] `Array.prototype.slice` with positive, omitted, and negative indexes.
-  - [ ] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
+  - [x] `Array.prototype.splice` or explicitly reject with targeted diagnostics.
   - [x] `Array.prototype.concat`.
   - [x] `Array.prototype.join`.
   - [x] `Array.prototype.indexOf` and `lastIndexOf`.
   - [x] `Array.prototype.at`.
   - [x] `Array.prototype.reverse`.
-  - [ ] `Array.prototype.sort` with comparator support or explicit rejection.
+  - [x] `Array.prototype.sort` with comparator support.
+    - [x] `Array.prototype.sort()` without a comparator.
+    - [x] Comparator callbacks.
   - [x] `Array.isArray` as a typed no-op/guard where static types make it decidable.
 - [ ] TypeScript string mappings:
   - [x] `String.prototype.toLowerCase`.
@@ -364,6 +370,7 @@ runtime errors.
   - [x] `String.prototype.indexOf` and `lastIndexOf`.
   - [ ] `String.prototype.slice` and `substring`, including Unicode/index semantics decision.
     - [x] `String.prototype.slice` with positive, omitted, and negative indexes.
+    - [x] `String.prototype.substring` with positive and omitted indexes.
   - [x] `String.prototype.replace` for literal strings.
   - [x] `String.prototype.replace` / `replaceAll` with `new RegExp(pattern)` and no flags.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
@@ -398,7 +405,7 @@ runtime errors.
   - [x] `Object.keys`.
   - [x] `Object.values`.
   - [x] `Object.entries`.
-  - [ ] `Object.fromEntries`.
+  - [x] `Object.fromEntries`.
   - [ ] `Object.assign`.
   - [ ] Object spread/rest once frontend object spread support lands.
   - [x] `hasOwnProperty` / `Object.hasOwn` for record-like values.
@@ -493,7 +500,7 @@ runtime errors.
   - [x] Set `in` / `not in`.
   - [x] Tuple `in` / `not in`.
   - [x] Dict key `in` / `not in`.
-  - [ ] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
+  - [x] `list.append`, `extend`, `insert`, `pop`, `remove`, `clear`, `copy`, `count`, `index`,
         `reverse`, and `sort`.
     - [x] `list.append`.
     - [x] `list.extend`.

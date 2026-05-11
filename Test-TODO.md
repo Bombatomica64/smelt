@@ -17,23 +17,25 @@ For v1, Smelt should not try to transpile Vitest or pytest internals. The v1 goa
 
 ## Current Baseline
 
-- Workspace health is currently green:
+- Workspace health from the latest required check:
   - `cargo test`: passed.
   - `cargo check`: passed.
-  - `cargo clippy`: passed.
+  - `cargo clippy`: passed with existing documentation warnings.
 - External repo checks can be used as signal again.
 
-### External Probe: 2026-05-11
+### External Probe: 2026-05-11 Fresh Reclones
 
-Re-ran the eight local external slices found under `/tmp/smelt-big-probe/current-rerun` and
-`/tmp/smelt-extra-probe/current-rerun`.
+Re-cloned the eight external target repos and re-ran focused source/test slices.
+
+- Fresh clone root: `/tmp/smelt-reclone-rerun-20260511-145915/repos`
+- Manifest/log root: `/tmp/smelt-reclone-rerun-20260511-145915/runs`
 
 Results:
 
 | Slice | `smelt check` | `smelt build` | Generated `cargo test` | Current first blocker |
 |---|---:|---:|---:|---|
 | `date-fns/date-fns` `quartersToMonths` | pass | pass | pass, 4/4 tests | Green. Only warning is generated non-snake-case module stub. |
-| `Effect-TS/effect` numeric slice | fail | fail | n/a | `packages/effect/src/Number.ts`: exported non-primitive const expressions/calls, `Iterable`, unresolved helpers such as `multiply`, `sum`, `subtract`, `Order`, and `Math`. |
+| `Effect-TS/effect` numeric slice | fail | fail | n/a | `packages/effect/src/Number.ts`: exported const values/call expressions still handle only primitive or selected Math shapes, `Iterable` type references are unsupported, helpers such as `multiply`, `sum`, `subtract`, and `Order` remain unresolved, and exported arrow-function constants still need explicit return types in some cases. |
 | `Textualize/rich` `NullFile` | fail | fail | n/a | `_null_file.py`: member/method call rejected with “only calls to top-level functions, class constructors, and print() are supported”. |
 | `encode/httpx` status codes | fail | fail | n/a | `_status_codes.py`: primitive conversion over unsupported value and class/member call rejected. |
 | `pallets/click` `_utils` | fail | fail | n/a | `Sentinel` uses complex generic base-class expression; follow-on unresolved `Sentinel` and type variable `t`. |
@@ -48,8 +50,6 @@ workspace:
 env -u APPIMAGE -u APPDIR -u REDIRECT_APPIMAGE -u TARGET_APPIMAGE -u ELECTRON_RUN_AS_NODE -u LD_LIBRARY_PATH -u GSETTINGS_SCHEMA_DIR \
   PATH=/home/lollo/.cargo/bin:/usr/local/bin:/usr/bin:/bin cargo test
 ```
-
-The latest run logs are in `/tmp/smelt-8repo-rerun-20260511-091325`.
 
 ### External Probe: 2026-05-10
 
@@ -374,6 +374,79 @@ First success means:
 - [x] The four Vitest `it(...)` cases pass.
 
 Status: green as of the 2026-05-11 external rerun.
+
+#### date-fns Compatibility Probe: 2026-05-11
+
+Probe roots:
+
+- Fresh checkout: `/tmp/smelt-reclone-rerun-20260511-145915/repos/date-fns`
+- File-level logs: `/tmp/date_fns_compat_20260511_150833`
+- Sibling-index slice logs: `/tmp/date_fns_slice_compat_20260511_150933`
+
+Compatibility numbers:
+
+| Measurement | Result | Notes |
+|---|---:|---|
+| TS/TSX files under `src` | `1491` | Raw source corpus size. |
+| Vitest-style test files | `254` | Files containing direct `describe` / `it` / `test` calls. |
+| Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
+| Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
+| Sibling `index.ts` + `constants` + `test.ts` slices passing `smelt check` | `20 / 254` | More meaningful current compatibility measure. |
+| Same slices passing `smelt build` | `20 / 254` | Every check-green slice emitted Rust. |
+| Same slices passing generated `cargo test` | `20 / 254` | Every build-green slice passed generated Rust tests. |
+| Approx direct Vitest cases covered | `78 / 2882` | Heuristic text count of direct `it(...)` / `test(...)` calls. |
+
+Current date-fns test slices that pass `smelt check`, `smelt build`, and generated `cargo test`:
+
+- `src/hoursToMilliseconds/test.ts`
+- `src/hoursToMinutes/test.ts`
+- `src/hoursToSeconds/test.ts`
+- `src/millisecondsToHours/test.ts`
+- `src/millisecondsToMinutes/test.ts`
+- `src/millisecondsToSeconds/test.ts`
+- `src/minutesToHours/test.ts`
+- `src/minutesToMilliseconds/test.ts`
+- `src/minutesToSeconds/test.ts`
+- `src/monthsToQuarters/test.ts`
+- `src/monthsToYears/test.ts`
+- `src/quartersToMonths/test.ts`
+- `src/quartersToYears/test.ts`
+- `src/secondsToHours/test.ts`
+- `src/secondsToMilliseconds/test.ts`
+- `src/secondsToMinutes/test.ts`
+- `src/weeksToDays/test.ts`
+- `src/yearsToDays/test.ts`
+- `src/yearsToMonths/test.ts`
+- `src/yearsToQuarters/test.ts`
+
+Current date-fns TypeScript blockers with representative break locations:
+
+| Missing support | Representative break location | Current error shape |
+|---|---|---|
+| TS conditional expression lowering | `src/_lib/addLeadingZeros/index.ts` via `src/_lib/addLeadingZeros/test.ts` | `ConditionalExpression` not lowered. |
+| Inferred return type acceptance for source functions | `src/_lib/getRoundingMethod/index.ts` via `src/_lib/getRoundingMethod/test.ts` | `function declarations must have an explicit return type`. |
+| Intersection type annotations | `src/_lib/getTimezoneOffsetInMilliseconds/index.ts` via `src/_lib/getTimezoneOffsetInMilliseconds/test.ts` | `TSIntersectionType` not lowered. |
+| RegExp literals as values | `src/_lib/protectedTokens/index.ts` | `RegExpLiteral` expression not lowered. |
+| Generic interfaces | `src/add/index.ts` via `src/add/test.ts` | `generic interfaces are not lowered yet`. |
+| Generic interface inheritance | `src/areIntervalsOverlapping/index.ts` via `src/areIntervalsOverlapping/test.ts` | `generic interface inheritance is not lowered yet`. |
+| Imported generic type aliases such as `DateArg` | `src/addDays/index.ts`, `src/addHours/index.ts`, `src/addMilliseconds/index.ts`, and many date helpers | `type reference is not lowered yet: DateArg`. |
+| Result type aliases | `src/clamp/index.ts`, `src/closestTo/index.ts` | `type reference is not lowered yet: ClampResult` / `ClosestToResult`. |
+| Destructuring declarations | `src/areIntervalsOverlapping/index.ts` | `destructuring declarations are not lowered yet`. |
+| Object literals without explicit `Record<string, T>` annotation | `src/_lib/defaultOptions/index.ts`, `src/_lib/tzOffsetTransitions.ts` | `object literals currently require a Record<string, T> annotation`. |
+| `Date` constructor overloads beyond numeric timestamp | `src/_lib/getTimezoneOffsetInMilliseconds/test.ts`, `src/clamp/test.ts`, `src/closestIndexTo/test.ts`, `src/closestTo/test.ts` | `new Date() currently supports exactly one numeric timestamp argument`. |
+| `new Date(timestamp)` with non-numeric/static-unknown argument | `src/_lib/tzOffsetTransitions.ts` | `new Date(timestamp) requires a numeric timestamp`. |
+| `instanceof` where the left operand is not known as a concrete class value | `src/_lib/tzOffsetTransitions.ts` | `TypeScript instanceof requires a concrete class-typed left operand`. |
+| Method receiver type recovery for Date-like values | `src/_lib/tzOffsetTransitions.ts` | `method receiver class is unknown`. |
+| Type aliases with object/union members | `src/_lib/tzOffsetTransitions.ts` | `TSTypeAliasDeclaration` statement not lowered. |
+| Optional chaining / chain expressions | `src/_lib/addBusinessDays/basic.ts`, `src/_lib/eachDayOfInterval/basic.ts`, `src/_lib/parseISO/samoa.ts`, `src/_lib/parseISO/sydney.ts` | `ChainExpression` not lowered. |
+| `process.version` / Node environment globals | `src/_lib/addBusinessDays/basic.ts`, `src/_lib/parseISO/samoa.ts`, `src/_lib/parseISO/sydney.ts` | unresolved identifier `process`. |
+| Node/assert-style helper identifiers in date-fns internal timezone probes | `src/_lib/addBusinessDays/basic.ts`, `src/_lib/eachDayOfInterval/basic.ts`, `src/_lib/parseISO/samoa.ts`, `src/_lib/parseISO/sydney.ts` | unresolved identifier `assert`. |
+| Nested/complex `describe` contents beyond direct `it` / `test` calls | `src/areIntervalsOverlapping/test.ts` in isolated test-file mode | `describe blocks only support direct it/test calls for now`. |
+
+Most failing date-fns feature slices hit library-source type/runtime gaps before Vitest API gaps.
+The next highest-leverage TS work for this repo is generic/interface/type-alias support around
+`DateArg`, Date constructor overloads and Date method receiver typing, conditional expressions,
+destructuring declarations, and RegExp literal values.
 
 ### First Python Target: Rich
 

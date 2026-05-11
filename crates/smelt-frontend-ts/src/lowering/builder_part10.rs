@@ -64,6 +64,9 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if stdlib_dispatch::property_rule(member) != Some(RuleId::TsUrlField) {
+            return Ok(None);
+        }
         let field = match member.property.name.as_str() {
             "href" => UrlField::Href,
             "protocol" => UrlField::Protocol,
@@ -76,12 +79,9 @@ impl ModuleBuilder<'_> {
         let Expression::NewExpression(new_expr) = &member.object else {
             return Ok(None);
         };
-        let Expression::Identifier(callee) = &new_expr.callee else {
+        let Expression::Identifier(_) = &new_expr.callee else {
             return Ok(None);
         };
-        if callee.name != "URL" {
-            return Ok(None);
-        }
         let [url_arg] = new_expr.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),

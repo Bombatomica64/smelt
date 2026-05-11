@@ -91,17 +91,20 @@ const hasAny = values.some(value => value > 1);
 const hasEvery = values.every(value => value > 0);
 values.forEach(value => value + 1);
 const total = values.reduce((acc, value) => acc + value, 0);
+const indexed = values.map((value, index) => value + index);
+const noInitial = values.reduce((acc, value, index) => acc + value + index);
 "#,
     );
 
-    assert!(source.contains(".iter().map(|item|"));
-    assert!(source.contains(".iter().filter(|item|"));
-    assert!(source.contains(".iter().find(|item|"));
-    assert!(source.contains(".iter().position(|item|"));
-    assert!(source.contains(".iter().any(|item|"));
-    assert!(source.contains(".iter().all(|item|"));
-    assert!(source.contains(".iter().for_each(|item|"));
-    assert!(source.contains(".iter().fold("));
+    assert!(source.contains(".iter().enumerate().map(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().filter(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().find(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().position(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().any(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().all(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().for_each(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().fold("));
+    assert!(source.contains("reduce of empty array with no initial value"));
     assert!(source.contains(".collect::<Vec<_>>()"));
     assert!(source.contains(".map_or(-1.0"));
 }

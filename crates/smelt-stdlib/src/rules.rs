@@ -24,6 +24,10 @@ pub enum ApiNamespace {
     Random,
     /// HTTP client APIs.
     Http,
+    /// Date and datetime APIs.
+    DateTime,
+    /// URL parsing and field APIs.
+    Url,
 }
 
 /// Receiver shape for a source API.
@@ -62,6 +66,8 @@ pub enum ArgShape {
     TwoStrings,
     /// Exactly two integer arguments.
     TwoInts,
+    /// Exactly one numeric argument.
+    OneNumber,
     /// No arguments.
     None,
 }
@@ -108,6 +114,12 @@ pub enum RuleId {
     TsMathRandom,
     /// TypeScript `fetch(url)`.
     TsFetch,
+    /// TypeScript `Date.now()`.
+    TsDateNow,
+    /// TypeScript `new Date(timestamp).toISOString()`.
+    TsDateToIsoString,
+    /// TypeScript `new URL(text).field`.
+    TsUrlField,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -126,6 +138,12 @@ pub enum RuleId {
     PyRandomChoice,
     /// Python `requests.get(url)`.
     PyRequestsGet,
+    /// Python `datetime.datetime.now()` or `utcnow()`.
+    PyDateTimeNow,
+    /// Python `datetime.datetime.fromtimestamp(seconds)`.
+    PyDateTimeFromTimestamp,
+    /// Python `urllib.parse.urlparse(text).field`.
+    PyUrlparseField,
 }
 
 impl RuleId {
@@ -144,6 +162,11 @@ impl RuleId {
             | Self::PyRandomRandInt
             | Self::PyRandomChoice => Some(BackendDependency::Rand),
             Self::TsFetch | Self::PyRequestsGet => Some(BackendDependency::Reqwest),
+            Self::TsDateNow
+            | Self::TsDateToIsoString
+            | Self::PyDateTimeNow
+            | Self::PyDateTimeFromTimestamp => Some(BackendDependency::Chrono),
+            Self::TsUrlField | Self::PyUrlparseField => Some(BackendDependency::Url),
         }
     }
 
@@ -156,6 +179,9 @@ impl RuleId {
             Self::TsRegExpTest => "RegExp.test",
             Self::TsMathRandom => "Math.random",
             Self::TsFetch => "fetch",
+            Self::TsDateNow => "Date.now",
+            Self::TsDateToIsoString => "Date.toISOString",
+            Self::TsUrlField => "URL field access",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",
@@ -165,6 +191,53 @@ impl RuleId {
             Self::PyRandomRandInt => "random.randint",
             Self::PyRandomChoice => "random.choice",
             Self::PyRequestsGet => "requests.get",
+            Self::PyDateTimeNow => "datetime.datetime.now",
+            Self::PyDateTimeFromTimestamp => "datetime.datetime.fromtimestamp",
+            Self::PyUrlparseField => "urllib.parse.urlparse field access",
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Assert that newly registry-backed Chrono and URL rules expose stable
+    /// dependency and source API metadata for frontend diagnostics/codegen.
+    #[test]
+    fn dependency_backed_date_and_url_rules_report_metadata() {
+        let cases = [
+            (RuleId::TsDateNow, BackendDependency::Chrono, "Date.now"),
+            (
+                RuleId::TsDateToIsoString,
+                BackendDependency::Chrono,
+                "Date.toISOString",
+            ),
+            (
+                RuleId::PyDateTimeNow,
+                BackendDependency::Chrono,
+                "datetime.datetime.now",
+            ),
+            (
+                RuleId::PyDateTimeFromTimestamp,
+                BackendDependency::Chrono,
+                "datetime.datetime.fromtimestamp",
+            ),
+            (
+                RuleId::TsUrlField,
+                BackendDependency::Url,
+                "URL field access",
+            ),
+            (
+                RuleId::PyUrlparseField,
+                BackendDependency::Url,
+                "urllib.parse.urlparse field access",
+            ),
+        ];
+
+        for (rule, dependency, source_api) in cases {
+            assert_eq!(rule.backend_dependency(), Some(dependency));
+            assert_eq!(rule.source_api(), source_api);
         }
     }
 }

@@ -14,6 +14,17 @@ The long-term vision is **language-interchangeable modules**: a Python file impo
 
 Pre-alpha. See the milestones in github issues for the v1.0 roadmap.
 
+Current external test milestone: Smelt can compile the focused
+`date-fns/date-fns` `quartersToMonths` slice, including its Vitest test file,
+into a generated Rust crate whose `cargo test` run passes. The probed files are:
+
+- `src/constants/index.ts`
+- `src/quartersToMonths/index.ts`
+- `src/quartersToMonths/test.ts`
+
+This is the first real third-party TypeScript test slice where source-language
+tests lower into native Rust `#[test]` functions and pass under Cargo.
+
 ## v1.0 Goals
 
 - A real Express app (TypeScript, strict mode) compiles to a working `axum` server.

@@ -62,6 +62,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.math_atan2_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.object_from_entries_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.object_projection_call(call, body)? {
             return Ok(expr);
         }
@@ -132,6 +135,9 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.list_reverse_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.list_sort_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.list_pop_call(call, body)? {

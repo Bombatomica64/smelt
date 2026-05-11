@@ -571,7 +571,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListReduce { list, initial, .. } => format!(
             "list_reduce {}, {} <callback>",
             operand_text(list),
-            operand_text(initial)
+            optional_operand_text(initial.as_ref())
         ),
         Rvalue::ListSlice { list, start, end } => format!(
             "list_slice {}, {}, {}",
@@ -642,7 +642,16 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::ListRemove { list, item } => {
             format!("list_remove {}, {}", operand_text(list), operand_text(item))
         }
-        Rvalue::ListSort { list } => format!("list_sort {}", operand_text(list)),
+        Rvalue::ListSort {
+            list, comparator, ..
+        } => {
+            let comparator_text = if comparator.is_some() {
+                " <comparator>"
+            } else {
+                ""
+            };
+            format!("list_sort {}{}", operand_text(list), comparator_text)
+        }
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
         Rvalue::TupleContains { tuple, item } => {

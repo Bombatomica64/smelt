@@ -262,19 +262,8 @@ impl ModuleBuilder<'_> {
         call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expr::Attribute(attr) = call.func.as_ref() else {
-            return Ok(None);
-        };
-        let Expr::Attribute(class_attr) = attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if !matches!(class_attr.value.as_ref(), Expr::Name(module) if module.id.as_str() == "datetime")
-            || class_attr.attr.as_str() != "datetime"
-        {
-            return Ok(None);
-        }
-        match attr.attr.as_str() {
-            "now" | "utcnow" => {
+        match stdlib_dispatch::datetime_rule(call) {
+            Some(RuleId::PyDateTimeNow) => {
                 if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
                         self.span(call.range),
@@ -293,7 +282,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.range),
                 })))
             }
-            "fromtimestamp" => {
+            Some(RuleId::PyDateTimeFromTimestamp) => {
                 if call.arguments.args.len() != 1 || !call.arguments.keywords.is_empty() {
                     return Err(SmeltError::unsupported(
                         self.span(call.range),
@@ -331,7 +320,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.range),
                 })))
             }
-            _ => Ok(None),
+            Some(_) | None => Ok(None),
         }
     }
 
@@ -420,18 +409,10 @@ impl ModuleBuilder<'_> {
         parse_call: &ruff_python_ast::ExprCall,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        let Expr::Attribute(parse_attr) = parse_call.func.as_ref() else {
-            return Ok(None);
-        };
-        if parse_attr.attr.as_str() != "urlparse" {
+        if !matches!(parse_call.func.as_ref(), Expr::Attribute(_)) {
             return Ok(None);
         }
-        let Expr::Attribute(parse_module) = parse_attr.value.as_ref() else {
-            return Ok(None);
-        };
-        if parse_module.attr.as_str() != "parse"
-            || !matches!(parse_module.value.as_ref(), Expr::Name(module) if module.id.as_str() == "urllib")
-        {
+        if stdlib_dispatch::urlparse_field_rule(parse_call) != Some(RuleId::PyUrlparseField) {
             return Ok(None);
         }
         if parse_call.arguments.args.len() != 1 || !parse_call.arguments.keywords.is_empty() {

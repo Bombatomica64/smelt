@@ -81,7 +81,7 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
                     | Rvalue::ListReverse { list }
                     | Rvalue::ListClear { list }
                     | Rvalue::ListRemove { list, .. }
-                    | Rvalue::ListSort { list }
+                    | Rvalue::ListSort { list, .. }
                     | Rvalue::ListPop { list }
                     | Rvalue::ListShift { list }
                     | Rvalue::SetAdd { set: list, .. }

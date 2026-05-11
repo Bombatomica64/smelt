@@ -708,8 +708,8 @@ pub enum Rvalue {
     ListReduce {
         /// List value to reduce.
         list: Operand,
-        /// Initial accumulator value.
-        initial: Operand,
+        /// Initial accumulator value, or omitted for JavaScript-style first-item seeding.
+        initial: Option<Operand>,
         /// Capture-free reducer callback expression.
         callback: smelt_hir::CallbackExpr,
     },
@@ -855,6 +855,8 @@ pub enum Rvalue {
     ListSort {
         /// List value to mutate.
         list: Operand,
+        /// Optional comparator callback for JavaScript-style sort.
+        comparator: Option<smelt_hir::CallbackExpr>,
     },
     /// Pop the last item from a list.
     ListPop {

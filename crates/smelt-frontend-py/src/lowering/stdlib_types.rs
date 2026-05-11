@@ -534,7 +534,19 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower Python `list.sort()` calls without key or reverse arguments.
+    /// Return whether a Python `list.sort()` keyword leaves direct sorting unchanged.
+    fn is_noop_sort_keyword(keyword: &ruff_python_ast::Keyword) -> bool {
+        match keyword.arg.as_ref().map(|arg| arg.as_str()) {
+            Some("key") => matches!(&keyword.value, Expr::NoneLiteral(_)),
+            Some("reverse") => matches!(
+                &keyword.value,
+                Expr::BooleanLiteral(value) if !value.value
+            ),
+            _ => false,
+        }
+    }
+
+    /// Lower Python `list.sort()` calls with direct scalar ordering.
     pub(super) fn list_sort_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,
@@ -546,11 +558,19 @@ impl ModuleBuilder<'_> {
         if attr.attr.as_str() != "sort" {
             return Ok(None);
         }
-        if !call.arguments.args.is_empty() || !call.arguments.keywords.is_empty() {
+        if !call.arguments.args.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.range),
-                "list.sort() currently supports no arguments",
+                "list.sort() currently supports no positional arguments",
             ));
+        }
+        for keyword in &call.arguments.keywords {
+            if !Self::is_noop_sort_keyword(keyword) {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "list.sort() currently supports only key=None and reverse=False keywords",
+                ));
+            }
         }
         let list = self.expression(&attr.value, body)?;
         let list_ty = Self::expr_ty(body, list);
@@ -568,7 +588,10 @@ impl ModuleBuilder<'_> {
         }
         let ty = self.intern_type(Type::None);
         Ok(Some(body.push_expr(HirExpr {
-            kind: ExprKind::ListSort { list },
+            kind: ExprKind::ListSort {
+                list,
+                comparator: None,
+            },
             ty,
             span: self.span(call.range),
         })))
