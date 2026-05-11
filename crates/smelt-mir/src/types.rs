@@ -549,6 +549,24 @@ pub enum Rvalue {
         /// String value being matched.
         haystack: Operand,
     },
+    /// Replace regex matches with a replacement string.
+    RegexReplace {
+        /// Replacement operation to apply.
+        op: smelt_hir::StringReplaceOp,
+        /// Regex pattern text.
+        pattern: Operand,
+        /// String value to transform.
+        haystack: Operand,
+        /// Replacement text.
+        replacement: Operand,
+    },
+    /// Split a string with a regex pattern.
+    RegexSplit {
+        /// Regex pattern text.
+        pattern: Operand,
+        /// String value to split.
+        haystack: Operand,
+    },
     /// Read a single character from a string as a string value.
     StringCharAt {
         /// String value to index.
@@ -973,6 +991,32 @@ pub enum Rvalue {
     HttpGetText {
         /// URL to request.
         url: Operand,
+    },
+    /// Read the current timestamp in milliseconds.
+    DateNow,
+    /// Convert a timestamp in milliseconds to an ISO-8601 string.
+    DateToIsoString {
+        /// Timestamp in milliseconds.
+        timestamp_ms: Operand,
+    },
+    /// Extract a parsed URL field.
+    UrlField {
+        /// URL field to extract.
+        field: smelt_hir::UrlField,
+        /// URL string to parse.
+        url: Operand,
+    },
+    /// Read a UTF-8 text file.
+    FileReadText {
+        /// File path to read.
+        path: Operand,
+    },
+    /// Write a UTF-8 text file.
+    FileWriteText {
+        /// File path to write.
+        path: Operand,
+        /// Text content to write.
+        text: Operand,
     },
     /// Await a future and produce its output.
     Await(Operand),

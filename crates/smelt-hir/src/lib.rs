@@ -65,7 +65,7 @@ pub use expr::{
     ListCallbackOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
     NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp,
     SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, UnaryOp, UnknownKind, bin_op_text,
+    StringSearchOp, StringTrimSide, UnaryOp, UnknownKind, UrlField, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{

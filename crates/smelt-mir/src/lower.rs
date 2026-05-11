@@ -1327,6 +1327,40 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::RegexReplace {
+                op,
+                pattern,
+                haystack,
+                replacement,
+            } => {
+                let pattern_operand = self.lower_expr(*pattern)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let replacement_operand = self.lower_expr(*replacement)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::RegexReplace {
+                        op: *op,
+                        pattern: pattern_operand,
+                        haystack: haystack_operand,
+                        replacement: replacement_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::RegexSplit { pattern, haystack } => {
+                let pattern_operand = self.lower_expr(*pattern)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::RegexSplit {
+                        pattern: pattern_operand,
+                        haystack: haystack_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringCharAt { operand, index } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let index_operand = self.lower_expr(*index)?;
@@ -2096,6 +2130,59 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DateNow => {
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateNow,
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateToIsoString { timestamp_ms } => {
+                let timestamp_operand = self.lower_expr(*timestamp_ms)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateToIsoString {
+                        timestamp_ms: timestamp_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::UrlField { field, url } => {
+                let url_operand = self.lower_expr(*url)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::UrlField {
+                        field: *field,
+                        url: url_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::FileReadText { path } => {
+                let path_operand = self.lower_expr(*path)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::FileReadText { path: path_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::FileWriteText { path, text } => {
+                let path_operand = self.lower_expr(*path)?;
+                let text_operand = self.lower_expr(*text)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::FileWriteText {
+                        path: path_operand,
+                        text: text_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Method {
                 receiver,
                 method,
@@ -2317,6 +2404,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringPad { .. }
             | ExprKind::StringPredicate { .. }
             | ExprKind::RegexIsMatch { .. }
+            | ExprKind::RegexReplace { .. }
+            | ExprKind::RegexSplit { .. }
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringCharCodeAt { .. }
             | ExprKind::StringContains { .. }
@@ -2380,6 +2469,11 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::JsonStringify { .. }
             | ExprKind::JsonParse { .. }
             | ExprKind::HttpGetText { .. }
+            | ExprKind::DateNow
+            | ExprKind::DateToIsoString { .. }
+            | ExprKind::UrlField { .. }
+            | ExprKind::FileReadText { .. }
+            | ExprKind::FileWriteText { .. }
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
             | ExprKind::Conditional { .. }

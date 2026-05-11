@@ -17,14 +17,39 @@ For v1, Smelt should not try to transpile Vitest or pytest internals. The v1 goa
 
 ## Current Baseline
 
-- Docs-only Slice 9/10 updates do not change Rust source or generated test behavior.
-- Latest verification after the docs-only update is blocked by concurrent source changes:
-  - `cargo test` fails because `crates/smelt-frontend-py/src/lowering.rs` has unread
-    `enum_members` and `class_methods` fields.
-  - `cargo check` and `cargo clippy` fail on the same Python fields and unused
-    `PureMathCall` / `pure_math_call` in `crates/smelt-frontend-ts/src/lowering/stdlib_dispatch.rs`.
+- Workspace health is currently green:
+  - `cargo test`: passed.
+  - `cargo check`: passed.
+  - `cargo clippy`: passed.
+- External repo checks can be used as signal again.
 
-Do not rely on external repo tests as a signal until the workspace's own checks are green.
+### External Probe: 2026-05-11
+
+Re-ran the eight local external slices found under `/tmp/smelt-big-probe/current-rerun` and
+`/tmp/smelt-extra-probe/current-rerun`.
+
+Results:
+
+| Slice | `smelt check` | `smelt build` | Generated `cargo test` | Current first blocker |
+|---|---:|---:|---:|---|
+| `date-fns/date-fns` `quartersToMonths` | pass | pass | pass, 4/4 tests | Green. Only warning is generated non-snake-case module stub. |
+| `Effect-TS/effect` numeric slice | fail | fail | n/a | `packages/effect/src/Number.ts`: exported non-primitive const expressions/calls, `Iterable`, unresolved helpers such as `multiply`, `sum`, `subtract`, `Order`, and `Math`. |
+| `Textualize/rich` `NullFile` | fail | fail | n/a | `_null_file.py`: member/method call rejected with “only calls to top-level functions, class constructors, and print() are supported”. |
+| `encode/httpx` status codes | fail | fail | n/a | `_status_codes.py`: primitive conversion over unsupported value and class/member call rejected. |
+| `pallets/click` `_utils` | fail | fail | n/a | `Sentinel` uses complex generic base-class expression; follow-on unresolved `Sentinel` and type variable `t`. |
+| `TanStack/query` infinite options | fail | fail | n/a | TS function declaration missing explicit return type. |
+| `remeda/remeda` `toUpperCase` | fail | fail | n/a | `purry.ts`: `TSFunctionType` annotation with rest args, `any`, and `LazyEvaluator` unsupported. |
+| `psf/requests` hooks | fail | fail | n/a | dict comprehension, `*args`/`**kwargs`, and unresolved `TYPE_CHECKING`. |
+
+Generated `date-fns` crate test command needed AppImage environment cleanup when run outside the
+workspace:
+
+```bash
+env -u APPIMAGE -u APPDIR -u REDIRECT_APPIMAGE -u TARGET_APPIMAGE -u ELECTRON_RUN_AS_NODE -u LD_LIBRARY_PATH -u GSETTINGS_SCHEMA_DIR \
+  PATH=/home/lollo/.cargo/bin:/usr/local/bin:/usr/bin:/bin cargo test
+```
+
+The latest run logs are in `/tmp/smelt-8repo-rerun-20260511-091325`.
 
 ### External Probe: 2026-05-10
 
@@ -43,8 +68,8 @@ Re-ran the four narrow target slices from temporary clones under `/tmp/smelt-big
   and `-maxTime`.
 - Next blocker is any remaining non-foldable exported constant expression shape in the target slice,
   not Vitest public API lowering.
-- Phase 6 exit status: not green yet. First-green acceptance remains generated Rust `cargo test`
-  passing all four `quartersToMonths` cases.
+- Superseded by the 2026-05-11 rerun: this target is now green, including generated Rust
+  `cargo test` passing all four `quartersToMonths` cases.
 
 `Textualize/rich`:
 
@@ -281,8 +306,14 @@ export function quartersToMonths(quarters: number): number {
 
 TypeScript:
 
-- [ ] `unknown` as a boundary type distinct from `any`
-- [ ] `readonly unknown[]`
+- [x] `unknown` as a boundary type distinct from `any`
+- [x] `readonly unknown[]`
+- [x] Tagged `unknown` runtime representation for executable guards.
+- [x] `typeof value === "string" | "number" | "boolean" | "object"` unknown guards.
+- [x] `Array.isArray(value)` unknown guard.
+- [x] `value === null` / `value !== null` unknown guards.
+- [x] User assertion functions declared as `asserts value is T`.
+- [x] Checked `unknown -> T` extraction for TypeScript `as T` / `<T>value`.
 - [x] `Math.trunc`
 - [x] `Math.pow`
 - [x] String `.toUpperCase`
@@ -291,20 +322,26 @@ TypeScript:
 - [x] `instanceof` for concrete class values.
 - [x] `Infinity`
 - [ ] Array iteration and readonly array parameters
-- [ ] Exported object constants
+- [x] Exported object constants
   - [x] Exported primitive literal constants.
-- [ ] Arrow functions assigned to `const`
+- [x] Arrow functions assigned to `const`
 - [x] Function overload declarations should be ignored/merged with implementation when safe.
+- [ ] `Iterable<T>` type references.
+- [ ] `TSFunctionType` annotations, especially rest args and callback/lazy evaluator shapes.
+- [ ] Inference or safe acceptance for unannotated exported/test-adjacent function declarations
+      when upstream TypeScript would infer the return type.
+- [ ] Exported non-primitive const call expressions used by Effect, especially `dual(...)`-style
+      helpers and typeclass instance constructors.
 
 Python:
 
 - [x] pytest-mode untyped `test_*`
 - [x] `is` / `is not`
-- [ ] Ternary expressions
-- [ ] `try` / `except`
+- [x] Ternary expressions
+- [x] `try` / `except`
 - [ ] Context manager protocol
-- [ ] `IntEnum`
-- [ ] `classmethod`
+- [x] `IntEnum`
+- [x] `classmethod`
 - [x] `__all__`
 - [ ] Dunder methods used by tests:
   - `__str__`
@@ -312,6 +349,13 @@ Python:
   - `__next__`
   - `__enter__`
   - `__exit__`
+- [ ] General member/method calls beyond top-level functions, class constructors, and `print()`.
+- [ ] Complex generic base class expressions such as Click's `Sentinel(...)`.
+- [ ] Type variable names and aliases used at runtime-adjacent positions, such as Click's `t`.
+- [ ] `TYPE_CHECKING` as a recognized type-only constant.
+- [ ] Dict/list/set comprehensions.
+- [ ] `*args` and `**kwargs` in function signatures and call forwarding.
+- [ ] Primitive conversions over enum/class values exposed by HTTPX status codes.
 
 ## Repo-Specific First Green Targets
 
@@ -325,9 +369,11 @@ Target files:
 
 First success means:
 
-- Smelt emits Rust tests for `quartersToMonths/test.ts`.
-- Generated crate runs via `cargo test`.
-- The four Vitest `it(...)` cases pass.
+- [x] Smelt emits Rust tests for `quartersToMonths/test.ts`.
+- [x] Generated crate runs via `cargo test`.
+- [x] The four Vitest `it(...)` cases pass.
+
+Status: green as of the 2026-05-11 external rerun.
 
 ### First Python Target: Rich
 
@@ -343,6 +389,11 @@ First success means:
 - Smelt supports enough class/context-manager/iterator behavior for `NullFile`.
 - Generated crate runs via `cargo test`.
 
+Current first blocker from the 2026-05-11 rerun:
+
+- `_null_file.py` still hits the Python member/method call limit: only top-level functions, class
+  constructors, and `print()` are accepted.
+
 ### Second TS Target: Effect
 
 Target files:
@@ -357,6 +408,13 @@ First success means:
 - `U.deepStrictEqual` lowers to `smelt_test::ts::deep_strict_equal` or equivalent.
 - A simple numeric semigroup test passes.
 
+Current first blockers from the 2026-05-11 rerun:
+
+- `packages/effect/src/Number.ts` still requires exported non-primitive const expressions and
+  calls, especially Effect/typeclass helpers.
+- `Iterable<T>` type references are unsupported.
+- Some helper values/functions remain unresolved because the exported const/call layer is skipped.
+
 ### Second Python Target: HTTPX
 
 Target files:
@@ -370,6 +428,54 @@ First success means:
 - `IntEnum` or a targeted enum mapping is supported.
 - Class methods such as `codes.get_reason_phrase(...)` lower.
 - Generated tests for simple status code behavior pass.
+
+Current first blockers from the 2026-05-11 rerun:
+
+- Primitive conversions over enum/class values in `_status_codes.py`.
+- Class/member calls in status code helpers still hit the general Python call limit.
+
+### Additional External Slices
+
+These are not primary acceptance targets, but they are useful compatibility probes from the local
+eight-repo rerun.
+
+`pallets/click`:
+
+- Slice:
+  - `src/click/_utils.py`
+  - `tests/test_utils.py`
+- First blockers:
+  - complex generic base class expression for `Sentinel`
+  - unresolved `Sentinel`
+  - unresolved type variable `t`
+
+`TanStack/query`:
+
+- Slice:
+  - `packages/angular-query-experimental/src/infinite-query-options.ts`
+  - `packages/angular-query-experimental/src/__tests__/infinite-query-options.test.ts`
+- First blocker:
+  - function declaration missing explicit return type
+
+`remeda/remeda`:
+
+- Slice:
+  - `packages/remeda/src/purry.ts`
+  - `packages/remeda/src/pipe.ts`
+  - `packages/remeda/src/toUpperCase.ts`
+  - `packages/remeda/src/toUpperCase.test.ts`
+- First blocker:
+  - `TSFunctionType` annotation with rest args, `any`, and `LazyEvaluator`
+
+`psf/requests`:
+
+- Slice:
+  - `src/requests/hooks.py`
+  - `tests/test_hooks.py`
+- First blockers:
+  - dict comprehension
+  - `*args` / `**kwargs`
+  - unresolved `TYPE_CHECKING`
 
 ## Acceptance Criteria
 

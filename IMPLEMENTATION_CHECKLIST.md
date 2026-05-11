@@ -290,10 +290,16 @@ runtime errors.
     - [x] `regex` dependency injection for generated Rust crates.
     - [x] TypeScript `new RegExp(pattern).test(text)` boolean matching.
     - [x] Python `re.search`, `re.match`, and `re.fullmatch` boolean matching.
-    - [ ] Regex replacement, splitting, captures, flags, and compiled regex values.
+    - [x] Regex replacement for TypeScript `replace` / `replaceAll` with `new RegExp(pattern)`.
+    - [x] Python `re.sub` and `re.split` with direct string pattern/text arguments.
+    - [ ] Regex captures, flags, and compiled regex values.
   - [x] `reqwest` dependency injection, then TypeScript `fetch` and Python HTTP mapping decision.
     - [x] Python `requests.get(url)` maps to blocking Reqwest response text.
-  - [ ] `chrono` dependency injection, then TypeScript `Date` and Python `datetime` decision.
+  - [x] `chrono` dependency injection, then TypeScript `Date` and Python `datetime` decision.
+    - [x] TypeScript `Date.now()`.
+    - [x] TypeScript `new Date(timestamp).toISOString()`.
+    - [x] Python `datetime.datetime.now()`, `utcnow()`, and `fromtimestamp()` lower to ISO strings.
+  - [x] `url` dependency injection for supported URL field mappings.
   - [ ] RNG dependency/policy, then TypeScript `Math.random` and Python `random` basics.
     - [x] TypeScript `Math.random`.
     - [x] Python `random.random`.
@@ -320,7 +326,7 @@ runtime errors.
   - [ ] Document each mapping in `specs/stdlib-mapping.md` with source semantics, Rust output, and
         known semantic differences.
     - [x] Add expanded registry-format rows for touched JSON, regex, random, and HTTP APIs.
-  - [ ] Add dependency-injection plumbing for mappings that need crates such as `serde_json`,
+  - [x] Add dependency-injection plumbing for mappings that need crates such as `serde_json`,
         `reqwest`, `chrono`, `regex`, `url`, `ndarray`, or `numpy` bindings.
 - [ ] TypeScript array/list mappings:
   - [x] `Array.prototype.includes`.
@@ -359,7 +365,7 @@ runtime errors.
   - [ ] `String.prototype.slice` and `substring`, including Unicode/index semantics decision.
     - [x] `String.prototype.slice` with positive, omitted, and negative indexes.
   - [x] `String.prototype.replace` for literal strings.
-  - [ ] `String.prototype.replace` / `replaceAll` with regex once regex support is chosen.
+  - [x] `String.prototype.replace` / `replaceAll` with `new RegExp(pattern)` and no flags.
   - [ ] `String.prototype.charAt`, `charCodeAt`, and `at`.
     - [x] `String.prototype.charAt`.
     - [x] `String.prototype.charCodeAt`.
@@ -418,11 +424,17 @@ runtime errors.
     - [x] `for...of` over `Set<T>` via value projection.
   - [ ] `Date.now`, construction from timestamp/string, `toISOString`, and basic getters, or
         explicitly defer Date support.
+    - [x] `Date.now`.
+    - [x] `new Date(timestamp).toISOString()`.
+    - [ ] Date construction from string and basic getters.
   - [ ] `RegExp.test`, `String.match`, and regex-backed `replace` using the Rust `regex` crate, or
         explicitly defer regex support.
     - [x] `new RegExp(pattern).test(text)` without flags.
+    - [x] Regex-backed `String.replace` and `replaceAll` with `new RegExp(pattern)` and no flags.
   - [ ] `URL` construction and field access through the `url` crate, or explicitly defer URL
         support.
+    - [x] `new URL(text).href`, `.protocol`, `.host`, `.hostname`, `.pathname`, and `.search`.
+    - [x] `.host` includes the port when present to match JavaScript URL parity.
   - [ ] `Error` construction, message access, and throw/catch mapping policy.
 - [ ] TypeScript runtime type checks:
   - [x] `instanceof` for concrete class values, represented explicitly in HIR/MIR and emitted as a static class check for today's non-dynamic class model.
@@ -528,8 +540,11 @@ runtime errors.
   - [ ] `re`: `compile`, `search`, `match`, `fullmatch`, `sub`, and `split`, or explicitly defer
         regex support.
     - [x] `re.search`, `re.match`, and `re.fullmatch` with direct string pattern/text arguments.
+    - [x] `re.sub` and `re.split` with direct string pattern/text arguments.
   - [ ] `datetime`: `datetime`, `date`, `timedelta`, `now`, `utcnow`, parsing, and formatting, or
         explicitly defer datetime support.
+    - [x] `datetime.datetime.now()` and `utcnow()` lower to ISO strings.
+    - [x] `datetime.datetime.fromtimestamp(value)` lowers to an ISO string.
   - [ ] `pathlib` / `os.path`: path join, basename/name/stem/suffix, exists, is_file, is_dir.
   - [ ] `os`: environment reads/writes, cwd, mkdir, makedirs, remove, and rename.
   - [ ] `sys`: argv, stdin/stdout/stderr basics.
@@ -543,7 +558,9 @@ runtime errors.
   - [ ] `functools`: `partial`, `reduce`, `lru_cache`, or targeted rejection.
   - [ ] `typing`: runtime no-op handling for `cast`, `assert_never`, `TypeGuard`, and aliases.
 - [ ] Python IO and networking mappings:
-  - [ ] `open(...)` read/write text mode.
+  - [x] `open(...)` read/write text mode.
+    - [x] `open(path).read()`.
+    - [x] `open(path, "w").write(text)`.
   - [ ] `open(...)` binary mode.
   - [ ] Context-manager lowering for files.
   - [x] `requests` or `urllib` support decision; prefer explicit crate-backed mappings over a
@@ -551,7 +568,7 @@ runtime errors.
   - [ ] Async HTTP mapping compatible with the Phase 5 runtime model.
 - [ ] Python native/data-library mappings:
   - [x] NumPy/pandas Phase 6 decision note exists.
-  - [ ] Targeted diagnostics for NumPy/pandas imports.
+  - [x] Targeted diagnostics for NumPy/pandas imports.
   - [ ] NumPy array construction and dtype model.
   - [ ] NumPy shape, ndim, size, indexing, slicing, reshape, transpose, and astype.
   - [ ] NumPy elementwise arithmetic, comparisons, reductions, and broadcasting policy.
@@ -566,13 +583,13 @@ runtime errors.
   - [ ] HTTPX status-code slice has documented pass/fail status and first unsupported construct.
   - [ ] Registry dispatch exists and is used for all touched families.
   - [x] NumPy/pandas decision note exists.
-  - [ ] Date/datetime, URL, Python IO, and regex expansion have implemented subsets or targeted diagnostics.
+  - [x] Date/datetime, URL, Python IO, and regex expansion have implemented subsets or targeted diagnostics.
   - [ ] Every checked mapping has unit tests in the relevant frontend crate.
   - [ ] Every checked mapping has MIR lowering coverage.
   - [ ] Every checked mapping has Rust codegen coverage.
   - [ ] End-to-end fixtures cover at least 30 stdlib cases across TypeScript and Python.
   - [ ] Unsupported stdlib calls produce source-located diagnostics rather than generic call errors.
-  - [ ] `cargo test`, `cargo check`, and `cargo clippy` pass after each completed stdlib slice.
+  - [x] `cargo test`, `cargo check`, and `cargo clippy` pass after each completed stdlib slice.
 
 ## Phase 6/TypeScript Next Coverage
 

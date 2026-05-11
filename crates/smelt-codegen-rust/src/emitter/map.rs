@@ -1,0 +1,367 @@
+//! Map emission helpers.
+
+use super::*;
+
+impl FunctionEmitter<'_> {
+
+    /// Converts a dictionary key containment operation to Rust text.
+    pub(super) fn dict_contains_key_text(&self, dict: &Operand, key: &Operand) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict contains receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new(
+                "dict contains key must match the dictionary key type",
+            ));
+        }
+        Ok(format!(
+            "{}.contains_key(&{})",
+            self.operand_text(dict)?,
+            self.operand_text(key)?
+        ))
+    }
+
+    /// Converts a dictionary get operation to Rust text.
+    /// Converts a dictionary get operation to Rust text.
+    pub(super) fn dict_get_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        default: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict get receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new("dict get key must match the dict key type"));
+        }
+        if let Some(default_operand) = default {
+            if self.operand_ty(default_operand)? != *value_ty {
+                return Err(EmitError::new(
+                    "dict get default must match the dict value type",
+                ));
+            }
+            if dest_ty != *value_ty {
+                return Err(EmitError::new(
+                    "dict get destination with default must match the dict value type",
+                ));
+            }
+            return Ok(format!(
+                "{}.get(&{}).cloned().unwrap_or({})",
+                self.operand_text(dict)?,
+                self.operand_text(key)?,
+                self.operand_text(default_operand)?
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == *value_ty)
+        {
+            return Err(EmitError::new(
+                "dict get destination without default must be optional value",
+            ));
+        }
+        Ok(format!(
+            "{}.get(&{}).cloned()",
+            self.operand_text(dict)?,
+            self.operand_text(key)?
+        ))
+    }
+
+    /// Converts a dictionary setdefault operation to Rust text.
+    ///
+    /// This mapping supports the explicit-default form only, so generated Rust
+    /// can preserve the dictionary value type without inventing a `None`
+    /// default for non-optional values.
+    /// Converts a dictionary setdefault operation to Rust text.
+    ///
+    /// This mapping supports the explicit-default form only, so generated Rust
+    /// can preserve the dictionary value type without inventing a `None`
+    /// default for non-optional values.
+    pub(super) fn dict_setdefault_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        default: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict setdefault receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new(
+                "dict setdefault key must match the dict key type",
+            ));
+        }
+        if self.operand_ty(default)? != *value_ty {
+            return Err(EmitError::new(
+                "dict setdefault default must match the dict value type",
+            ));
+        }
+        if dest_ty != *value_ty {
+            return Err(EmitError::new(
+                "dict setdefault destination must match the dict value type",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict setdefault receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let key_text = self.operand_text(key)?;
+        let default_text = self.operand_text(default)?;
+        Ok(format!(
+            "{{ {dict_text}.entry({key_text}).or_insert({default_text}).clone() }}"
+        ))
+    }
+
+    /// Converts a dictionary insertion operation to Rust text.
+    /// Converts a dictionary insertion operation to Rust text.
+    pub(super) fn dict_set_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        value: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict set receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new("dict set key must match the dict key type"));
+        }
+        if self.operand_ty(value)? != *value_ty {
+            return Err(EmitError::new(
+                "dict set value must match the dict value type",
+            ));
+        }
+        if dest_ty != dict_ty {
+            return Err(EmitError::new(
+                "dict set destination must match the receiver dict type",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict set receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let key_text = self.operand_text(key)?;
+        let value_text = self.operand_text(value)?;
+        Ok(format!(
+            "{{ {dict_text}.insert({key_text}, {value_text}); {dict_text}.clone() }}"
+        ))
+    }
+
+    /// Converts a dictionary key removal operation to Rust text.
+    /// Converts a dictionary key removal operation to Rust text.
+    pub(super) fn dict_remove_key_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict remove receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new(
+                "dict remove key must match the dict key type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
+            return Err(EmitError::new("dict remove destination must be bool"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict remove receiver must be a mutable local for now",
+            ));
+        };
+        Ok(format!(
+            "{}.remove(&{}).is_some()",
+            self.local_name(*local)?,
+            self.operand_text(key)?
+        ))
+    }
+
+    /// Converts a dictionary pop operation to Rust text.
+    /// Converts a dictionary pop operation to Rust text.
+    pub(super) fn dict_pop_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+        default: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
+            return Err(EmitError::new("dict pop receiver must be a dict"));
+        };
+        if self.operand_ty(key)? != *key_ty {
+            return Err(EmitError::new("dict pop key must match the dict key type"));
+        }
+        if dest_ty != *value_ty {
+            return Err(EmitError::new(
+                "dict pop destination must match the dict value type",
+            ));
+        }
+        if let Some(default_operand) = default
+            && self.operand_ty(default_operand)? != *value_ty
+        {
+            return Err(EmitError::new(
+                "dict pop default must match the dict value type",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict pop receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let key_text = self.operand_text(key)?;
+        if let Some(default_operand) = default {
+            let default_text = self.operand_text(default_operand)?;
+            Ok(format!(
+                "{dict_text}.remove(&{key_text}).unwrap_or({default_text})"
+            ))
+        } else {
+            Ok(format!(
+                "{dict_text}.remove(&{key_text}).expect(\"dict pop missing key\")"
+            ))
+        }
+    }
+
+    /// Converts a dictionary update operation to Rust text.
+    /// Converts a dictionary update operation to Rust text.
+    pub(super) fn dict_update_text(
+        &self,
+        dict: &Operand,
+        other: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Err(EmitError::new("dict update receiver must be a dict"));
+        }
+        if self.operand_ty(other)? != dict_ty {
+            return Err(EmitError::new(
+                "dict update argument must match the receiver dict type",
+            ));
+        }
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
+            return Err(EmitError::new("dict update destination must be None"));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = dict else {
+            return Err(EmitError::new(
+                "dict update receiver must be a mutable local for now",
+            ));
+        };
+        let dict_text = self.local_name(*local)?;
+        let other_text = self.operand_text(other)?;
+        Ok(format!(
+            "{{ {dict_text}.extend({other_text}.iter().map(|(key, value)| (key.clone(), value.clone()))); () }}"
+        ))
+    }
+
+    /// Converts a dictionary copy operation to Rust text.
+    /// Converts a dictionary copy operation to Rust text.
+    pub(super) fn dict_copy_text(&self, dict: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        let dict_ty = self.operand_ty(dict)?;
+        if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
+            return Err(EmitError::new("dict copy receiver must be a dict"));
+        }
+        if dest_ty != dict_ty {
+            return Err(EmitError::new(
+                "dict copy destination must match the receiver dict type",
+            ));
+        }
+        Ok(format!("{}.clone()", self.operand_text(dict)?))
+    }
+
+    /// Converts a dictionary projection operation to Rust text.
+    /// Converts a dictionary projection operation to Rust text.
+    pub(super) fn dict_projection_text(
+        &self,
+        op: smelt_hir::DictProjectionOp,
+        dict: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(dict)?),
+            Some(Type::Dict(_, _))
+        ) {
+            return Err(EmitError::new("dict projection receiver must be a dict"));
+        }
+        let dict_text = self.operand_text(dict)?;
+        match op {
+            smelt_hir::DictProjectionOp::Keys => {
+                Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
+            }
+            smelt_hir::DictProjectionOp::Values => {
+                Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
+            }
+            smelt_hir::DictProjectionOp::Entries => Ok(format!(
+                "{dict_text}.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+            )),
+        }
+    }
+
+    /// Converts a JSON serialization operation to Rust text.
+    ///
+    /// The Serde JSON backend is intentionally confined to this helper and
+    /// Cargo dependency injection, making it replaceable without changing HIR
+    /// or frontend lowering.
+    /// Converts a JSON serialization operation to Rust text.
+    ///
+    /// The Serde JSON backend is intentionally confined to this helper and
+    /// Cargo dependency injection, making it replaceable without changing HIR
+    /// or frontend lowering.
+    pub(super) fn json_stringify_text(&self, value: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::String)) {
+            return Err(EmitError::new("JSON stringify destination must be string"));
+        }
+        if !self.is_json_serializable_type(self.operand_ty(value)?) {
+            return Err(EmitError::new(
+                "JSON stringify value must be JSON-serializable",
+            ));
+        }
+        Ok(format!(
+            "serde_json::to_string(&{}).expect(\"JSON serialization failed\")",
+            self.operand_text(value)?
+        ))
+    }
+
+    /// Converts a JSON parse operation to Rust text.
+    ///
+    /// Serde stays behind this helper so future backend changes do not affect
+    /// the frontend lowering shape.
+    /// Converts a JSON parse operation to Rust text.
+    ///
+    /// Serde stays behind this helper so future backend changes do not affect
+    /// the frontend lowering shape.
+    pub(super) fn json_parse_text(&self, text: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(text)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("JSON parse input must be a string"));
+        }
+        if !self.is_json_serializable_type(dest_ty) {
+            return Err(EmitError::new(
+                "JSON parse destination must be JSON-compatible",
+            ));
+        }
+        Ok(format!(
+            "serde_json::from_str::<{}>(&{}).expect(\"JSON parse failed\")",
+            self.type_text(dest_ty)?,
+            self.operand_text(text)?
+        ))
+    }
+
+    // Returns whether a type is supported by the current JSON serializer path.
+
+}

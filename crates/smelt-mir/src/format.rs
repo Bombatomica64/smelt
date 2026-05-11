@@ -414,6 +414,30 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(haystack)
             )
         }
+        Rvalue::RegexReplace {
+            op,
+            pattern,
+            haystack,
+            replacement,
+        } => {
+            let op_text = match op {
+                smelt_hir::StringReplaceOp::First => "replace",
+                smelt_hir::StringReplaceOp::All => "replace_all",
+            };
+            format!(
+                "regex_{op_text} {}, {}, {}",
+                operand_text(pattern),
+                operand_text(haystack),
+                operand_text(replacement)
+            )
+        }
+        Rvalue::RegexSplit { pattern, haystack } => {
+            format!(
+                "regex_split {}, {}",
+                operand_text(pattern),
+                operand_text(haystack)
+            )
+        }
         Rvalue::StringCharAt { operand, index } => {
             format!(
                 "string_char_at {}, {}",
@@ -719,6 +743,29 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!("json_parse {}", operand_text(text))
         }
         Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
+        Rvalue::DateNow => "date_now".to_owned(),
+        Rvalue::DateToIsoString { timestamp_ms } => {
+            format!("date_to_iso_string {}", operand_text(timestamp_ms))
+        }
+        Rvalue::UrlField { field, url } => {
+            let field_text = match field {
+                smelt_hir::UrlField::Href => "href",
+                smelt_hir::UrlField::Protocol => "protocol",
+                smelt_hir::UrlField::Host => "host",
+                smelt_hir::UrlField::Hostname => "hostname",
+                smelt_hir::UrlField::Pathname => "pathname",
+                smelt_hir::UrlField::Search => "search",
+            };
+            format!("url_{field_text} {}", operand_text(url))
+        }
+        Rvalue::FileReadText { path } => format!("file_read_text {}", operand_text(path)),
+        Rvalue::FileWriteText { path, text } => {
+            format!(
+                "file_write_text {}, {}",
+                operand_text(path),
+                operand_text(text)
+            )
+        }
         Rvalue::Await(operand) => format!("await {}", operand_text(operand)),
         Rvalue::AsyncOp { op, args } => {
             let op_text = match op {

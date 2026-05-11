@@ -1,0 +1,521 @@
+use super::*;
+
+#[test]
+fn lowers_math_rounding_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const value = 5.5;
+const floor = Math.floor(value);
+const ceil = Math.ceil(value);
+const round = Math.round(value);
+const trunc = Math.trunc(value);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        NumericRoundOp::Floor,
+        NumericRoundOp::Ceil,
+        NumericRoundOp::Round,
+        NumericRoundOp::Trunc,
+    ] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::NumericRound { op, .. } if op == expected)
+            )
+        );
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_math_extrema_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const first = 1;
+const second = 2;
+const highest = Math.max(first, second, 3);
+const lowest = Math.min(first, second, -1);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [NumericExtremaOp::Max, NumericExtremaOp::Min] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::NumericExtrema { op, .. } if op == expected)
+        ));
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_case_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "Smelt";
+const lower = word.toLowerCase();
+const upper = word.toUpperCase();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringCase {
+            op: StringCaseOp::Lower,
+            ..
+        }
+    )));
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringCase {
+            op: StringCaseOp::Upper,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_trim_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = " Smelt ";
+const trimmed = word.trim();
+const left = word.trimStart();
+const right = word.trimEnd();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        StringTrimSide::Both,
+        StringTrimSide::Start,
+        StringTrimSide::End,
+    ] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::StringTrim { side, .. } if side == expected)
+        ));
+    }
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_prefix_suffix_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "Smelt";
+const starts = word.startsWith("Sm");
+const ends = word.endsWith("lt");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [StringAffixOp::StartsWith, StringAffixOp::EndsWith] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringAffix { op, .. } if op == expected)
+            )
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_string_search_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "Smelt";
+const first = word.indexOf("m");
+const last = word.lastIndexOf("t");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [StringSearchOp::Find, StringSearchOp::RFind] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::StringSearch { op, .. } if op == expected)
+            )
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_string_replace_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "hello hello";
+const replaced = word.replace("hello", "hi");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringReplace {
+            op: StringReplaceOp::First,
+            ..
+        }
+    )));
+    Ok(())
+}
+
+#[test]
+fn lowers_string_repeat_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "ha";
+const repeated = word.repeat(3);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringRepeat { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_string_padding_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "7";
+const paddedStart = word.padStart(3, "0");
+const paddedEnd = word.padEnd(3);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [StringPadOp::Start, StringPadOp::End] {
+        ensure!(
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::StringPad { op, .. } if op == expected))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_string_char_at_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const word = "Smelt";
+const char = word.charAt(1);
+const code = word.charCodeAt(2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringCharAt { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringCharCodeAt { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_join_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const words: string[] = ["a", "b", "c"];
+const joined = words.join("-");
+const comma = words.join();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let join_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::StringJoin { .. }))
+        .count();
+    ensure_eq!(join_count, 2);
+    Ok(())
+}
+
+#[test]
+fn lowers_array_concat_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const left: number[] = [1, 2];
+const right: number[] = [3, 4];
+const merged = left.concat(right);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListConcat { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_search_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3, 2];
+const first = values.indexOf(2);
+const last = values.lastIndexOf(2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [ListSearchOp::Find, ListSearchOp::RFind] {
+        ensure!(
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::ListSearch { op, .. } if op == expected))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_array_callback_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const mapped = values.map(value => value + 1);
+const filtered = values.filter(value => value > 1);
+const found = values.find(value => value > 1);
+const foundIndex = values.findIndex(value => value > 1);
+const hasAny = values.some(value => value > 1);
+const hasEvery = values.every(value => value > 0);
+values.forEach(value => value + 1);
+const total = values.reduce((acc, value) => acc + value, 0);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        ListCallbackOp::Map,
+        ListCallbackOp::Filter,
+        ListCallbackOp::Find,
+        ListCallbackOp::FindIndex,
+        ListCallbackOp::Some,
+        ListCallbackOp::Every,
+        ListCallbackOp::ForEach,
+    ] {
+        ensure!(
+            body.exprs.iter().any(
+                |expr| matches!(expr.kind, ExprKind::ListCallback { op, .. } if op == expected)
+            ),
+            "missing callback op {expected:?}"
+        );
+    }
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListReduce { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_array_callback_captures() {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const minimum = 1;
+const filtered = values.filter(value => value > minimum);
+"#),
+        &mut ctx,
+    )
+    .expect("expected callback capture diagnostic");
+
+    assert!(
+        errors.iter().any(|err| err
+            .message
+            .contains("callback captures are not supported yet")),
+        "{errors:?}"
+    );
+}
+
+#[test]
+fn lowers_array_and_string_slice_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3, 4];
+const allValues = values.slice();
+const tailValues = values.slice(1);
+const midValues = values.slice(1, 3);
+const lastValues = values.slice(-2);
+const word = "smelting";
+const allText = word.slice();
+const tailText = word.slice(1);
+const midText = word.slice(1, 4);
+const lastText = word.slice(-3);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let list_slices = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListSlice { .. }))
+        .count();
+    let string_slices = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
+        .count();
+    ensure_eq!(list_slices, 4);
+    ensure_eq!(string_slices, 4);
+    Ok(())
+}
+
+#[test]
+fn lowers_array_push_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.push(3);
+const length = values.push(4);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    let pushes = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListPush { .. }))
+        .count();
+    ensure_eq!(pushes, 2);
+    Ok(())
+}
+
+#[test]
+fn lowers_array_unshift_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [2, 3];
+const sameLength = values.unshift();
+const oneMore = values.unshift(1);
+const threeMore = values.unshift(-1, 0);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let unshifts = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListUnshift { .. }))
+        .count();
+    ensure_eq!(unshifts, 3);
+    Ok(())
+}
+
+#[test]
+fn lowers_array_reverse_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.reverse();
+const reversed = values.reverse();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let reverses = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListReverse { .. }))
+        .count();
+    ensure_eq!(reverses, 2);
+    Ok(())
+}
+
+#[test]
+fn lowers_array_pop_method() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+let values: number[] = [1, 2];
+values.pop();
+const item = values.pop();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let pops = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::ListPop { .. }))
+        .count();
+    ensure_eq!(pops, 2);
+    Ok(())
+}
+

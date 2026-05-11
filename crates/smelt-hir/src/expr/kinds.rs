@@ -1,0 +1,439 @@
+use serde::{Deserialize, Serialize};
+use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
+use super::{
+    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, DictProjectionOp, ListCallbackOp, ListSearchOp,
+    Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
+    PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
+    StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, UnaryOp, UnknownKind, UrlField,
+};
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[expect(
+    missing_docs,
+    reason = "Variant docs remain in formatter and lowering code; compact enum layout keeps this file under 600 LOC"
+)]
+pub enum ExprKind {
+    Literal(Literal),
+    Local(LocalId),
+    Item(ItemId),
+    Call {
+        callee: ExprId,
+        args: Vec<ExprId>,
+    },
+    Method {
+        receiver: ExprId,
+        method: Symbol,
+        args: Vec<ExprId>,
+    },
+    Field {
+        receiver: ExprId,
+        field: Symbol,
+    },
+    Index {
+        receiver: ExprId,
+        index: ExprId,
+    },
+    Len {
+        operand: ExprId,
+    },
+    NumericAbs {
+        operand: ExprId,
+    },
+    NumericRound {
+        op: NumericRoundOp,
+        operand: ExprId,
+    },
+    NumericExtrema {
+        op: NumericExtremaOp,
+        args: Vec<ExprId>,
+    },
+    NumericHypot {
+        args: Vec<ExprId>,
+    },
+    NumericPredicate {
+        op: NumericPredicateOp,
+        operand: ExprId,
+    },
+    NumericUnaryFunc {
+        op: NumericUnaryFuncOp,
+        operand: ExprId,
+    },
+    NumericPow {
+        base: ExprId,
+        exponent: ExprId,
+    },
+    NumericAtan2 {
+        y: ExprId,
+        x: ExprId,
+    },
+    NumericRandom,
+    NumericRandomInt {
+        start: ExprId,
+        end: ExprId,
+    },
+    PrimitiveCast {
+        op: PrimitiveCastOp,
+        operand: ExprId,
+    },
+    StringCase {
+        op: StringCaseOp,
+        operand: ExprId,
+    },
+    StringTrim {
+        side: StringTrimSide,
+        operand: ExprId,
+    },
+    StringAffix {
+        op: StringAffixOp,
+        haystack: ExprId,
+        needle: ExprId,
+    },
+    StringSearch {
+        op: StringSearchOp,
+        haystack: ExprId,
+        needle: ExprId,
+    },
+    StringReplace {
+        op: StringReplaceOp,
+        haystack: ExprId,
+        pattern: ExprId,
+        replacement: ExprId,
+    },
+    StringRemoveAffix {
+        op: StringAffixOp,
+        haystack: ExprId,
+        affix: ExprId,
+    },
+    StringRepeat {
+        operand: ExprId,
+        count: ExprId,
+    },
+    StringPad {
+        op: StringPadOp,
+        operand: ExprId,
+        target_len: ExprId,
+        pad: ExprId,
+    },
+    StringPredicate {
+        op: StringPredicateOp,
+        operand: ExprId,
+    },
+    RegexIsMatch {
+        op: RegexMatchOp,
+        pattern: ExprId,
+        haystack: ExprId,
+    },
+    RegexReplace {
+        op: StringReplaceOp,
+        pattern: ExprId,
+        haystack: ExprId,
+        replacement: ExprId,
+    },
+    RegexSplit {
+        pattern: ExprId,
+        haystack: ExprId,
+    },
+    StringCharAt {
+        operand: ExprId,
+        index: ExprId,
+    },
+    StringCharCodeAt {
+        operand: ExprId,
+        index: ExprId,
+    },
+    StringContains {
+        haystack: ExprId,
+        needle: ExprId,
+    },
+    StringSlice {
+        operand: ExprId,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
+    },
+    ListContains {
+        list: ExprId,
+        item: ExprId,
+    },
+    SetContains {
+        set: ExprId,
+        item: ExprId,
+    },
+    SetDisjoint {
+        left: ExprId,
+        right: ExprId,
+    },
+    SetRelation {
+        op: SetRelationOp,
+        left: ExprId,
+        right: ExprId,
+    },
+    SetAdd {
+        set: ExprId,
+        item: ExprId,
+    },
+    SetRemove {
+        op: SetRemoveOp,
+        set: ExprId,
+        item: ExprId,
+    },
+    SetClear {
+        set: ExprId,
+    },
+    SetCopy {
+        set: ExprId,
+    },
+    SetBinary {
+        op: SetBinaryOp,
+        left: ExprId,
+        right: ExprId,
+    },
+    SetProjection {
+        op: SetProjectionOp,
+        set: ExprId,
+    },
+    ListConcat {
+        left: ExprId,
+        right: ExprId,
+    },
+    ListSearch {
+        op: ListSearchOp,
+        list: ExprId,
+        item: ExprId,
+    },
+    ListCallback {
+        op: ListCallbackOp,
+        list: ExprId,
+        callback: CallbackExpr,
+    },
+    ListReduce {
+        list: ExprId,
+        initial: ExprId,
+        callback: CallbackExpr,
+    },
+    ListSlice {
+        list: ExprId,
+        start: Option<ExprId>,
+        end: Option<ExprId>,
+    },
+    ListPush {
+        list: ExprId,
+        item: ExprId,
+    },
+    ListExtend {
+        list: ExprId,
+        other: ExprId,
+    },
+    ListInsert {
+        list: ExprId,
+        index: ExprId,
+        item: ExprId,
+    },
+    ListUnshift {
+        list: ExprId,
+        items: Vec<ExprId>,
+    },
+    ListReverse {
+        list: ExprId,
+    },
+    ListClear {
+        list: ExprId,
+    },
+    ListCopy {
+        list: ExprId,
+    },
+    ListCount {
+        list: ExprId,
+        item: ExprId,
+    },
+    ListSum {
+        list: ExprId,
+    },
+    ListBoolFold {
+        op: BoolFoldOp,
+        list: ExprId,
+    },
+    ListSorted {
+        list: ExprId,
+    },
+    ListReversed {
+        list: ExprId,
+    },
+    ListEnumerate {
+        list: ExprId,
+    },
+    ListZip {
+        left: ExprId,
+        right: ExprId,
+    },
+    ListRange {
+        start: ExprId,
+        end: ExprId,
+        step: ExprId,
+    },
+    ListRandomChoice {
+        list: ExprId,
+    },
+    ListIndex {
+        list: ExprId,
+        item: ExprId,
+    },
+    ListRemove {
+        list: ExprId,
+        item: ExprId,
+    },
+    ListSort {
+        list: ExprId,
+    },
+    ListPop {
+        list: ExprId,
+    },
+    ListShift {
+        list: ExprId,
+    },
+    TupleContains {
+        tuple: ExprId,
+        item: ExprId,
+    },
+    DictContainsKey {
+        dict: ExprId,
+        key: ExprId,
+    },
+    DictSet {
+        dict: ExprId,
+        key: ExprId,
+        value: ExprId,
+    },
+    DictRemoveKey {
+        dict: ExprId,
+        key: ExprId,
+    },
+    DictGet {
+        dict: ExprId,
+        key: ExprId,
+        default: Option<ExprId>,
+    },
+    DictSetDefault {
+        dict: ExprId,
+        key: ExprId,
+        default: ExprId,
+    },
+    DictClear {
+        dict: ExprId,
+    },
+    DictPop {
+        dict: ExprId,
+        key: ExprId,
+        default: Option<ExprId>,
+    },
+    DictUpdate {
+        dict: ExprId,
+        other: ExprId,
+    },
+    DictCopy {
+        dict: ExprId,
+    },
+    DictProjection {
+        op: DictProjectionOp,
+        dict: ExprId,
+    },
+    StringSplit {
+        haystack: ExprId,
+        separator: ExprId,
+    },
+    StringJoin {
+        items: ExprId,
+        separator: ExprId,
+    },
+    JsonStringify {
+        value: ExprId,
+    },
+    JsonParse {
+        text: ExprId,
+    },
+    HttpGetText {
+        url: ExprId,
+    },
+    DateNow,
+    DateToIsoString {
+        timestamp_ms: ExprId,
+    },
+    UrlField {
+        field: UrlField,
+        url: ExprId,
+    },
+    FileReadText {
+        path: ExprId,
+    },
+    FileWriteText {
+        path: ExprId,
+        text: ExprId,
+    },
+    BinOp {
+        op: BinOp,
+        lhs: ExprId,
+        rhs: ExprId,
+    },
+    UnaryOp {
+        op: UnaryOp,
+        operand: ExprId,
+    },
+    Conditional {
+        cond: ExprId,
+        then_expr: ExprId,
+        else_expr: ExprId,
+    },
+    InstanceOf {
+        value: ExprId,
+        class: Symbol,
+    },
+    UnknownIs {
+        value: ExprId,
+        kind: UnknownKind,
+    },
+    UnknownCast {
+        value: ExprId,
+        target: TypeId,
+    },
+    Block(BlockId),
+    Lambda {
+        body: BodyId,
+        return_ty: TypeId,
+    },
+    ListLit(Vec<ExprId>),
+    SetLit(Vec<ExprId>),
+    ListToSet {
+        list: ExprId,
+    },
+    ListPairsToDict {
+        list: ExprId,
+    },
+    DictLit(Vec<(ExprId, ExprId)>),
+    TupleLit(Vec<ExprId>),
+    TupleToList {
+        tuple: ExprId,
+    },
+    ListToTuple {
+        list: ExprId,
+    },
+    TupleToSet {
+        tuple: ExprId,
+    },
+    TupleIndex {
+        tuple: ExprId,
+        index: usize,
+    },
+    TupleSlice {
+        tuple: ExprId,
+        start: usize,
+        end: usize,
+    },
+    New {
+        class: Symbol,
+        args: Vec<ExprId>,
+    },
+    Await(ExprId),
+    AsyncOp {
+        op: AsyncOp,
+        args: Vec<ExprId>,
+    },
+}

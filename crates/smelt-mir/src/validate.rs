@@ -436,8 +436,32 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, pattern, errors);
             validate_operand_exists(function, haystack, errors);
         }
+        Rvalue::RegexReplace {
+            pattern,
+            haystack,
+            replacement,
+            ..
+        } => {
+            validate_operand_exists(function, pattern, errors);
+            validate_operand_exists(function, haystack, errors);
+            validate_operand_exists(function, replacement, errors);
+        }
+        Rvalue::RegexSplit { pattern, haystack } => {
+            validate_operand_exists(function, pattern, errors);
+            validate_operand_exists(function, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand_exists(function, url, errors);
+        }
+        Rvalue::DateNow => {}
+        Rvalue::DateToIsoString { timestamp_ms } => {
+            validate_operand_exists(function, timestamp_ms, errors);
+        }
+        Rvalue::UrlField { url, .. } => validate_operand_exists(function, url, errors),
+        Rvalue::FileReadText { path } => validate_operand_exists(function, path, errors),
+        Rvalue::FileWriteText { path, text } => {
+            validate_operand_exists(function, path, errors);
+            validate_operand_exists(function, text, errors);
         }
         Rvalue::NumericExtrema { args, .. } => {
             for arg in args {
@@ -978,8 +1002,32 @@ fn validate_rvalue(
             validate_operand(function, definitions, pattern, errors);
             validate_operand(function, definitions, haystack, errors);
         }
+        Rvalue::RegexReplace {
+            pattern,
+            haystack,
+            replacement,
+            ..
+        } => {
+            validate_operand(function, definitions, pattern, errors);
+            validate_operand(function, definitions, haystack, errors);
+            validate_operand(function, definitions, replacement, errors);
+        }
+        Rvalue::RegexSplit { pattern, haystack } => {
+            validate_operand(function, definitions, pattern, errors);
+            validate_operand(function, definitions, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand(function, definitions, url, errors);
+        }
+        Rvalue::DateNow => {}
+        Rvalue::DateToIsoString { timestamp_ms } => {
+            validate_operand(function, definitions, timestamp_ms, errors);
+        }
+        Rvalue::UrlField { url, .. } => validate_operand(function, definitions, url, errors),
+        Rvalue::FileReadText { path } => validate_operand(function, definitions, path, errors),
+        Rvalue::FileWriteText { path, text } => {
+            validate_operand(function, definitions, path, errors);
+            validate_operand(function, definitions, text, errors);
         }
         Rvalue::NumericExtrema { args, .. } => {
             for arg in args {

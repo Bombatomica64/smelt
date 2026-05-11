@@ -189,10 +189,20 @@ fn rewrite_rvalue(
             pattern,
             replacement,
             ..
+        }
+        | Rvalue::RegexReplace {
+            haystack,
+            pattern,
+            replacement,
+            ..
         } => {
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(pattern, aliases, dest)
                 | rewrite_operand_except(replacement, aliases, dest)
+        }
+        Rvalue::RegexSplit { pattern, haystack } => {
+            rewrite_operand_except(pattern, aliases, dest)
+                | rewrite_operand_except(haystack, aliases, dest)
         }
         Rvalue::StringRemoveAffix {
             haystack, affix, ..
@@ -401,6 +411,16 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(haystack, aliases, dest)
         }
         Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
+        Rvalue::DateNow => false,
+        Rvalue::DateToIsoString { timestamp_ms } => {
+            rewrite_operand_except(timestamp_ms, aliases, dest)
+        }
+        Rvalue::UrlField { url, .. } => rewrite_operand_except(url, aliases, dest),
+        Rvalue::FileReadText { path } => rewrite_operand_except(path, aliases, dest),
+        Rvalue::FileWriteText { path, text } => {
+            rewrite_operand_except(path, aliases, dest)
+                | rewrite_operand_except(text, aliases, dest)
+        }
         Rvalue::NumericExtrema { args, .. } => args.iter_mut().fold(false, |changed, arg| {
             rewrite_operand_except(arg, aliases, dest) || changed
         }),

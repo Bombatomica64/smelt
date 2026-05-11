@@ -25,6 +25,12 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_rand) {
         deps.push(BackendDependency::Rand);
     }
+    if any_rvalue_needs(mir, rvalue_needs_chrono) {
+        deps.push(BackendDependency::Chrono);
+    }
+    if any_rvalue_needs(mir, rvalue_needs_url) {
+        deps.push(BackendDependency::Url);
+    }
     deps
 }
 
@@ -55,7 +61,20 @@ fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
 
 /// Returns true when a MIR rvalue uses Regex APIs.
 fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
-    matches!(rvalue, Rvalue::RegexIsMatch { .. })
+    matches!(
+        rvalue,
+        Rvalue::RegexIsMatch { .. } | Rvalue::RegexReplace { .. } | Rvalue::RegexSplit { .. }
+    )
+}
+
+/// Returns true when a MIR rvalue uses Chrono APIs.
+fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
+    matches!(rvalue, Rvalue::DateNow | Rvalue::DateToIsoString { .. })
+}
+
+/// Returns true when a MIR rvalue uses Url APIs.
+fn rvalue_needs_url(rvalue: &Rvalue) -> bool {
+    matches!(rvalue, Rvalue::UrlField { .. })
 }
 
 /// Returns true when a MIR rvalue uses Rand APIs.
