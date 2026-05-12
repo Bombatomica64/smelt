@@ -3,12 +3,18 @@ impl ModuleBuilder<'_> {
         &mut self,
         name_text: &str,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let function_hint = type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::Function(function)) => Some(function),
+            _ => None,
+        });
         let return_ty = arrow
             .return_type
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
+            .or_else(|| function_hint.as_ref().map(|function| function.return_ty))
             .ok_or_else(|| {
                 SmeltError::unsupported(
                     self.span(arrow.span.start, arrow.span.end),
@@ -41,6 +47,11 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
+                .or_else(|| {
+                    function_hint
+                        .as_ref()
+                        .and_then(|function| function.params.get(params.len()).copied())
+                })
                 .ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(param.span.start, param.span.end),

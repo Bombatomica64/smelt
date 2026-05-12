@@ -36,8 +36,8 @@ Checked the first three proposed Effect alternatives:
 
 | Repo | Approx TS files | Approx runtime test files | Framework | Probe | `smelt check` | Current first blocker |
 |---|---:|---:|---|---|---:|---|
-| `remeda/remeda` | `585` total, `517` package runtime `.ts` files | `174` | Vitest | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | `packages/remeda/src/internal/types/StrictFunction.ts`: rest parameters in `TSFunctionType`, `(...args: never) => unknown`. |
-| `remeda/remeda` | same | same | Vitest | focused `toUpperCase` slice | fail | Same `StrictFunction.ts` blocker, reached through `purry.ts`. |
+| `remeda/remeda` | `585` total, `517` package runtime `.ts` files | `174` | Vitest | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | Superseded by the never step-1 rerun: now reaches `packages/remeda/src/internal/lazyDataLastImpl.ts`, where the data-last closure returns `fn(data, ...args)`. |
+| `remeda/remeda` | same | same | Vitest | focused `toUpperCase` slice | fail | Superseded by the never step-1 rerun: same `lazyDataLastImpl.ts` callback body call/spread blocker. |
 | `sindresorhus/ky` | `52` | AVA tests in `test/*.ts` | AVA | full `source` + `test` manifest | fail | `source/core/Ky.ts`: object spread properties, optional class fields, `Symbol`, `Object`, richer callbacks, and callback binary operators. |
 | `sindresorhus/ky` | same | same | AVA | focused `source/index.ts` slice | fail | `source/core/constants.ts`: exported non-primitive constants/calls, array callback arity, unresolved callback locals, and unannotated exported arrow constant. |
 | `supermacro/neverthrow` | `8` | `2` | Vitest | full `src` + `tests` manifest | fail | Superseded by the cycle fix: now reaches `src/result.ts` and fails on forward class references to `Ok`/`Err`, parenthesized function types returning `Generator`, generic interface methods, generic classes, tuple `never`, tuple rest types, and conditional tuple element types. |
@@ -384,9 +384,11 @@ TypeScript:
 - [ ] `Iterable<T>` type references.
 - [ ] Type queries such as `typeof TypeId` in exported type aliases.
 - [ ] `TSFunctionType` annotations, especially rest args and callback/lazy evaluator shapes.
-- [ ] `never` in rest parameter type positions, required by Remeda's
+- [x] `never` in rest parameter type positions, required by Remeda's
       `StrictFunction = (...args: never) => unknown`; implement according to
       `specs/never-type-plan.md`.
+- [ ] Function calls with spread arguments inside closure/callback bodies, required by Remeda's
+      `lazyDataLastImpl.ts` data-last helper: `(data: unknown): unknown => fn(data, ...args)`.
 - [ ] Inference or safe acceptance for unannotated exported/test-adjacent function declarations
       when upstream TypeScript would infer the return type.
 - [ ] Exported non-primitive const call expressions used by Effect, especially `dual(...)`-style
@@ -472,6 +474,8 @@ Probe roots:
   `/tmp/date_fns_full_compat_20260512_163625`
 - Latest full manifest probe with shared type files forced first:
   `/tmp/date_fns_full_types_first_20260512_163841`
+- Latest full manifest probe after locale type, optional chain, Node probe, and typed-arrow work:
+  `/tmp/smelt_date_fns_full_check_BLgUAn`
 
 Compatibility numbers:
 
@@ -479,8 +483,8 @@ Compatibility numbers:
 |---|---:|---|
 | TS/TSX files under `src` | `1536` | Raw source corpus size in the latest checkout. |
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
-| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Gets past chain/import/Date receiver blockers; current wall is `src/locale/types.ts`. |
-| Full manifest with shared type files forced first `smelt check` | fail | Same `src/locale/types.ts` blockers, so this is real locale type-surface work, not only ordering. |
+| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Gets past `src/locale/types.ts`, Node probe files, `.d.ts` ambient declarations, and `en-US/_lib/formatDistance`; current wall is returned inline arrow functions in `src/locale/_lib/buildFormatLongFn/index.ts`. |
+| Full manifest with shared type files forced first `smelt check` | fail | Superseded by the sorted full-manifest rerun above; the locale type-surface blockers are now cleared. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
 | Sibling `index.ts` + `constants` + `test.ts` slices passing `smelt check` | `21 / 250` | Comparable sibling-index `test.ts` sweep. `isExists` newly reaches Rust emission. |
@@ -493,14 +497,16 @@ Compatibility numbers:
 | Approx direct Vitest cases covered | `78 / 2882` | Heuristic text count of direct `it(...)` / `test(...)` calls. |
 
 Latest rerun status: the full sorted manifest now gets past the previous `isSaturday` chain,
-`ContextOptions.in`, and Date receiver blockers. The first failing file is now
-`src/locale/types.ts`, with locale type-surface features that do not directly lower into runtime
-behavior yet. Forcing `src/types.ts` and `src/locale/types.ts` to the front produces the same
-locale failures, so this is no longer just manifest ordering.
+`ContextOptions.in`, Date receiver blockers, `src/locale/types.ts`, the `addBusinessDays/basic.ts`
+Node environment probe, ambient `.d.ts` declaration files, and the first locale
+`formatDistance` formatter. The first failing file is now
+`src/locale/_lib/buildFormatLongFn/index.ts`, where `buildFormatLongFn` returns an inline arrow
+function expression typed by the declared `FormatLongFn` return type.
 
-`src/types.ts` still passes directly. With `src/types.ts` included in each sibling slice, `23`
-date-fns test slices pass all the way through generated Rust `cargo test`. The next full-repo wall
-is `src/locale/types.ts`.
+`src/types.ts`, `src/locale/types.ts`, `src/fp/types.ts`, `src/addBusinessDays/index.ts`,
+`src/_lib/addBusinessDays/basic.ts`, and `src/locale/en-US/_lib/formatDistance/index.ts` pass
+direct `smelt check` probes. With `src/types.ts` included in each sibling slice, `23` date-fns test
+slices pass all the way through generated Rust `cargo test`.
 
 Generic interface implementation status:
 
@@ -521,19 +527,16 @@ Shared type-file status:
 - [x] Full manifest import traversal reaches date helper source files instead of stopping on
   `src/types.ts`.
 - [x] Full date-fns gets past `ContextOptions` / `options?.in` / `toDate(...).getDay()`.
-- [ ] Full date-fns still needs locale type-surface lowering/rejection strategy for
+- [x] Full date-fns gets past locale type-surface lowering/rejection strategy for
   `src/locale/types.ts`.
+- [ ] Full date-fns needs closure-as-value lowering for returned inline arrow functions such as
+  `buildFormatLongFn(...): FormatLongFn { return (options = {}) => { ... }; }`.
 
 Full manifest first blocker:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
-| `src/locale/types.ts` | Imported type-only heritage from `../types.ts` | `extended interface WeekOptions is not declared`. |
-| `src/locale/types.ts` | Optional parameters in function type aliases | `optional function type parameters are not lowered yet`. |
-| `src/locale/types.ts` | Negative numeric literal type | `literal type annotation is not lowered yet: TSLiteralType(... UnaryNegation ...)`. |
-| `src/locale/types.ts` | Mapped types | `TSMappedType` not lowered. |
-| `src/locale/types.ts` | Generic function type aliases | `generic and this-parameter function types are not lowered yet`. |
-| `src/locale/types.ts` | Inline object type literals | `TSTypeLiteral` not lowered. |
+| `src/locale/_lib/buildFormatLongFn/index.ts` | Returned inline arrow function expression | `expression kind is not lowered yet: ArrowFunctionExpression(...)`. |
 
 Optional chaining surface in date-fns:
 
@@ -739,7 +742,12 @@ eight-repo rerun.
   - `packages/remeda/src/toUpperCase.ts`
   - `packages/remeda/src/toUpperCase.test.ts`
 - First blocker:
-  - `TSFunctionType` annotation with rest args, `any`, and `LazyEvaluator`
+  - Superseded by 2026-05-12 never step-1 rerun:
+    - focused log root: `/tmp/smelt-alt-ts-probe-20260512_165432/runs/remeda_to_upper_after_never_step1_180952`
+    - full log root: `/tmp/smelt-alt-ts-probe-20260512_165432/runs/remeda_full_after_never_step1_180952`
+    - new blocker: `packages/remeda/src/internal/lazyDataLastImpl.ts` has a data-last closure
+      returning `fn(data, ...args)`, which currently reports `callback expression kind is not
+      supported yet`.
 
 `psf/requests`:
 

@@ -259,6 +259,7 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Int | Type::Float) => "number".to_owned(),
         Some(Type::String) => "string".to_owned(),
         Some(Type::Unknown) | None => "unknown".to_owned(),
+        Some(Type::Never) => "never".to_owned(),
         Some(Type::TypeParam { name } | Type::Class { name, .. }) => {
             symbol_name(krate, *name).to_owned()
         }
@@ -308,6 +309,7 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Float) => "float".to_owned(),
         Some(Type::String) => "str".to_owned(),
         Some(Type::Unknown) | None => "typing.Any".to_owned(),
+        Some(Type::Never) => "typing.NoReturn".to_owned(),
         Some(Type::TypeParam { name } | Type::Class { name, .. }) => {
             symbol_name(krate, *name).to_owned()
         }

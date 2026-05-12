@@ -96,8 +96,10 @@ impl Mir {
 pub struct MirClosure {
     /// Unique closure identifier.
     pub id: ClosureId,
-    /// Closure parameter locals.
-    pub params: Vec<LocalDecl>,
+    /// Parameter local IDs.
+    pub params: Vec<LocalId>,
+    /// All local variables in the closure body.
+    pub locals: Vec<LocalDecl>,
     /// Captured environment entries.
     pub captures: Vec<MirClosureCapture>,
     /// Return type produced by the closure.
@@ -121,6 +123,8 @@ pub struct MirClosure {
 pub struct MirClosureCapture {
     /// Source local captured from the enclosing function.
     pub source_local: LocalId,
+    /// Local inside the closure body that receives this captured value.
+    pub target_local: Option<LocalId>,
     /// Capture symbol for diagnostics and codegen names.
     pub symbol: Symbol,
     /// Captured type.

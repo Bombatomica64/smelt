@@ -146,7 +146,13 @@ impl ModuleBuilder<'_> {
                 let item = self.substitute_type_params(item, substitutions);
                 self.ctx.krate.types.intern(Type::Future(item))
             }
-            Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown | Type::None => ty,
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::Never
+            | Type::None => ty,
         }
     }
 

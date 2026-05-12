@@ -19,13 +19,14 @@ use oxc::syntax::operator::{
     AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
 };
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, Class, ClosureCapture,
-    ConstItem, DatePart, DictProjectionOp, Expr, ExprKind, Field, FileId, Function, FunctionOwner,
-    FunctionType, Import, Interface, Item, Language, ListCallbackOp, ListSearchOp, Literal,
-    LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,
-    NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
-    SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Type, TypeParamDef, UnaryOp, UnknownKind, UrlField, Visibility,
+    AsyncOp, BinOp, Body, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, Class,
+    ClosureCapture, ConstItem, DatePart, DictProjectionOp, Expr, ExprKind, Field, FileId, Function,
+    FunctionOwner, FunctionType, Import, Interface, Item, Language, ListCallbackOp, ListSearchOp,
+    Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
+    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
+    PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
+    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
+    TypeParamDef, UnaryOp, UnknownKind, UrlField, Visibility,
 };
 use smelt_stdlib::RuleId;
 

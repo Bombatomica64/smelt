@@ -758,6 +758,45 @@ function isSaturday<DateType extends Date>(
 }
 
 #[test]
+fn lowers_date_fns_node_probe_and_date_to_string() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+if (process.env.TZ !== "America/Santiago")
+  throw new Error("bad timezone");
+
+if (parseInt(process.version.match(/^v(\d+)\./)?.[1] || "0") < 10)
+  throw new Error("bad version");
+
+const rendered = new Date(2014, 8, 1).toString();
+console.log(rendered);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToString,
+                ..
+            }
+        )),
+        "expected Date .toString() to lower through a string primitive cast",
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::If { .. })),
+        "expected the Node environment probes to lower as conditional statements",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_date_fns_locale_type_surfaces() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -873,6 +912,95 @@ function missing(value: number): number;
     )?;
 
     assert_unsupported_ts(&errors, "declare functions are not lowered yet")
+}
+
+#[test]
+fn ignores_exported_ambient_declare_functions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export declare function addLeadingZeros(number: number, targetLength: number): string;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(module.items.is_empty());
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_exported_arrow_const_from_function_type_annotation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type FormatDistanceFn = (
+  token: string,
+  count: number,
+  options?: { addSuffix?: boolean },
+) => string;
+
+export const formatDistance: FormatDistanceFn = (token, count, options) => {
+  if (options?.addSuffix) {
+    return token + count.toString();
+  }
+  return token;
+};
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize) {
+            Some(Item::Function(function)) => Some(function),
+            _ => None,
+        })
+        .ok_or_else(|| "expected exported arrow const to lower as a function item".to_owned())?;
+    ensure_eq!(function.params.len(), 3);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_field_access_on_object_branch_of_union() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type TokenValue = string | { one: string; other: string };
+
+function resolve(value: TokenValue, count: number): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (count === 1) {
+    return value.one;
+  }
+  return value.other;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_replace_on_erased_type_surface_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function format(value: ExternalTokenValue): string {
+  return value.other.replace("{{count}}", "2");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

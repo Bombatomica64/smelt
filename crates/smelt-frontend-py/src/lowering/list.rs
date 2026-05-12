@@ -405,6 +405,7 @@ impl ModuleBuilder<'_> {
                 if let Some(local_decl) = body.locals.get(local.0 as usize) {
                     captures.entry(*local).or_insert_with(|| ClosureCapture {
                         source_local: *local,
+                        body_local: None,
                         symbol: local_decl
                             .name
                             .unwrap_or_else(|| self.intern_name("__capture")),
@@ -419,6 +420,7 @@ impl ModuleBuilder<'_> {
                         *target,
                         ClosureCapture {
                             source_local: *target,
+                            body_local: None,
                             symbol: local_decl
                                 .name
                                 .unwrap_or_else(|| self.intern_name("__capture")),
@@ -446,6 +448,12 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_callback_captures(lhs, body, captures);
                 self.collect_callback_captures(rhs, body, captures);
+            }
+            CallbackExprKind::Call { callee, args } => {
+                self.collect_callback_captures(callee, body, captures);
+                for arg in args {
+                    self.collect_callback_captures(&arg.expr, body, captures);
+                }
             }
             CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
         }

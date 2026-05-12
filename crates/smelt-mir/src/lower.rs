@@ -524,6 +524,62 @@ impl<'hir> LoweringCtx<'hir> {
         })
     }
 
+    /// Creates a lowering context for a nested closure body.
+    fn new_closure(
+        krate: &'hir smelt_hir::Crate,
+        item_functions: &'hir HashMap<smelt_hir::ItemId, FuncId>,
+        body_id: BodyId,
+        body: &'hir Body,
+        return_ty: TypeId,
+        span: Span,
+        loop_index_ty: TypeId,
+        loop_bool_ty: TypeId,
+        closure_base: usize,
+    ) -> Result<Self, LowerError> {
+        let mut function = MirFunction::new(
+            FuncId(u32::MAX),
+            Symbol(u32::MAX),
+            HirOrigin::Body(body_id),
+            return_ty,
+            span,
+        );
+        let mut locals = HashMap::new();
+        for (idx, local) in body.locals.iter().enumerate() {
+            let hir_local = HirLocalId(u32_from_usize(idx, "HIR local index does not fit in u32")?);
+            let is_param = body.params.contains(&hir_local);
+            let kind = if is_param {
+                LocalKind::Param
+            } else {
+                local.name.map_or(LocalKind::Temp, LocalKind::UserBinding)
+            };
+            let mir_local = function.push_local(LocalDecl {
+                ty: local.ty,
+                kind,
+                span: local.span,
+            });
+            if is_param {
+                function.params.push(mir_local);
+            }
+            locals.insert(hir_local, mir_local);
+        }
+
+        Ok(Self {
+            krate,
+            item_functions,
+            body,
+            function,
+            closures: Vec::new(),
+            closure_base,
+            current_block: BlockId(0),
+            locals,
+            exprs: HashMap::new(),
+            loops: Vec::new(),
+            exception_targets: Vec::new(),
+            loop_index_ty,
+            loop_bool_ty,
+        })
+    }
+
     /// Lowers the entire function body to MIR.
     fn lower(mut self) -> Result<LoweredFunction, LowerError> {
         if let HirOrigin::ClassConstructor { class, .. } = self.function.origin {
@@ -2627,6 +2683,7 @@ impl<'hir> LoweringCtx<'hir> {
                             .copied()
                             .map(|source_local| MirClosureCapture {
                                 source_local,
+                                target_local: capture.body_local.map(|local| LocalId(local.0)),
                                 symbol: capture.symbol,
                                 ty: capture.ty,
                                 mode: capture.mode,
@@ -2639,31 +2696,69 @@ impl<'hir> LoweringCtx<'hir> {
                             })
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let params = closure
-                    .params
-                    .iter()
-                    .map(|param| LocalDecl {
-                        ty: param.ty,
-                        kind: LocalKind::Param,
-                        span: param.span,
-                    })
-                    .collect::<Vec<_>>();
-                self.closures.push(MirClosure {
-                    id: closure_id,
-                    params,
-                    captures: mir_captures,
-                    return_ty: closure.return_ty,
-                    blocks: vec![BasicBlock {
-                        id: BlockId(0),
-                        phis: Vec::new(),
-                        statements: Vec::new(),
-                        terminator: None,
-                        span: closure.span,
-                    }],
-                    entry: BlockId(0),
-                    escapes: false,
-                    callback_body: closure.callback_body.clone(),
-                });
+                if closure.callback_body.is_some() {
+                    let mut locals = Vec::new();
+                    let mut params = Vec::new();
+                    for param in &closure.params {
+                        let local = LocalId(u32_from_usize(
+                            locals.len(),
+                            "MIR closure local index does not fit in u32",
+                        )?);
+                        locals.push(LocalDecl {
+                            ty: param.ty,
+                            kind: LocalKind::Param,
+                            span: param.span,
+                        });
+                        params.push(local);
+                    }
+                    self.closures.push(MirClosure {
+                        id: closure_id,
+                        params,
+                        locals,
+                        captures: mir_captures,
+                        return_ty: closure.return_ty,
+                        blocks: vec![BasicBlock {
+                            id: BlockId(0),
+                            phis: Vec::new(),
+                            statements: Vec::new(),
+                            terminator: None,
+                            span: closure.span,
+                        }],
+                        entry: BlockId(0),
+                        escapes: false,
+                        callback_body: closure.callback_body.clone(),
+                    });
+                } else {
+                    let closure_body = self.krate.bodies.get(closure.body.0 as usize).ok_or_else(|| {
+                        self.error("closure references an unknown body", Some(closure.span))
+                    })?;
+                    let closure_ctx = LoweringCtx::new_closure(
+                        self.krate,
+                        self.item_functions,
+                        closure.body,
+                        closure_body,
+                        closure.return_ty,
+                        closure.span,
+                        self.loop_index_ty,
+                        self.loop_bool_ty,
+                        closure_index
+                            .checked_add(1)
+                            .ok_or_else(|| self.error("MIR closure index overflowed usize", Some(expr.span)))?,
+                    )?;
+                    let (function, nested_closures) = closure_ctx.lower()?;
+                    self.closures.push(MirClosure {
+                        id: closure_id,
+                        params: function.params,
+                        locals: function.locals,
+                        captures: mir_captures,
+                        return_ty: closure.return_ty,
+                        blocks: function.blocks,
+                        entry: function.entry,
+                        escapes: false,
+                        callback_body: None,
+                    });
+                    self.closures.extend(nested_closures);
+                }
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,

@@ -190,6 +190,85 @@ export type ResultType<DateType extends Date> = DateType extends Date ? DateType
 }
 
 #[test]
+fn lowers_never_type_surface_without_runtime_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export type StrictFunction = (...args: never) => unknown;
+export type Value = string | never;
+export type ImpossibleTuple = [never, ...never[]];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+
+    let strict_function = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::TypeAlias(alias)
+                if ctx.krate.symbols.get(alias.name) == Some("StrictFunction") =>
+            {
+                Some(alias)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing StrictFunction alias".to_owned())?;
+    let Some(Type::Function(function)) = ctx.krate.types.get(strict_function.ty) else {
+        return Err("StrictFunction did not lower to a function type".to_owned());
+    };
+    ensure!(matches!(
+        function.params.as_slice(),
+        [param] if matches!(ctx.krate.types.get(*param), Some(Type::Never))
+    ));
+    ensure!(matches!(
+        ctx.krate.types.get(function.return_ty),
+        Some(Type::Unknown)
+    ));
+
+    let value = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::TypeAlias(alias) if ctx.krate.symbols.get(alias.name) == Some("Value") => {
+                Some(alias)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing Value alias".to_owned())?;
+    ensure!(matches!(ctx.krate.types.get(value.ty), Some(Type::String)));
+
+    let tuple = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::TypeAlias(alias)
+                if ctx.krate.symbols.get(alias.name) == Some("ImpossibleTuple") =>
+            {
+                Some(alias)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing ImpossibleTuple alias".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(tuple.ty),
+        Some(Type::Tuple(items))
+            if matches!(items.as_slice(), [item] if matches!(ctx.krate.types.get(*item), Some(Type::Never)))
+    ));
+    Ok(())
+}
+
+#[test]
+fn rejects_runtime_never_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(ts!("const value: never = 1;"), &mut ctx)?;
+    assert_unsupported_ts(&errors, "never")?;
+
+    let errors = lowering_errors(ts!("const value: [never] = [1];"), &mut HirCtx::new())?;
+    assert_unsupported_ts(&errors, "never")
+}
+
+#[test]
 fn exported_literal_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(

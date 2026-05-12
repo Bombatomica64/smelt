@@ -146,7 +146,14 @@ impl ModuleBuilder<'_> {
                 | Type::Class { .. }
                 | Type::Optional(_),
             ) => Some("object"),
-            Some(Type::Unknown | Type::Union(_) | Type::Future(_) | Type::TypeParam { .. }) | None => {
+            Some(
+                Type::Unknown
+                | Type::Never
+                | Type::Union(_)
+                | Type::Future(_)
+                | Type::TypeParam { .. },
+            )
+            | None => {
                 None
             }
         }
@@ -210,6 +217,12 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(expression, body)?;
         let target = self.ts_type_to_hir(annotation)?;
+        if self.concrete_type_requires_never_value(target) {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "type assertion cannot construct a never value",
+            ));
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, value)) == Some(&Type::Unknown)
             && target != Self::expr_ty(body, value)
         {

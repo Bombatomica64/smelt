@@ -224,21 +224,52 @@ impl FunctionEmitter<'_> {
             .closures
             .get(usize::try_from(id.0).unwrap_or(usize::MAX))
             .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?;
-        let callback = closure.callback_body.as_ref().ok_or_else(|| {
-            EmitError::new("general closure bodies are not supported in Rust codegen yet")
-        })?;
-        let params = closure
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, _)| format!("arg{index}"))
-            .collect::<Vec<_>>();
-        let param_refs = params.iter().map(String::as_str).collect::<Vec<_>>();
-        let body_expr = self.callback_expr_text(callback, &param_refs)?;
-        let body = if matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_))) {
-            format!("Box::pin(async move {{ {body_expr} }})")
+        let body = if let Some(callback) = closure.callback_body.as_ref() {
+            let params = closure
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, _)| format!("arg{index}"))
+                .collect::<Vec<_>>();
+            let param_refs = params.iter().map(String::as_str).collect::<Vec<_>>();
+            let body_expr = self.callback_expr_text(callback, &param_refs)?;
+            let body = if matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_))) {
+                format!("Box::pin(async move {{ {body_expr} }})")
+            } else {
+                body_expr
+            };
+            format!("|{}| {{ {body} }}", params.join(", "))
         } else {
-            body_expr
+            let function = MirFunction {
+                id: smelt_mir::FuncId(u32::MAX),
+                name: Symbol(u32::MAX),
+                origin: HirOrigin::Body(smelt_hir::BodyId(u32::MAX)),
+                is_async: false,
+                is_test: false,
+                can_throw: false,
+                params: closure.params.clone(),
+                return_ty: closure.return_ty,
+                locals: closure.locals.clone(),
+                blocks: closure.blocks.clone(),
+                entry: closure.entry,
+            };
+            let emitter = FunctionEmitter::new(self.mir, &function)?;
+            let params = closure
+                .params
+                .iter()
+                .map(|param| {
+                    let local = emitter.local_decl(*param)?;
+                    Ok(format!(
+                        "{}: {}",
+                        emitter.local_name(*param)?,
+                        emitter.type_text(local.ty)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
+            let mut body_text = String::new();
+            emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
+            format!("|{params}| {{\n{body_text}    }}")
         };
         let capture_prefix = if closure.escapes
             || matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
@@ -251,10 +282,67 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
-        Ok(format!(
-            "{capture_prefix}|{}| {{ {body} }}",
-            params.join(", ")
-        ))
+        Ok(format!("{capture_prefix}{body}"))
+    }
+
+    /// Emits a closure block with return terminators scoped to the closure body.
+    pub(super) fn emit_closure_block(
+        &self,
+        block: &BasicBlock,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        for statement in &block.statements {
+            self.emit_statement(statement, out)?;
+        }
+        let Some(terminator) = &block.terminator else {
+            return Err(EmitError::new("closure basic block has no terminator"));
+        };
+        match terminator {
+            Terminator::Return(operand) => {
+                if self.function.return_ty == self.none_ty {
+                    if !matches!(operand, Operand::Const(Constant::None)) {
+                        out.push_str(&format!("    {};\n", self.operand_text(operand)?));
+                    }
+                    out.push_str("    ()\n");
+                } else {
+                    out.push_str(&format!(
+                        "    {}\n",
+                        self.operand_as_type_text(operand, self.function.return_ty)?
+                    ));
+                }
+                Ok(())
+            }
+            Terminator::Goto(target) => self.emit_closure_block(self.block(*target)?, out),
+            Terminator::Call {
+                callee,
+                args,
+                dest,
+                target,
+            } => {
+                let call_text = self.call_text(callee, args)?;
+                let local = self.local_decl(*dest)?;
+                let name = self.local_name(*dest)?;
+                out.push_str(&format!(
+                    "    let {name}: {} = {call_text};\n",
+                    self.type_text(local.ty)?
+                ));
+                self.emit_closure_block(self.block(*target)?, out)
+            }
+            Terminator::Switch { .. } | Terminator::Match { .. } => Err(EmitError::new(
+                "branching closure bodies are not supported in Rust codegen yet",
+            )),
+            Terminator::Throw(operand) => {
+                out.push_str(&format!(
+                    "    panic!(\"{{}}\", {});\n",
+                    self.operand_text(operand)?
+                ));
+                Ok(())
+            }
+            Terminator::Unreachable => {
+                out.push_str("    unreachable!()\n");
+                Ok(())
+            }
+        }
     }
 
     /// Resolve a callback operand to the temporary MIR closure body it was constructed from.
@@ -369,6 +457,22 @@ impl FunctionEmitter<'_> {
                 smelt_hir::bin_op_text(*op),
                 self.callback_expr_text(rhs, params)?
             )),
+            smelt_hir::CallbackExprKind::Call { callee, args } => {
+                let callee_text = self.callback_expr_text(callee, params)?;
+                let args_text = args
+                    .iter()
+                    .map(|arg| {
+                        let text = self.callback_expr_text(&arg.expr, params)?;
+                        if arg.spread {
+                            Ok(format!("{text}.clone()"))
+                        } else {
+                            Ok(text)
+                        }
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                Ok(format!("{callee_text}({args_text})"))
+            }
         }
     }
 

@@ -1,4 +1,8 @@
 impl ModuleBuilder<'_> {
+    /// Lower a TypeScript type annotation into HIR type metadata.
+    ///
+    /// `never` is preserved as a bottom marker instead of being converted to
+    /// `None` or `Unknown`; callers that need executable values must reject it.
     fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
         match ty {
             TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) => {
@@ -9,7 +13,7 @@ impl ModuleBuilder<'_> {
             TSType::TSBooleanKeyword(_) | TSType::TSTypePredicate(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Bool))
             }
-            TSType::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::None)),
+            TSType::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
             TSType::TSVoidKeyword(_) | TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::None))
             }
@@ -40,9 +44,12 @@ impl ModuleBuilder<'_> {
             TSType::TSUnionType(union) => {
                 let mut lowered = Vec::new();
                 let mut nullish = Vec::new();
+                let mut saw_never = false;
                 for member in &union.types {
                     let member_ty = self.ts_type_to_hir(member)?;
-                    if matches!(self.ctx.krate.types.get(member_ty), Some(Type::None)) {
+                    if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Never)) {
+                        saw_never = true;
+                    } else if matches!(self.ctx.krate.types.get(member_ty), Some(Type::None)) {
                         nullish.push(member_ty);
                     } else if !lowered.contains(&member_ty) {
                         lowered.push(member_ty);
@@ -54,6 +61,8 @@ impl ModuleBuilder<'_> {
                 } else if lowered.len() == 1 {
                     let single = lowered.remove(0);
                     Ok(single)
+                } else if lowered.is_empty() && nullish.is_empty() && saw_never {
+                    Ok(self.ctx.krate.types.intern(Type::Never))
                 } else {
                     lowered.extend(nullish);
                     Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
@@ -100,6 +109,9 @@ impl ModuleBuilder<'_> {
             TSType::TSTupleType(tuple) => {
                 let mut items = Vec::new();
                 for item in &tuple.element_types {
+                    if self.tuple_rest_type_erases_to_empty(item)? {
+                        continue;
+                    }
                     items.push(self.tuple_element_type_to_hir(item)?);
                 }
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
@@ -324,6 +336,7 @@ impl ModuleBuilder<'_> {
             TSTupleElement::TSStringKeyword(_) => Ok(self.ctx.krate.types.intern(Type::String)),
             TSTupleElement::TSBooleanKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Bool)),
             TSTupleElement::TSUnknownKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            TSTupleElement::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
             TSTupleElement::TSNullKeyword(_)
             | TSTupleElement::TSUndefinedKeyword(_)
             | TSTupleElement::TSVoidKeyword(_) => Ok(self.ctx.krate.types.intern(Type::None)),
@@ -345,7 +358,7 @@ impl ModuleBuilder<'_> {
             }
             TSTupleElement::TSRestType(rest) => Err(SmeltError::unsupported(
                 self.span(rest.span.start, rest.span.end),
-                "tuple rest types are not lowered yet",
+                "tuple rest types are only lowered for never tails",
             )),
             TSTupleElement::TSNamedTupleMember(named) => {
                 self.tuple_element_type_to_hir(&named.element_type)
@@ -354,6 +367,113 @@ impl ModuleBuilder<'_> {
                 self.span(item.span().start, item.span().end),
                 format!("tuple element type is not lowered yet: {item:?}"),
             )),
+        }
+    }
+
+    /// Return whether a tuple rest element is an impossible `never` tail.
+    ///
+    /// TypeScript libraries use `[...never[]]` and occasionally `...never` as
+    /// type-level variadic filters. Those tails cannot contribute runtime tuple
+    /// elements, so Smelt erases them to an empty metadata tail.
+    fn tuple_rest_type_erases_to_empty(
+        &mut self,
+        item: &TSTupleElement<'_>,
+    ) -> Result<bool, SmeltError> {
+        let TSTupleElement::TSRestType(rest) = item else {
+            return Ok(false);
+        };
+        let ty = self.ts_type_to_hir(&rest.type_annotation)?;
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Never) => Ok(true),
+            Some(Type::List(element_ty))
+                if matches!(self.ctx.krate.types.get(*element_ty), Some(Type::Never)) =>
+            {
+                Ok(true)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(rest.span.start, rest.span.end),
+                "tuple rest types are only lowered for never tails",
+            )),
+        }
+    }
+
+    /// Return whether a lowered type contains `never` in a value-bearing slot.
+    fn type_contains_never(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Never) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+                self.type_contains_never(*item)
+            }
+            Some(Type::Dict(key, value)) => {
+                self.type_contains_never(*key) || self.type_contains_never(*value)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => {
+                items.iter().any(|item| self.type_contains_never(*item))
+            }
+            Some(Type::Class { args, .. }) => args.iter().any(|arg| self.type_contains_never(*arg)),
+            Some(Type::Function(function)) => {
+                function
+                    .params
+                    .iter()
+                    .any(|param| self.type_contains_never(*param))
+                    || self.type_contains_never(function.return_ty)
+            }
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::None,
+            )
+            | None => false,
+        }
+    }
+
+    /// Return whether a concrete value of this type would contain a `never` value.
+    fn concrete_type_requires_never_value(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Never) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+                self.concrete_type_requires_never_value(*item)
+            }
+            Some(Type::Dict(key, value)) => {
+                self.concrete_type_requires_never_value(*key)
+                    || self.concrete_type_requires_never_value(*value)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => items
+                .iter()
+                .any(|item| self.concrete_type_requires_never_value(*item)),
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Class { .. }
+                | Type::Function(_)
+                | Type::None,
+            )
+            | None => false,
+        }
+    }
+
+    /// Return whether an array or tuple literal would need to materialize `never`.
+    fn array_literal_needs_never_value(&self, ty: smelt_hir::TypeId, item_count: usize) -> bool {
+        if item_count == 0 {
+            return false;
+        }
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::List(item) | Type::Set(item)) => {
+                self.concrete_type_requires_never_value(*item)
+            }
+            Some(Type::Tuple(items)) => items
+                .iter()
+                .take(item_count)
+                .any(|item| self.concrete_type_requires_never_value(*item)),
+            _ => false,
         }
     }
 
@@ -498,51 +618,82 @@ impl ModuleBuilder<'_> {
 
     /// Resolve the type of a class field.
     fn class_field_type(
-        &self,
+        &mut self,
         receiver_ty: smelt_hir::TypeId,
         field: smelt_hir::Symbol,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        match self.ctx.krate.types.get(receiver_ty) {
-            Some(Type::Dict(_, value)) => Ok(*value),
-            Some(Type::Class { name, .. }) => self
-                .class_by_symbol(*name)
-                .and_then(|class| {
+        let Some(receiver_type) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                self.span(0, 0),
+                "field access is only lowered for Record<string, T>, class, and interface values for now",
+            ));
+        };
+        match receiver_type {
+            Type::Dict(_, value) => Ok(value),
+            Type::Union(items) => {
+                let matches = items
+                    .iter()
+                    .filter_map(|item| self.class_field_type(*item, field).ok())
+                    .collect::<Vec<_>>();
+                match matches.as_slice() {
+                    [single] => Ok(*single),
+                    [] => Err(SmeltError::unsupported(
+                        self.span(0, 0),
+                        "field access is only lowered for Record<string, T>, class, and interface values for now",
+                    )),
+                    [first, rest @ ..] if rest.iter().all(|item| item == first) => Ok(*first),
+                    _ => Err(SmeltError::unsupported(
+                        self.span(0, 0),
+                        "union field access must resolve to one field type",
+                    )),
+                }
+            }
+            Type::Class { name, .. } => {
+                let class_field = self.class_by_symbol(name).and_then(|class| {
                     class
                         .fields
                         .iter()
                         .find(|item| item.name == field)
                         .map(|item| item.ty)
-                })
-                .or_else(|| {
-                    let class_name = self
-                        .ctx
-                        .krate
-                        .names
-                        .get(*name)
-                        .or_else(|| self.ctx.krate.symbols.get(*name))?;
+                });
+                let class_name = self
+                    .ctx
+                    .krate
+                    .names
+                    .get(name)
+                    .or_else(|| self.ctx.krate.symbols.get(name));
+                let sidecar_field = class_name.and_then(|class_name| {
                     self.class_fields.get(class_name).and_then(|fields| {
                         fields
                             .iter()
                             .find(|item| item.name == field)
                             .map(|item| item.ty)
-                        })
-                })
-                .or_else(|| {
-                    self.find_interface(*name).and_then(|interface| {
-                        interface
-                            .fields
-                            .iter()
-                            .find(|item| item.name == field)
-                            .map(|item| item.ty)
                     })
-                })
-                .ok_or_else(|| {
-                    let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
-                    SmeltError::unsupported(
-                        self.span(0, 0),
-                        format!("unknown class or interface field `{field_name}`"),
-                    )
-                }),
+                });
+                let interface = self.find_interface(name);
+                let interface_field = interface.and_then(|interface| {
+                    interface
+                        .fields
+                        .iter()
+                        .find(|item| item.name == field)
+                        .map(|item| item.ty)
+                });
+                if let Some(ty) = class_field.or(sidecar_field).or(interface_field) {
+                    return Ok(ty);
+                }
+                if self.class_by_symbol(name).is_none()
+                    && class_name
+                        .is_none_or(|sidecar_name| !self.class_fields.contains_key(sidecar_name))
+                    && interface.is_none()
+                {
+                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                }
+                let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
+                Err(SmeltError::unsupported(
+                    self.span(0, 0),
+                    format!("unknown class or interface field `{field_name}`"),
+                ))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
                 "field access is only lowered for Record<string, T>, class, and interface values for now",

@@ -15,6 +15,8 @@ pub enum Type {
     String,
     /// TypeScript `unknown`, carried as an opaque safe boundary type.
     Unknown,
+    /// TypeScript `never`, the bottom type with no runtime values.
+    Never,
     /// Type parameter in a generic declaration.
     TypeParam {
         /// The type parameter name.

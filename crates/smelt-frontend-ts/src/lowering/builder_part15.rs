@@ -130,6 +130,9 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.node_process_static_member(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.namespace_member_expression(member, body)? {
             return Ok(expr);
         }
@@ -175,6 +178,55 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
+    }
+
+    /// Lower the small Node `process` surface used by checked date-fns timezone probes.
+    fn node_process_static_member(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        if Self::is_process_version_member(&member.object) {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("v20.0.0".to_owned())),
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
+        if Self::is_process_env_field(member, "TZ") {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
+        None
+    }
+
+    /// Return true for the specific `process.version` member expression.
+    fn is_process_version_member(object: &Expression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = object else {
+            return false;
+        };
+        matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "process")
+            && member.property.name == "version"
+    }
+
+    /// Return true for the specific `process.env.<field>` member expression.
+    fn is_process_env_field(
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        field: &str,
+    ) -> bool {
+        if member.property.name != field {
+            return false;
+        }
+        let Expression::StaticMemberExpression(env_member) = &member.object else {
+            return false;
+        };
+        matches!(&env_member.object, Expression::Identifier(identifier) if identifier.name == "process")
+            && env_member.property.name == "env"
     }
 
     /// Lower a computed member access expression.

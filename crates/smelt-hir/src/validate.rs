@@ -130,6 +130,22 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                                 ),
                             });
                         }
+                        if let Some(body_local) = capture.body_local
+                            && krate
+                                .bodies
+                                .get(closure.body.0 as usize)
+                                .and_then(|closure_body| {
+                                    closure_body.locals.get(body_local.0 as usize)
+                                })
+                                .is_none()
+                        {
+                            errors.push(ValidationError {
+                                message: format!(
+                                    "body {body_idx} expr {expr_idx} closure capture targets unknown closure local {:?}",
+                                    body_local
+                                ),
+                            });
+                        }
                     }
                     if let Some(callback) = &closure.callback_body {
                         validate_callback_expr(body_idx, body, callback, &mut errors);
@@ -226,6 +242,12 @@ fn validate_callback_expr(
         CallbackExprKind::Binary { lhs, rhs, .. } => {
             validate_callback_expr(body_idx, body, lhs, errors);
             validate_callback_expr(body_idx, body, rhs, errors);
+        }
+        CallbackExprKind::Call { callee, args } => {
+            validate_callback_expr(body_idx, body, callee, errors);
+            for arg in args {
+                validate_callback_expr(body_idx, body, &arg.expr, errors);
+            }
         }
         CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
     }

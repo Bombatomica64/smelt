@@ -661,24 +661,56 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?;
-        let callback = self.arrow_callback_from_params(arrow, &params, body)?;
-        let return_ty = return_ty.unwrap_or(callback.ty);
-        let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
-            Some(Type::Future(inner)) if arrow.r#async => *inner,
-            _ => return_ty,
-        };
-        if callback.ty != expected_callback_ty {
-            return Err(SmeltError::unsupported(
+        let callback_result = match self.arrow_return_expression(arrow) {
+            Ok(Expression::CallExpression(_)) => Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
-                "local closure return type does not match its annotation",
-            ));
-        }
+                "call-bodied local arrows lower through closure bodies",
+            )),
+            _ => self.arrow_callback_from_params(arrow, &params, body),
+        };
+        let return_ty = return_ty.unwrap_or_else(|| {
+            callback_result.as_ref().map_or_else(
+                |_| self.ctx.krate.types.intern(Type::Unknown),
+                |callback| callback.ty,
+            )
+        });
         let symbol = self.intern_source_name(name);
         let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: params.clone(),
             return_ty,
             is_async: false,
         }));
+        if let Ok(callback) = callback_result {
+            let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
+                Some(Type::Future(inner)) if arrow.r#async => *inner,
+                _ => return_ty,
+            };
+            if callback.ty != expected_callback_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(arrow.span.start, arrow.span.end),
+                    "local closure return type does not match its annotation",
+                ));
+            }
+            let local = body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty: fn_ty,
+                mutable: false,
+                span: self.span(start, end),
+            });
+            self.locals.insert(name.to_owned(), local);
+            self.local_callbacks.insert(
+                name.to_owned(),
+                LocalCallback {
+                    callback,
+                    params,
+                    defaults: closure_defaults,
+                    rest,
+                    return_ty,
+                },
+            );
+            return Ok(());
+        }
+        let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
         let local = body.push_local(LocalDecl {
             name: Some(symbol),
             ty: fn_ty,
@@ -686,16 +718,12 @@ impl ModuleBuilder<'_> {
             span: self.span(start, end),
         });
         self.locals.insert(name.to_owned(), local);
-        self.local_callbacks.insert(
-            name.to_owned(),
-            LocalCallback {
-                callback,
-                params,
-                defaults: closure_defaults,
-                rest,
-                return_ty,
-            },
-        );
+        let pat = body.push_pattern(Pattern::Binding(local));
+        body.push_stmt(Stmt::Let {
+            pat,
+            ty: fn_ty,
+            value: Some(value),
+        });
         Ok(())
     }
 
@@ -714,6 +742,15 @@ impl ModuleBuilder<'_> {
                 let ty = annotated_ty
                     .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+                if annotated_ty.is_some()
+                    && value.is_some()
+                    && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
+                {
+                    return Err(SmeltError::unsupported(
+                        self.span(binding.span.start, binding.span.end),
+                        "variable annotation `never` requires a diverging initializer",
+                    ));
+                }
                 let name = binding.name.as_str();
                 let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
                 self.ctx.krate.names.record(symbol, name);

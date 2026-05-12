@@ -1,4 +1,34 @@
 impl ModuleBuilder<'_> {
+    /// Lower `new Error(message)` to the message expression used by HIR throws.
+    fn error_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "Error constructor lowering supports at most one message argument",
+            ));
+        }
+        let Some(message_arg) = new_expr.arguments.first() else {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("Error".to_owned())),
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
+        };
+        let message = self.argument(message_arg, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, message)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(message_arg.span().start, message_arg.span().end),
+                "Error constructor message must be a string",
+            ));
+        }
+        Ok(message)
+    }
+
     fn expression_with_hint(
         &mut self,
         expression: &Expression<'_>,
@@ -78,6 +108,12 @@ impl ModuleBuilder<'_> {
                         "empty arrays require an explicit type annotation",
                     ));
                 };
+                if self.array_literal_needs_never_value(ty, items.len()) {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "array or tuple literal cannot construct a never value",
+                    ));
+                }
                 Ok(body.push_expr(Expr {
                     kind: if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
                         ExprKind::TupleLit(items)
@@ -324,6 +360,9 @@ impl ModuleBuilder<'_> {
                 };
                 if callee.name == "Date" {
                     return self.new_date_expression(new_expr, body);
+                }
+                if callee.name == "Error" {
+                    return self.error_constructor_expression(new_expr, body);
                 }
                 if callee.name == "URL" {
                     return Err(SmeltError::unsupported(

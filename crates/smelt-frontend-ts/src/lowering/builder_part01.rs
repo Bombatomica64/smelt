@@ -127,6 +127,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Statement::FunctionDeclaration(function) = statement {
+                if function.declare {
+                    continue;
+                }
                 if is_implemented_overload_signature(function, &implemented_functions) {
                     continue;
                 }
@@ -197,6 +200,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 && let Some(decl) = &export.declaration
             {
                 if let Declaration::FunctionDeclaration(function) = decl {
+                    if function.declare {
+                        continue;
+                    }
                     if is_implemented_overload_signature(function, &implemented_functions) {
                         continue;
                     }
@@ -453,7 +459,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Expression::ArrowFunctionExpression(arrow) = init {
-                let item = self.arrow_function_const_declaration(binding.name.as_str(), arrow)?;
+                let type_hint = declarator
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?;
+                let item =
+                    self.arrow_function_const_declaration(binding.name.as_str(), arrow, type_hint)?;
                 items.push(item);
                 continue;
             }

@@ -158,6 +158,7 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
         Type::Float => "Float".to_owned(),
         Type::String => "String".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
+        Type::Never => "Never".to_owned(),
         Type::TypeParam { name } => krate.symbols.get(*name).unwrap_or("<unknown>").to_owned(),
         Type::None => "None".to_owned(),
         Type::List(item) => format!("List<{}>", type_ref(krate, *item)),

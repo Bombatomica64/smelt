@@ -16,6 +16,15 @@ pub struct CallbackExpr {
     pub ty: TypeId,
 }
 
+/// One argument passed by a callback-local call expression.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CallbackCallArg {
+    /// Argument expression.
+    pub expr: CallbackExpr,
+    /// Whether the source argument used JavaScript spread syntax.
+    pub spread: bool,
+}
+
 /// The kind of a callback expression.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CallbackExprKind {
@@ -64,6 +73,13 @@ pub enum CallbackExprKind {
         /// Right operand.
         rhs: Box<CallbackExpr>,
     },
+    /// A call performed inside a callback expression.
+    Call {
+        /// Callable expression.
+        callee: Box<CallbackExpr>,
+        /// Arguments passed to the callable.
+        args: Vec<CallbackCallArg>,
+    },
 }
 
 /// A first-class closure expression with explicit captures.
@@ -88,6 +104,8 @@ pub struct ClosureExpr {
 pub struct ClosureCapture {
     /// Source local in the enclosing body.
     pub source_local: LocalId,
+    /// Local inside the closure body that receives this captured value.
+    pub body_local: Option<LocalId>,
     /// Source symbol for diagnostics and codegen naming.
     pub symbol: Symbol,
     /// Captured value type.

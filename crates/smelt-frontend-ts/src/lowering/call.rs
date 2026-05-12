@@ -53,6 +53,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.number_to_string_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.node_process_version_match_call(call, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.math_unary_func_call(call, body)? {
             return Ok(expr);
         }
@@ -279,6 +282,16 @@ impl ModuleBuilder<'_> {
                 for arg in &call.arguments {
                     args.push(self.argument(arg, body)?);
                 }
+                if function
+                    .params
+                    .iter()
+                    .any(|param| self.type_contains_never(*param))
+                {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "calls through function types with never parameters are not lowered",
+                    ));
+                }
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall { callee, args },
                     ty: function.return_ty,
@@ -309,6 +322,12 @@ impl ModuleBuilder<'_> {
                 ));
             };
             let rest = self.function_rests.get(callee_ident.name.as_str()).copied();
+            if params.iter().any(|param| self.type_contains_never(*param)) {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "calls through function types with never parameters are not lowered",
+                ));
+            }
             let fixed_param_count = rest.map_or(params.len(), |rest| rest.index);
             if rest.is_none() && call.arguments.len() > fixed_param_count {
                 return Err(SmeltError::unsupported(
@@ -380,6 +399,16 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let supplied_arg_count = call.arguments.len();
+        if function
+            .params
+            .iter()
+            .any(|param| self.type_contains_never(*param))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "calls through function types with never parameters are not lowered",
+            ));
+        }
         let callback_meta = self.local_callbacks.get(callee_ident.name.as_str()).cloned();
         let defaults = callback_meta
             .as_ref()

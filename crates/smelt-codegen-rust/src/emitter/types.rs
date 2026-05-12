@@ -163,6 +163,9 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok("f64".to_owned()),
             Type::String => Ok("String".to_owned()),
             Type::Unknown => Ok("SmeltUnknown".to_owned()),
+            Type::Never => Err(EmitError::new(
+                "never type has no Rust runtime representation",
+            )),
             Type::TypeParam { name } | Type::Class { name, .. } => {
                 Ok(sanitize_ident(self.symbol_name(*name)?))
             }
@@ -235,6 +238,7 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok("0.0".to_owned()),
             Type::String => Ok("String::new()".to_owned()),
             Type::Unknown => Ok("SmeltUnknown::Null".to_owned()),
+            Type::Never => Err(EmitError::new("never type has no default value")),
             Type::None => Ok("()".to_owned()),
             Type::List(_) => Ok("Vec::new()".to_owned()),
             Type::Set(_) => Ok("::std::collections::HashSet::new()".to_owned()),

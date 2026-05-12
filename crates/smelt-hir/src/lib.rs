@@ -61,9 +61,9 @@ pub use body::{
     MatchArm, Pattern, Stmt,
 };
 pub use expr::{
-    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture,
-    ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, ListCallbackOp, ListProjectionOp,
-    ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    AsyncOp, BinOp, BoolFoldOp, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode,
+    ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, ListCallbackOp,
+    ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
     NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp,
     SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp,
     StringSearchOp, StringTrimSide, UnaryOp, UnknownKind, UrlField, bin_op_text,

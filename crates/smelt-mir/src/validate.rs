@@ -31,11 +31,27 @@ fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
                 closure.id
             )));
         }
+        for local in &closure.locals {
+            validate_type(mir, local.ty, errors);
+        }
         for param in &closure.params {
-            validate_type(mir, param.ty, errors);
+            if closure.locals.get(param.0 as usize).is_none() {
+                errors.push(error(format!(
+                    "closure {:?} parameter references unknown local {:?}",
+                    closure.id, param
+                )));
+            }
         }
         for capture in &closure.captures {
             validate_type(mir, capture.ty, errors);
+            if let Some(target) = capture.target_local
+                && closure.locals.get(target.0 as usize).is_none()
+            {
+                errors.push(error(format!(
+                    "closure {:?} capture targets unknown local {:?}",
+                    closure.id, target
+                )));
+            }
             if closure.escapes && capture.mode != smelt_hir::CaptureMode::ByValue {
                 errors.push(error(format!(
                     "escaping closure {:?} captures {:?} without owning it",

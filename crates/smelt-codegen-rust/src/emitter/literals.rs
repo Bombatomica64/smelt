@@ -188,6 +188,12 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
             assigned_callback_locals(lhs, locals);
             assigned_callback_locals(rhs, locals);
         }
+        smelt_hir::CallbackExprKind::Call { callee, args } => {
+            assigned_callback_locals(callee, locals);
+            for arg in args {
+                assigned_callback_locals(&arg.expr, locals);
+            }
+        }
         smelt_hir::CallbackExprKind::Param(_)
         | smelt_hir::CallbackExprKind::Capture(_)
         | smelt_hir::CallbackExprKind::Literal(_) => {}

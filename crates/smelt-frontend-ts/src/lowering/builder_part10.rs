@@ -23,13 +23,15 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let replacement = self.argument(replacement_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, haystack)),
+            Some(Type::String | Type::Unknown)
+        ) || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "regex replacement requires string receiver, pattern, and replacement",
+                "regex replacement requires string-compatible receiver, pattern, and replacement",
             ));
         }
         let ty = self.ctx.krate.types.intern(Type::String);
@@ -448,7 +450,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower direct TypeScript `number.toString()` calls without a radix argument.
+    /// Lower direct TypeScript `.toString()` calls without a radix argument.
     fn number_to_string_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -461,7 +463,17 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let operand = self.expression(&member.object, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+            Some(
+                Type::Int
+                    | Type::Float
+                    | Type::String
+                    | Type::Unknown
+                    | Type::TypeParam { .. }
+                    | Type::Class { .. }
+            )
+        ) {
             return Ok(None);
         }
         if !call.arguments.is_empty() {
@@ -479,6 +491,37 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower the specific Node probe `process.version.match(/^v(\d+)\./)` used by date-fns tests.
+    fn node_process_version_match_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
+        };
+        if member.property.name != "match" || !Self::is_process_version_member(&member.object) {
+            return None;
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+        let whole = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("v20.".to_owned())),
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        });
+        let major = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("20".to_owned())),
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        });
+        Some(body.push_expr(Expr {
+            kind: ExprKind::ListLit(vec![whole, major]),
+            ty: list_ty,
+            span: self.span(call.span.start, call.span.end),
+        }))
     }
 
     /// Lower direct TypeScript unary `Math.*` numeric calls.

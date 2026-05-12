@@ -9,7 +9,9 @@ mod literals;
 mod ops;
 mod types;
 
-pub use call::{CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, ClosureExpr};
+pub use call::{
+    CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, ClosureExpr,
+};
 pub use control_flow::AsyncOp;
 pub use core::Expr;
 pub use kinds::ExprKind;

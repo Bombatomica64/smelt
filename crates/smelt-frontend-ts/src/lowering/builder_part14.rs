@@ -475,6 +475,12 @@ impl ModuleBuilder<'_> {
                 "empty arrays require an explicit type annotation",
             ));
         };
+        if self.array_literal_needs_never_value(ty, items.len()) {
+            return Err(SmeltError::unsupported(
+                self.span(array.span.start, array.span.end),
+                "array or tuple literal cannot construct a never value",
+            ));
+        }
         Ok(body.push_expr(Expr {
             kind: if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
                 ExprKind::TupleLit(items)

@@ -497,13 +497,15 @@ impl ModuleBuilder<'_> {
         let haystack = self.expression(&member.object, body)?;
         let pattern = self.argument(pattern_argument, body)?;
         let replacement = self.argument(replacement_argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, haystack)),
+            Some(Type::String | Type::Unknown)
+        ) || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string replace requires string receiver, pattern, and replacement",
+                "string replace requires string-compatible receiver, pattern, and replacement",
             ));
         }
         let ty = self.ctx.krate.types.intern(Type::String);
