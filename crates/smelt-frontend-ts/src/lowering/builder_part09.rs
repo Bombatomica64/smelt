@@ -6,6 +6,14 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(&binary.left, body)?;
         let value_ty = Self::expr_ty(body, value);
+        if Self::instanceof_date_target(&binary.right) && !self.instanceof_concrete_class(value_ty) {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(false)),
+                ty,
+                span: self.span(binary.span.start, binary.span.end),
+            }));
+        }
         if !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Class { .. })) {
             return Err(SmeltError::unsupported(
                 self.span(binary.left.span().start, binary.left.span().end),
@@ -34,7 +42,17 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `typeof value === "kind"` checks for TypeScript `unknown` values.
+    /// Return true when an expression is the built-in `Date` constructor target.
+    fn instanceof_date_target(target: &Expression<'_>) -> bool {
+        matches!(target, Expression::Identifier(class_ident) if class_ident.name == "Date")
+    }
+
+    /// Return true when `instanceof` can be emitted as a concrete HIR class check.
+    fn instanceof_concrete_class(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+    }
+
+    /// Lower `typeof value === "kind"` checks using known HIR types when possible.
     fn unknown_typeof_comparison(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,
@@ -67,11 +85,32 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         };
+        let expected = kind_lit.value.as_str();
         let value = self.expression(&unary.argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
-            return Ok(None);
-        }
+        let value_ty = Self::expr_ty(body, value);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        if self.ctx.krate.types.get(value_ty) != Some(&Type::Unknown) {
+            let matches_kind = self.typeof_type_name(value_ty).is_some_and(|actual| actual == expected);
+            let result = if matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            ) {
+                !matches_kind
+            } else {
+                matches_kind
+            };
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
+        if kind == UnknownKind::Function {
+            return Err(SmeltError::unsupported(
+                self.span(kind_lit.span.start, kind_lit.span.end),
+                "runtime typeof function checks are not supported for unknown values",
+            ));
+        }
         let check = body.push_expr(Expr {
             kind: ExprKind::UnknownIs { value, kind },
             ty: bool_ty,
@@ -89,6 +128,28 @@ impl ModuleBuilder<'_> {
             )));
         }
         Ok(Some(check))
+    }
+
+    /// Return the JavaScript `typeof` string represented by a lowered type.
+    fn typeof_type_name(&self, ty: smelt_hir::TypeId) -> Option<&'static str> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Bool) => Some("boolean"),
+            Some(Type::Int | Type::Float) => Some("number"),
+            Some(Type::String) => Some("string"),
+            Some(Type::Function(_)) => Some("function"),
+            Some(Type::None) => Some("undefined"),
+            Some(
+                Type::List(_)
+                | Type::Set(_)
+                | Type::Dict(_, _)
+                | Type::Tuple(_)
+                | Type::Class { .. }
+                | Type::Optional(_),
+            ) => Some("object"),
+            Some(Type::Unknown | Type::Union(_) | Type::Future(_) | Type::TypeParam { .. }) | None => {
+                None
+            }
+        }
     }
 
     /// Lower `value === null` checks for TypeScript `unknown` values.
@@ -218,6 +279,20 @@ impl ModuleBuilder<'_> {
                 self.span(argument.span().start, argument.span().end),
                 format!("call argument kind is not lowered yet: {argument:?}"),
             )),
+        }
+    }
+
+    /// Lower a call argument with an expected type for literals that need contextual typing.
+    fn argument_with_hint(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match argument {
+            Argument::ArrayExpression(array) => self.array_expression(array, body, type_hint),
+            Argument::ObjectExpression(object) => self.object_expression(object, body, type_hint),
+            _ => self.argument(argument, body),
         }
     }
 
@@ -358,12 +433,6 @@ impl ModuleBuilder<'_> {
             return None;
         };
         let message = match &member.object {
-            Expression::Identifier(object)
-                if object.name == "Object"
-                    && member.property.name == "assign" =>
-            {
-                "TypeScript Object.assign is not supported yet; object merge semantics need a dedicated mapping"
-            }
             _ if member.property.name == "replaceAll" => {
                 "TypeScript String.replaceAll is not supported yet; replacement semantics need a dedicated mapping"
             }
@@ -447,6 +516,12 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
+        if let Some(expr) = self.date_utc_call(member, call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.date_member_call(member, call, body)? {
+            return Ok(Some(expr));
+        }
         if stdlib_dispatch::call_rule(call) != Some(RuleId::TsDateToIsoString) {
             return Ok(None);
         }
@@ -474,6 +549,47 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `Date.UTC(year, month, ...)` into Smelt's timestamp-from-parts form.
+    fn date_utc_call(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Date" || member.property.name != "UTC" {
+            return Ok(None);
+        }
+        if !(2..=7).contains(&call.arguments.len()) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Date.UTC requires between two and seven numeric arguments",
+            ));
+        }
+        let mut parts = Vec::with_capacity(call.arguments.len());
+        for argument in &call.arguments {
+            let part = self.argument(argument, body)?;
+            if !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, part)),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    "Date.UTC arguments must be numeric",
+                ));
+            }
+            parts.push(part);
+        }
+        let ty = self.ctx.krate.types.intern(Type::Int);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DateFromParts { parts },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower supported `new Date(...)` expressions to a timestamp value.
     fn new_date_expression(
         &mut self,
@@ -483,12 +599,78 @@ impl ModuleBuilder<'_> {
         self.date_constructor_timestamp(new_expr, body)
     }
 
+    /// Lower `new (date.constructor as DateCtor)(value)` for timestamp-mode Dates.
+    fn dynamic_date_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !Self::is_constructor_member_reference(&new_expr.callee) {
+            return Ok(None);
+        }
+        let [value] = new_expr.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "dynamic Date constructor calls require exactly one value argument",
+            ));
+        };
+        Ok(Some(self.argument(value, body)?))
+    }
+
+    /// Return true for expressions that reference a `.constructor` member.
+    fn is_constructor_member_reference(expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::StaticMemberExpression(member) => member.property.name == "constructor",
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::is_constructor_member_reference(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::is_constructor_member_reference(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::is_constructor_member_reference(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::is_constructor_member_reference(&non_null.expression)
+            }
+            _ => false,
+        }
+    }
+
     /// Return the timestamp expression represented by a supported `new Date(...)`.
     fn date_constructor_timestamp(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() >= 2 {
+            if new_expr.arguments.len() > 7 {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Date(year, month, ...) supports at most seven numeric arguments",
+                ));
+            }
+            let mut parts = Vec::with_capacity(new_expr.arguments.len());
+            for argument in &new_expr.arguments {
+                let part = self.argument(argument, body)?;
+                if !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, part)),
+                    Some(Type::Int | Type::Float)
+                ) {
+                    return Err(SmeltError::unsupported(
+                        self.span(argument.span().start, argument.span().end),
+                        "Date constructor parts must be numeric",
+                    ));
+                }
+                parts.push(part);
+            }
+            let ty = self.ctx.krate.types.intern(Type::Int);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DateFromParts { parts },
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
+        }
         let [timestamp_arg] = new_expr.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
@@ -496,16 +678,160 @@ impl ModuleBuilder<'_> {
             ));
         };
         let timestamp_ms = self.argument(timestamp_arg, body)?;
+        let timestamp_ty = Self::expr_ty(body, timestamp_ms);
+        if matches!(self.ctx.krate.types.get(timestamp_ty), Some(Type::Int | Type::Float)) {
+            return Ok(timestamp_ms);
+        }
+        if self.is_date_constructor_arg_type(timestamp_ty) {
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToFloat,
+                    operand: timestamp_ms,
+                },
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(new_expr.span.start, new_expr.span.end),
+            "new Date(timestamp) requires a numeric or DateArg-compatible timestamp",
+        ))
+    }
+
+    /// Return true for types accepted by JavaScript's one-argument Date constructor.
+    fn is_date_constructor_arg_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(
+                Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Class { .. },
+            ) => true,
+            Some(Type::Optional(item)) => self.is_date_constructor_arg_type(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .all(|item| {
+                    matches!(self.ctx.krate.types.get(item), Some(Type::None))
+                        || self.is_date_constructor_arg_type(item)
+                }),
+            _ => false,
+        }
+    }
+
+    /// Lower supported Date receiver methods using Smelt's timestamp Date model.
+    fn date_member_call(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let method = member.property.name.as_str();
+        if method == "getTime" {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Date.getTime() does not accept arguments",
+                ));
+            }
+            return Ok(Some(self.expression(&member.object, body)?));
+        }
+        let getter_part = match method {
+            "getFullYear" => Some(DatePart::FullYear),
+            "getMonth" => Some(DatePart::Month),
+            "getDate" => Some(DatePart::Date),
+            _ => None,
+        };
+        if let Some(part) = getter_part {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("Date.{method}() does not accept arguments"),
+                ));
+            }
+            let timestamp_ms = self.expression(&member.object, body)?;
+            self.ensure_numeric_date_receiver(timestamp_ms, member, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateGetPart { part, timestamp_ms },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        let setter_part = match method {
+            "setFullYear" => Some(DatePart::FullYear),
+            "setMonth" => Some(DatePart::Month),
+            "setDate" => Some(DatePart::Date),
+            _ => None,
+        };
+        let Some(part) = setter_part else {
+            return Ok(None);
+        };
+        if call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("Date.{method}() requires at least one numeric argument"),
+            ));
+        }
+        let timestamp_ms = self.expression(&member.object, body)?;
+        self.ensure_numeric_date_receiver(timestamp_ms, member, body)?;
+        let mut values = Vec::with_capacity(call.arguments.len());
+        for argument in &call.arguments {
+            let value = self.argument(argument, body)?;
+            if !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, value)),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    format!("Date.{method}() arguments must be numeric"),
+                ));
+            }
+            values.push(value);
+        }
+        let ty = Self::expr_ty(body, timestamp_ms);
+        let value = body.push_expr(Expr {
+            kind: ExprKind::DateSetPart {
+                part,
+                timestamp_ms,
+                values,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        });
+        if let Expression::Identifier(identifier) = &member.object
+            && let Some(local) = self.locals.get(identifier.name.as_str()).copied()
+        {
+            let target = body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span: self.span(identifier.span.start, identifier.span.end),
+            });
+            body.push_stmt(Stmt::Assign { target, value });
+        }
+        Ok(Some(value))
+    }
+
+    /// Validate that a lowered Date receiver is represented as a numeric timestamp.
+    fn ensure_numeric_date_receiver(
+        &self,
+        timestamp_ms: smelt_hir::ExprId,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &Body,
+    ) -> Result<(), SmeltError> {
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, timestamp_ms)),
             Some(Type::Int | Type::Float)
         ) {
             return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new Date(timestamp) requires a numeric timestamp",
+                self.span(member.object.span().start, member.object.span().end),
+                "Date method receiver must be a timestamp value",
             ));
         }
-        Ok(timestamp_ms)
+        Ok(())
     }
 
     // Continued in the next split builder file.

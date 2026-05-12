@@ -77,3 +77,33 @@ Commit messages, issues, documentation (like readmes, design docs, comments) can
 ## Contributing
 
 Fork the repo and submit a pr :)
+
+<!-- COVERAGE:START -->
+## Coverage
+
+![Coverage](coverage.svg)
+
+### Workspace
+
+| Metric | Coverage |
+| --- | ---: |
+| Functions | 80.94% |
+| Lines | 71.30% |
+| Regions | 71.13% |
+| Branches | 64.67% |
+
+### Per Crate
+
+| Crate | Functions | Lines | Branches |
+| --- | ---: | ---: | ---: |
+| `smelt-asyncio` | 100.00% | 90.91% | 0.00% |
+| `smelt-cli` | 65.93% | 74.24% | 70.41% |
+| `smelt-codegen-rust` | 88.32% | 79.31% | 55.30% |
+| `smelt-frontend-py` | 77.49% | 73.59% | 66.43% |
+| `smelt-frontend-ts` | 83.86% | 71.71% | 68.26% |
+| `smelt-hir` | 51.69% | 29.79% | 46.94% |
+| `smelt-mir` | 82.12% | 67.95% | 64.86% |
+| `smelt-stdlib` | 80.00% | 69.14% | 0.00% |
+| `smelt-test` | 95.08% | 92.86% | 61.36% |
+<!-- COVERAGE:END -->
+

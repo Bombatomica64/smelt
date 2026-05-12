@@ -177,6 +177,11 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         span: Span,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Expr::Call(call) = arg
+            && let Some(expr) = self.map_filter_list_callback(call, body, span)?
+        {
+            return Ok(Some(expr));
+        }
         let source = self.expression(arg, body)?;
         let source_ty = Self::expr_ty(body, source);
         let (kind, ty) = match self.ctx.krate.types.get(source_ty) {
@@ -216,6 +221,417 @@ impl ModuleBuilder<'_> {
             }
         };
         Ok(Some(body.push_expr(HirExpr { kind, ty, span })))
+    }
+
+    /// Lower `list(map(callback, values))` and `list(filter(callback, values))`.
+    fn map_filter_list_callback(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expr::Name(name) = call.func.as_ref() else {
+            return Ok(None);
+        };
+        let op = match name.id.as_str() {
+            "map" => ListCallbackOp::Map,
+            "filter" => ListCallbackOp::Filter,
+            _ => return Ok(None),
+        };
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                span,
+                "map/filter callbacks do not support keyword arguments",
+            ));
+        }
+        let [callback_arg, list_arg] = call.arguments.args.as_ref() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "map/filter require callback and one list argument",
+            ));
+        };
+        let list = self.expression(list_arg, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(span, "map/filter input must be a list"));
+        };
+        let callback = self.python_callback_argument(callback_arg, &[*element_ty], body)?;
+        let ty = if name.id.as_str() == "filter" {
+            let bool_ty = self.intern_type(Type::Bool);
+            if callback.return_ty != bool_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(callback_arg.range()),
+                    "filter callback must return bool",
+                ));
+            }
+            list_ty
+        } else {
+            self.intern_type(Type::List(callback.return_ty))
+        };
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ListCallback {
+                op,
+                list,
+                callback: callback.expr,
+            },
+            ty,
+            span,
+        })))
+    }
+
+    /// Lower either an inline lambda or an annotated local lambda callback.
+    fn python_callback_argument(
+        &mut self,
+        arg: &Expr,
+        expected_param_tys: &[TypeId],
+        body: &mut Body,
+    ) -> Result<ClosureCallback, SmeltError> {
+        match arg {
+            Expr::Lambda(lambda) => {
+                let callback = self.lambda_callback(lambda, expected_param_tys, body)?;
+                let return_ty = callback.ty;
+                let expr = self.callback_expr_to_closure(
+                    callback,
+                    expected_param_tys,
+                    self.span(lambda.range),
+                    body,
+                );
+                Ok(ClosureCallback { expr, return_ty })
+            }
+            Expr::Name(name) => {
+                let Some(callback) = self.local_callbacks.get(name.id.as_str()).cloned() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(name.range),
+                        format!("local callback `{}` is not defined", name.id),
+                    ));
+                };
+                if callback.params != expected_param_tys {
+                    return Err(SmeltError::unsupported(
+                        self.span(name.range),
+                        "local callback parameter type does not match input list",
+                    ));
+                }
+                if callback.callback.ty != callback.return_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(name.range),
+                        "local callback return type is inconsistent",
+                    ));
+                }
+                let expr = self.callback_expr_to_closure(
+                    callback.callback,
+                    &callback.params,
+                    self.span(name.range),
+                    body,
+                );
+                Ok(ClosureCallback {
+                    expr,
+                    return_ty: callback.return_ty,
+                })
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(arg.range()),
+                "map/filter callbacks must be lambdas or annotated local lambdas",
+            )),
+        }
+    }
+
+    /// Store a Python callback expression as a HIR closure expression.
+    fn callback_expr_to_closure(
+        &mut self,
+        callback: CallbackExpr,
+        params: &[TypeId],
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let mut closure_body = Body::new(None, span);
+        let closure_params = params
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| {
+                let name = self.intern_name(&format!("__callback_param_{index}"));
+                let local = closure_body.push_local(LocalDecl {
+                    name: Some(name),
+                    ty: *ty,
+                    mutable: false,
+                    span,
+                });
+                closure_body.params.push(local);
+                Param {
+                    name,
+                    local,
+                    ty: *ty,
+                    span,
+                }
+            })
+            .collect::<Vec<_>>();
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let captures = self.callback_captures(&callback, body);
+        let return_ty = callback.ty;
+        let closure_ty = self.intern_type(Type::Function(FunctionType {
+            params: params.to_vec(),
+            return_ty,
+            is_async: false,
+        }));
+        body.push_expr(HirExpr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: closure_params,
+                return_ty,
+                captures,
+                body: body_id,
+                callback_body: Some(callback),
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        })
+    }
+
+    /// Collect explicit captures from a Python callback expression tree.
+    fn callback_captures(&mut self, callback: &CallbackExpr, body: &Body) -> Vec<ClosureCapture> {
+        let mut captures = HashMap::new();
+        self.collect_callback_captures(callback, body, &mut captures);
+        captures.into_values().collect()
+    }
+
+    /// Recursively collect captures and upgrade assigned captures to mutable mode.
+    fn collect_callback_captures(
+        &mut self,
+        callback: &CallbackExpr,
+        body: &Body,
+        captures: &mut HashMap<smelt_hir::LocalId, ClosureCapture>,
+    ) {
+        match &callback.kind {
+            CallbackExprKind::Capture(local) => {
+                if let Some(local_decl) = body.locals.get(local.0 as usize) {
+                    captures.entry(*local).or_insert_with(|| ClosureCapture {
+                        source_local: *local,
+                        symbol: local_decl
+                            .name
+                            .unwrap_or_else(|| self.intern_name("__capture")),
+                        ty: local_decl.ty,
+                        mode: CaptureMode::ByRef,
+                    });
+                }
+            }
+            CallbackExprKind::AssignCapture { target, value } => {
+                if let Some(local_decl) = body.locals.get(target.0 as usize) {
+                    captures.insert(
+                        *target,
+                        ClosureCapture {
+                            source_local: *target,
+                            symbol: local_decl
+                                .name
+                                .unwrap_or_else(|| self.intern_name("__capture")),
+                            ty: local_decl.ty,
+                            mode: CaptureMode::ByMut,
+                        },
+                    );
+                }
+                self.collect_callback_captures(value, body, captures);
+            }
+            CallbackExprKind::ListLit(items) => {
+                for item in items {
+                    self.collect_callback_captures(item, body, captures);
+                }
+            }
+            CallbackExprKind::Index { receiver, .. } => {
+                self.collect_callback_captures(receiver, body, captures);
+            }
+            CallbackExprKind::Field { receiver, .. } => {
+                self.collect_callback_captures(receiver, body, captures);
+            }
+            CallbackExprKind::Unary { operand, .. } => {
+                self.collect_callback_captures(operand, body, captures);
+            }
+            CallbackExprKind::Binary { lhs, rhs, .. } => {
+                self.collect_callback_captures(lhs, body, captures);
+                self.collect_callback_captures(rhs, body, captures);
+            }
+            CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
+        }
+    }
+
+    /// Lower a Python lambda body into a callback expression tree.
+    fn lambda_callback(
+        &mut self,
+        lambda: &ruff_python_ast::ExprLambda,
+        expected_param_tys: &[TypeId],
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let params = lambda.parameters.as_ref().ok_or_else(|| {
+            SmeltError::unsupported(self.span(lambda.range), "lambda requires parameters")
+        })?;
+        if params.vararg.is_some() || params.kwarg.is_some() || !params.kwonlyargs.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(lambda.range),
+                "varargs, kwargs, and keyword-only lambda parameters are not supported",
+            ));
+        }
+        let param_items = params
+            .posonlyargs
+            .iter()
+            .chain(&params.args)
+            .collect::<Vec<_>>();
+        if param_items.is_empty() || param_items.len() > expected_param_tys.len() {
+            return Err(SmeltError::unsupported(
+                self.span(lambda.range),
+                "lambda parameter count does not match callback input",
+            ));
+        }
+        let mut callback_params = HashMap::new();
+        for (index, param) in param_items.iter().enumerate() {
+            callback_params.insert(
+                param.parameter.name.as_str(),
+                (index, expected_param_tys[index]),
+            );
+        }
+        self.python_callback_expr(&lambda.body, &callback_params, body)
+    }
+
+    /// Lower default expressions for a Python lambda parameter list.
+    fn lambda_defaults(
+        &mut self,
+        lambda: &ruff_python_ast::ExprLambda,
+        body: &mut Body,
+    ) -> Result<Vec<Option<smelt_hir::ExprId>>, SmeltError> {
+        let params = lambda.parameters.as_ref().ok_or_else(|| {
+            SmeltError::unsupported(self.span(lambda.range), "lambda requires parameters")
+        })?;
+        let param_items = params
+            .posonlyargs
+            .iter()
+            .chain(&params.args)
+            .collect::<Vec<_>>();
+        param_items
+            .iter()
+            .map(|param| {
+                param
+                    .default
+                    .as_ref()
+                    .map(|default| self.expression(default, body))
+                    .transpose()
+            })
+            .collect()
+    }
+
+    /// Lower expressions allowed inside Python callback bodies.
+    fn python_callback_expr(
+        &mut self,
+        expr: &Expr,
+        params: &HashMap<&str, (usize, TypeId)>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        match expr {
+            Expr::Name(name) => {
+                if let Some((index, ty)) = params.get(name.id.as_str()).copied() {
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::Param(index),
+                        ty,
+                    });
+                }
+                let Some(local) = self.locals.get(name.id.as_str()).copied() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(name.range),
+                        format!("unresolved callback identifier `{}`", name.id),
+                    ));
+                };
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Capture(local),
+                    ty: Self::local_ty(body, local),
+                })
+            }
+            Expr::NumberLiteral(number) => match &number.value {
+                Number::Int(value) => Ok(CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::Int(value.as_i64().ok_or_else(
+                        || SmeltError::unsupported(self.span(number.range), "integer literal is too large"),
+                    )?)),
+                    ty: self.intern_type(Type::Int),
+                }),
+                Number::Float(value) => Ok(CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::Float(*value)),
+                    ty: self.intern_type(Type::Float),
+                }),
+                Number::Complex { .. } => Err(SmeltError::unsupported(
+                    self.span(number.range),
+                    "complex callback literals are not supported",
+                )),
+            },
+            Expr::BooleanLiteral(boolean) => Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::Bool(boolean.value)),
+                ty: self.intern_type(Type::Bool),
+            }),
+            Expr::StringLiteral(string) => Ok(CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::String(string.value.to_string())),
+                ty: self.intern_type(Type::String),
+            }),
+            Expr::BinOp(binary) => {
+                let op = match binary.op {
+                    Operator::Add => BinOp::Add,
+                    Operator::Sub => BinOp::Sub,
+                    Operator::Mult => BinOp::Mul,
+                    Operator::Div => BinOp::Div,
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(binary.range),
+                            "callback binary operator is not supported",
+                        ));
+                    }
+                };
+                let lhs = self.python_callback_expr(&binary.left, params, body)?;
+                let rhs = self.python_callback_expr(&binary.right, params, body)?;
+                let ty = lhs.ty;
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    ty,
+                })
+            }
+            Expr::Compare(compare) => {
+                let [cmp_op] = &*compare.ops else {
+                    return Err(SmeltError::unsupported(
+                        self.span(compare.range),
+                        "callback chained comparisons are not supported",
+                    ));
+                };
+                let [right_expr] = compare.comparators.as_ref() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(compare.range),
+                        "callback comparison is missing a right operand",
+                    ));
+                };
+                let op = match cmp_op {
+                    CmpOp::Eq => BinOp::Eq,
+                    CmpOp::NotEq => BinOp::NotEq,
+                    CmpOp::Lt => BinOp::Lt,
+                    CmpOp::LtE => BinOp::Lte,
+                    CmpOp::Gt => BinOp::Gt,
+                    CmpOp::GtE => BinOp::Gte,
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(compare.range),
+                            "callback comparison operator is not supported",
+                        ));
+                    }
+                };
+                let lhs = self.python_callback_expr(&compare.left, params, body)?;
+                let rhs = self.python_callback_expr(right_expr, params, body)?;
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op,
+                        lhs: Box::new(lhs),
+                        rhs: Box::new(rhs),
+                    },
+                    ty: self.intern_type(Type::Bool),
+                })
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(expr.range()),
+                "callback expression is not supported yet",
+            )),
+        }
     }
 
     /// Lower `set(value)` for the currently supported direct container inputs.

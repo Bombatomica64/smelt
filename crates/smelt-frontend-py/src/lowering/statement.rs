@@ -174,11 +174,9 @@ impl ModuleBuilder<'_> {
             // Imports are collected at the module level in a future pass.
             Stmt::Import(_) | Stmt::ImportFrom(_) => Ok(()),
 
-            // Function/class defs at non-module scope not supported yet.
-            Stmt::FunctionDef(f) => Err(SmeltError::unsupported(
-                self.span(f.range),
-                "nested function definitions are not yet supported",
-            )),
+            // Nested functions become local closure values when their
+            // signature and body can be represented by the closure IR.
+            Stmt::FunctionDef(f) => self.nested_function_closure(f, body),
             Stmt::ClassDef(c) => Err(SmeltError::unsupported(
                 self.span(c.range),
                 "nested class definitions are not yet supported",
@@ -211,6 +209,11 @@ impl ModuleBuilder<'_> {
         };
 
         let ty = self.annotation_to_hir(&ann.annotation)?;
+        if let Some(value) = ann.value.as_deref()
+            && let Expr::Lambda(lambda) = value
+        {
+            return self.ann_lambda_assign((target_name.id.as_str(), lambda, ty, self.span(ann.range)), body);
+        }
         let value = ann
             .value
             .as_deref()
@@ -229,6 +232,145 @@ impl ModuleBuilder<'_> {
 
         let pat = body.push_pattern(HirPattern::Binding(local));
         body.push_stmt_to_block(block, HirStmt::Let { pat, ty, value });
+        Ok(())
+    }
+
+    /// Lower `name: Callable[[...], R] = lambda ...` as a local callback value.
+    fn ann_lambda_assign(
+        &mut self,
+        assignment: (&str, &ruff_python_ast::ExprLambda, TypeId, Span),
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let (name, lambda, ty, span) = assignment;
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "local lambda assignments require a Callable annotation",
+            ));
+        };
+        let callback = self.lambda_callback(lambda, &function.params, body)?;
+        let defaults = self.lambda_defaults(lambda, body)?;
+        if callback.ty != function.return_ty {
+            return Err(SmeltError::unsupported(
+                self.span(lambda.range),
+                "local lambda return type does not match Callable annotation",
+            ));
+        }
+        let name_sym = self.intern_name(name);
+        let local = body.push_local(LocalDecl {
+            name: Some(name_sym),
+            ty,
+            mutable: true,
+            span,
+        });
+        self.locals.insert(name.to_owned(), local);
+        self.local_callbacks.insert(
+            name.to_owned(),
+            LocalCallback {
+                callback,
+                params: function.params,
+                defaults,
+                return_ty: function.return_ty,
+            },
+        );
+        Ok(())
+    }
+
+    /// Lower a nested Python function definition as a local closure value.
+    fn nested_function_closure(
+        &mut self,
+        func: &StmtFunctionDef,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        if func.is_async {
+            return Err(SmeltError::unsupported(
+                self.span(func.range),
+                "async nested closures need async closure-body lowering",
+            ));
+        }
+        if func.parameters.vararg.is_some() || func.parameters.kwarg.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(func.range),
+                "variadic nested closures need rest-parameter closure lowering",
+            ));
+        }
+        let return_ty = func
+            .returns
+            .as_deref()
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(func.range),
+                    "nested closure return type must be explicit",
+                )
+            })
+            .and_then(|annotation| self.annotation_to_hir(annotation))?;
+        let mut params = Vec::new();
+        let mut callback_params = HashMap::new();
+        let mut defaults = Vec::new();
+        for (index, param_with_default) in func.parameters.iter_non_variadic_params().enumerate() {
+            let param = &param_with_default.parameter;
+            let param_ty = param
+                .annotation
+                .as_deref()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.range),
+                        "nested closure parameters must have explicit type annotations",
+                    )
+                })
+                .and_then(|annotation| self.annotation_to_hir(annotation))?;
+            params.push(param_ty);
+            callback_params.insert(param.name.as_str(), (index, param_ty));
+            defaults.push(
+                param_with_default
+                    .default
+                    .as_ref()
+                    .map(|default| self.expression(default, body))
+                    .transpose()?,
+            );
+        }
+        let [Stmt::Return(return_stmt)] = func.body.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(func.range),
+                "nested closure bodies need a single return expression",
+            ));
+        };
+        let return_expr = return_stmt.value.as_deref().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(return_stmt.range),
+                "nested closure return statements must return a value",
+            )
+        })?;
+        let callback = self.python_callback_expr(return_expr, &callback_params, body)?;
+        if callback.ty != return_ty {
+            return Err(SmeltError::unsupported(
+                self.span(return_stmt.range),
+                "nested closure return type does not match its annotation",
+            ));
+        }
+        let name_text = func.name.as_str();
+        let name = self.intern_name(name_text);
+        let ty = self.intern_type(Type::Function(FunctionType {
+            params: params.clone(),
+            return_ty,
+            is_async: false,
+        }));
+        let local = body.push_local(LocalDecl {
+            name: Some(name),
+            ty,
+            mutable: true,
+            span: self.span(func.range),
+        });
+        self.locals.insert(name_text.to_owned(), local);
+        self.local_callbacks.insert(
+            name_text.to_owned(),
+            LocalCallback {
+                callback,
+                params,
+                defaults,
+                return_ty,
+            },
+        );
         Ok(())
     }
 

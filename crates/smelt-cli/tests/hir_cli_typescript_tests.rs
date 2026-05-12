@@ -4,7 +4,10 @@ mod common;
 
 use std::fs;
 
-use common::{TestResult, TempProject, cargo_run_manifest, cargo_test_manifest, ensure, ensure_eq, smelt, utf8_path};
+use common::{
+    TempProject, TestResult, cargo_run_manifest, cargo_test_manifest, ensure, ensure_eq, smelt,
+    utf8_path,
+};
 
 #[test]
 fn build_resolves_typescript_index_module_imports() -> TestResult {
@@ -75,7 +78,10 @@ build = true
 clone-strategy = "aggressive"
 "#,
     )?;
-    fs::write(project_path.join("src/constants/index.ts"), "export const monthsInQuarter = 3;\n")?;
+    fs::write(
+        project_path.join("src/constants/index.ts"),
+        "export const monthsInQuarter = 3;\n",
+    )?;
     fs::write(
         project_path.join("src/quartersToMonths/index.ts"),
         "import { monthsInQuarter } from \"../constants/index.ts\";\n\
@@ -197,7 +203,10 @@ describe("quartersToMonths", () => {
     smelt(&["--manifest-path", &manifest_arg, "build"])?;
 
     let test_stdout = cargo_test_manifest(&project_path.join("dist/Cargo.toml"))?;
-    ensure(test_stdout.contains("test result: ok"), "generated tests did not pass")?;
+    ensure(
+        test_stdout.contains("test result: ok"),
+        "generated tests did not pass",
+    )?;
 
     Ok(())
 }
@@ -270,7 +279,10 @@ clone-strategy = "aggressive"
         project_path.join("src/math.ts"),
         "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
     )?;
-    fs::write(project_path.join("src/index.ts"), "export { add as plus } from './math';\n")?;
+    fs::write(
+        project_path.join("src/index.ts"),
+        "export { add as plus } from './math';\n",
+    )?;
     fs::write(
         project_path.join("src/main.ts"),
         "import { plus } from './index';\nconst result = plus(4, 5);\nconsole.log(result);\n",
@@ -404,6 +416,88 @@ clone-strategy = "aggressive"
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"12\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_follows_typescript_dependency_closure() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/lib"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-dependency-closure"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_dependency_closure"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/lib/helper.ts"),
+        "export function addOne(value: number): number {\n  return value + 1;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { addOne } from './lib/helper';\nconst result = addOne(4);\nconsole.log(result);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_dependency_closure_ignores_typescript_type_only_edges() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-type-only-closure"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_type_only_closure"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/types.ts"),
+        "export type OnlyType = number;\nimport { missing } from './missing-runtime';\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import type { OnlyType } from './types';\nconst result = 7;\nconsole.log(result);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"7\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }

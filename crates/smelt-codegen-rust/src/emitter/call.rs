@@ -3,9 +3,12 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a runtime-backed async operation to Rust.
-    pub(super) fn async_op_text(&self, op: smelt_hir::AsyncOp, args: &[Operand]) -> Result<String, EmitError> {
+    pub(super) fn async_op_text(
+        &self,
+        op: smelt_hir::AsyncOp,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
         match op {
             smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => {
                 let rendered_args = args
@@ -185,7 +188,10 @@ impl FunctionEmitter<'_> {
 
     /// Returns the Rust suffix needed when calling a throwing function.
     /// Converts an operand to console.log argument format and returns format string and value.
-    pub(super) fn console_arg_text(&self, operand: &Operand) -> Result<(&'static str, String), EmitError> {
+    pub(super) fn console_arg_text(
+        &self,
+        operand: &Operand,
+    ) -> Result<(&'static str, String), EmitError> {
         if self.operand_ty(operand)? == self.none_ty {
             Ok(("{}", "\"null\"".to_owned()))
         } else if matches!(
@@ -206,7 +212,11 @@ impl FunctionEmitter<'_> {
     /// implementation for a runtime tag check. With today's concrete class
     /// lowering, the operand type is statically known, so codegen emits a
     /// boolean after the operand has already been evaluated by MIR lowering.
-    pub(super) fn instance_of_text(&self, value: &Operand, class: Symbol) -> Result<String, EmitError> {
+    pub(super) fn instance_of_text(
+        &self,
+        value: &Operand,
+        class: Symbol,
+    ) -> Result<String, EmitError> {
         let value_ty = self.operand_ty(value)?;
         let result = match self.mir.types.get(value_ty) {
             Some(Type::Class { name, .. }) => self.class_extends_or_equals(*name, class),
@@ -234,5 +244,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Finds the type ID for a given type.
-
 }

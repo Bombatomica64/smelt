@@ -402,6 +402,7 @@ runtime errors.
   - [x] `Math.random` with an explicit randomness/backend policy.
   - [ ] `Number.isFinite`, `Number.isNaN`, `Number.parseInt`, and `Number.parseFloat`.
     - [x] `Number.isFinite` and `Number.isNaN`.
+    - [x] Global `NaN`.
     - [x] `Number.parseFloat` with a string argument.
     - [x] `Number.parseInt` with a string argument and no radix.
     - [x] Global `parseFloat` with a string argument.
@@ -413,7 +414,7 @@ runtime errors.
   - [x] `Object.values`.
   - [x] `Object.entries`.
   - [x] `Object.fromEntries`.
-  - [ ] `Object.assign`.
+  - [x] `Object.assign`.
   - [ ] Object spread/rest once frontend object spread support lands.
   - [x] `hasOwnProperty` / `Object.hasOwn` for record-like values.
   - [ ] `delete obj[key]` or explicit rejection with mutation semantics documented.
@@ -440,10 +441,15 @@ runtime errors.
         explicitly defer Date support.
     - [x] `Date.now`.
     - [x] `new Date(timestamp).toISOString()`.
-    - [ ] Date construction from string and basic getters.
+    - [x] Numeric Date construction from year/month/day/time parts.
+    - [x] `Date.prototype.getTime`, `getFullYear`, `getMonth`, and `getDate`.
+    - [x] `Date.prototype.setFullYear`, `setMonth`, and `setDate`.
+    - [ ] Date construction from string.
   - [ ] `RegExp.test`, `String.match`, and regex-backed `replace` using the Rust `regex` crate, or
         explicitly defer regex support.
     - [x] `new RegExp(pattern).test(text)` without flags.
+    - [x] RegExp literal `.test(text)` without flags.
+    - [x] Global `RegExp(pattern).test(text)` without flags.
     - [x] Regex-backed `String.replace` and `replaceAll` with `new RegExp(pattern)` and no flags.
   - [ ] `URL` construction and field access through the `url` crate, or explicitly defer URL
         support.

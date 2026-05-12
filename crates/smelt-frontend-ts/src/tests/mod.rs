@@ -91,19 +91,78 @@ fn module_body<'a>(
         .ok_or_else(|| format!("missing body {body_id:?} in lowered crate"))
 }
 
-/// Return whether a lowered capture-free callback references a parameter index.
+/// Return whether a lowered callback references a parameter index.
 fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool {
     match &callback.kind {
         smelt_hir::CallbackExprKind::Param(index) => *index == target,
+        smelt_hir::CallbackExprKind::Capture(_) => false,
+        smelt_hir::CallbackExprKind::AssignCapture { value, .. } => {
+            callback_has_param(value, target)
+        }
         smelt_hir::CallbackExprKind::Literal(_) => false,
         smelt_hir::CallbackExprKind::ListLit(items) => {
             items.iter().any(|item| callback_has_param(item, target))
         }
+        smelt_hir::CallbackExprKind::Index { receiver, .. } => callback_has_param(receiver, target),
+        smelt_hir::CallbackExprKind::Field { receiver, .. } => callback_has_param(receiver, target),
         smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_param(operand, target),
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_param(lhs, target) || callback_has_param(rhs, target)
         }
     }
+}
+
+/// Return whether a closure expression's callback body references a parameter index.
+fn closure_callback_has_param(
+    body: &smelt_hir::Body,
+    callback: smelt_hir::ExprId,
+    target: usize,
+) -> bool {
+    closure_callback_body(body, callback)
+        .is_some_and(|callback| callback_has_param(callback, target))
+}
+
+/// Return whether a lowered callback captures an enclosing local.
+fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
+    match &callback.kind {
+        smelt_hir::CallbackExprKind::Capture(_) => true,
+        smelt_hir::CallbackExprKind::AssignCapture { .. } => true,
+        smelt_hir::CallbackExprKind::Param(_) | smelt_hir::CallbackExprKind::Literal(_) => false,
+        smelt_hir::CallbackExprKind::ListLit(items) => items.iter().any(callback_has_capture),
+        smelt_hir::CallbackExprKind::Index { receiver, .. } => callback_has_capture(receiver),
+        smelt_hir::CallbackExprKind::Field { receiver, .. } => callback_has_capture(receiver),
+        smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_capture(operand),
+        smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
+            callback_has_capture(lhs) || callback_has_capture(rhs)
+        }
+    }
+}
+
+/// Return whether a closure expression's callback body captures an enclosing local.
+fn closure_callback_has_capture(body: &smelt_hir::Body, callback: smelt_hir::ExprId) -> bool {
+    closure_callback_body(body, callback).is_some_and(callback_has_capture)
+}
+
+/// Return whether a closure expression's callback body assigns a captured local.
+fn closure_callback_assigns_capture(body: &smelt_hir::Body, callback: smelt_hir::ExprId) -> bool {
+    closure_callback_body(body, callback).is_some_and(|callback| {
+        matches!(
+            callback.kind,
+            smelt_hir::CallbackExprKind::AssignCapture { .. }
+        )
+    })
+}
+
+/// Resolve the temporary callback-expression bridge from a closure expression.
+fn closure_callback_body(
+    body: &smelt_hir::Body,
+    callback: smelt_hir::ExprId,
+) -> Option<&smelt_hir::CallbackExpr> {
+    let expr = body.exprs.get(callback.0 as usize)?;
+    let smelt_hir::ExprKind::Closure(closure) = &expr.kind else {
+        return None;
+    };
+    closure.callback_body.as_ref()
 }
 
 /// Get a function item at the provided module item index.

@@ -40,6 +40,156 @@ test("case", () => {});
 }
 
 #[test]
+fn generic_interfaces_substitute_defaults_and_inherited_fields() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+interface ContextOptions<DateType extends Date = Date> {
+  in?: DateType;
+}
+
+interface AddOptions<DateType extends Date = Date> extends ContextOptions<DateType> {
+  amount: number;
+}
+
+export type DateArg<DateType extends Date> = DateType | number | string;
+export type ContextFn<DateType extends Date> = (value: DateArg<Date> & {}) => DateType;
+
+function sameDate<DateType extends Date>(
+  date: DateType,
+  options: AddOptions<DateType>,
+  normalize: ContextFn<DateType>
+): DateType {
+  return date;
+}
+"#),
+        "src/generic-options.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let interface = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Interface(interface)
+                if ctx.krate.symbols.get(interface.name) == Some("AddOptions") =>
+            {
+                Some(interface)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing AddOptions interface".to_owned())?;
+
+    ensure_eq!(interface.type_params.len(), 1);
+    let inherited = interface
+        .fields
+        .iter()
+        .find(|field| ctx.krate.symbols.get(field.name) == Some("in"))
+        .ok_or_else(|| "missing inherited `in` field".to_owned())?;
+    let Some(Type::Optional(inner)) = ctx.krate.types.get(inherited.ty) else {
+        return Err("inherited field should be optional".to_owned());
+    };
+    ensure!(matches!(
+        ctx.krate.types.get(*inner),
+        Some(Type::TypeParam { name })
+            if ctx.krate.symbols.get(*name) == Some("DateType")
+    ));
+
+    let function = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function) if ctx.krate.names.get(function.name) == Some("sameDate") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing sameDate function".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(function.return_ty),
+        Some(Type::TypeParam { name })
+            if ctx.krate.symbols.get(*name) == Some("DateType")
+    ));
+    ensure!(matches!(
+        ctx.krate.types.get(function.params[2].ty),
+        Some(Type::Function(function))
+            if matches!(
+                ctx.krate.types.get(function.return_ty),
+                Some(Type::TypeParam { name })
+                    if ctx.krate.symbols.get(*name) == Some("DateType")
+            )
+    ));
+    Ok(())
+}
+
+#[test]
+fn date_fns_shared_types_lower() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r##"
+export type DateArg<DateType extends Date> = DateType | number | string;
+
+export interface ConstructableDate extends Date {
+  [constructFromSymbol]: <DateType extends Date = Date>(
+    value: DateArg<Date> & {},
+  ) => DateType;
+}
+
+export interface GenericDateConstructor<DateType extends Date = Date> {
+  new (): DateType;
+  new (value: DateArg<Date> & {}): DateType;
+  new (
+    year: number,
+    month: number,
+    date?: number,
+    hours?: number,
+    minutes?: number,
+    seconds?: number,
+    ms?: number,
+  ): DateType;
+}
+
+export interface Duration {
+  years?: number;
+  months?: number;
+}
+
+export type DurationUnit = keyof Duration;
+export interface LocalizedOptions<LocaleFields extends keyof Locale> {
+  locale?: Pick<Locale, LocaleFields>;
+}
+export type NearestMinutesOptions = NearestToUnitOptions<1 | 2>;
+export interface ContextOptions<DateType extends Date> {
+  in?: ContextFn<DateType> | undefined;
+}
+export type ResultType<DateType extends Date> = DateType extends Date ? DateType : Date;
+"##),
+        "src/types.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(
+        module.items.len() >= 4,
+        "expected date-fns shared type items to lower"
+    );
+    let duration_unit = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::TypeAlias(alias) if ctx.krate.symbols.get(alias.name) == Some("DurationUnit") => {
+                Some(alias)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing DurationUnit alias".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(duration_unit.ty),
+        Some(Type::String)
+    ));
+    Ok(())
+}
+
+#[test]
 fn exported_literal_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -492,6 +642,27 @@ test("assert helper", () => {
 }
 
 #[test]
+fn node_assert_default_member_calls_lower_as_statements() -> Result<(), String> {
+    let source = ts!(r#"
+import assert from "node:assert";
+
+assert.strictEqual(1, 1);
+assert.deepStrictEqual("same", "same");
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/assert-basic.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::If { .. })),
+        "expected node assert calls to lower into assertion checks",
+    );
+    Ok(())
+}
+
+#[test]
 fn vitest_test_each_expands_literal_rows() -> Result<(), String> {
     let source = ts!(r#"
 import { test, expect } from "vitest";
@@ -510,4 +681,3 @@ test.each([[1, 2, 3], [2, 3, 5]])("adds", (a, b, expected) => {
     }
     Ok(())
 }
-

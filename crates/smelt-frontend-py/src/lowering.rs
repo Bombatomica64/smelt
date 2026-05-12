@@ -19,8 +19,9 @@ use ruff_python_ast::{
 };
 use ruff_text_size::{Ranged, TextRange};
 use smelt_hir::{
-    AsyncOp, BinOp, Body, Class, ClassKind, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind,
-    Field, FileId, Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, Literal,
+    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, Class, ClassKind,
+    ClosureCapture, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId,
+    Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,
     LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
     NumericUnaryFuncOp, Param, Pattern as HirPattern, SetProjectionOp, SourceFile, Span,
     Stmt as HirStmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
@@ -61,6 +62,30 @@ pub(crate) struct ModuleBuilder<'ctx> {
     current_async: bool,
     /// Whether this module should use pytest-specific test discovery rules.
     pytest_mode: bool,
+    /// Local lambda callbacks with explicit callable annotations.
+    local_callbacks: HashMap<String, LocalCallback>,
+}
+
+/// A local Python lambda value that can be consumed by callback APIs without escaping.
+#[derive(Debug, Clone)]
+struct LocalCallback {
+    /// Lowered callback expression tree.
+    callback: CallbackExpr,
+    /// Parameter types in source order.
+    params: Vec<TypeId>,
+    /// Default argument expressions in source order.
+    defaults: Vec<Option<smelt_hir::ExprId>>,
+    /// Return type produced by the callback.
+    return_ty: TypeId,
+}
+
+/// A closure expression prepared for a callback-consuming Python API.
+#[derive(Debug, Clone, Copy)]
+struct ClosureCallback {
+    /// HIR expression id of the closure value.
+    expr: smelt_hir::ExprId,
+    /// Return type produced by the closure.
+    return_ty: TypeId,
 }
 
 /// A simple pytest parametrization table.
@@ -132,6 +157,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             module_namespaces,
             pytest_fixtures: HashMap::new(),
             current_async: false,
+            local_callbacks: HashMap::new(),
         }
     }
 

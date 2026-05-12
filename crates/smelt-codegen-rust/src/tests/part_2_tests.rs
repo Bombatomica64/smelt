@@ -42,10 +42,12 @@ fn emits_typescript_infinity_identifier() {
         r#"
 const upper = Infinity;
 const lower = -Infinity;
+const missing = NaN;
 "#,
     );
 
     assert!(source.contains("f64::INFINITY"));
+    assert!(source.contains("f64::NAN"));
 }
 
 #[test]

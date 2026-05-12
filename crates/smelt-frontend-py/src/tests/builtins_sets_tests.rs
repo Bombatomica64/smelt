@@ -343,6 +343,88 @@ ordered: list[int] = sorted(values)
 }
 
 #[test]
+fn builtin_map_filter_lambda_callbacks_lower() -> TestResult {
+    let source = py!(r#"
+factor: int = 2
+values: list[int] = [1, 2, 3]
+scaled: list[int] = list(map(lambda value: value * factor, values))
+filtered: list[int] = list(filter(lambda value: value > factor, values))
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::ListCallback {
+                    op: smelt_hir::ListCallbackOp::Map,
+                    callback,
+                    ..
+                } if closure_callback_has_capture(body, *callback)
+            )
+        }),
+        "expected map lambda callback lowering",
+    )?;
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::ListCallback {
+                    op: smelt_hir::ListCallbackOp::Filter,
+                    callback,
+                    ..
+                } if closure_callback_has_capture(body, *callback)
+            )
+        }),
+        "expected filter lambda callback lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn builtin_map_local_lambda_callback_lowers() -> TestResult {
+    let source = py!(r#"
+from typing import Callable
+factor: int = 2
+values: list[int] = [1, 2, 3]
+scale: Callable[[int], int] = lambda value: value * factor
+scaled: list[int] = list(map(scale, values))
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = body(
+        &ctx,
+        module
+            .body
+            .ok_or_else(|| "expected module body".to_owned())?,
+    )?;
+
+    ensure(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::ListCallback {
+                    op: smelt_hir::ListCallbackOp::Map,
+                    callback,
+                    ..
+                } if closure_callback_has_capture(body, *callback)
+            )
+        }),
+        "expected local map lambda callback lowering",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn builtin_reversed_lower() -> TestResult {
     let source = py!(r#"
 values: list[int] = [1, 2]

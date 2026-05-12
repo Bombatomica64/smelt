@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
     pub(super) fn unknown_wrap_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(operand)?;
@@ -41,6 +40,11 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::Bool => "SmeltUnknown::Bool(_)",
             smelt_hir::UnknownKind::Number => "SmeltUnknown::Number(_)",
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
+            smelt_hir::UnknownKind::Function => {
+                return Err(EmitError::new(
+                    "runtime typeof function checks are not supported for unknown values",
+                ));
+            }
             smelt_hir::UnknownKind::Array => "SmeltUnknown::Array(_)",
             smelt_hir::UnknownKind::Object => "SmeltUnknown::Object(_)",
         };
@@ -49,7 +53,11 @@ impl FunctionEmitter<'_> {
 
     /// Emits checked extraction from `SmeltUnknown` into a concrete Rust type.
     /// Emits checked extraction from `SmeltUnknown` into a concrete Rust type.
-    pub(super) fn unknown_cast_text(&self, value: &Operand, target: TypeId) -> Result<String, EmitError> {
+    pub(super) fn unknown_cast_text(
+        &self,
+        value: &Operand,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text),
@@ -88,5 +96,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts an awaited future operand without cloning it.
-
 }

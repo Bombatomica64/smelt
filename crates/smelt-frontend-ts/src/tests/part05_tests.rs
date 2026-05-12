@@ -519,4 +519,3 @@ class User implements Named {
     )?;
     assert_unsupported_ts(&errors, "mismatched signature")
 }
-

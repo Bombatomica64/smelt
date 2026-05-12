@@ -3,9 +3,12 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a dictionary key containment operation to Rust text.
-    pub(super) fn dict_contains_key_text(&self, dict: &Operand, key: &Operand) -> Result<String, EmitError> {
+    pub(super) fn dict_contains_key_text(
+        &self,
+        dict: &Operand,
+        key: &Operand,
+    ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
             return Err(EmitError::new("dict contains receiver must be a dict"));
@@ -268,9 +271,48 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts a dictionary assign operation to Rust text.
+    pub(super) fn dict_assign_text(
+        &self,
+        target: &Operand,
+        sources: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let target_ty = self.operand_ty(target)?;
+        if !matches!(self.mir.types.get(target_ty), Some(Type::Dict(_, _))) {
+            return Err(EmitError::new("dict assign target must be a dict"));
+        }
+        if dest_ty != target_ty {
+            return Err(EmitError::new(
+                "dict assign destination must match the target dict type",
+            ));
+        }
+        for source in sources {
+            if self.operand_ty(source)? != target_ty {
+                return Err(EmitError::new(
+                    "dict assign sources must match the target dict type",
+                ));
+            }
+        }
+        let target_text = self.operand_text(target)?;
+        let mut steps = vec![format!("let mut assigned = {target_text}.clone();")];
+        for source in sources {
+            let source_text = self.operand_text(source)?;
+            steps.push(format!(
+                "assigned.extend({source_text}.iter().map(|(key, value)| (key.clone(), value.clone())));"
+            ));
+        }
+        steps.push("assigned".to_owned());
+        Ok(format!("{{ {} }}", steps.join(" ")))
+    }
+
     /// Converts a dictionary copy operation to Rust text.
     /// Converts a dictionary copy operation to Rust text.
-    pub(super) fn dict_copy_text(&self, dict: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn dict_copy_text(
+        &self,
+        dict: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
             return Err(EmitError::new("dict copy receiver must be a dict"));
@@ -320,7 +362,11 @@ impl FunctionEmitter<'_> {
     /// The Serde JSON backend is intentionally confined to this helper and
     /// Cargo dependency injection, making it replaceable without changing HIR
     /// or frontend lowering.
-    pub(super) fn json_stringify_text(&self, value: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn json_stringify_text(
+        &self,
+        value: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::String)) {
             return Err(EmitError::new("JSON stringify destination must be string"));
         }
@@ -343,7 +389,11 @@ impl FunctionEmitter<'_> {
     ///
     /// Serde stays behind this helper so future backend changes do not affect
     /// the frontend lowering shape.
-    pub(super) fn json_parse_text(&self, text: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn json_parse_text(
+        &self,
+        text: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(text)?),
             Some(Type::String)
@@ -363,5 +413,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Returns whether a type is supported by the current JSON serializer path.
-
 }

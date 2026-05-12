@@ -10,7 +10,6 @@ use smelt_stdlib::RuleId;
 
 use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
 
-
 // Standard-library call lowering helpers.
 include!("stdlib_call.rs");
 // Type and conversion helpers used by stdlib lowering.

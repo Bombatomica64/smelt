@@ -116,7 +116,7 @@ fn rejects_optional_class_fields() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_generic_classes_and_interfaces() -> Result<(), String> {
+fn rejects_generic_classes() -> Result<(), String> {
     let mut class_ctx = HirCtx::new();
     let class_errors = lowering_errors(
         ts!("class Box<T> {
@@ -130,15 +130,7 @@ fn rejects_generic_classes_and_interfaces() -> Result<(), String> {
     )?;
     assert_unsupported_ts(&class_errors, "generic classes")?;
 
-    let mut interface_ctx = HirCtx::new();
-    let interface_errors = lowering_errors(
-        ts!("interface Box<T> {
-  value: T;
-}
-"),
-        &mut interface_ctx,
-    )?;
-    assert_unsupported_ts(&interface_errors, "generic interfaces")
+    Ok(())
 }
 
 #[test]

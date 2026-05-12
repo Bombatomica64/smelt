@@ -126,6 +126,13 @@ fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Opt
             };
             (callee.name == "RegExp").then_some(RuleId::TsRegExpTest)
         }
+        Expression::CallExpression(call_expr) if property == "test" => {
+            let Expression::Identifier(callee) = &call_expr.callee else {
+                return None;
+            };
+            (callee.name == "RegExp").then_some(RuleId::TsRegExpTest)
+        }
+        Expression::RegExpLiteral(_) if property == "test" => Some(RuleId::TsRegExpTest),
         Expression::NewExpression(new_expr) if property == "toISOString" => {
             let Expression::Identifier(callee) = &new_expr.callee else {
                 return None;

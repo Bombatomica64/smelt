@@ -47,6 +47,40 @@ impl ModuleBuilder<'_> {
                     Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
                 }
             }
+            TSType::TSIntersectionType(intersection) => {
+                let mut meaningful = Vec::new();
+                for member in &intersection.types {
+                    if matches!(member, TSType::TSTypeLiteral(lit) if lit.members.is_empty()) {
+                        continue;
+                    }
+                    meaningful.push(self.ts_type_to_hir(member)?);
+                }
+                match meaningful.as_slice() {
+                    [] => Ok(self.ctx.krate.types.intern(Type::None)),
+                    [single] => Ok(*single),
+                    _ if meaningful.iter().all(|ty| {
+                        matches!(
+                            self.ctx.krate.types.get(*ty),
+                            Some(Type::Class { .. } | Type::Dict(_, _))
+                        )
+                    }) =>
+                    {
+                        let key_ty = self.ctx.krate.types.intern(Type::String);
+                        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
+                    }
+                    _ => Ok(self.ctx.krate.types.intern(Type::Union(meaningful))),
+                }
+            }
+            TSType::TSConditionalType(conditional) => {
+                let true_ty = self.ts_type_to_hir(&conditional.true_type)?;
+                let false_ty = self.ts_type_to_hir(&conditional.false_type)?;
+                if true_ty == false_ty {
+                    Ok(true_ty)
+                } else {
+                    Ok(self.ctx.krate.types.intern(Type::Union(vec![true_ty, false_ty])))
+                }
+            }
             TSType::TSArrayType(array) => {
                 let element_ty = self.ts_type_to_hir(&array.element_type)?;
                 Ok(self.ctx.krate.types.intern(Type::List(element_ty)))
@@ -63,7 +97,53 @@ impl ModuleBuilder<'_> {
             {
                 self.ts_type_to_hir(&operator.type_annotation)
             }
+            TSType::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof =>
+            {
+                Ok(self.ctx.krate.types.intern(Type::String))
+            }
             TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSType::TSFunctionType(function) => {
+                if function.type_parameters.is_some() || function.this_param.is_some() {
+                    return Err(SmeltError::unsupported(
+                        self.span(function.span.start, function.span.end),
+                        "generic and this-parameter function types are not lowered yet",
+                    ));
+                }
+                let mut params = Vec::new();
+                for param in &function.params.items {
+                    if param.optional {
+                        return Err(SmeltError::unsupported(
+                            self.span(param.span.start, param.span.end),
+                            "optional function type parameters are not lowered yet",
+                        ));
+                    }
+                    let param_ty = param
+                        .type_annotation
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(param.span.start, param.span.end),
+                                "function type parameters require explicit type annotations",
+                            )
+                        })?;
+                    params.push(param_ty);
+                }
+                if function.params.rest.is_some() {
+                    return Err(SmeltError::unsupported(
+                        self.span(function.params.span.start, function.params.span.end),
+                        "rest function type parameters are not lowered yet",
+                    ));
+                }
+                let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
+                Ok(self.ctx.krate.types.intern(Type::Function(smelt_hir::FunctionType {
+                    params,
+                    return_ty,
+                    is_async: false,
+                })))
+            }
             TSType::TSThisType(this_ty) => {
                 let Some(class_name) = &self.current_class else {
                     return Err(SmeltError::unsupported(
@@ -180,6 +260,15 @@ impl ModuleBuilder<'_> {
             ));
         };
         let name_text = name.name.as_str();
+        if let Some(param_ty) = self.type_parameter_type(name_text) {
+            if reference.type_arguments.is_some() {
+                return Err(SmeltError::unsupported(
+                    self.span(reference.span.start, reference.span.end),
+                    "type parameters cannot be used with type arguments",
+                ));
+            }
+            return Ok(param_ty);
+        }
         let args = reference
             .type_arguments
             .as_ref()
@@ -222,17 +311,56 @@ impl ModuleBuilder<'_> {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Future(lowered_item)))
             }
-            (_, []) => {
+            _ => {
                 let symbol = self.intern_type_name(name_text);
+                if let Some(interface) = self.find_interface(symbol).cloned() {
+                    let lowered_args = args
+                        .iter()
+                        .map(|arg| self.ts_type_to_hir(arg))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let substitutions = self.type_argument_substitution(
+                        &interface.type_params,
+                        &lowered_args,
+                        self.span(reference.span.start, reference.span.end),
+                    )?;
+                    let instantiated_args = interface
+                        .type_params
+                        .iter()
+                        .map(|param| {
+                            substitutions.get(&param.name).copied().unwrap_or_else(|| {
+                                self.ctx
+                                    .krate
+                                    .types
+                                    .intern(Type::TypeParam { name: param.name })
+                            })
+                        })
+                        .collect();
+                    return Ok(self.ctx.krate.types.intern(Type::Class {
+                        name: symbol,
+                        args: instantiated_args,
+                    }));
+                }
+                if let Some(alias) = self.find_type_alias(symbol).cloned() {
+                    let lowered_args = args
+                        .iter()
+                        .map(|arg| self.ts_type_to_hir(arg))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let substitutions = self.type_argument_substitution(
+                        &alias.type_params,
+                        &lowered_args,
+                        self.span(reference.span.start, reference.span.end),
+                    )?;
+                    return Ok(self.substitute_type_params(alias.ty, &substitutions));
+                }
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.ts_type_to_hir(arg))
+                    .collect::<Result<Vec<_>, _>>()?;
                 Ok(self.ctx.krate.types.intern(Type::Class {
                     name: symbol,
-                    args: Vec::new(),
+                    args: lowered_args,
                 }))
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(reference.span.start, reference.span.end),
-                format!("type reference is not lowered yet: {name_text}"),
-            )),
         }
     }
 
@@ -490,6 +618,31 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        if name == "NaN" {
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(f64::NAN)),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        if name == "undefined" {
+            let ty = self.ctx.krate.types.intern(Type::None);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        if let Some(callback) = self.local_callbacks.get(name).cloned() {
+            return Ok(self.callback_expr_to_closure_with_return_ty(
+                callback.return_ty,
+                callback.callback,
+                &callback.params,
+                self.span(start, end),
+                body,
+            ));
+        }
         let Some(local) = self.locals.get(name).copied() else {
             if let Some(value) = self.const_literals.get(name) {
                 return Ok(body.push_expr(Expr {
@@ -498,31 +651,81 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
+            if let Some(ty) = self.module_globals.get(name).copied() {
+                return self.module_global_expression(ty, start, end, body);
+            }
             return Err(SmeltError::unsupported(
                 self.span(start, end),
                 format!("unresolved identifier `{name}`"),
             ));
         };
-        let ty = Self::local_ty(body, local);
+        let base_ty = Self::local_ty(body, local);
+        let ty = self.narrowed_type(name).unwrap_or(base_ty);
         let local_expr = body.push_expr(Expr {
             kind: ExprKind::Local(local),
             ty,
             span: self.span(start, end),
         });
-        if let Some(target) = self.narrowed_type(name)
-            && self.ctx.krate.types.get(ty) == Some(&Type::Unknown)
-            && target != ty
+        if self.ctx.krate.types.get(base_ty) == Some(&Type::Unknown)
+            && ty != base_ty
         {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
                     value: local_expr,
-                    target,
+                    target: ty,
                 },
-                ty: target,
+                ty,
                 span: self.span(start, end),
             }));
         }
         Ok(local_expr)
+    }
+
+    /// Synthesize a read value for a known module-level variable.
+    fn module_global_expression(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Class { .. } | Type::Unknown | Type::TypeParam { .. })
+        ) {
+            let key_ty = self.ctx.krate.types.intern(Type::String);
+            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+            let value = body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty: dict_ty,
+                span: self.span(start, end),
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast { value, target: ty },
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        let kind = match self.ctx.krate.types.get(ty) {
+            Some(Type::Dict(_, _)) => ExprKind::DictLit(Vec::new()),
+            Some(Type::None | Type::Optional(_)) => ExprKind::Literal(Literal::None),
+            Some(Type::Bool) => ExprKind::Literal(Literal::Bool(false)),
+            Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
+            Some(Type::Float) => ExprKind::Literal(Literal::Float(0.0)),
+            Some(Type::String) => ExprKind::Literal(Literal::String(String::new())),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(start, end),
+                    "module-level variable type is not lowered for function reads yet",
+                ));
+            }
+        };
+        Ok(body.push_expr(Expr {
+            kind,
+            ty,
+            span: self.span(start, end),
+        }))
     }
 
     /// Ensure a console.log item exists in the HIR.

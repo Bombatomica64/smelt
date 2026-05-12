@@ -3,9 +3,11 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
-    pub(super) fn date_to_iso_string_text(&self, timestamp_ms: &Operand) -> Result<String, EmitError> {
+    pub(super) fn date_to_iso_string_text(
+        &self,
+        timestamp_ms: &Operand,
+    ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(timestamp_ms)?),
             Some(Type::Int | Type::Float)
@@ -14,7 +16,127 @@ impl FunctionEmitter<'_> {
         }
         let timestamp_text = self.operand_text(timestamp_ms)?;
         Ok(format!(
-            "chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).expect(\"timestamp out of range\").to_rfc3339_opts(chrono::SecondsFormat::Millis, true)"
+            "chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned())"
+        ))
+    }
+
+    /// Converts JavaScript Date constructor parts to a timestamp in milliseconds.
+    pub(super) fn date_from_parts_text(&self, parts: &[Operand]) -> Result<String, EmitError> {
+        if parts.is_empty() || parts.len() > 7 {
+            return Err(EmitError::new(
+                "Date constructor expects one to seven arguments",
+            ));
+        }
+        for part in parts {
+            if !matches!(
+                self.mir.types.get(self.operand_ty(part)?),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(EmitError::new("Date constructor parts must be numeric"));
+            }
+        }
+        let mut values = Vec::with_capacity(7);
+        for part in parts {
+            values.push(self.operand_text(part)?);
+        }
+        while values.len() < 7 {
+            values.push(if values.len() == 2 {
+                "1.0".to_owned()
+            } else {
+                "0.0".to_owned()
+            });
+        }
+        let [year, month, day, hour, minute, second, milli] = values.as_slice() else {
+            return Err(EmitError::new(
+                "Date constructor internal part count mismatch",
+            ));
+        };
+        Ok(format!(
+            "{{ let year = {year} as i32; let month0 = {month} as u32; let day = {day} as u32; let hour = {hour} as u32; let minute = {minute} as u32; let second = {second} as u32; let milli = {milli} as u32; chrono::NaiveDate::from_ymd_opt(year, month0 + 1, day).and_then(|date| date.and_hms_milli_opt(hour, minute, second, milli)).map(|dt| dt.and_utc().timestamp_millis()).unwrap_or(i64::MIN) }}",
+        ))
+    }
+
+    /// Converts a JavaScript local date getter to Rust text.
+    pub(super) fn date_get_part_text(
+        &self,
+        part: smelt_hir::DatePart,
+        timestamp_ms: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(timestamp_ms)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("Date getter receiver must be numeric"));
+        }
+        let timestamp_text = self.operand_text(timestamp_ms)?;
+        let accessor = match part {
+            smelt_hir::DatePart::FullYear => "date.year() as f64",
+            smelt_hir::DatePart::Month => "date.month0() as f64",
+            smelt_hir::DatePart::Date => "date.day() as f64",
+        };
+        Ok(format!(
+            "{{ use chrono::Datelike as _; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).map_or(f64::NAN, |date| {accessor}) }}"
+        ))
+    }
+
+    /// Converts a JavaScript local date setter to a replacement timestamp.
+    pub(super) fn date_set_part_text(
+        &self,
+        part: smelt_hir::DatePart,
+        timestamp_ms: &Operand,
+        values: &[Operand],
+    ) -> Result<String, EmitError> {
+        if values.is_empty() {
+            return Err(EmitError::new("Date setter requires at least one value"));
+        }
+        if !matches!(
+            self.mir.types.get(self.operand_ty(timestamp_ms)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("Date setter receiver must be numeric"));
+        }
+        for value in values {
+            if !matches!(
+                self.mir.types.get(self.operand_ty(value)?),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(EmitError::new("Date setter values must be numeric"));
+            }
+        }
+        let timestamp_text = self.operand_text(timestamp_ms)?;
+        let value_texts = values
+            .iter()
+            .map(|value| self.operand_text(value))
+            .collect::<Result<Vec<_>, _>>()?;
+        let update = match part {
+            smelt_hir::DatePart::FullYear => {
+                let Some(year) = value_texts.first() else {
+                    return Err(EmitError::new("Date.setFullYear requires a year value"));
+                };
+                let month = value_texts.get(1).map_or("date.month0()", String::as_str);
+                let day = value_texts.get(2).map_or("date.day()", String::as_str);
+                format!(
+                    "date.with_year({year} as i32).and_then(|date| date.with_month0({month} as u32)).and_then(|date| date.with_day({day} as u32))"
+                )
+            }
+            smelt_hir::DatePart::Month => {
+                let Some(month) = value_texts.first() else {
+                    return Err(EmitError::new("Date.setMonth requires a month value"));
+                };
+                let day = value_texts.get(1).map_or("date.day()", String::as_str);
+                format!(
+                    "date.with_month0({month} as u32).and_then(|date| date.with_day({day} as u32))"
+                )
+            }
+            smelt_hir::DatePart::Date => {
+                let Some(day) = value_texts.first() else {
+                    return Err(EmitError::new("Date.setDate requires a day value"));
+                };
+                format!("date.with_day({day} as u32)")
+            }
+        };
+        Ok(format!(
+            "{{ use chrono::Datelike as _; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).and_then(|date| {update}).map(|date| date.timestamp_millis()).unwrap_or(i64::MIN) }}"
         ))
     }
 
@@ -56,7 +178,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a text-file write to Rust text, returning bytes written.
     /// Converts a text-file write to Rust text, returning bytes written.
-    pub(super) fn file_write_text(&self, path: &Operand, text: &Operand) -> Result<String, EmitError> {
+    pub(super) fn file_write_text(
+        &self,
+        path: &Operand,
+        text: &Operand,
+    ) -> Result<String, EmitError> {
         self.require_string_operands(&[path, text], "file write")?;
         let path_text = self.operand_text(path)?;
         let text_text = self.operand_text(text)?;
@@ -66,5 +192,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Checks that every operand has string type.
-
 }

@@ -130,7 +130,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower capture-free callback-heavy TypeScript array methods.
+    /// Lower callback-heavy TypeScript array methods.
     fn list_callback_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -165,42 +165,46 @@ impl ModuleBuilder<'_> {
         };
         let element_ty = *list_element_ty;
         let index_ty = self.ctx.krate.types.intern(Type::Float);
-        let callback =
-            self.capture_free_arrow_callback(callback_argument, &[element_ty, index_ty])?;
+        let callback = self.callback_argument(
+            callback_argument,
+            &[element_ty, index_ty, list_ty],
+            "array callback",
+            body,
+        )?;
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let ty = match op {
-            ListCallbackOp::Map => self.ctx.krate.types.intern(Type::List(callback.ty)),
+            ListCallbackOp::Map => self.ctx.krate.types.intern(Type::List(callback.return_ty)),
             ListCallbackOp::Filter => {
-                self.require_callback_ty(callback.ty, bool_ty, call, "array filter")?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, "array filter")?;
                 list_ty
             }
             ListCallbackOp::Find => {
-                self.require_callback_ty(callback.ty, bool_ty, call, "array find")?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, "array find")?;
                 self.ctx.krate.types.intern(Type::Optional(element_ty))
             }
             ListCallbackOp::FindIndex => {
-                self.require_callback_ty(callback.ty, bool_ty, call, "array findIndex")?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, "array findIndex")?;
                 self.ctx.krate.types.intern(Type::Float)
             }
             ListCallbackOp::FindLast => {
-                self.require_callback_ty(callback.ty, bool_ty, call, "array findLast")?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, "array findLast")?;
                 self.ctx.krate.types.intern(Type::Optional(element_ty))
             }
             ListCallbackOp::FindLastIndex => {
-                self.require_callback_ty(callback.ty, bool_ty, call, "array findLastIndex")?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, "array findLastIndex")?;
                 self.ctx.krate.types.intern(Type::Float)
             }
             ListCallbackOp::Some => {
-                self.require_callback_ty(callback.ty, bool_ty, call, "array some")?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, "array some")?;
                 bool_ty
             }
             ListCallbackOp::Every => {
-                self.require_callback_ty(callback.ty, bool_ty, call, "array every")?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, "array every")?;
                 bool_ty
             }
             ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
             ListCallbackOp::FlatMap => {
-                let Some(Type::List(item_ty)) = self.ctx.krate.types.get(callback.ty) else {
+                let Some(Type::List(item_ty)) = self.ctx.krate.types.get(callback.return_ty) else {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
                         "array flatMap callback must return an array",
@@ -210,7 +214,11 @@ impl ModuleBuilder<'_> {
             }
         };
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListCallback { op, list, callback },
+            kind: ExprKind::ListCallback {
+                op,
+                list,
+                callback: callback.expr,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -250,16 +258,18 @@ impl ModuleBuilder<'_> {
         };
         let accumulator_ty = initial.map_or(element_ty, |initial| Self::expr_ty(body, initial));
         let index_ty = self.ctx.krate.types.intern(Type::Float);
-        let callback = self.capture_free_arrow_callback(
+        let callback = self.callback_argument(
             callback_argument,
-            &[accumulator_ty, element_ty, index_ty],
+            &[accumulator_ty, element_ty, index_ty, list_ty],
+            "array reduce",
+            body,
         )?;
-        self.require_callback_ty(callback.ty, accumulator_ty, call, "array reduce")?;
+        self.require_callback_ty(callback.return_ty, accumulator_ty, call, "array reduce")?;
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListReduce {
                 list,
                 initial,
-                callback,
+                callback: callback.expr,
             },
             ty: accumulator_ty,
             span: self.span(call.span.start, call.span.end),
@@ -284,11 +294,140 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower a simple capture-free arrow callback to a typed expression tree.
-    fn capture_free_arrow_callback(
+    /// Store a lowered callback expression as a first-class closure expression.
+    fn callback_expr_to_closure(
+        &mut self,
+        callback: CallbackExpr,
+        params: &[smelt_hir::TypeId],
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        self.callback_expr_to_closure_with_return_ty(callback.ty, callback, params, span, body)
+    }
+
+    /// Store a lowered callback expression as a closure with an explicit return type.
+    fn callback_expr_to_closure_with_return_ty(
+        &mut self,
+        return_ty: smelt_hir::TypeId,
+        callback: CallbackExpr,
+        params: &[smelt_hir::TypeId],
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let mut closure_body = Body::new(None, span);
+        let closure_params = params
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| {
+                let name = self
+                    .ctx
+                    .krate
+                    .symbols
+                    .intern(&format!("__callback_param_{index}"));
+                let local = closure_body.push_local(LocalDecl {
+                    name: Some(name),
+                    ty: *ty,
+                    mutable: false,
+                    span,
+                });
+                closure_body.params.push(local);
+                Param {
+                    name,
+                    local,
+                    ty: *ty,
+                    span,
+                }
+            })
+            .collect::<Vec<_>>();
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let captures = self.callback_captures(&callback, body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: params.to_vec(),
+            return_ty,
+            is_async: false,
+        }));
+        body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: closure_params,
+                return_ty,
+                captures,
+                body: body_id,
+                callback_body: Some(callback),
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        })
+    }
+
+    /// Collect explicit captures from a callback expression tree.
+    fn callback_captures(&mut self, callback: &CallbackExpr, body: &Body) -> Vec<ClosureCapture> {
+        let mut captures = HashMap::new();
+        self.collect_callback_captures(callback, body, &mut captures);
+        captures.into_values().collect()
+    }
+
+    /// Recursively collect captures and upgrade assigned captures to mutable mode.
+    fn collect_callback_captures(
+        &mut self,
+        callback: &CallbackExpr,
+        body: &Body,
+        captures: &mut HashMap<smelt_hir::LocalId, ClosureCapture>,
+    ) {
+        match &callback.kind {
+            CallbackExprKind::Capture(local) => {
+                if let Some(local_decl) = body.locals.get(local.0 as usize) {
+                    captures.entry(*local).or_insert_with(|| ClosureCapture {
+                        source_local: *local,
+                        symbol: local_decl
+                            .name
+                            .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
+                        ty: local_decl.ty,
+                        mode: CaptureMode::ByRef,
+                    });
+                }
+            }
+            CallbackExprKind::AssignCapture { target, value } => {
+                if let Some(local_decl) = body.locals.get(target.0 as usize) {
+                    captures.insert(
+                        *target,
+                        ClosureCapture {
+                            source_local: *target,
+                            symbol: local_decl
+                                .name
+                                .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
+                            ty: local_decl.ty,
+                            mode: CaptureMode::ByMut,
+                        },
+                    );
+                }
+                self.collect_callback_captures(value, body, captures);
+            }
+            CallbackExprKind::ListLit(items) => {
+                for item in items {
+                    self.collect_callback_captures(item, body, captures);
+                }
+            }
+            CallbackExprKind::Index { receiver, .. } | CallbackExprKind::Field { receiver, .. } => {
+                self.collect_callback_captures(receiver, body, captures);
+            }
+            CallbackExprKind::Unary { operand, .. } => {
+                self.collect_callback_captures(operand, body, captures);
+            }
+            CallbackExprKind::Binary { lhs, rhs, .. } => {
+                self.collect_callback_captures(lhs, body, captures);
+                self.collect_callback_captures(rhs, body, captures);
+            }
+            CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
+        }
+    }
+
+    /// Lower a supported arrow callback to a typed expression tree.
+    fn arrow_callback(
         &mut self,
         argument: &Argument<'_>,
         expected_param_tys: &[smelt_hir::TypeId],
+        body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         let Argument::ArrowFunctionExpression(arrow) = argument else {
             return Err(SmeltError::unsupported(
@@ -296,12 +435,22 @@ impl ModuleBuilder<'_> {
                 "array callback methods currently require arrow function callbacks",
             ));
         };
-        if arrow.r#async || arrow.type_parameters.is_some() || arrow.params.rest.is_some() {
+        if arrow.r#async || arrow.params.rest.is_some() {
             return Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
-                "async, generic, and rest-parameter callbacks are not supported yet",
+                "async and rest-parameter callbacks need closure-body lowering",
             ));
         }
+        self.arrow_callback_from_params(arrow, expected_param_tys, body)
+    }
+
+    /// Lower an arrow callback after the expected parameter types are known.
+    fn arrow_callback_from_params(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
         if arrow.params.items.is_empty() || arrow.params.items.len() > expected_param_tys.len() {
             return Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
@@ -310,19 +459,13 @@ impl ModuleBuilder<'_> {
         }
         let mut params = HashMap::new();
         for (index, param) in arrow.params.items.iter().enumerate() {
-            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured callback parameters are not supported yet",
-                ));
-            };
             let Some(expected_ty) = expected_param_tys.get(index).copied() else {
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
                     "array callback parameter count is not supported for this method",
                 ));
             };
-            params.insert(binding.name.as_str(), (index, expected_ty));
+            self.bind_callback_param_pattern(&param.pattern, index, expected_ty, &mut params)?;
         }
         let expression = if arrow.expression {
             let [Statement::ExpressionStatement(statement)] = arrow.body.statements.as_slice()
@@ -347,25 +490,228 @@ impl ModuleBuilder<'_> {
                 )
             })?
         };
-        self.callback_expression(expression, &params)
+        self.callback_expression(expression, &params, body)
     }
 
-    /// Lower a supported callback expression and reject captures explicitly.
+    /// Bind names from a callback parameter pattern to callback expressions.
+    fn bind_callback_param_pattern<'a>(
+        &mut self,
+        pattern: &'a BindingPattern<'a>,
+        param_index: usize,
+        param_ty: smelt_hir::TypeId,
+        params: &mut HashMap<&'a str, CallbackExpr>,
+    ) -> Result<(), SmeltError> {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                params.insert(
+                    binding.name.as_str(),
+                    CallbackExpr {
+                        kind: CallbackExprKind::Param(param_index),
+                        ty: param_ty,
+                    },
+                );
+                Ok(())
+            }
+            BindingPattern::ArrayPattern(array) => {
+                let item_tys = match self.ctx.krate.types.get(param_ty) {
+                    Some(Type::Tuple(items)) => items.clone(),
+                    Some(Type::List(item)) => vec![*item; array.elements.len()],
+                    _ => Vec::new(),
+                };
+                for (item_index, element) in array.elements.iter().enumerate() {
+                    let Some(element_pattern) = element else {
+                        continue;
+                    };
+                    let item_ty = item_tys.get(item_index).copied().unwrap_or(param_ty);
+                    let BindingPattern::BindingIdentifier(binding) = element_pattern else {
+                        return Err(SmeltError::unsupported(
+                            self.span(element_pattern.span().start, element_pattern.span().end),
+                            "nested callback parameter destructuring needs closure-body lowering",
+                        ));
+                    };
+                    params.insert(
+                        binding.name.as_str(),
+                        CallbackExpr {
+                            kind: CallbackExprKind::Index {
+                                receiver: Box::new(CallbackExpr {
+                                    kind: CallbackExprKind::Param(param_index),
+                                    ty: param_ty,
+                                }),
+                                index: item_index,
+                            },
+                            ty: item_ty,
+                        },
+                    );
+                }
+                Ok(())
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    if property.computed {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "computed callback parameter destructuring needs closure-body lowering",
+                        ));
+                    }
+                    let field_text = match &property.key {
+                        PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
+                        PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.key.span().start, property.key.span().end),
+                                "dynamic callback parameter destructuring needs closure-body lowering",
+                            ));
+                        }
+                    };
+                    let BindingPattern::BindingIdentifier(binding) = &property.value else {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.value.span().start, property.value.span().end),
+                            "nested callback parameter destructuring needs closure-body lowering",
+                        ));
+                    };
+                    let field = self.intern_source_name(field_text);
+                    let field_ty = match self.ctx.krate.types.get(param_ty) {
+                        Some(Type::Dict(_, value)) => *value,
+                        Some(Type::Class { .. }) => self.class_field_type(param_ty, field)?,
+                        _ => param_ty,
+                    };
+                    params.insert(
+                        binding.name.as_str(),
+                        CallbackExpr {
+                            kind: CallbackExprKind::Field {
+                                receiver: Box::new(CallbackExpr {
+                                    kind: CallbackExprKind::Param(param_index),
+                                    ty: param_ty,
+                                }),
+                                field,
+                            },
+                            ty: field_ty,
+                        },
+                    );
+                }
+                Ok(())
+            }
+            BindingPattern::AssignmentPattern(_) => Err(SmeltError::unsupported(
+                self.span(pattern.span().start, pattern.span().end),
+                "default callback parameter destructuring needs closure-body lowering",
+            )),
+        }
+    }
+
+    /// Read explicit parameter types from a local arrow function callback.
+    fn arrow_callback_param_types(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+    ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
+        if arrow.params.rest.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "rest-parameter closures need closure-body lowering",
+            ));
+        }
+        let mut params = Vec::new();
+        for param in &arrow.params.items {
+            let BindingPattern::BindingIdentifier(_) = &param.pattern else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "destructured closure parameters are not supported yet",
+                ));
+            };
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "local closure parameters must have explicit type annotations",
+                    )
+                })?;
+            params.push(ty);
+        }
+        Ok(params)
+    }
+
+    /// Lower either an inline arrow callback or a local closure callback value.
+    fn callback_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        context: &'static str,
+        body: &mut Body,
+    ) -> Result<ClosureCallback, SmeltError> {
+        if let Argument::Identifier(identifier) = argument {
+            let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned() else {
+                return Err(SmeltError::unsupported(
+                    self.span(identifier.span.start, identifier.span.end),
+                    format!("{context} local callback `{}` is not defined", identifier.name),
+                ));
+            };
+            if callback.params.is_empty() || callback.params.len() > expected_param_tys.len() {
+                return Err(SmeltError::unsupported(
+                    self.span(identifier.span.start, identifier.span.end),
+                    format!("{context} local callback parameter count is not supported"),
+                ));
+            }
+            for (actual, expected) in callback.params.iter().zip(expected_param_tys) {
+                if actual != expected {
+                    return Err(SmeltError::unsupported(
+                        self.span(identifier.span.start, identifier.span.end),
+                        format!("{context} local callback parameter type does not match receiver"),
+                    ));
+                }
+            }
+            if callback.callback.ty != callback.return_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(identifier.span.start, identifier.span.end),
+                    format!("{context} local callback return type is inconsistent"),
+                ));
+            }
+            let expr = self.callback_expr_to_closure_with_return_ty(
+                callback.return_ty,
+                callback.callback,
+                &callback.params,
+                self.span(identifier.span.start, identifier.span.end),
+                body,
+            );
+            return Ok(ClosureCallback {
+                expr,
+                return_ty: callback.return_ty,
+            });
+        }
+        let callback = self.arrow_callback(argument, expected_param_tys, body)?;
+        let return_ty = callback.ty;
+        let expr = self.callback_expr_to_closure(
+            callback,
+            expected_param_tys,
+            self.span(argument.span().start, argument.span().end),
+            body,
+        );
+        Ok(ClosureCallback { expr, return_ty })
+    }
+
+    /// Lower a supported callback expression.
     fn callback_expression(
         &mut self,
         expression: &Expression<'_>,
-        params: &HashMap<&str, (usize, smelt_hir::TypeId)>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         match expression {
             Expression::Identifier(identifier) => {
-                let Some((index, ty)) = params.get(identifier.name.as_str()).copied() else {
+                if let Some(param) = params.get(identifier.name.as_str()).cloned() {
+                    return Ok(param);
+                }
+                let Some(local) = self.locals.get(identifier.name.as_str()).copied() else {
                     return Err(SmeltError::unsupported(
                         self.span(identifier.span.start, identifier.span.end),
-                        "callback captures are not supported yet",
+                        format!("unresolved callback identifier `{}`", identifier.name),
                     ));
                 };
+                let ty = Self::local_ty(body, local);
                 Ok(CallbackExpr {
-                    kind: CallbackExprKind::Param(index),
+                    kind: CallbackExprKind::Capture(local),
                     ty,
                 })
             }
@@ -416,16 +762,24 @@ impl ModuleBuilder<'_> {
                             ty: self.ctx.krate.types.intern(Type::Bool),
                         },
                         ArrayExpressionElement::Identifier(identifier) => {
-                            let Some((index, ty)) = params.get(identifier.name.as_str()).copied()
-                            else {
+                            if let Some(param) = params.get(identifier.name.as_str()).cloned() {
+                                param
+                            } else if let Some(local) =
+                                self.locals.get(identifier.name.as_str()).copied()
+                            {
+                                let ty = Self::local_ty(body, local);
+                                CallbackExpr {
+                                    kind: CallbackExprKind::Capture(local),
+                                    ty,
+                                }
+                            } else {
                                 return Err(SmeltError::unsupported(
                                     self.span(identifier.span.start, identifier.span.end),
-                                    "callback captures are not supported yet",
+                                    format!(
+                                        "unresolved callback identifier `{}`",
+                                        identifier.name
+                                    ),
                                 ));
-                            };
-                            CallbackExpr {
-                                kind: CallbackExprKind::Param(index),
-                                ty,
                             }
                         }
                         ArrayExpressionElement::BinaryExpression(binary) => {
@@ -434,8 +788,8 @@ impl ModuleBuilder<'_> {
                                 binary.span.start,
                                 binary.span.end,
                             )?;
-                            let lhs = self.callback_expression(&binary.left, params)?;
-                            let rhs = self.callback_expression(&binary.right, params)?;
+                            let lhs = self.callback_expression(&binary.left, params, body)?;
+                            let rhs = self.callback_expression(&binary.right, params, body)?;
                             let ty = if matches!(
                                 op,
                                 BinOp::Eq
@@ -486,7 +840,94 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::ParenthesizedExpression(parenthesized) => {
-                self.callback_expression(&parenthesized.expression, params)
+                self.callback_expression(&parenthesized.expression, params, body)
+            }
+            Expression::AssignmentExpression(assign) => {
+                let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left else {
+                    return Err(SmeltError::unsupported(
+                        self.span(assign.span.start, assign.span.end),
+                        "callback assignment targets must be captured locals",
+                    ));
+                };
+                if params.contains_key(target.name.as_str()) {
+                    return Err(SmeltError::unsupported(
+                        self.span(target.span.start, target.span.end),
+                        "callback parameter assignment is not supported yet",
+                    ));
+                }
+                let Some(local) = self.locals.get(target.name.as_str()).copied() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(target.span.start, target.span.end),
+                        format!("unresolved callback assignment target `{}`", target.name),
+                    ));
+                };
+                let local_index = usize::try_from(local.0).map_err(|err| {
+                    SmeltError::unsupported(
+                        self.span(target.span.start, target.span.end),
+                        format!("callback assignment target index is invalid: {err}"),
+                    )
+                })?;
+                let local_decl = body.locals.get(local_index).ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(target.span.start, target.span.end),
+                        "callback assignment target does not resolve to a local",
+                    )
+                })?;
+                if !local_decl.mutable {
+                    return Err(SmeltError::unsupported(
+                        self.span(target.span.start, target.span.end),
+                        "callback assignment to captured const local is not supported",
+                    ));
+                }
+                let right = self.callback_expression(&assign.right, params, body)?;
+                let value = match assign.operator {
+                    AssignmentOperator::Assign => right,
+                    AssignmentOperator::Addition
+                    | AssignmentOperator::Subtraction
+                    | AssignmentOperator::Multiplication
+                    | AssignmentOperator::Division => {
+                        let op = match assign.operator {
+                            AssignmentOperator::Addition => BinOp::Add,
+                            AssignmentOperator::Subtraction => BinOp::Sub,
+                            AssignmentOperator::Multiplication => BinOp::Mul,
+                            AssignmentOperator::Division => BinOp::Div,
+                            other => {
+                                return Err(SmeltError::unsupported(
+                                    self.span(assign.span.start, assign.span.end),
+                                    format!(
+                                        "callback assignment operator is not supported yet: {other:?}"
+                                    ),
+                                ));
+                            }
+                        };
+                        CallbackExpr {
+                            kind: CallbackExprKind::Binary {
+                                op,
+                                lhs: Box::new(CallbackExpr {
+                                    kind: CallbackExprKind::Capture(local),
+                                    ty: local_decl.ty,
+                                }),
+                                rhs: Box::new(right),
+                            },
+                            ty: local_decl.ty,
+                        }
+                    }
+                    other => {
+                        return Err(SmeltError::unsupported(
+                            self.span(assign.span.start, assign.span.end),
+                            format!(
+                                "callback assignment operator is not supported yet: {other:?}"
+                            ),
+                        ));
+                    }
+                };
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::AssignCapture {
+                        target: local,
+                        value: Box::new(value),
+                    },
+                    ty: local_decl.ty,
+                })
             }
             Expression::UnaryExpression(unary) => {
                 let op = match unary.operator {
@@ -502,7 +943,7 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let operand = self.callback_expression(&unary.argument, params)?;
+                let operand = self.callback_expression(&unary.argument, params, body)?;
                 let ty = if matches!(op, UnaryOp::Not) {
                     self.ctx.krate.types.intern(Type::Bool)
                 } else {
@@ -519,8 +960,8 @@ impl ModuleBuilder<'_> {
             Expression::BinaryExpression(binary) => {
                 let op =
                     self.callback_binary_op(binary.operator, binary.span.start, binary.span.end)?;
-                let lhs = self.callback_expression(&binary.left, params)?;
-                let rhs = self.callback_expression(&binary.right, params)?;
+                let lhs = self.callback_expression(&binary.left, params, body)?;
+                let rhs = self.callback_expression(&binary.right, params, body)?;
                 let ty = if matches!(
                     op,
                     BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
@@ -549,8 +990,8 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                 };
-                let lhs = self.callback_expression(&logical.left, params)?;
-                let rhs = self.callback_expression(&logical.right, params)?;
+                let lhs = self.callback_expression(&logical.left, params, body)?;
+                let rhs = self.callback_expression(&logical.right, params, body)?;
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::Binary {
                         op,

@@ -61,12 +61,12 @@ pub use body::{
     MatchArm, Pattern, Stmt,
 };
 pub use expr::{
-    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, CallbackExprKind, DictProjectionOp, Expr, ExprKind,
-    ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp,
-    NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp,
-    SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp,
-    StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
-    UnknownKind, UrlField, bin_op_text,
+    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture,
+    ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, ListCallbackOp, ListProjectionOp,
+    ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
+    NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp,
+    SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, UnaryOp, UnknownKind, UrlField, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{
@@ -75,7 +75,7 @@ pub use ids::{
 };
 pub use item::{
     Class, ClassKind, ConstItem, Field, Function, FunctionOwner, Interface, Item, MethodSig, Param,
-    ParamSig, TypeAlias, Visibility,
+    ParamSig, TypeAlias, TypeParamDef, Visibility,
 };
 pub use krate::{CONSOLE_LOG_SYMBOL, Crate, Import, Language, Module, SourceFile};
 pub use symbol::{OriginalNameTable, SymbolInterner};

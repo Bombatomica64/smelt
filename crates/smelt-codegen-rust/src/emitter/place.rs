@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a place to its Rust text representation.
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
@@ -93,7 +92,11 @@ impl FunctionEmitter<'_> {
     /// clamped because Python element indexing raises when the normalized index
     /// is still outside the collection; the generated Rust keeps that behavior
     /// with `expect` on negative conversion and the eventual indexed lookup.
-    pub(super) fn normalized_index_text(&self, len_expr: &str, index: &Operand) -> Result<String, EmitError> {
+    pub(super) fn normalized_index_text(
+        &self,
+        len_expr: &str,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
         let index_text = self.operand_text(index)?;
         Ok(format!(
             "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"
@@ -101,5 +104,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Unknown/runtime type helpers continue in `unknown.rs`.
-
 }

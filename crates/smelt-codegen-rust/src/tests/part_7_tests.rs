@@ -21,6 +21,8 @@ const iso = new Date(now).toISOString();
 const host = new URL("https://example.com/a?q=1").hostname;
 const hostWithPort = new URL("https://example.com:8443/a?q=1").host;
 const cleaned = "a  b".replaceAll(new RegExp("\\s+"), "-");
+const cleanedByCall = "a  b".replaceAll(RegExp("\\s+"), "-");
+const cleanedByLiteral = "a  b".replace(/\s+/, "-");
 "#,
     );
     assert!(ts_source.contains("chrono::Utc::now().timestamp_millis()"));

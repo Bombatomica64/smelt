@@ -9,6 +9,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             path,
             ctx,
             locals: HashMap::new(),
+            module_globals: HashMap::new(),
             items,
             classes,
             interfaces,
@@ -21,6 +22,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             const_literals,
             assertion_functions: HashMap::new(),
             narrowed_locals: Vec::new(),
+            type_param_scopes: Vec::new(),
+            local_callbacks: HashMap::new(),
         }
     }
 
@@ -115,6 +118,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
         let implemented_functions = implemented_function_names(program);
+        self.collect_module_globals(program);
         for statement in &program.body {
             if let Statement::ImportDeclaration(import) = statement {
                 self.import_declaration(import, &mut module);
@@ -139,6 +143,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             if let Statement::TSInterfaceDeclaration(interface) = statement {
                 match self.interface_declaration(interface) {
+                    Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
+            if let Statement::TSTypeAliasDeclaration(alias) = statement {
+                match self.type_alias_declaration(alias) {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),
                 }
@@ -201,6 +212,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Ok(item) => module.items.push(item),
                         Err(error) => errors.push(error),
                     }
+                } else if let Declaration::TSTypeAliasDeclaration(alias) = decl {
+                    match self.type_alias_declaration(alias) {
+                        Ok(item) => module.items.push(item),
+                        Err(error) => errors.push(error),
+                    }
                 } else if let Declaration::VariableDeclaration(variable) = decl {
                     match self.const_item_declarations(variable) {
                         Ok(items) => module.items.extend(items),
@@ -222,6 +238,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::FunctionDeclaration(_)
                     | Statement::ClassDeclaration(_)
                     | Statement::TSInterfaceDeclaration(_)
+                    | Statement::TSTypeAliasDeclaration(_)
                     | Statement::ImportDeclaration(_)
                     | Statement::ExportNamedDeclaration(_)
                     | Statement::ExportAllDeclaration(_)
@@ -242,6 +259,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(module))
+    }
+
+    /// Collect typed top-level variables that functions may read or write.
+    fn collect_module_globals(&mut self, program: &Program<'_>) {
+        for statement in &program.body {
+            match statement {
+                Statement::VariableDeclaration(variable) => self.collect_module_global_decl(variable),
+                Statement::ExportNamedDeclaration(export) => {
+                    if let Some(Declaration::VariableDeclaration(variable)) = &export.declaration {
+                        self.collect_module_global_decl(variable);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Register annotated module-level variables for later function-body lookup.
+    fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
+        for declarator in &decl.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                continue;
+            };
+            let Some(annotation) = &declarator.type_annotation else {
+                continue;
+            };
+            if let Ok(ty) = self.ts_type_to_hir(&annotation.type_annotation) {
+                self.module_globals
+                    .insert(binding.name.as_str().to_owned(), ty);
+            }
+        }
     }
 
     /// Lower `export { name } from "module"` metadata and local aliases.

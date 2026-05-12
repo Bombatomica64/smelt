@@ -243,6 +243,9 @@ impl ModuleBuilder<'_> {
         // Named function call OR class constructor call.
         if let Expr::Name(name) = call.func.as_ref() {
             let name_str = name.id.as_str();
+            if let Some(expr) = self.local_callable_call(call, name_str, body)? {
+                return Ok(expr);
+            }
             if let Some(&item_id) = self.items.get(name_str) {
                 let item = self.item_ref(item_id);
                 match item {
@@ -296,6 +299,77 @@ impl ModuleBuilder<'_> {
             span,
             "only calls to top-level functions, class constructors, and print() are supported",
         ))
+    }
+
+    /// Lower a call whose callee is a local closure or function-typed local.
+    fn local_callable_call(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        name: &str,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if self.items.contains_key(name) {
+            return Ok(None);
+        }
+        let Some(local) = self.locals.get(name).copied() else {
+            return Ok(None);
+        };
+        let local_ty = Self::local_ty(body, local);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() else {
+            return Ok(None);
+        };
+        if !call.arguments.keywords.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "closure calls do not support keyword arguments yet",
+            ));
+        }
+        let supplied_arg_count = call.arguments.args.len();
+        let defaults = self
+            .local_callbacks
+            .get(name)
+            .map_or_else(|| vec![None; function.params.len()], |callback| {
+                callback.defaults.clone()
+            });
+        let required_arg_count = defaults
+            .iter()
+            .position(Option::is_some)
+            .unwrap_or(function.params.len());
+        if supplied_arg_count < required_arg_count || supplied_arg_count > function.params.len() {
+            return Err(SmeltError::unsupported(
+                self.span(call.range),
+                "closure call argument count does not match closure parameters",
+            ));
+        }
+        let callee = self.identifier_expression(name, call.func.range(), body)?;
+        let mut args = call
+            .arguments
+            .args
+            .iter()
+            .map(|arg| self.expression(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        for index in supplied_arg_count..function.params.len() {
+            let Some(default) = defaults.get(index).and_then(|default| *default) else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range),
+                    "closure call argument count does not match closure parameters",
+                ));
+            };
+            args.push(default);
+        }
+        for (arg, expected) in args.iter().zip(&function.params) {
+            if Self::expr_ty(body, *arg) != *expected {
+                return Err(SmeltError::unsupported(
+                    self.span(call.range),
+                    "closure call argument type does not match closure parameter",
+                ));
+            }
+        }
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: function.return_ty,
+            span: self.span(call.range),
+        })))
     }
 
     /// Lower calls to statically-known Python protocol/class methods.

@@ -19,13 +19,13 @@ use oxc::syntax::operator::{
     AssignmentOperator, BinaryOperator, LogicalOperator, UnaryOperator, UpdateOperator,
 };
 use smelt_hir::{
-    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, Class, ConstItem, DictProjectionOp, Expr,
-    ExprKind, Field, FileId, Function, FunctionOwner, Import, Interface, Item, Language,
-    ListCallbackOp, ListSearchOp, Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId,
-    NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig,
-    Pattern, PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, UnaryOp,
-    UnknownKind, UrlField, Visibility,
+    AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, Class, ClosureCapture,
+    ConstItem, DatePart, DictProjectionOp, Expr, ExprKind, Field, FileId, Function, FunctionOwner,
+    FunctionType, Import, Interface, Item, Language, ListCallbackOp, ListSearchOp, Literal,
+    LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern, PrimitiveCastOp, SetProjectionOp,
+    SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp,
+    StringSearchOp, StringTrimSide, Type, TypeParamDef, UnaryOp, UnknownKind, UrlField, Visibility,
 };
 use smelt_stdlib::RuleId;
 
@@ -62,6 +62,28 @@ struct AssertionNarrowing {
     param_index: usize,
     /// Type proven for that argument.
     target: smelt_hir::TypeId,
+}
+
+/// A local arrow/function callback value that has not escaped its defining body.
+#[derive(Debug, Clone)]
+struct LocalCallback {
+    /// Lowered callback expression tree.
+    callback: CallbackExpr,
+    /// Parameter types in source order.
+    params: Vec<smelt_hir::TypeId>,
+    /// Default argument expressions in source order.
+    defaults: Vec<Option<smelt_hir::ExprId>>,
+    /// Return type produced by the callback.
+    return_ty: smelt_hir::TypeId,
+}
+
+/// A closure expression prepared for a callback-consuming API.
+#[derive(Debug, Clone, Copy)]
+struct ClosureCallback {
+    /// HIR expression id of the closure value.
+    expr: smelt_hir::ExprId,
+    /// Return type produced by the closure.
+    return_ty: smelt_hir::TypeId,
 }
 
 impl TestMatcher {
@@ -168,6 +190,8 @@ struct ModuleBuilder<'ctx> {
     ctx: &'ctx mut HirCtx,
     /// Local variable bindings in current scope.
     locals: HashMap<String, smelt_hir::LocalId>,
+    /// Typed top-level mutable bindings visible from nested function bodies.
+    module_globals: HashMap<String, smelt_hir::TypeId>,
     /// Declared and imported items (functions, classes, interfaces).
     items: HashMap<String, smelt_hir::ItemId>,
     /// Class definitions by name.
@@ -192,6 +216,10 @@ struct ModuleBuilder<'ctx> {
     assertion_functions: HashMap<String, AssertionNarrowing>,
     /// Active local narrowings from guards and assertion calls.
     narrowed_locals: Vec<HashMap<String, smelt_hir::TypeId>>,
+    /// Active generic type parameter scopes.
+    type_param_scopes: Vec<HashMap<String, smelt_hir::TypeId>>,
+    /// Local closure values available to non-escaping callback consumers.
+    local_callbacks: HashMap<String, LocalCallback>,
 }
 
 // Lowering builder implementation split into small include files.
@@ -213,6 +241,7 @@ include!("lowering/builder_part14.rs");
 include!("lowering/builder_part15.rs");
 include!("lowering/builder_part16.rs");
 include!("lowering/builder_part17.rs");
+include!("lowering/builder_part18.rs");
 
 // Top-level lowering helper functions split into include files.
 include!("lowering/helpers_part01.rs");

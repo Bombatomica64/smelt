@@ -1,6 +1,9 @@
 //! Shared integration-test helpers for `smelt-cli`.
 
-#![allow(dead_code, reason = "shared CLI test helpers are used by different test shards")]
+#![allow(
+    dead_code,
+    reason = "shared CLI test helpers are used by different test shards"
+)]
 
 use std::{
     error::Error,
@@ -50,7 +53,8 @@ impl TempProject {
     pub(crate) fn new() -> Result<Self, std::time::SystemTimeError> {
         let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
         Ok(Self {
-            path: std::env::temp_dir().join(format!("smelt-cli-test-{}-{nonce}", std::process::id())),
+            path: std::env::temp_dir()
+                .join(format!("smelt-cli-test-{}-{nonce}", std::process::id())),
         })
     }
 
@@ -164,7 +168,10 @@ pub(crate) fn verify_end_to_end_example(name: &str) -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
     fs::create_dir_all(project_path.join("src"))?;
-    fs::write(project_path.join("src/main.ts"), fs::read_to_string(&input)?)?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        fs::read_to_string(&input)?,
+    )?;
     fs::write(
         project_path.join("Smelt.toml"),
         r#"[project]
@@ -190,7 +197,11 @@ clone-strategy = "aggressive"
 
     let expected_rs = fs::read_to_string(example.join("expected.rs"))?;
     let actual_rs = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
-    ensure_eq(&actual_rs, &expected_rs, format!("Rust mismatch for {name}"))?;
+    ensure_eq(
+        &actual_rs,
+        &expected_rs,
+        format!("Rust mismatch for {name}"),
+    )?;
 
     let expected_stdout = fs::read_to_string(example.join("expected.stdout"))?;
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;

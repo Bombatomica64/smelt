@@ -1,12 +1,13 @@
-use serde::{Deserialize, Serialize};
-use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use super::{
-    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, DictProjectionOp, ListCallbackOp, ListProjectionOp,
-    ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp,
-    PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp,
-    StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, UnaryOp, UnknownKind, UrlField,
+    AsyncOp, BinOp, BoolFoldOp, CallbackExpr, ClosureExpr, DatePart, DictProjectionOp,
+    ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
+    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp,
+    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, UnknownKind,
+    UrlField,
 };
+use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
+use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[expect(
     missing_docs,
@@ -17,6 +18,11 @@ pub enum ExprKind {
     Local(LocalId),
     Item(ItemId),
     Call {
+        callee: ExprId,
+        args: Vec<ExprId>,
+    },
+    Closure(ClosureExpr),
+    ClosureCall {
         callee: ExprId,
         args: Vec<ExprId>,
     },
@@ -203,12 +209,12 @@ pub enum ExprKind {
     ListCallback {
         op: ListCallbackOp,
         list: ExprId,
-        callback: CallbackExpr,
+        callback: ExprId,
     },
     ListReduce {
         list: ExprId,
         initial: Option<ExprId>,
-        callback: CallbackExpr,
+        callback: ExprId,
     },
     ListSlice {
         list: ExprId,
@@ -361,6 +367,10 @@ pub enum ExprKind {
         dict: ExprId,
         other: ExprId,
     },
+    DictAssign {
+        target: ExprId,
+        sources: Vec<ExprId>,
+    },
     DictCopy {
         dict: ExprId,
     },
@@ -388,6 +398,18 @@ pub enum ExprKind {
     DateNow,
     DateToIsoString {
         timestamp_ms: ExprId,
+    },
+    DateFromParts {
+        parts: Vec<ExprId>,
+    },
+    DateGetPart {
+        part: DatePart,
+        timestamp_ms: ExprId,
+    },
+    DateSetPart {
+        part: DatePart,
+        timestamp_ms: ExprId,
+        values: Vec<ExprId>,
     },
     UrlField {
         field: UrlField,

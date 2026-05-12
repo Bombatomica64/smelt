@@ -15,10 +15,44 @@ pub struct ValidationError {
 /// Validates MIR and returns any structural errors.
 pub fn validate(mir: &Mir) -> Vec<ValidationError> {
     let mut errors = Vec::new();
+    validate_closures(mir, &mut errors);
     for function in &mir.functions {
         validate_function(mir, function, &mut errors);
     }
     errors
+}
+
+/// Validate MIR closure table entries and escape-specific capture rules.
+fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
+    for (idx, closure) in mir.closures.iter().enumerate() {
+        if usize::try_from(closure.id.0).ok() != Some(idx) {
+            errors.push(error(format!(
+                "closure index {idx} has mismatched id {:?}",
+                closure.id
+            )));
+        }
+        for param in &closure.params {
+            validate_type(mir, param.ty, errors);
+        }
+        for capture in &closure.captures {
+            validate_type(mir, capture.ty, errors);
+            if closure.escapes && capture.mode != smelt_hir::CaptureMode::ByValue {
+                errors.push(error(format!(
+                    "escaping closure {:?} captures {:?} without owning it",
+                    closure.id, capture.source_local
+                )));
+            }
+        }
+        validate_type(mir, closure.return_ty, errors);
+        if let Some(callback) = &closure.callback_body
+            && callback.ty != closure.return_ty
+        {
+            errors.push(error(format!(
+                "closure {:?} callback return type does not match closure return type",
+                closure.id
+            )));
+        }
+    }
 }
 
 /// Validate one MIR function and append any discovered errors.
@@ -140,6 +174,22 @@ fn validate_rvalue_exists(
             for (key, entry_value) in entries {
                 validate_operand_exists(function, key, errors);
                 validate_operand_exists(function, entry_value, errors);
+            }
+        }
+        Rvalue::Closure { id, captures } => {
+            if mir.closures.get(id.0 as usize).is_none() {
+                errors.push(ValidationError {
+                    message: format!("closure rvalue references unknown closure {id:?}"),
+                });
+            }
+            for capture in captures {
+                validate_operand_exists(function, capture, errors);
+            }
+        }
+        Rvalue::ClosureCall { callee, args } => {
+            validate_operand_exists(function, callee, errors);
+            for arg in args {
+                validate_operand_exists(function, arg, errors);
             }
         }
         Rvalue::Binary { lhs, rhs, .. } => {
@@ -275,12 +325,18 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, item, errors);
         }
-        Rvalue::ListCallback { list, .. } => {
+        Rvalue::ListCallback { list, callback, .. } => {
             validate_operand_exists(function, list, errors);
+            validate_operand_exists(function, callback, errors);
         }
-        Rvalue::ListReduce { list, initial, .. } => {
+        Rvalue::ListReduce {
+            list,
+            initial,
+            callback,
+        } => {
             validate_operand_exists(function, list, errors);
             validate_optional_operand_exists(function, initial.as_ref(), errors);
+            validate_operand_exists(function, callback, errors);
         }
         Rvalue::ListSlice { list, start, end } => {
             validate_operand_exists(function, list, errors);
@@ -455,6 +511,12 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, dict, errors);
             validate_operand_exists(function, other, errors);
         }
+        Rvalue::DictAssign { target, sources } => {
+            validate_operand_exists(function, target, errors);
+            for source in sources {
+                validate_operand_exists(function, source, errors);
+            }
+        }
         Rvalue::DictCopy { dict } => {
             validate_operand_exists(function, dict, errors);
         }
@@ -504,6 +566,24 @@ fn validate_rvalue_exists(
         Rvalue::DateNow => {}
         Rvalue::DateToIsoString { timestamp_ms } => {
             validate_operand_exists(function, timestamp_ms, errors);
+        }
+        Rvalue::DateFromParts { parts } => {
+            for part in parts {
+                validate_operand_exists(function, part, errors);
+            }
+        }
+        Rvalue::DateGetPart { timestamp_ms, .. } => {
+            validate_operand_exists(function, timestamp_ms, errors);
+        }
+        Rvalue::DateSetPart {
+            timestamp_ms,
+            values,
+            ..
+        } => {
+            validate_operand_exists(function, timestamp_ms, errors);
+            for value in values {
+                validate_operand_exists(function, value, errors);
+            }
         }
         Rvalue::UrlField { url, .. } => validate_operand_exists(function, url, errors),
         Rvalue::FileReadText { path } => validate_operand_exists(function, path, errors),
@@ -759,6 +839,17 @@ fn validate_rvalue(
                 validate_operand(function, definitions, entry_value, errors);
             }
         }
+        Rvalue::Closure { captures, .. } => {
+            for capture in captures {
+                validate_operand(function, definitions, capture, errors);
+            }
+        }
+        Rvalue::ClosureCall { callee, args } => {
+            validate_operand(function, definitions, callee, errors);
+            for arg in args {
+                validate_operand(function, definitions, arg, errors);
+            }
+        }
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand(function, definitions, lhs, errors);
             validate_operand(function, definitions, rhs, errors);
@@ -889,12 +980,18 @@ fn validate_rvalue(
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, item, errors);
         }
-        Rvalue::ListCallback { list, .. } => {
+        Rvalue::ListCallback { list, callback, .. } => {
             validate_operand(function, definitions, list, errors);
+            validate_operand(function, definitions, callback, errors);
         }
-        Rvalue::ListReduce { list, initial, .. } => {
+        Rvalue::ListReduce {
+            list,
+            initial,
+            callback,
+        } => {
             validate_operand(function, definitions, list, errors);
             validate_optional_operand(function, definitions, initial.as_ref(), errors);
+            validate_operand(function, definitions, callback, errors);
         }
         Rvalue::ListSlice { list, start, end } => {
             validate_operand(function, definitions, list, errors);
@@ -1069,6 +1166,12 @@ fn validate_rvalue(
             validate_operand(function, definitions, dict, errors);
             validate_operand(function, definitions, other, errors);
         }
+        Rvalue::DictAssign { target, sources } => {
+            validate_operand(function, definitions, target, errors);
+            for source in sources {
+                validate_operand(function, definitions, source, errors);
+            }
+        }
         Rvalue::DictCopy { dict } => {
             validate_operand(function, definitions, dict, errors);
         }
@@ -1118,6 +1221,24 @@ fn validate_rvalue(
         Rvalue::DateNow => {}
         Rvalue::DateToIsoString { timestamp_ms } => {
             validate_operand(function, definitions, timestamp_ms, errors);
+        }
+        Rvalue::DateFromParts { parts } => {
+            for part in parts {
+                validate_operand(function, definitions, part, errors);
+            }
+        }
+        Rvalue::DateGetPart { timestamp_ms, .. } => {
+            validate_operand(function, definitions, timestamp_ms, errors);
+        }
+        Rvalue::DateSetPart {
+            timestamp_ms,
+            values,
+            ..
+        } => {
+            validate_operand(function, definitions, timestamp_ms, errors);
+            for value in values {
+                validate_operand(function, definitions, value, errors);
+            }
         }
         Rvalue::UrlField { url, .. } => validate_operand(function, definitions, url, errors),
         Rvalue::FileReadText { path } => validate_operand(function, definitions, path, errors),

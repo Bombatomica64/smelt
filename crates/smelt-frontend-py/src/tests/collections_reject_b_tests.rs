@@ -412,4 +412,3 @@ joined: str = "-".join(parts)
     )?;
     Ok(())
 }
-

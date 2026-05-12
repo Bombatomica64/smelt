@@ -67,3 +67,26 @@ try-async-hir:
 # Remove generated module-linking demo files
 clean-modules:
 	rm -rf {{module_demo}}
+
+# Generate workspace coverage artifacts and refresh README coverage section
+coverage:
+	@rustup component add llvm-tools-preview
+	@rustup toolchain install nightly --component llvm-tools-preview
+	@cargo install cargo-llvm-cov --locked || true
+	@cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
+	@cargo +nightly llvm-cov report --branch --json --summary-only --output-path coverage-summary.json
+	@bash scripts/coverage_badge.sh lcov.info coverage.svg
+	@python3 scripts/update_readme_coverage.py coverage-summary.json README.md lcov.info
+	@echo "Coverage artifacts updated: lcov.info, coverage-summary.json, coverage*.svg, README.md"
+
+# Run coverage crate-by-crate and emit one LCOV file per crate in coverage-by-crate/
+coverage-crates:
+	@rustup component add llvm-tools-preview
+	@rustup toolchain install nightly --component llvm-tools-preview
+	@cargo install cargo-llvm-cov --locked || true
+	@mkdir -p coverage-by-crate
+	@for crate in $(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; d=json.load(sys.stdin); ids=set(d["workspace_members"]); print(" ".join(sorted(p["name"] for p in d["packages"] if p["id"] in ids)))'); do \
+	  echo "== coverage for $$crate =="; \
+	  cargo +nightly llvm-cov -p "$$crate" --branch --lcov --output-path "coverage-by-crate/$$crate.lcov.info"; \
+	done
+	@echo "Per-crate LCOV files written to coverage-by-crate/"

@@ -21,3 +21,7 @@ put new feature code into existing focused modules where practical, then do a de
 ## Frontend validation boundaries
 when `tsc` or Python compile/type checks would reject invalid source before Smelt runs, it is ok for HIR/MIR to use interchangeable internal representations such as Map and Record sharing Dict
 do not block useful mappings only because source spelling is erased internally; keep frontend checks/tests for shapes Smelt can cheaply validate itself
+
+## NEVERS
+
+NEVER reject a feature without asking me first, it doesn't matter how hard it is

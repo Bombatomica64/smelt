@@ -272,6 +272,15 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let span = self.span(range);
 
+        if let Some(callback) = self.local_callbacks.get(name).cloned() {
+            return Ok(self.callback_expr_to_closure(
+                callback.callback,
+                &callback.params,
+                span,
+                body,
+            ));
+        }
+
         if let Some(&local) = self.locals.get(name) {
             let ty = Self::local_ty(body, local);
             return Ok(body.push_expr(HirExpr {

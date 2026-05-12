@@ -15,9 +15,10 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Literal(literal) => literal_text(literal),
         ExprKind::Local(local) => local_ref(*local),
         ExprKind::Item(item) => item_ref(krate, *item),
-        ExprKind::Call { .. } | ExprKind::Method { .. } | ExprKind::New { .. } => {
-            call_like_expr_text(krate, expr)
-        }
+        ExprKind::Call { .. }
+        | ExprKind::ClosureCall { .. }
+        | ExprKind::Method { .. }
+        | ExprKind::New { .. } => call_like_expr_text(krate, expr),
         ExprKind::Field { receiver, field } => {
             let field_name = krate.symbols.get(*field).unwrap_or("<unknown>");
             format!("{}.{}", expr_ref(*receiver), field_name)
@@ -327,7 +328,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("list_{op_name} {}, {}", expr_ref(*list), expr_ref(*item))
         }
-        ExprKind::ListCallback { op, list, .. } => {
+        ExprKind::ListCallback { op, list, callback } => {
             let op_name = match op {
                 crate::expr::ListCallbackOp::Map => "map",
                 crate::expr::ListCallbackOp::Filter => "filter",
@@ -340,13 +341,22 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::ListCallbackOp::ForEach => "for_each",
                 crate::expr::ListCallbackOp::FlatMap => "flat_map",
             };
-            format!("list_{op_name} {} <callback>", expr_ref(*list))
-        }
-        ExprKind::ListReduce { list, initial, .. } => {
             format!(
-                "list_reduce {}, {} <callback>",
+                "list_{op_name} {}, {}",
                 expr_ref(*list),
-                initial.map(expr_ref).unwrap_or_else(|| "_".to_owned())
+                expr_ref(*callback)
+            )
+        }
+        ExprKind::ListReduce {
+            list,
+            initial,
+            callback,
+        } => {
+            format!(
+                "list_reduce {}, {}, {}",
+                expr_ref(*list),
+                initial.map(expr_ref).unwrap_or_else(|| "_".to_owned()),
+                expr_ref(*callback)
             )
         }
         ExprKind::ListSlice { list, start, end } => format!(
@@ -522,6 +532,15 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DictUpdate { dict, other } => {
             format!("dict_update {}, {}", expr_ref(*dict), expr_ref(*other))
         }
+        ExprKind::DictAssign { target, sources } => format!(
+            "dict_assign {}, [{}]",
+            expr_ref(*target),
+            sources
+                .iter()
+                .map(|source| expr_ref(*source))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         ExprKind::DictCopy { dict } => format!("dict_copy {}", expr_ref(*dict)),
         ExprKind::DictProjection { op, dict } => {
             let op_name = match op {
@@ -551,6 +570,30 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DateToIsoString { timestamp_ms } => {
             format!("date_to_iso {}", expr_ref(*timestamp_ms))
         }
+        ExprKind::DateFromParts { parts } => format!(
+            "date_from_parts [{}]",
+            parts
+                .iter()
+                .map(|part| expr_ref(*part))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        ExprKind::DateGetPart { part, timestamp_ms } => {
+            format!("date_get_{part:?} {}", expr_ref(*timestamp_ms))
+        }
+        ExprKind::DateSetPart {
+            part,
+            timestamp_ms,
+            values,
+        } => format!(
+            "date_set_{part:?} {}, [{}]",
+            expr_ref(*timestamp_ms),
+            values
+                .iter()
+                .map(|value| expr_ref(*value))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         ExprKind::UrlField { field, url } => format!("url_{field:?} {}", expr_ref(*url)),
         ExprKind::FileReadText { path } => format!("file_read_text {}", expr_ref(*path)),
         ExprKind::FileWriteText { path, text } => {
@@ -588,6 +631,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Block(block) => format!("block {block:?}"),
         ExprKind::Lambda { body, return_ty } => {
             format!("lambda {body:?} -> {}", type_ref(krate, *return_ty))
+        }
+        ExprKind::Closure(closure) => {
+            format!(
+                "closure {:?} captures {} -> {}",
+                closure.body,
+                closure.captures.len(),
+                type_ref(krate, closure.return_ty)
+            )
         }
         ExprKind::ListLit(items) => collection_text("[", "]", items),
         ExprKind::SetLit(items) => collection_text("set{", "}", items),
@@ -633,6 +684,10 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Call { callee, args } => {
             let arg_text = expr_list_text(args);
             format!("call {}({arg_text})", expr_ref(*callee))
+        }
+        ExprKind::ClosureCall { callee, args } => {
+            let arg_text = expr_list_text(args);
+            format!("closure_call {}({arg_text})", expr_ref(*callee))
         }
         ExprKind::Method {
             receiver,

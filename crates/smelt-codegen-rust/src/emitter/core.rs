@@ -103,8 +103,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 .iter()
                 .map(|param| {
                     let local = self.local_decl(*param)?;
+                    let mutability =
+                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
+                            "mut "
+                        } else {
+                            ""
+                        };
                     Ok(format!(
-                        "{}: {}",
+                        "{mutability}{}: {}",
                         self.local_name(*param)?,
                         self.type_text(local.ty)?
                     ))
@@ -135,8 +141,14 @@ impl<'mir> FunctionEmitter<'mir> {
                     .iter()
                     .map(|param| {
                         let local = self.local_decl(*param)?;
+                        let mutability =
+                            if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
+                                "mut "
+                            } else {
+                                ""
+                            };
                         Ok(format!(
-                            "{}: {}",
+                            "{mutability}{}: {}",
                             self.local_name(*param)?,
                             self.type_text(local.ty)?
                         ))
@@ -218,7 +230,16 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Converts an operand to its Rust text representation.
     pub(super) fn operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
-            Operand::Copy(place) => Ok(format!("{}.clone()", self.place_text(place)?)),
+            Operand::Copy(place) => {
+                if matches!(
+                    self.mir.types.get(self.place_ty(place)?),
+                    Some(Type::Function(_))
+                ) {
+                    self.place_text(place)
+                } else {
+                    Ok(format!("{}.clone()", self.place_text(place)?))
+                }
+            }
             Operand::Move(place) => self.place_text(place),
             Operand::Const(constant) => Ok(constant_text(constant)),
         }
@@ -226,7 +247,11 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
     /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
-    pub(super) fn operand_as_type_text(&self, operand: &Operand, target: TypeId) -> Result<String, EmitError> {
+    pub(super) fn operand_as_type_text(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
         if self.mir.types.get(target) == Some(&Type::Unknown) {
             return self.unknown_wrap_text(operand);
         }

@@ -21,6 +21,7 @@ fn unknown_kind_from_typeof(kind: &str) -> Option<UnknownKind> {
         "number" => Some(UnknownKind::Number),
         "string" => Some(UnknownKind::String),
         "object" => Some(UnknownKind::Object),
+        "function" => Some(UnknownKind::Function),
         _ => None,
     }
 }

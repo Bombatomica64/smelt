@@ -38,24 +38,29 @@ impl ModuleBuilder<'_> {
         Ok(self.intern_type_name(name.name.as_str()))
     }
 
-    /// Convert an interface heritage clause to the referenced interface symbol.
-    fn interface_heritage_symbol(
+    /// Convert an interface heritage clause to the referenced interface symbol and arguments.
+    fn interface_heritage(
         &mut self,
         item: &oxc::ast::ast::TSInterfaceHeritage<'_>,
-    ) -> Result<smelt_hir::Symbol, SmeltError> {
-        if item.type_arguments.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(item.span.start, item.span.end),
-                "generic interface inheritance is not lowered yet",
-            ));
-        }
+    ) -> Result<(smelt_hir::Symbol, Vec<smelt_hir::TypeId>), SmeltError> {
         let Expression::Identifier(name) = &item.expression else {
             return Err(SmeltError::unsupported(
                 self.span(item.span.start, item.span.end),
                 "qualified interface inheritance is not lowered yet",
             ));
         };
-        Ok(self.intern_type_name(name.name.as_str()))
+        let args = item
+            .type_arguments
+            .as_ref()
+            .map(|args| {
+                args.params
+                    .iter()
+                    .map(|arg| self.ts_type_to_hir(arg))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        Ok((self.intern_type_name(name.name.as_str()), args))
     }
 
     /// Find a previously lowered interface by symbol.
@@ -65,6 +70,18 @@ impl ModuleBuilder<'_> {
                 if interface.name == name {
                     return Some(interface);
                 }
+            }
+            None
+        })
+    }
+
+    /// Find a previously lowered type alias by symbol.
+    fn find_type_alias(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::TypeAlias> {
+        self.ctx.krate.items.iter().find_map(|item| {
+            if let Item::TypeAlias(alias) = item
+                && alias.name == name
+            {
+                return Some(alias);
             }
             None
         })

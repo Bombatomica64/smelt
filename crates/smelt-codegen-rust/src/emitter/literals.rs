@@ -3,8 +3,7 @@
 use super::*;
 use crate::rust::RustExpr;
 
-impl FunctionEmitter<'_> {
-}
+impl FunctionEmitter<'_> {}
 
 pub(super) fn constant_text(constant: &Constant) -> String {
     match constant {
@@ -72,6 +71,28 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
     let mut locals = HashSet::new();
     for block in &function.blocks {
         for statement in &block.statements {
+            if let Statement::Assign {
+                value: Rvalue::Closure { id, .. },
+                ..
+            } = statement
+                && let Some(callback) = mir
+                    .closures
+                    .get(id.0 as usize)
+                    .and_then(|closure| closure.callback_body.as_ref())
+            {
+                assigned_callback_locals(callback, &mut locals);
+            }
+            if let Statement::Assign {
+                value:
+                    Rvalue::ListSort {
+                        comparator: Some(callback),
+                        ..
+                    },
+                ..
+            } = statement
+            {
+                assigned_callback_locals(callback, &mut locals);
+            }
             if let Statement::Assign {
                 value:
                     Rvalue::ListPush { list, .. }
@@ -141,6 +162,35 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
         }
     }
     locals
+}
+
+/// Adds locals assigned by embedded callback expression trees.
+fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut HashSet<LocalId>) {
+    match &callback.kind {
+        smelt_hir::CallbackExprKind::AssignCapture { target, value } => {
+            locals.insert(LocalId(target.0));
+            assigned_callback_locals(value, locals);
+        }
+        smelt_hir::CallbackExprKind::ListLit(items) => {
+            for item in items {
+                assigned_callback_locals(item, locals);
+            }
+        }
+        smelt_hir::CallbackExprKind::Index { receiver, .. }
+        | smelt_hir::CallbackExprKind::Field { receiver, .. } => {
+            assigned_callback_locals(receiver, locals);
+        }
+        smelt_hir::CallbackExprKind::Unary { operand, .. } => {
+            assigned_callback_locals(operand, locals);
+        }
+        smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
+            assigned_callback_locals(lhs, locals);
+            assigned_callback_locals(rhs, locals);
+        }
+        smelt_hir::CallbackExprKind::Param(_)
+        | smelt_hir::CallbackExprKind::Capture(_)
+        | smelt_hir::CallbackExprKind::Literal(_) => {}
+    }
 }
 
 /// Extracts the local base from a direct local operand.

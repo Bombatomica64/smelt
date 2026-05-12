@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a list sorted-copy operation to Rust text.
     ///
     /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
@@ -24,7 +23,11 @@ impl FunctionEmitter<'_> {
     /// Integer, boolean, and string lists use Rust's total `Ord` sort. Floating
     /// lists use `partial_cmp` and panic on unordered values such as `NaN`
     /// until Python-compatible edge semantics are modeled explicitly.
-    pub(super) fn list_sorted_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_sorted_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("sorted() argument must be a list"));
@@ -56,7 +59,11 @@ impl FunctionEmitter<'_> {
     /// Converts a reversed-copy list operation to Rust text.
     /// Converts a reversed-copy list operation to Rust text.
     /// Converts a reversed-copy list operation to Rust text.
-    pub(super) fn list_reversed_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_reversed_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("reversed() argument must be a list"));
@@ -80,7 +87,11 @@ impl FunctionEmitter<'_> {
     /// Converts Python `enumerate(list)` materialization to Rust text.
     /// Converts Python `enumerate(list)` materialization to Rust text.
     /// Converts Python `enumerate(list)` materialization to Rust text.
-    pub(super) fn list_enumerate_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_enumerate_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("enumerate() argument must be a list"));
@@ -366,5 +377,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Tuple helpers continue in `tuple.rs`.
-
 }

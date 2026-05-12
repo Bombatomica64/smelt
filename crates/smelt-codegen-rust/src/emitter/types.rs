@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a primitive Python-style cast operation to Rust text.
     pub(super) fn primitive_cast_text(
         &self,
@@ -164,6 +163,9 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok("f64".to_owned()),
             Type::String => Ok("String".to_owned()),
             Type::Unknown => Ok("SmeltUnknown".to_owned()),
+            Type::TypeParam { name } | Type::Class { name, .. } => {
+                Ok(sanitize_ident(self.symbol_name(*name)?))
+            }
             Type::None => Ok("()".to_owned()),
             Type::List(item) => Ok(format!("Vec<{}>", self.type_text(*item)?)),
             Type::Set(item) => Ok(format!(
@@ -189,10 +191,18 @@ impl FunctionEmitter<'_> {
             }
             Type::Optional(item) => Ok(format!("Option<{}>", self.type_text(*item)?)),
             Type::Union(_) => Err(EmitError::new("union type codegen is not implemented yet")),
-            Type::Class { name, .. } => Ok(sanitize_ident(self.symbol_name(*name)?)),
-            Type::Function(_) => Err(EmitError::new(
-                "function type codegen is not implemented yet",
-            )),
+            Type::Function(function) => {
+                let params = function
+                    .params
+                    .iter()
+                    .map(|param| self.type_text(*param))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                Ok(format!(
+                    "impl FnMut({params}) -> {}",
+                    self.type_text(function.return_ty)?
+                ))
+            }
             Type::Future(item) => Ok(format!(
                 "::std::pin::Pin<Box<dyn ::std::future::Future<Output = {}>>>",
                 self.type_text(*item)?
@@ -236,5 +246,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Gets the entry block of the function.
-
 }

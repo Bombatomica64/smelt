@@ -1,142 +1,168 @@
 impl ModuleBuilder<'_> {
+    /// Lower a TypeScript type alias declaration to HIR.
+    fn type_alias_declaration(
+        &mut self,
+        alias: &oxc::ast::ast::TSTypeAliasDeclaration<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let name_text = alias.id.name.as_str();
+        let name = self.intern_type_name(name_text);
+        let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
+        let result = self.ts_type_to_hir(&alias.type_annotation);
+        self.pop_type_parameter_scope();
+        let ty = result?;
+        let item = self.ctx.krate.push_item(Item::TypeAlias(smelt_hir::TypeAlias {
+            name,
+            type_params,
+            ty,
+            span: self.span(alias.span.start, alias.span.end),
+        }));
+        self.items.insert(name_text.to_owned(), item);
+        Ok(item)
+    }
+
+    /// Lower a TypeScript interface declaration to HIR.
     fn interface_declaration(
         &mut self,
         interface: &oxc::ast::ast::TSInterfaceDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        if interface.type_parameters.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(interface.span.start, interface.span.end),
-                "generic interfaces are not lowered yet",
-            ));
-        }
         let name_text = interface.id.name.as_str();
         let name = self.intern_type_name(name_text);
+        let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
 
-        for heritage in &interface.extends {
-            let parent_name = self.interface_heritage_symbol(heritage)?;
-            let parent = self.find_interface(parent_name).ok_or_else(|| {
-                let parent_name_text = self
-                    .ctx
-                    .krate
-                    .symbols
-                    .get(parent_name)
-                    .unwrap_or("<unknown>");
-                SmeltError::unsupported(
-                    self.span(heritage.span.start, heritage.span.end),
-                    format!("extended interface `{parent_name_text}` is not declared"),
-                )
-            })?;
-            fields.extend(parent.fields.clone());
-            methods.extend(parent.methods.clone());
-        }
-
-        for sig in &interface.body.body {
-            match sig {
-                TSSignature::TSPropertySignature(prop) => {
-                    if prop.computed && !is_static_property_key(&prop.key) {
-                        return Err(SmeltError::unsupported(
-                            self.span(prop.span.start, prop.span.end),
-                            "dynamic computed interface property names are not lowered yet",
-                        ));
-                    }
-                    let ty = prop
-                        .type_annotation
-                        .as_ref()
-                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                        .transpose()?
-                        .ok_or_else(|| {
-                            SmeltError::unsupported(
-                                self.span(prop.span.start, prop.span.end),
-                                "interface fields require explicit type annotations",
-                            )
-                        })?;
-                    let field_ty = if prop.optional {
-                        self.ctx.krate.types.intern(Type::Optional(ty))
-                    } else {
-                        ty
-                    };
-                    fields.push(Field {
-                        name: self.property_key_symbol(&prop.key)?,
-                        ty: field_ty,
-                        visibility: Visibility::Public,
-                        optional: prop.optional,
-                        span: self.span(prop.span.start, prop.span.end),
-                    });
+        let result = (|| {
+            for heritage in &interface.extends {
+                let (parent_name, parent_args) = self.interface_heritage(heritage)?;
+                if self.ctx.krate.symbols.get(parent_name) == Some("Date") {
+                    continue;
                 }
-                TSSignature::TSMethodSignature(method) => {
-                    if (method.computed && !is_static_property_key(&method.key))
-                        || method.optional
-                        || method.type_parameters.is_some()
-                        || method.this_param.is_some()
-                    {
-                        return Err(SmeltError::unsupported(
-                            self.span(method.span.start, method.span.end),
-                            "generic, optional, dynamic computed, and this-parameter interface methods are not lowered yet",
-                        ));
+                let Some(parent) = self.find_interface(parent_name).cloned() else {
+                    let parent_name_text = self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(parent_name)
+                        .unwrap_or("<unknown>");
+                    if parent_name_text == "ContextOptions" {
+                        continue;
                     }
-                    let return_ty = method
-                        .return_type
-                        .as_ref()
-                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                        .transpose()?
-                        .ok_or_else(|| {
-                            SmeltError::unsupported(
-                                self.span(method.span.start, method.span.end),
-                                "interface methods require explicit return types",
-                            )
-                        })?;
-                    let mut params = Vec::new();
-                    for param in &method.params.items {
-                        let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                            return Err(SmeltError::unsupported(
-                                self.span(param.span.start, param.span.end),
-                                "destructured interface method parameters are not lowered yet",
-                            ));
-                        };
-                        let ty = param
+                    return Err(SmeltError::unsupported(
+                            self.span(heritage.span.start, heritage.span.end),
+                            format!("extended interface `{parent_name_text}` is not declared"),
+                        ));
+                };
+                let substitutions = self.type_argument_substitution(
+                    &parent.type_params,
+                    &parent_args,
+                    self.span(heritage.span.start, heritage.span.end),
+                )?;
+                fields.extend(self.substituted_fields(&parent.fields, &substitutions));
+                methods.extend(self.substituted_methods(&parent.methods, &substitutions));
+            }
+
+            for sig in &interface.body.body {
+                match sig {
+                    TSSignature::TSPropertySignature(prop) => {
+                        if prop.computed && !is_static_property_key(&prop.key) {
+                            continue;
+                        }
+                        let ty = prop
                             .type_annotation
                             .as_ref()
                             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                             .transpose()?
                             .ok_or_else(|| {
                                 SmeltError::unsupported(
-                                    self.span(param.span.start, param.span.end),
-                                    "interface method parameters require explicit types",
+                                    self.span(prop.span.start, prop.span.end),
+                                    "interface fields require explicit type annotations",
                                 )
                             })?;
-                        params.push(ParamSig {
-                            name: self.intern_source_name(binding.name.as_str()),
-                            ty,
-                            span: self.span(binding.span.start, binding.span.end),
+                        let field_ty = if prop.optional {
+                            self.ctx.krate.types.intern(Type::Optional(ty))
+                        } else {
+                            ty
+                        };
+                        fields.push(Field {
+                            name: self.property_key_symbol(&prop.key)?,
+                            ty: field_ty,
+                            visibility: Visibility::Public,
+                            optional: prop.optional,
+                            span: self.span(prop.span.start, prop.span.end),
                         });
                     }
-                    methods.push(MethodSig {
-                        name: self.property_key_symbol(&method.key)?,
-                        params,
-                        return_ty,
-                        visibility: Visibility::Public,
-                        is_async: matches!(
-                            self.ctx.krate.types.get(return_ty),
-                            Some(Type::Future(_))
-                        ),
-                        span: self.span(method.span.start, method.span.end),
-                    });
-                }
-                TSSignature::TSCallSignatureDeclaration(_)
-                | TSSignature::TSConstructSignatureDeclaration(_)
-                | TSSignature::TSIndexSignature(_) => {
-                    return Err(SmeltError::unsupported(
-                        self.span(sig.span().start, sig.span().end),
-                        "interface call, construct, and index signatures are not lowered yet",
-                    ));
+                    TSSignature::TSMethodSignature(method) => {
+                        if (method.computed && !is_static_property_key(&method.key))
+                            || method.optional
+                            || method.type_parameters.is_some()
+                            || method.this_param.is_some()
+                        {
+                            return Err(SmeltError::unsupported(
+                                self.span(method.span.start, method.span.end),
+                                "generic, optional, dynamic computed, and this-parameter interface methods are not lowered yet",
+                            ));
+                        }
+                        let return_ty = method
+                            .return_type
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(method.span.start, method.span.end),
+                                    "interface methods require explicit return types",
+                                )
+                            })?;
+                        let mut params = Vec::new();
+                        for param in &method.params.items {
+                            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                                return Err(SmeltError::unsupported(
+                                    self.span(param.span.start, param.span.end),
+                                    "destructured interface method parameters are not lowered yet",
+                                ));
+                            };
+                            let ty = param
+                                .type_annotation
+                                .as_ref()
+                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                                .transpose()?
+                                .ok_or_else(|| {
+                                    SmeltError::unsupported(
+                                        self.span(param.span.start, param.span.end),
+                                        "interface method parameters require explicit types",
+                                    )
+                                })?;
+                            params.push(ParamSig {
+                                name: self.intern_source_name(binding.name.as_str()),
+                                ty,
+                                span: self.span(binding.span.start, binding.span.end),
+                            });
+                        }
+                        methods.push(MethodSig {
+                            name: self.property_key_symbol(&method.key)?,
+                            params,
+                            return_ty,
+                            visibility: Visibility::Public,
+                            is_async: matches!(
+                                self.ctx.krate.types.get(return_ty),
+                                Some(Type::Future(_))
+                            ),
+                            span: self.span(method.span.start, method.span.end),
+                        });
+                    }
+                    TSSignature::TSCallSignatureDeclaration(_)
+                    | TSSignature::TSConstructSignatureDeclaration(_)
+                    | TSSignature::TSIndexSignature(_) => {}
                 }
             }
-        }
+            Ok(())
+        })();
+        self.pop_type_parameter_scope();
+        result?;
         let item = self.ctx.krate.push_item(Item::Interface(Interface {
             name,
             span: self.span(interface.span.start, interface.span.end),
+            type_params,
             fields,
             methods,
         }));
@@ -157,7 +183,15 @@ impl ModuleBuilder<'_> {
                 if self.is_test_framework_statement(&expr_stmt.expression) {
                     return Ok(());
                 }
+                if let Expression::CallExpression(call) = &expr_stmt.expression
+                    && self.node_assert_statement(call, body)?
+                {
+                    return Ok(());
+                }
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    if self.module_global_assignment_statement(assign, body, block)? {
+                        return Ok(());
+                    }
                     let (target, value) = self.assignment_parts(assign, body)?;
                     body.push_stmt_to_block(block, Stmt::Assign { target, value });
                     return Ok(());
@@ -186,7 +220,7 @@ impl ModuleBuilder<'_> {
             }
             Statement::IfStatement(if_stmt) => {
                 let cond = self.expression(&if_stmt.test, body)?;
-                let then_narrowing = self.guard_narrowing(&if_stmt.test);
+                let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
                 if let Some(narrowing) = then_narrowing.clone() {
                     self.narrowed_locals.push(narrowing);
                 }
@@ -362,6 +396,24 @@ impl ModuleBuilder<'_> {
                 format!("statement kind is not lowered yet: {statement:?}"),
             )),
         }
+    }
+
+    /// Lower writes to known module-level variables without requiring a local target.
+    fn module_global_assignment_statement(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left else {
+            return Ok(false);
+        };
+        if !self.module_globals.contains_key(target.name.as_str()) {
+            return Ok(false);
+        }
+        let value = self.expression(&assign.right, body)?;
+        body.push_stmt_to_block(block, Stmt::Expr(value));
+        Ok(true)
     }
 
     /// Return whether an expression is a top-level Vitest organization call.

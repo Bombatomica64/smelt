@@ -15,6 +15,11 @@ pub enum Type {
     String,
     /// TypeScript `unknown`, carried as an opaque safe boundary type.
     Unknown,
+    /// Type parameter in a generic declaration.
+    TypeParam {
+        /// The type parameter name.
+        name: Symbol,
+    },
     /// `None`/unit type.
     None,
     /// List type.

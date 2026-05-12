@@ -34,6 +34,89 @@ const letters = word.length;
 }
 
 #[test]
+fn emits_typescript_first_class_closure_values() {
+    let source = source_for(
+        r#"
+const offset = 2;
+const addOffset = (value: number): number => value + offset;
+function apply(value: number, fn: (value: number) => number): number {
+  return fn(value);
+}
+function makeAdder(base: number): (value: number) => number {
+  const add = (value: number): number => value + base;
+  return add;
+}
+const direct = addOffset(3);
+const passed = apply(4, addOffset);
+const adder = makeAdder(5);
+const returned = adder(6);
+"#,
+    );
+
+    assert!(source.contains("impl FnMut(f64) -> f64"));
+    assert!(source.contains("(3.0)"));
+    assert!(source.contains("apply(4.0,"));
+    assert!(source.contains("make_adder(5.0)"));
+    assert!(source.contains("adder(6.0)"));
+    assert!(source.contains("move |"));
+}
+
+#[test]
+fn emits_typescript_generic_and_default_closure_values() {
+    let source = source_for(
+        r#"
+const bump = <T extends number>(value: number = 1): number => value + 1;
+const defaulted = bump();
+const explicit = bump(4);
+"#,
+    );
+
+    assert!(source.contains("impl FnMut(f64) -> f64") || source.contains("|arg0|"));
+    assert!(source.contains("(1.0)"));
+    assert!(source.contains("(4.0)"));
+}
+
+#[test]
+fn emits_typescript_destructured_tuple_callback() {
+    let source = source_for(
+        r#"
+const pairs: [number, number][] = [[1, 2], [3, 4]];
+const sums = pairs.map(([left, right]) => left + right);
+"#,
+    );
+
+    assert!(source.contains(".0.clone() + arg0.1.clone()"));
+}
+
+#[test]
+fn emits_typescript_destructured_record_callback() {
+    let source = source_for(
+        r#"
+const rows: Record<string, number>[] = [];
+const doubled = rows.map(({ value }) => value * 2);
+"#,
+    );
+
+    assert!(source.contains(".get(\"value\").cloned().unwrap_or(0.0)"));
+}
+
+#[test]
+fn emits_typescript_async_closure_values() {
+    let source = source_for(
+        r#"
+async function run(): Promise<number> {
+  const lift = async (value: number): Promise<number> => value + 1;
+  const result = await lift(4);
+  return result;
+}
+"#,
+    );
+
+    assert!(source.contains("Box::pin(async move"));
+    assert!(source.contains(".await"));
+}
+
+#[test]
 fn emits_math_abs_call() {
     let source = source_for(
         r#"
@@ -92,6 +175,12 @@ const hasEvery = values.every(value => value > 0);
 values.forEach(value => value + 1);
 const total = values.reduce((acc, value) => acc + value, 0);
 const indexed = values.map((value, index) => value + index);
+const factor = 2;
+const captured = values.map((value, index) => value * factor + index);
+const scale = (value: number): number => value + factor;
+const localClosure = values.map(scale);
+let mutableTotal = 0;
+values.forEach(value => mutableTotal += value);
 const noInitial = values.reduce((acc, value, index) => acc + value + index);
 "#,
     );
@@ -107,6 +196,10 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains("reduce of empty array with no initial value"));
     assert!(source.contains(".collect::<Vec<_>>()"));
     assert!(source.contains(".map_or(-1.0"));
+    assert!(source.contains("(item * factor)"));
+    assert!(source.contains("(item + factor)"));
+    assert!(source.contains("let mut mutable_total"));
+    assert!(source.contains("mutable_total = (mutable_total + item)"));
 }
 
 #[test]

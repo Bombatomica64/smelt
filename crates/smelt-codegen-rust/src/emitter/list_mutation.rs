@@ -362,17 +362,23 @@ impl FunctionEmitter<'_> {
             if self.mir.types.get(comparator_callback.ty) != Some(&Type::Float) {
                 return Err(EmitError::new("array sort comparator must return a number"));
             }
-            let callback_text = Self::callback_expr_text(comparator_callback, &["left", "right"])?;
+            let callback_text = self.callback_expr_text(comparator_callback, &["left", "right"])?;
             return Ok(format!(
                 "{{ {list_text}.sort_by(|left, right| {{ let left = left.clone(); let right = right.clone(); let ordering = {callback_text}; if ordering < 0.0 {{ std::cmp::Ordering::Less }} else if ordering > 0.0 {{ std::cmp::Ordering::Greater }} else {{ std::cmp::Ordering::Equal }} }}); {result_text} }}"
             ));
         }
         match self.mir.types.get(*item_ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) if returns_list => Ok(format!(
-                "{{ {list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string())); {result_text} }}"
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) if returns_list => {
+                Ok(format!(
+                    "{{ {list_text}.sort_by(|left, right| left.to_string().cmp(&right.to_string())); {result_text} }}"
+                ))
+            }
+            Some(Type::Bool | Type::Int | Type::String) => {
+                Ok(format!("{{ {list_text}.sort(); {result_text} }}"))
+            }
+            Some(Type::Float) => Ok(format!(
+                "{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}"
             )),
-            Some(Type::Bool | Type::Int | Type::String) => Ok(format!("{{ {list_text}.sort(); {result_text} }}")),
-            Some(Type::Float) => Ok(format!("{{ {list_text}.sort_by(|left, right| left.partial_cmp(right).expect(\"list sort incomparable float\")); {result_text} }}")),
             _ => Err(EmitError::new(
                 "list sort supports bool, int, float, and string items",
             )),

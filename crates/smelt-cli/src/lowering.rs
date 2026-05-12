@@ -11,7 +11,9 @@ use std::{
 
 use smelt_hir::{FileId, ModuleId};
 
-use crate::manifest::{order_manifest_sources, read_manifest_source, resolve_manifest_path};
+use crate::manifest::{
+    dependency_closure, order_manifest_sources, read_manifest_source, resolve_manifest_path,
+};
 
 /// Source language inferred from a file path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -125,6 +127,7 @@ pub(crate) fn lower_manifest_entries(
         .map(|path| resolve_manifest_path(manifest_dir, path))
         .map(read_manifest_source)
         .collect::<Result<Vec<_>, _>>()?;
+    let sources = dependency_closure(sources)?;
 
     let files = order_manifest_sources(&sources)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
@@ -144,7 +147,9 @@ pub(crate) fn lower_manifest_entries(
 }
 
 /// Lowers already ordered manifest files into one shared HIR crate.
-fn lower_ordered_manifest_files(files: &[PathBuf]) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
+fn lower_ordered_manifest_files(
+    files: &[PathBuf],
+) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     let mut modules = Vec::new();

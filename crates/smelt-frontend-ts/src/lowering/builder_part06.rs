@@ -32,6 +32,40 @@ impl ModuleBuilder<'_> {
         Ok(true)
     }
 
+    /// Lower supported Node `assert` equality calls into runtime assertions.
+    fn node_assert_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        if self.deep_strict_equal_statement(call, body)? {
+            return Ok(true);
+        }
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        if member.property.name != "strictEqual" {
+            return Ok(false);
+        }
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(false);
+        };
+        if object.name != "assert" {
+            return Ok(false);
+        }
+        let [actual_arg, expected_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "assert.strictEqual(...) requires actual and expected values",
+            ));
+        };
+        let actual = self.argument(actual_arg, body)?;
+        let expected = self.argument(expected_arg, body)?;
+        let failed = self.comparison_expr(BinOp::NotEq, actual, expected, call.span, body);
+        self.push_test_failure_if(failed, "assert.strictEqual(...) failed", call.span, body);
+        Ok(true)
+    }
+
     /// Lower supported `expect(actual).matcher(expected)` calls to failure paths.
     fn expect_matcher_statement(
         &mut self,
@@ -391,9 +425,10 @@ impl ModuleBuilder<'_> {
     fn guard_narrowing(
         &mut self,
         expression: &Expression<'_>,
+        body: &Body,
     ) -> Option<HashMap<String, smelt_hir::TypeId>> {
         let mut out = HashMap::new();
-        if let Some((name, target)) = self.typeof_guard(expression) {
+        if let Some((name, target)) = self.typeof_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.array_is_array_guard(expression) {
             out.insert(name, target);
@@ -404,7 +439,11 @@ impl ModuleBuilder<'_> {
     }
 
     /// Recognize `typeof value === "kind"` guard expressions.
-    fn typeof_guard(&mut self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
+    fn typeof_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
@@ -430,10 +469,38 @@ impl ModuleBuilder<'_> {
             "boolean" => self.ctx.krate.types.intern(Type::Bool),
             "number" => self.ctx.krate.types.intern(Type::Float),
             "string" => self.ctx.krate.types.intern(Type::String),
+            "function" => {
+                let local_ty = self
+                    .locals
+                    .get(identifier.name.as_str())
+                    .map(|local| Self::local_ty(body, *local));
+                local_ty
+                    .and_then(|ty| self.function_member_type(ty))
+                    .unwrap_or_else(|| {
+                        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        self.ctx.krate.types.intern(Type::Function(FunctionType {
+                            params: vec![unknown_ty],
+                            return_ty: unknown_ty,
+                            is_async: false,
+                        }))
+                    })
+            }
             "object" => self.ctx.krate.types.intern(Type::Unknown),
             _ => return None,
         };
         Some((identifier.name.to_string(), ty))
+    }
+
+    /// Extract a callable member from a union or function type.
+    fn function_member_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Function(_)) => Some(ty),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .find(|item| matches!(self.ctx.krate.types.get(*item), Some(Type::Function(_)))),
+            _ => None,
+        }
     }
 
     /// Recognize `Array.isArray(value)` guard expressions.
@@ -521,13 +588,18 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         for declarator in &decl.declarations {
-            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
-                return Err(SmeltError::unsupported(
-                    self.span(declarator.span.start, declarator.span.end),
-                    "destructuring declarations are not lowered yet",
-                ));
-            };
-
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init
+            {
+                self.local_arrow_callback_declaration(
+                    binding.name.as_str(),
+                    binding.span.start,
+                    binding.span.end,
+                    arrow,
+                    body,
+                )?;
+                continue;
+            }
             let annotated_ty = declarator
                 .type_annotation
                 .as_ref()
@@ -538,23 +610,203 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|init| self.expression_with_hint(init, body, annotated_ty))
                 .transpose()?;
-            let ty = annotated_ty
-                .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
-            let name = binding.name.as_str();
-            let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
-            self.ctx.krate.names.record(symbol, name);
-            let local = body.push_local(LocalDecl {
-                name: Some(symbol),
-                ty,
-                mutable: matches!(declarator.kind, oxc::ast::ast::VariableDeclarationKind::Let),
-                span: self.span(binding.span.start, binding.span.end),
-            });
-            self.locals.insert(name.to_owned(), local);
-            let pat = body.push_pattern(Pattern::Binding(local));
-            body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
+            self.binding_declaration(
+                &declarator.id,
+                value,
+                annotated_ty,
+                matches!(declarator.kind, oxc::ast::ast::VariableDeclarationKind::Let),
+                body,
+                block,
+            )?;
         }
         Ok(())
+    }
+
+    /// Lower a local arrow function variable as a non-escaping closure value.
+    fn local_arrow_callback_declaration(
+        &mut self,
+        name: &str,
+        start: u32,
+        end: u32,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        let params = self.arrow_callback_param_types(arrow)?;
+        let defaults = arrow
+            .params
+            .items
+            .iter()
+            .map(|param| {
+                param.initializer
+                    .as_ref()
+                    .map(|default| self.expression_with_hint(default, body, None))
+                    .transpose()
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let return_ty = arrow
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?;
+        let callback = self.arrow_callback_from_params(arrow, &params, body)?;
+        let return_ty = return_ty.unwrap_or(callback.ty);
+        let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
+            Some(Type::Future(inner)) if arrow.r#async => *inner,
+            _ => return_ty,
+        };
+        if callback.ty != expected_callback_ty {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "local closure return type does not match its annotation",
+            ));
+        }
+        let symbol = self.intern_source_name(name);
+        let fn_ty = self.ctx.krate.types.intern(Type::Function(smelt_hir::FunctionType {
+            params: params.clone(),
+            return_ty,
+            is_async: false,
+        }));
+        let local = body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty: fn_ty,
+            mutable: false,
+            span: self.span(start, end),
+        });
+        self.locals.insert(name.to_owned(), local);
+        self.local_callbacks.insert(
+            name.to_owned(),
+            LocalCallback {
+                callback,
+                params,
+                defaults,
+                return_ty,
+            },
+        );
+        Ok(())
+    }
+
+    /// Lower a binding pattern in a variable declaration.
+    fn binding_declaration(
+        &mut self,
+        pattern: &BindingPattern<'_>,
+        value: Option<smelt_hir::ExprId>,
+        annotated_ty: Option<smelt_hir::TypeId>,
+        mutable: bool,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                let ty = annotated_ty
+                    .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+                let name = binding.name.as_str();
+                let symbol = self.ctx.krate.symbols.intern(&camel_to_snake(name));
+                self.ctx.krate.names.record(symbol, name);
+                let local = body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty,
+                    mutable,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                self.locals.insert(name.to_owned(), local);
+                let pat = body.push_pattern(Pattern::Binding(local));
+                body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });
+                Ok(())
+            }
+            BindingPattern::ObjectPattern(object) => {
+                let Some(receiver) = value else {
+                    return Err(SmeltError::unsupported(
+                        self.span(object.span.start, object.span.end),
+                        "object destructuring requires an initializer",
+                    ));
+                };
+                if object.rest.is_some() {
+                    return Err(SmeltError::unsupported(
+                        self.span(object.span.start, object.span.end),
+                        "object destructuring rest bindings are not lowered yet",
+                    ));
+                }
+                for property in &object.properties {
+                    if property.computed {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "computed object destructuring keys are not lowered yet",
+                        ));
+                    }
+                    let field = self.property_key_symbol(&property.key)?;
+                    let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
+                    let extracted = body.push_expr(Expr {
+                        kind: ExprKind::Field { receiver, field },
+                        ty,
+                        span: self.span(property.span.start, property.span.end),
+                    });
+                    self.binding_declaration(
+                        &property.value,
+                        Some(extracted),
+                        Some(ty),
+                        mutable,
+                        body,
+                        block,
+                    )?;
+                }
+                Ok(())
+            }
+            BindingPattern::ArrayPattern(array) => {
+                let Some(receiver) = value else {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "array destructuring requires an initializer",
+                    ));
+                };
+                if array.rest.is_some() {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "array destructuring rest bindings are not lowered yet",
+                    ));
+                }
+                let item_ty = self.index_type(Self::expr_ty(body, receiver))?;
+                for (idx, element) in array.elements.iter().enumerate() {
+                    let Some(element) = element else {
+                        continue;
+                    };
+                    let idx = u32::try_from(idx).map_err(|err| {
+                        SmeltError::unsupported(
+                            self.span(array.span.start, array.span.end),
+                            format!("array destructuring index is too large: {err}"),
+                        )
+                    })?;
+                    let index_ty = self.ctx.krate.types.intern(Type::Float);
+                    let index = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Float(f64::from(idx))),
+                        ty: index_ty,
+                        span: self.span(array.span.start, array.span.end),
+                    });
+                    let extracted = body.push_expr(Expr {
+                        kind: ExprKind::Index { receiver, index },
+                        ty: item_ty,
+                        span: self.span(element.span().start, element.span().end),
+                    });
+                    self.binding_declaration(
+                        element,
+                        Some(extracted),
+                        Some(item_ty),
+                        mutable,
+                        body,
+                        block,
+                    )?;
+                }
+                Ok(())
+            }
+            BindingPattern::AssignmentPattern(assign) => self.binding_declaration(
+                &assign.left,
+                value,
+                annotated_ty,
+                mutable,
+                body,
+                block,
+            ),
+        }
     }
 
     // Continued in the next split builder file.

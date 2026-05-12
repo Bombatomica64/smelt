@@ -206,6 +206,17 @@ pub enum RegexMatchOp {
     FullMatch,
 }
 
+/// A directly lowered local-time `Date` component.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DatePart {
+    /// Calendar year.
+    FullYear,
+    /// Zero-based month.
+    Month,
+    /// One-based day of month.
+    Date,
+}
+
 /// A field available on a parsed URL value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UrlField {

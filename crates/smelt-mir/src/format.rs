@@ -155,6 +155,20 @@ fn rvalue_text(value: &Rvalue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Rvalue::Closure { id, captures } => format!(
+            "closure {:?} [{}]",
+            id,
+            captures
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Rvalue::ClosureCall { callee, args } => format!(
+            "closure_call {}({})",
+            operand_text(callee),
+            args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
+        ),
         Rvalue::Binary { op, lhs, rhs } => {
             format!(
                 "{} {} {}",
@@ -556,7 +570,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(item)
             )
         }
-        Rvalue::ListCallback { op, list, .. } => {
+        Rvalue::ListCallback { op, list, callback } => {
             let op_text = match op {
                 smelt_hir::ListCallbackOp::Map => "map",
                 smelt_hir::ListCallbackOp::Filter => "filter",
@@ -569,12 +583,21 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::ListCallbackOp::ForEach => "for_each",
                 smelt_hir::ListCallbackOp::FlatMap => "flat_map",
             };
-            format!("list_{op_text} {} <callback>", operand_text(list))
+            format!(
+                "list_{op_text} {}, {}",
+                operand_text(list),
+                operand_text(callback)
+            )
         }
-        Rvalue::ListReduce { list, initial, .. } => format!(
-            "list_reduce {}, {} <callback>",
+        Rvalue::ListReduce {
+            list,
+            initial,
+            callback,
+        } => format!(
+            "list_reduce {}, {}, {}",
             operand_text(list),
-            optional_operand_text(initial.as_ref())
+            optional_operand_text(initial.as_ref()),
+            operand_text(callback)
         ),
         Rvalue::ListSlice { list, start, end } => format!(
             "list_slice {}, {}, {}",
@@ -593,7 +616,11 @@ fn rvalue_text(value: &Rvalue) -> String {
             operand_text(list),
             operand_text(start),
             optional_operand_text(delete_count.as_ref()),
-            items.iter().map(operand_text).collect::<Vec<_>>().join(", "),
+            items
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", "),
             mutate
         ),
         Rvalue::ListFill {
@@ -779,6 +806,15 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(other)
             )
         }
+        Rvalue::DictAssign { target, sources } => format!(
+            "dict_assign {}, [{}]",
+            operand_text(target),
+            sources
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Rvalue::DictCopy { dict } => format!("dict_copy {}", operand_text(dict)),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {
@@ -816,6 +852,30 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::DateToIsoString { timestamp_ms } => {
             format!("date_to_iso_string {}", operand_text(timestamp_ms))
         }
+        Rvalue::DateFromParts { parts } => format!(
+            "date_from_parts [{}]",
+            parts
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Rvalue::DateGetPart { part, timestamp_ms } => {
+            format!("date_get_{part:?} {}", operand_text(timestamp_ms))
+        }
+        Rvalue::DateSetPart {
+            part,
+            timestamp_ms,
+            values,
+        } => format!(
+            "date_set_{part:?} {}, [{}]",
+            operand_text(timestamp_ms),
+            values
+                .iter()
+                .map(operand_text)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Rvalue::UrlField { field, url } => {
             let field_text = match field {
                 smelt_hir::UrlField::Href => "href",
@@ -978,6 +1038,7 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
         Type::Float => "Float".to_owned(),
         Type::String => "String".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
+        Type::TypeParam { name } => mir.symbols.get(*name).unwrap_or("<unknown>").to_owned(),
         Type::None => "None".to_owned(),
         Type::List(item) => format!("List<{}>", type_ref(mir, *item)),
         Type::Set(item) => format!("Set<{}>", type_ref(mir, *item)),

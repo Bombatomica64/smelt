@@ -386,6 +386,7 @@ const hasAny = values.some((value, index) => value > index);
 const hasEvery = values.every((value, index) => value >= index);
 values.forEach((value, index) => value + index);
 const total = values.reduce((acc, value, index) => acc + value + index);
+const arrays = values.map((value, index, array) => array);
 "#),
         &mut ctx,
     )?;
@@ -405,7 +406,7 @@ const total = values.reduce((acc, value, index) => acc + value + index);
             body.exprs.iter().any(|expr| matches!(
                 &expr.kind,
                 ExprKind::ListCallback { op, callback, .. }
-                    if *op == expected && callback_has_param(callback, 1)
+                    if *op == expected && closure_callback_has_param(body, *callback, 1)
             )),
             "missing callback index param for {expected:?}"
         );
@@ -417,9 +418,20 @@ const total = values.reduce((acc, value, index) => acc + value + index);
                 initial: None,
                 callback,
                 ..
-            } if callback_has_param(callback, 2)
+            } if closure_callback_has_param(body, *callback, 2)
         )),
         "missing reduce without initial value using callback index param"
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListCallback {
+                op: ListCallbackOp::Map,
+                callback,
+                ..
+            } if closure_callback_has_param(body, *callback, 2)
+        )),
+        "missing callback array param"
     );
     Ok(())
 }
@@ -458,10 +470,26 @@ const entries = values.entries();
             .count(),
         2
     );
-    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListFill { .. })));
-    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListCopyWithin { .. })));
-    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListWith { .. })));
-    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListFlat { .. })));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListFill { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCopyWithin { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListWith { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListFlat { .. }))
+    );
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::ListCallback {
@@ -476,7 +504,11 @@ const entries = values.entries();
             ..
         }
     )));
-    ensure!(body.exprs.iter().any(|expr| matches!(expr.kind, ExprKind::ListReversed { .. })));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListReversed { .. }))
+    );
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::ListCallback {
@@ -507,24 +539,109 @@ const entries = values.entries();
 }
 
 #[test]
-fn rejects_array_callback_captures() {
+fn lowers_array_callback_captures() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!(r#"
 const values: number[] = [1, 2, 3];
 const minimum = 1;
 const filtered = values.filter(value => value > minimum);
 "#),
         &mut ctx,
-    )
-    .expect("expected callback capture diagnostic");
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
 
-    assert!(
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListCallback {
+                op: ListCallbackOp::Filter,
+                callback,
+                ..
+            } if closure_callback_has_capture(body, *callback)
+        )),
+        "missing captured filter callback"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_local_closure_callback_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const offset = 10;
+const scale = (value: number): number => value + offset;
+const mapped = values.map(scale);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListCallback {
+                op: ListCallbackOp::Map,
+                callback,
+                ..
+            } if closure_callback_has_capture(body, *callback)
+        )),
+        "missing local closure callback map"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_mutable_array_callback_captures() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+let total = 0;
+values.forEach(value => total += value);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListCallback {
+                op: ListCallbackOp::ForEach,
+                callback,
+                ..
+            } if closure_callback_assigns_capture(body, *callback)
+        )),
+        "missing mutable captured forEach callback"
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_const_array_callback_assignment() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+const total = 0;
+values.forEach(value => total += value);
+"#),
+        &mut ctx,
+    )?;
+
+    ensure!(
         errors.iter().any(|err| err
             .message
-            .contains("callback captures are not supported yet")),
-        "{errors:?}"
+            .contains("callback assignment to captured const local")),
+        "missing const capture assignment diagnostic: {errors:?}"
     );
+    Ok(())
 }
 
 #[test]

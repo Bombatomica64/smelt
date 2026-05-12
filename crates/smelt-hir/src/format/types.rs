@@ -85,6 +85,7 @@ fn class_item_text(krate: &Crate, class: &crate::item::Class) -> String {
 /// Formats an interface item as text.
 fn interface_item_text(krate: &Crate, interface: &crate::item::Interface) -> String {
     let name = krate.symbols.get(interface.name).unwrap_or("<unknown>");
+    let type_params = type_params_text(krate, &interface.type_params);
     let fields = fields_text(krate, &interface.fields);
     let methods = interface
         .methods
@@ -92,7 +93,31 @@ fn interface_item_text(krate: &Crate, interface: &crate::item::Interface) -> Str
         .map(|method| method_sig_text(krate, method))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("interface {name} fields [{fields}] methods [{methods}]")
+    format!("interface {name}{type_params} fields [{fields}] methods [{methods}]")
+}
+
+/// Formats generic type parameters.
+fn type_params_text(krate: &Crate, params: &[crate::item::TypeParamDef]) -> String {
+    if params.is_empty() {
+        return String::new();
+    }
+    let params = params
+        .iter()
+        .map(|param| {
+            let name = krate.symbols.get(param.name).unwrap_or("<unknown>");
+            let constraint = param
+                .constraint
+                .map(|ty| format!(" extends {}", type_ref(krate, ty)))
+                .unwrap_or_default();
+            let default = param
+                .default
+                .map(|ty| format!(" = {}", type_ref(krate, ty)))
+                .unwrap_or_default();
+            format!("{name}{constraint}{default}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("<{params}>")
 }
 
 /// Formats a method signature as text.
@@ -133,6 +158,7 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
         Type::Float => "Float".to_owned(),
         Type::String => "String".to_owned(),
         Type::Unknown => "Unknown".to_owned(),
+        Type::TypeParam { name } => krate.symbols.get(*name).unwrap_or("<unknown>").to_owned(),
         Type::None => "None".to_owned(),
         Type::List(item) => format!("List<{}>", type_ref(krate, *item)),
         Type::Set(item) => format!("Set<{}>", type_ref(krate, *item)),

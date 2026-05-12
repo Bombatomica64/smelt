@@ -3,9 +3,12 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a set containment operation to Rust text.
-    pub(super) fn set_contains_text(&self, set: &Operand, item: &Operand) -> Result<String, EmitError> {
+    pub(super) fn set_contains_text(
+        &self,
+        set: &Operand,
+        item: &Operand,
+    ) -> Result<String, EmitError> {
         let set_ty = self.operand_ty(set)?;
         let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
             return Err(EmitError::new("set contains receiver must be a set"));
@@ -24,7 +27,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a set disjointness predicate to Rust text.
     /// Converts a set disjointness predicate to Rust text.
-    pub(super) fn set_disjoint_text(&self, left: &Operand, right: &Operand) -> Result<String, EmitError> {
+    pub(super) fn set_disjoint_text(
+        &self,
+        left: &Operand,
+        right: &Operand,
+    ) -> Result<String, EmitError> {
         self.validate_set_pair_operands(left, right, "set isdisjoint")?;
         Ok(format!(
             "{}.is_disjoint(&{})",
@@ -125,7 +132,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a set copy operation to Rust text.
     /// Converts a set copy operation to Rust text.
-    pub(super) fn set_copy_text(&self, set: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn set_copy_text(
+        &self,
+        set: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let set_ty = self.operand_ty(set)?;
         if !matches!(self.mir.types.get(set_ty), Some(Type::Set(_))) {
             return Err(EmitError::new("set copy receiver must be a set"));
@@ -213,5 +224,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts a list-to-set constructor conversion to Rust text.
-
 }

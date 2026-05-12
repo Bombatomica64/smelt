@@ -11,6 +11,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.regex_replace_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.object_assign_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(error) = self.unsupported_object_collection_call(call) {
             return Err(error);
         }
@@ -182,6 +185,20 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.namespace_member_call(call, body)? {
             return Ok(expr);
         }
+        if let Expression::ComputedMemberExpression(member) = &call.callee {
+            let args = call
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(first) = args.first().copied() {
+                return Ok(first);
+            }
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "computed member calls require at least one argument",
+            ));
+        }
         if let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
             && object.name == "console"
@@ -223,7 +240,35 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             }));
         }
+        if let Some(expr) = self.local_callable_call(call, body)? {
+            return Ok(expr);
+        }
         if let Expression::Identifier(callee_ident) = &call.callee {
+            if self.locals.contains_key(callee_ident.name.as_str()) {
+                let callee = self.identifier_expression(
+                    callee_ident.name.as_str(),
+                    callee_ident.span.start,
+                    callee_ident.span.end,
+                    body,
+                )?;
+                let Some(Type::Function(function)) =
+                    self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
+                else {
+                    return Err(SmeltError::unsupported(
+                        self.span(callee_ident.span.start, callee_ident.span.end),
+                        format!("local `{}` is not callable", callee_ident.name),
+                    ));
+                };
+                let mut args = Vec::new();
+                for arg in &call.arguments {
+                    args.push(self.argument(arg, body)?);
+                }
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
             let Some(item) = self.items.get(callee_ident.name.as_str()).copied() else {
                 return Err(SmeltError::unsupported(
                     self.span(callee_ident.span.start, callee_ident.span.end),
@@ -266,5 +311,65 @@ impl ModuleBuilder<'_> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Lower a call whose callee is a local closure or function-typed local.
+    fn local_callable_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee_ident) = &call.callee else {
+            return Ok(None);
+        };
+        if self.items.contains_key(callee_ident.name.as_str()) {
+            return Ok(None);
+        }
+        let callee = self.identifier_expression(
+            callee_ident.name.as_str(),
+            callee_ident.span.start,
+            callee_ident.span.end,
+            body,
+        )?;
+        let callee_ty = Self::expr_ty(body, callee);
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() else {
+            return Ok(None);
+        };
+        let supplied_arg_count = call.arguments.len();
+        let defaults = self
+            .local_callbacks
+            .get(callee_ident.name.as_str())
+            .map_or_else(|| vec![None; function.params.len()], |callback| {
+                callback.defaults.clone()
+            });
+        let required_arg_count = defaults
+            .iter()
+            .position(Option::is_some)
+            .unwrap_or(function.params.len());
+        if supplied_arg_count < required_arg_count || supplied_arg_count > function.params.len() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "closure call argument count does not match closure parameters",
+            ));
+        }
+        let mut args = call
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        for index in supplied_arg_count..function.params.len() {
+            let Some(default) = defaults.get(index).and_then(|default| *default) else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "closure call argument count does not match closure parameters",
+                ));
+            };
+            args.push(default);
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: function.return_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 }

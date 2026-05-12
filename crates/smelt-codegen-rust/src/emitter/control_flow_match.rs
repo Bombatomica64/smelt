@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Emits a match expression.
     pub(super) fn emit_match(
         &self,
@@ -103,5 +102,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Gets the type of an operand.
-
 }

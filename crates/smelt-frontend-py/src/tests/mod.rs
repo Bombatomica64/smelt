@@ -116,13 +116,42 @@ fn symbol(ctx: &HirCtx, symbol: Symbol) -> Result<&str, String> {
         .ok_or_else(|| format!("missing symbol {symbol:?}"))
 }
 
+/// Return whether a lowered callback captures an enclosing local.
+fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
+    match &callback.kind {
+        smelt_hir::CallbackExprKind::Capture(_)
+        | smelt_hir::CallbackExprKind::AssignCapture { .. } => true,
+        smelt_hir::CallbackExprKind::Param(_) | smelt_hir::CallbackExprKind::Literal(_) => false,
+        smelt_hir::CallbackExprKind::ListLit(items) => items.iter().any(callback_has_capture),
+        smelt_hir::CallbackExprKind::Index { receiver, .. } => callback_has_capture(receiver),
+        smelt_hir::CallbackExprKind::Field { receiver, .. } => callback_has_capture(receiver),
+        smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_capture(operand),
+        smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
+            callback_has_capture(lhs) || callback_has_capture(rhs)
+        }
+    }
+}
+
+/// Return whether a closure expression's callback body captures an enclosing local.
+fn closure_callback_has_capture(body: &smelt_hir::Body, callback: smelt_hir::ExprId) -> bool {
+    let Some(expr) = body.exprs.get(callback.0 as usize) else {
+        return false;
+    };
+    let smelt_hir::ExprKind::Closure(closure) = &expr.kind else {
+        return false;
+    };
+    closure
+        .callback_body
+        .as_ref()
+        .is_some_and(callback_has_capture)
+}
 
 mod basic_tests;
-mod pytest_tests;
+mod builtins_sets_tests;
+mod class_tests;
 mod collections_a_tests;
 mod collections_b_tests;
 mod collections_reject_a_tests;
 mod collections_reject_b_tests;
-mod builtins_sets_tests;
-mod class_tests;
 mod packages_tests;
+mod pytest_tests;

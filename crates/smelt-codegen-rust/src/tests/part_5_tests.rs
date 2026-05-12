@@ -36,8 +36,11 @@ test("adds numbers", () => {
 "#,
     );
 
-    assert!(source
-        .contains("#[test]\nfn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"));
+    assert!(
+        source.contains(
+            "#[test]\nfn test_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"
+        )
+    );
     assert!(source.contains("1.0 + 1.0"));
     assert!(source.contains("!= 2.0"));
     assert!(source.contains("return Ok(());"));
@@ -153,8 +156,11 @@ const mapEntries = mapping.entries();
 
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".values().cloned().collect::<Vec<_>>()"));
-    assert!(source
-        .contains(".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"));
+    assert!(
+        source.contains(
+            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+        )
+    );
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(".iter().map(|value| (value.clone(), value.clone())).collect::<Vec<_>>()")

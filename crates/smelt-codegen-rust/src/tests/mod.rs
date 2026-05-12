@@ -54,7 +54,6 @@ fn source_for_py_path(py: &str, path: &str) -> String {
     }
 }
 
-
 mod part_1_tests;
 mod part_2_tests;
 mod part_3_tests;

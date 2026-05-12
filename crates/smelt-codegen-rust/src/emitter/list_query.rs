@@ -43,16 +43,17 @@ impl FunctionEmitter<'_> {
         &self,
         op: smelt_hir::ListCallbackOp,
         list: &Operand,
-        callback: &smelt_hir::CallbackExpr,
+        callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
+        let callback = self.closure_callback_body(callback)?;
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list callback receiver must be a list"));
         };
         let element_ty = *list_element_ty;
         let list_text = self.operand_text(list)?;
-        let callback_text = Self::callback_expr_text(callback, &["item", "index", "array"])?;
+        let callback_text = self.callback_expr_text(callback, &["item", "index", "array"])?;
         let closure = format!(
             "|(index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}"
         );
@@ -147,7 +148,9 @@ impl FunctionEmitter<'_> {
             }
             smelt_hir::ListCallbackOp::FlatMap => {
                 let Some(Type::List(callback_item_ty)) = self.mir.types.get(callback.ty) else {
-                    return Err(EmitError::new("array flatMap callback must return an array"));
+                    return Err(EmitError::new(
+                        "array flatMap callback must return an array",
+                    ));
                 };
                 if self.mir.types.get(dest_ty) != Some(&Type::List(*callback_item_ty)) {
                     return Err(EmitError::new(
@@ -161,21 +164,15 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
-    /// Converts a capture-free array reduce callback into Rust `fold` text.
+    /// Converts an array reduce callback into Rust `fold` text.
     pub(super) fn list_reduce_text(
         &self,
         list: &Operand,
         initial: Option<&Operand>,
-        callback: &smelt_hir::CallbackExpr,
+        callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
+        let callback = self.closure_callback_body(callback)?;
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array reduce receiver must be a list"));
@@ -194,7 +191,8 @@ impl FunctionEmitter<'_> {
             ));
         }
         let list_text = self.operand_text(list)?;
-        let callback_text = Self::callback_expr_text(callback, &["acc", "item", "index", "array"])?;
+        let callback_text =
+            self.callback_expr_text(callback, &["acc", "item", "index", "array"])?;
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
@@ -233,15 +231,84 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Converts a capture-free callback expression tree to Rust source text.
-    /// Converts a capture-free callback expression tree to Rust source text.
-    /// Converts a capture-free callback expression tree to Rust source text.
-    /// Converts a capture-free callback expression tree to Rust source text.
-    /// Converts a capture-free callback expression tree to Rust source text.
-    /// Converts a capture-free callback expression tree to Rust source text.
-    /// Converts a capture-free callback expression tree to Rust source text.
-    /// Converts a capture-free callback expression tree to Rust source text.
+    /// Converts a non-escaping MIR closure into a Rust closure literal.
+    pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
+        let closure = self
+            .mir
+            .closures
+            .get(id.0 as usize)
+            .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?;
+        let callback = closure.callback_body.as_ref().ok_or_else(|| {
+            EmitError::new("general closure bodies are not supported in Rust codegen yet")
+        })?;
+        let params = closure
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("arg{index}"))
+            .collect::<Vec<_>>();
+        let param_refs = params.iter().map(String::as_str).collect::<Vec<_>>();
+        let body_expr = self.callback_expr_text(callback, &param_refs)?;
+        let body = if matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_))) {
+            format!("Box::pin(async move {{ {body_expr} }})")
+        } else {
+            body_expr
+        };
+        let capture_prefix = if closure.escapes
+            || matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
+            || closure
+                .captures
+                .iter()
+                .any(|capture| capture.mode == smelt_hir::CaptureMode::ByValue)
+        {
+            "move "
+        } else {
+            ""
+        };
+        Ok(format!(
+            "{capture_prefix}|{}| {{ {body} }}",
+            params.join(", ")
+        ))
+    }
+
+    /// Resolve a callback operand to the temporary MIR closure body it was constructed from.
+    fn closure_callback_body(
+        &self,
+        operand: &Operand,
+    ) -> Result<&smelt_hir::CallbackExpr, EmitError> {
+        let local = match operand {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
+            _ => {
+                return Err(EmitError::new(
+                    "list callback must be a non-escaping closure local",
+                ));
+            }
+        };
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign {
+                    dest,
+                    value: Rvalue::Closure { id, .. },
+                } = statement
+                    && *dest == local
+                {
+                    let closure = self.mir.closures.get(id.0 as usize).ok_or_else(|| {
+                        EmitError::new("list callback references an unknown closure")
+                    })?;
+                    return closure.callback_body.as_ref().ok_or_else(|| {
+                        EmitError::new("list callback closure has no callback body")
+                    });
+                }
+            }
+        }
+        Err(EmitError::new(
+            "list callback closure construction was not found",
+        ))
+    }
+
+    /// Converts a callback expression tree to Rust source text.
     pub(super) fn callback_expr_text(
+        &self,
         expr: &smelt_hir::CallbackExpr,
         params: &[&str],
     ) -> Result<String, EmitError> {
@@ -250,14 +317,51 @@ impl FunctionEmitter<'_> {
                 .get(*index)
                 .map(|param| (*param).to_owned())
                 .ok_or_else(|| EmitError::new("callback parameter index is out of bounds")),
+            smelt_hir::CallbackExprKind::Capture(local) => {
+                self.local_name(LocalId(local.0)).map(str::to_owned)
+            }
+            smelt_hir::CallbackExprKind::AssignCapture { target, value } => {
+                let target_text = self.local_name(LocalId(target.0))?;
+                let value_text = self.callback_expr_text(value, params)?;
+                Ok(format!(
+                    "{{ {target_text} = {value_text}; {target_text}.clone() }}"
+                ))
+            }
             smelt_hir::CallbackExprKind::Literal(literal) => Ok(hir_literal_text(literal)),
             smelt_hir::CallbackExprKind::ListLit(items) => {
                 let items_text = items
                     .iter()
-                    .map(|item| Self::callback_expr_text(item, params))
+                    .map(|item| self.callback_expr_text(item, params))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 Ok(format!("vec![{items_text}]"))
+            }
+            smelt_hir::CallbackExprKind::Index { receiver, index } => {
+                let receiver_text = self.callback_expr_text(receiver, params)?;
+                match self.mir.types.get(receiver.ty) {
+                    Some(Type::Tuple(_)) => Ok(format!("{receiver_text}.{index}.clone()")),
+                    Some(Type::List(_)) => Ok(format!("{receiver_text}[{index}].clone()")),
+                    _ => Err(EmitError::new(
+                        "callback indexed access requires a tuple or list receiver",
+                    )),
+                }
+            }
+            smelt_hir::CallbackExprKind::Field { receiver, field } => {
+                let receiver_text = self.callback_expr_text(receiver, params)?;
+                let field_text = self.symbol_name(*field)?;
+                match self.mir.types.get(receiver.ty) {
+                    Some(Type::Dict(_, value_ty)) => Ok(format!(
+                        "{receiver_text}.get({field_text:?}).cloned().unwrap_or({})",
+                        self.default_value(*value_ty)?
+                    )),
+                    Some(Type::Class { .. }) => Ok(format!(
+                        "{receiver_text}.{}.clone()",
+                        sanitize_ident(field_text)
+                    )),
+                    _ => Err(EmitError::new(
+                        "callback field access requires a record or class receiver",
+                    )),
+                }
             }
             smelt_hir::CallbackExprKind::Unary { op, operand } => {
                 let op_text = match op {
@@ -266,14 +370,14 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(format!(
                     "{op_text}({})",
-                    Self::callback_expr_text(operand, params)?
+                    self.callback_expr_text(operand, params)?
                 ))
             }
             smelt_hir::CallbackExprKind::Binary { op, lhs, rhs } => Ok(format!(
                 "({} {} {})",
-                Self::callback_expr_text(lhs, params)?,
+                self.callback_expr_text(lhs, params)?,
                 smelt_hir::bin_op_text(*op),
-                Self::callback_expr_text(rhs, params)?
+                self.callback_expr_text(rhs, params)?
             )),
         }
     }
@@ -319,7 +423,11 @@ impl FunctionEmitter<'_> {
     /// Converts a numeric list sum operation to Rust text.
     /// Converts a numeric list sum operation to Rust text.
     /// Converts a numeric list sum operation to Rust text.
-    pub(super) fn list_sum_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_sum_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list sum receiver must be a list"));

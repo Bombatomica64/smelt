@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Emits a basic block's statements and terminator.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
@@ -54,7 +53,11 @@ impl FunctionEmitter<'_> {
 
     /// Emits a single statement.
     /// Emits a single statement.
-    pub(super) fn emit_statement(&self, statement: &Statement, out: &mut String) -> Result<(), EmitError> {
+    pub(super) fn emit_statement(
+        &self,
+        statement: &Statement,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
         match statement {
             Statement::Assign { dest, value } => {
                 let local = self.local_decl(*dest)?;
@@ -68,8 +71,12 @@ impl FunctionEmitter<'_> {
                     ""
                 };
                 out.push_str(&format!(
-                    "    let {mutability}{name}: {} = {rendered_value};\n",
-                    self.type_text(local.ty)?
+                    "    let {mutability}{name}{} = {rendered_value};\n",
+                    if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
+                        String::new()
+                    } else {
+                        format!(": {}", self.type_text(local.ty)?)
+                    }
                 ));
                 Ok(())
             }
@@ -160,7 +167,10 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
-                if matches!(self.mir.types.get(local.ty), Some(Type::Future(_))) {
+                if matches!(
+                    self.mir.types.get(local.ty),
+                    Some(Type::Future(_) | Type::Function(_))
+                ) {
                     out.push_str(&format!("    let {mutability}{name} = {call_text};\n"));
                 } else {
                     out.push_str(&format!(
@@ -528,5 +538,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts an rvalue to its Rust text representation.
-
 }

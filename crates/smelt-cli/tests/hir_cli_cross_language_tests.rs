@@ -5,7 +5,8 @@ mod common;
 use std::fs;
 
 use common::{
-    TestResult, TempProject, cargo_run_manifest, ensure_eq, smelt, utf8_path, verify_end_to_end_example,
+    TempProject, TestResult, cargo_run_manifest, ensure_eq, smelt, utf8_path,
+    verify_end_to_end_example,
 };
 
 #[test]

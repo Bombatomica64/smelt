@@ -20,4 +20,3 @@ pub enum AsyncOp {
     /// Perform an HTTP GET request and return the response body as text.
     HttpGetText,
 }
-

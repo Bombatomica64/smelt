@@ -59,6 +59,18 @@ pub(crate) fn read_manifest_source(
     })
 }
 
+/// Expands root manifest entries with local imports discovered from each source.
+pub(crate) fn dependency_closure(
+    roots: Vec<ManifestSource>,
+) -> Result<Vec<ManifestSource>, Box<dyn std::error::Error>> {
+    let mut sources = Vec::new();
+    let mut seen = HashSet::new();
+    for root in roots {
+        collect_manifest_source(root, &mut sources, &mut seen)?;
+    }
+    Ok(sources)
+}
+
 /// Returns manifest source indexes in dependency-first order.
 pub(crate) fn order_manifest_sources(sources: &[ManifestSource]) -> Result<Vec<usize>, String> {
     let index = manifest_source_index(sources);
@@ -98,6 +110,55 @@ fn manifest_source_index(sources: &[ManifestSource]) -> HashMap<PathBuf, usize> 
         }
     }
     index
+}
+
+/// Adds one source and recursively adds local import targets that exist on disk.
+fn collect_manifest_source(
+    source: ManifestSource,
+    sources: &mut Vec<ManifestSource>,
+    seen: &mut HashSet<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let key = normalize_path_key(&source.path);
+    if !seen.insert(key) {
+        return Ok(());
+    }
+    let imports = source.imports.clone();
+    let source_path = source.path.clone();
+    let lang = source.lang;
+    sources.push(source);
+    for import in imports {
+        if let Some(path) = resolve_import_to_existing_source(&source_path, lang, &import)? {
+            let dep = read_manifest_source(path)?;
+            collect_manifest_source(dep, sources, seen)?;
+        }
+    }
+    Ok(())
+}
+
+/// Resolves a local import specifier to an existing source file.
+fn resolve_import_to_existing_source(
+    importer_path: &Path,
+    importer_lang: SourceLang,
+    import: &str,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let base = match importer_lang {
+        SourceLang::TypeScript if import.starts_with('.') => importer_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(import),
+        SourceLang::Python if import.starts_with('.') => importer_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(import.trim_start_matches('.').replace('.', "/")),
+        SourceLang::Python => PathBuf::from(import.replace('.', "/")),
+        SourceLang::TypeScript => return Ok(None),
+    };
+    for candidate in manifest_import_candidates(&base) {
+        if candidate.is_file() {
+            return Ok(Some(candidate.canonicalize()?));
+        }
+    }
+    Ok(None)
 }
 
 /// Adds canonical and extensionless keys for one manifest path.
@@ -210,6 +271,9 @@ fn scan_typescript_imports(source: &str) -> Vec<String> {
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
+            if trimmed.starts_with("import type ") || trimmed.starts_with("export type ") {
+                return None;
+            }
             if trimmed.starts_with("import ") {
                 let specifier = trimmed
                     .split_once(" from ")

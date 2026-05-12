@@ -97,16 +97,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let (krate, _) = lowering::lower_single_file(&file)?;
             pipeline::print_mir(&krate)?;
         }
-        Command::DumpAst { file } => {
-            match SourceLang::from_path(&file)? {
-                SourceLang::Python => pipeline::dump_python_ast(&file)?,
-                SourceLang::TypeScript => {
-                    return Err("--dump-ast is only supported for .py files; \
+        Command::DumpAst { file } => match SourceLang::from_path(&file)? {
+            SourceLang::Python => pipeline::dump_python_ast(&file)?,
+            SourceLang::TypeScript => {
+                return Err("--dump-ast is only supported for .py files; \
                                 use `smelt dump-hir --debug` for TypeScript"
-                        .into());
-                }
+                    .into());
             }
-        }
+        },
         Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
         Command::DumpSchema => return Ok(()),
     }

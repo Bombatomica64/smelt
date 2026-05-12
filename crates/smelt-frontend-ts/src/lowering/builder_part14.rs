@@ -390,6 +390,11 @@ impl ModuleBuilder<'_> {
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if logical.operator == LogicalOperator::Or
+            && matches!(logical.left, Expression::ChainExpression(_))
+        {
+            return self.expression(&logical.right, body);
+        }
         let op = match logical.operator {
             LogicalOperator::And => BinOp::And,
             LogicalOperator::Or => BinOp::Or,
@@ -487,18 +492,6 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let Some(ty) = type_hint else {
-            return Err(SmeltError::unsupported(
-                self.span(object.span.start, object.span.end),
-                "object literals require a Record<string, T> annotation",
-            ));
-        };
-        if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
-            return Err(SmeltError::unsupported(
-                self.span(object.span.start, object.span.end),
-                "object literals currently require a Record<string, T> annotation",
-            ));
-        }
         let mut entries = Vec::new();
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {
@@ -538,11 +531,36 @@ impl ModuleBuilder<'_> {
             let value = self.expression(&object_property.value, body)?;
             entries.push((key, value));
         }
+        let ty = self.object_literal_type(&entries, type_hint, body);
         Ok(body.push_expr(Expr {
             kind: ExprKind::DictLit(entries),
             ty,
             span: self.span(object.span.start, object.span.end),
         }))
+    }
+
+    /// Infer the dictionary type used for a lowered object literal.
+    fn object_literal_type(
+        &mut self,
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        type_hint: Option<smelt_hir::TypeId>,
+        body: &Body,
+    ) -> smelt_hir::TypeId {
+        if let Some(ty) = type_hint
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _)))
+        {
+            return ty;
+        }
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let first_value_ty = entries.first().map(|(_, value)| Self::expr_ty(body, *value));
+        let value_ty = first_value_ty
+            .filter(|first_ty| {
+                entries
+                    .iter()
+                    .all(|(_, value)| Self::expr_ty(body, *value) == *first_ty)
+            })
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 
     /// Lower a static member access expression.

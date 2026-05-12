@@ -3,9 +3,12 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a tuple containment operation to Rust text.
-    pub(super) fn tuple_contains_text(&self, tuple: &Operand, item: &Operand) -> Result<String, EmitError> {
+    pub(super) fn tuple_contains_text(
+        &self,
+        tuple: &Operand,
+        item: &Operand,
+    ) -> Result<String, EmitError> {
         let tuple_ty = self.operand_ty(tuple)?;
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
             return Err(EmitError::new("tuple contains receiver must be a tuple"));
@@ -91,7 +94,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
     /// Converts a homogeneous tuple-to-list constructor conversion to Rust text.
-    pub(super) fn tuple_to_list_text(&self, tuple: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn tuple_to_list_text(
+        &self,
+        tuple: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "list")?;
         let tuple_text = self.operand_text(tuple)?;
         let items_text = (0..items.len())
@@ -109,7 +116,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list-to-tuple constructor conversion to Rust text.
     /// Converts a homogeneous tuple-to-set constructor conversion to Rust text.
-    pub(super) fn tuple_to_set_text(&self, tuple: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn tuple_to_set_text(
+        &self,
+        tuple: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let (items, item_ty) = self.homogeneous_tuple_conversion_parts(tuple, dest_ty, "set")?;
         let tuple_text = self.operand_text(tuple)?;
         let items_text = (0..items.len())
@@ -153,5 +164,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts a dictionary key containment operation to Rust text.
-
 }

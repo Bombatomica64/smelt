@@ -28,9 +28,10 @@ pub enum UnknownKind {
     Number,
     /// String value.
     String,
+    /// Function value.
+    Function,
     /// Array value.
     Array,
     /// Object value.
     Object,
 }
-

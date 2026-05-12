@@ -14,12 +14,13 @@ use crate::{config::Config, lowering, manifest::resolve_manifest_path, stubs};
 /// Parses a Python file and dumps the Ruff AST for CLI debugging.
 pub(crate) fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
     let source = fs::read_to_string(file)?;
-    let module = smelt_frontend_py::parse_module(&source, smelt_hir::FileId(0)).map_err(|errors| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("{}:\n{errors:#?}", Path::new(file).display()),
-        )
-    })?;
+    let module =
+        smelt_frontend_py::parse_module(&source, smelt_hir::FileId(0)).map_err(|errors| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{}:\n{errors:#?}", Path::new(file).display()),
+            )
+        })?;
     let mut stdout = io::stdout().lock();
     writeln!(stdout, "{module:#?}")?;
     Ok(())

@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts an rvalue to its Rust text representation.
     pub(super) fn rvalue_text(&self, value: &Rvalue) -> Result<String, EmitError> {
         self.rvalue_text_for_dest(value, self.none_ty)
@@ -11,7 +10,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts an rvalue to Rust text using the destination type when it affects emission.
     /// Converts an rvalue to Rust text using the destination type when it affects emission.
-    pub(super) fn rvalue_text_for_dest(&self, value: &Rvalue, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn rvalue_text_for_dest(
+        &self,
+        value: &Rvalue,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         match value {
             Rvalue::Use(operand) => self.operand_as_type_text(operand, dest_ty),
             Rvalue::List(items) => {
@@ -221,6 +224,15 @@ impl FunctionEmitter<'_> {
             Rvalue::SetProjection { op, set } => self.set_projection_text(*op, set, dest_ty),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
+            Rvalue::Closure { id, .. } => self.closure_text(*id),
+            Rvalue::ClosureCall { callee, args } => {
+                let args_text = args
+                    .iter()
+                    .map(|arg| self.operand_text(arg))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                Ok(format!("{}({args_text})", self.operand_text(callee)?))
+            }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_text(*op, list, callback, dest_ty)
             }
@@ -255,9 +267,7 @@ impl FunctionEmitter<'_> {
                 list,
                 index,
                 value: replacement,
-            } => {
-                self.list_with_text(list, index, replacement, dest_ty)
-            }
+            } => self.list_with_text(list, index, replacement, dest_ty),
             Rvalue::ListFlat { list } => self.list_flat_text(list, dest_ty),
             Rvalue::ListProjection { op, list } => self.list_projection_text(*op, list, dest_ty),
             Rvalue::ListPush { list, item } => self.list_push_text(list, item, dest_ty),
@@ -285,7 +295,9 @@ impl FunctionEmitter<'_> {
             Rvalue::ListRandomChoice { list } => self.list_random_choice_text(list, dest_ty),
             Rvalue::ListIndex { list, item } => self.list_index_text(list, item, dest_ty),
             Rvalue::ListRemove { list, item } => self.list_remove_text(list, item, dest_ty),
-            Rvalue::ListSort { list, comparator } => self.list_sort_text(list, comparator.as_ref(), dest_ty),
+            Rvalue::ListSort { list, comparator } => {
+                self.list_sort_text(list, comparator.as_ref(), dest_ty)
+            }
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
@@ -311,6 +323,9 @@ impl FunctionEmitter<'_> {
                 self.dict_pop_text(dict, key, default.as_ref(), dest_ty)
             }
             Rvalue::DictUpdate { dict, other } => self.dict_update_text(dict, other, dest_ty),
+            Rvalue::DictAssign { target, sources } => {
+                self.dict_assign_text(target, sources, dest_ty)
+            }
             Rvalue::DictCopy { dict } => self.dict_copy_text(dict, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
@@ -325,6 +340,15 @@ impl FunctionEmitter<'_> {
             Rvalue::HttpGetText { url } => self.http_get_text(url),
             Rvalue::DateNow => Ok("chrono::Utc::now().timestamp_millis()".to_owned()),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
+            Rvalue::DateFromParts { parts } => self.date_from_parts_text(parts),
+            Rvalue::DateGetPart { part, timestamp_ms } => {
+                self.date_get_part_text(*part, timestamp_ms)
+            }
+            Rvalue::DateSetPart {
+                part,
+                timestamp_ms,
+                values,
+            } => self.date_set_part_text(*part, timestamp_ms, values),
             Rvalue::UrlField { field, url } => self.url_field_text(*field, url),
             Rvalue::FileReadText { path } => self.file_read_text(path),
             Rvalue::FileWriteText { path, text } => self.file_write_text(path, text),
@@ -398,5 +422,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts an operand to console.log argument format and returns format string and value.
-
 }

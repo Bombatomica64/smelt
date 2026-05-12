@@ -9,16 +9,16 @@ mod literals;
 mod ops;
 mod types;
 
-pub use call::{CallbackExpr, CallbackExprKind};
+pub use call::{CallbackExpr, CallbackExprKind, CaptureMode, ClosureCapture, ClosureExpr};
 pub use control_flow::AsyncOp;
 pub use core::Expr;
 pub use kinds::ExprKind;
 pub use literals::{Literal, UnknownKind};
 pub use ops::{
-    BoolFoldOp, DictProjectionOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
+    BoolFoldOp, DatePart, DictProjectionOp, ListCallbackOp, ListProjectionOp, ListSearchOp,
     NumericExtremaOp, NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp,
     RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp,
-    StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp,
-    StringTrimSide, UrlField,
+    StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide,
+    UrlField,
 };
 pub use types::{BinOp, UnaryOp, bin_op_text};

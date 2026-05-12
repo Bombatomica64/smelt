@@ -71,6 +71,20 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 }
 
 #[test]
+fn emits_object_assign_call() {
+    let source = source_for(
+        r#"
+const source: Record<string, number> = { a: 1 };
+const merged = Object.assign({}, source, { b: 2 });
+"#,
+    );
+
+    assert!(source.contains("let mut assigned = "));
+    assert!(source.contains("assigned.extend("));
+    assert!(source.contains("assigned"));
+}
+
+#[test]
 fn emits_object_has_own_methods() {
     let source = source_for(
         r#"
@@ -293,4 +307,47 @@ fn injects_chrono_dependency_for_date_mapping() {
     );
 
     assert!(manifest.contains("chrono = \"0.4\""));
+}
+
+#[test]
+fn emits_date_fns_date_parts() {
+    let source = source_for(
+        r#"
+const date = new Date(2014, 8, 2, 11, 55, 0);
+const timestamp = date.getTime();
+const year = date.getFullYear();
+const month = date.getMonth();
+const day = date.getDate();
+date.setFullYear(year, month, day + 1);
+date.setMonth(0, 1);
+date.setDate(2);
+"#,
+    );
+
+    assert!(source.contains("chrono::NaiveDate::from_ymd_opt"));
+    assert!(source.contains(".year() as f64"));
+    assert!(source.contains(".month0() as f64"));
+    assert!(source.contains(".day() as f64"));
+    assert!(source.contains(".with_year("));
+    assert!(source.contains(".with_month0("));
+}
+
+#[test]
+fn emits_invalid_date_parts_without_panicking() {
+    let source = source_for(
+        r#"
+export function isExists(year: number, month: number, day: number): boolean {
+  const date = new Date(year, month, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month &&
+    date.getDate() === day
+  );
+}
+"#,
+    );
+
+    assert!(source.contains("unwrap_or(i64::MIN)"));
+    assert!(source.contains("map_or(f64::NAN"));
+    assert!(!source.contains("timestamp out of range"));
 }

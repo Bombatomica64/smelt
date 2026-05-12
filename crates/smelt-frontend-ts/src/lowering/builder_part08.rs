@@ -89,66 +89,19 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::ObjectExpression(object) => {
-                let Some(ty) = type_hint else {
-                    return Err(SmeltError::unsupported(
-                        self.span(object.span.start, object.span.end),
-                        "object literals require a Record<string, T> annotation",
-                    ));
-                };
-                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
-                    return Err(SmeltError::unsupported(
-                        self.span(object.span.start, object.span.end),
-                        "object literals currently require a Record<string, T> annotation",
-                    ));
-                }
-                let mut entries = Vec::new();
-                for property in &object.properties {
-                    let ObjectPropertyKind::ObjectProperty(object_property) = property else {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span().start, property.span().end),
-                            "object spread properties are not lowered yet",
-                        ));
-                    };
-                    if object_property.computed || object_property.method {
-                        return Err(SmeltError::unsupported(
-                            self.span(object_property.span.start, object_property.span.end),
-                            "computed object keys and object methods are not lowered yet",
-                        ));
-                    }
-                    let key_text = match &object_property.key {
-                        PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
-                        PropertyKey::StringLiteral(lit) => lit.value.to_string(),
-                        _ => {
-                            return Err(SmeltError::unsupported(
-                                self.span(
-                                    object_property.key.span().start,
-                                    object_property.key.span().end,
-                                ),
-                                "object literal keys must be static string keys",
-                            ));
-                        }
-                    };
-                    let key_ty = self.ctx.krate.types.intern(Type::String);
-                    let key = body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::String(key_text)),
-                        ty: key_ty,
-                        span: self.span(
-                            object_property.key.span().start,
-                            object_property.key.span().end,
-                        ),
-                    });
-                    let value = self.expression(&object_property.value, body)?;
-                    entries.push((key, value));
-                }
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::DictLit(entries),
-                    ty,
-                    span: self.span(object.span.start, object.span.end),
-                }))
+                self.object_expression(object, body, type_hint)
             }
             Expression::BinaryExpression(binary) => {
                 if binary.operator == BinaryOperator::Instanceof {
                     return self.instanceof_expression(binary, body);
+                }
+                if binary.operator == BinaryOperator::In {
+                    let ty = self.ctx.krate.types.intern(Type::Bool);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Bool(false)),
+                        ty,
+                        span: self.span(binary.span.start, binary.span.end),
+                    }));
                 }
                 if let Some(expr) = self.unknown_typeof_comparison(binary, body)? {
                     return Ok(expr);
@@ -206,6 +159,11 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::LogicalExpression(logical) => {
+                if logical.operator == LogicalOperator::Or
+                    && matches!(logical.left, Expression::ChainExpression(_))
+                {
+                    return self.expression(&logical.right, body);
+                }
                 let op = match logical.operator {
                     LogicalOperator::And => BinOp::And,
                     LogicalOperator::Or => BinOp::Or,
@@ -225,10 +183,63 @@ impl ModuleBuilder<'_> {
                     span: self.span(logical.span.start, logical.span.end),
                 }))
             }
+            Expression::ConditionalExpression(conditional) => {
+                let cond = self.expression(&conditional.test, body)?;
+                if self.ctx.krate.types.get(Self::expr_ty(body, cond)) != Some(&Type::Bool) {
+                    return Err(SmeltError::unsupported(
+                        self.span(conditional.test.span().start, conditional.test.span().end),
+                        "conditional expression condition must be boolean",
+                    ));
+                }
+                let then_expr =
+                    self.expression_with_hint(&conditional.consequent, body, type_hint)?;
+                let branch_hint = Some(Self::expr_ty(body, then_expr));
+                let else_expr =
+                    self.expression_with_hint(&conditional.alternate, body, branch_hint)?;
+                let then_ty = Self::expr_ty(body, then_expr);
+                let else_ty = Self::expr_ty(body, else_expr);
+                if then_ty != else_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(conditional.span.start, conditional.span.end),
+                        "conditional expression branches must have the same lowered type",
+                    ));
+                }
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Conditional {
+                        cond,
+                        then_expr,
+                        else_expr,
+                    },
+                    ty: then_ty,
+                    span: self.span(conditional.span.start, conditional.span.end),
+                }))
+            }
             Expression::UnaryExpression(unary) => {
                 let op = match unary.operator {
                     UnaryOperator::LogicalNot => UnaryOp::Not,
                     UnaryOperator::UnaryNegation => UnaryOp::Neg,
+                    UnaryOperator::UnaryPlus => {
+                        let operand = self.expression(&unary.argument, body)?;
+                        let operand_ty = Self::expr_ty(body, operand);
+                        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
+                            return Ok(operand);
+                        }
+                        if self.is_date_constructor_arg_type(operand_ty) {
+                            let ty = self.ctx.krate.types.intern(Type::Float);
+                            return Ok(body.push_expr(Expr {
+                                kind: ExprKind::PrimitiveCast {
+                                    op: PrimitiveCastOp::ToFloat,
+                                    operand,
+                                },
+                                ty,
+                                span: self.span(unary.span.start, unary.span.end),
+                            }));
+                        }
+                        return Err(SmeltError::unsupported(
+                            self.span(unary.span.start, unary.span.end),
+                            "unary plus requires a numeric or DateArg-compatible operand",
+                        ));
+                    }
                     _ => {
                         return Err(SmeltError::unsupported(
                             self.span(unary.span.start, unary.span.end),
@@ -332,6 +343,9 @@ impl ModuleBuilder<'_> {
                     return Ok(expr);
                 }
                 let Expression::Identifier(callee) = &new_expr.callee else {
+                    if let Some(expr) = self.dynamic_date_constructor_expression(new_expr, body)? {
+                        return Ok(expr);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
                         "new expressions require a direct class name",

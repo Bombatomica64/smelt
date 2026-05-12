@@ -3,7 +3,7 @@
 //! This module contains the logic for converting a HIR crate into a MIR representation,
 //! including lowering expressions, statements, and control flow.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 
 use smelt_hir::{
@@ -12,8 +12,9 @@ use smelt_hir::{
 };
 
 use crate::{
-    BasicBlock, BlockId, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId,
-    LocalKind, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator,
+    BasicBlock, BlockId, BuiltinFn, Callee, ClosureId, Constant, FuncId, HirOrigin, LocalDecl,
+    LocalId, LocalKind, Mir, MirClosure, MirClosureCapture, MirFunction, Operand, Place, Rvalue,
+    Statement, Terminator,
 };
 
 /// Converts a `usize` into `u32`, panicking if it does not fit.
@@ -62,6 +63,9 @@ pub struct LowerError {
     /// The source span associated with the error, if available.
     pub span: Option<Span>,
 }
+
+/// Function lowering output with any closures discovered inside the function body.
+type LoweredFunction = (MirFunction, Vec<MirClosure>);
 
 /// Lowers a HIR crate to MIR, or returns lowering errors if the conversion fails.
 pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
@@ -199,10 +203,12 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             function.is_async,
             loop_index_ty,
             loop_bool_ty,
+            mir.closures.len(),
         )
         .and_then(LoweringCtx::lower)
         {
-            Ok(lowered_function) => {
+            Ok((lowered_function, closures)) => {
+                mir.closures.extend(closures);
                 mir.push_function(lowered_function);
             }
             Err(error) => errors.push(error),
@@ -241,10 +247,12 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             false,
             loop_index_ty,
             loop_bool_ty,
+            mir.closures.len(),
         )
         .and_then(LoweringCtx::lower)
         {
-            Ok(function) => {
+            Ok((function, closures)) => {
+                mir.closures.extend(closures);
                 mir.push_function(function);
             }
             Err(error) => errors.push(error),
@@ -252,10 +260,109 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     }
 
     if errors.is_empty() {
+        mark_escaping_closures(&mut mir);
         propagate_throwing_functions(&mut mir);
         Ok(mir)
     } else {
         Err(errors)
+    }
+}
+
+/// Mark closures returned from their creating function as escaping.
+///
+/// This is the MIR-level equivalent of Rust's closure escape analysis for the
+/// subset Smelt supports today: closure values may be created into temporaries,
+/// moved through local aliases, and returned. Once a closure escapes, its
+/// captures are promoted to by-value so Rust emission uses an owning `move`
+/// closure instead of borrowing stack locals that are about to disappear.
+fn mark_escaping_closures(mir: &mut Mir) {
+    let closure_defs_by_function = mir
+        .functions
+        .iter()
+        .map(closure_definitions)
+        .collect::<Vec<_>>();
+    let mut escaping = HashSet::new();
+    for (function, definitions) in mir.functions.iter().zip(&closure_defs_by_function) {
+        for block in &function.blocks {
+            let Some(Terminator::Return(operand)) = &block.terminator else {
+                continue;
+            };
+            if let Some(local) = operand_local(operand)
+                && let Some(id) = resolve_closure_local(local, definitions)
+            {
+                escaping.insert(id);
+            }
+        }
+    }
+    for id in escaping {
+        if let Some(closure) = mir
+            .closures
+            .get_mut(usize::try_from(id.0).unwrap_or(usize::MAX))
+        {
+            closure.escapes = true;
+            for capture in &mut closure.captures {
+                capture.mode = smelt_hir::CaptureMode::ByValue;
+            }
+        }
+    }
+}
+
+/// Return the closure and alias definitions inside one MIR function.
+fn closure_definitions(function: &MirFunction) -> HashMap<LocalId, ClosureLocalDef> {
+    let mut definitions = HashMap::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            let Statement::Assign { dest, value } = statement else {
+                continue;
+            };
+            match value {
+                Rvalue::Closure { id, .. } => {
+                    definitions.insert(*dest, ClosureLocalDef::Closure(*id));
+                }
+                Rvalue::Use(operand) => {
+                    if let Some(source) = operand_local(operand) {
+                        definitions.insert(*dest, ClosureLocalDef::Alias(source));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    definitions
+}
+
+/// One local definition relevant to closure escape analysis.
+#[derive(Debug, Clone, Copy)]
+enum ClosureLocalDef {
+    /// The local directly stores a closure construction.
+    Closure(ClosureId),
+    /// The local aliases another closure-typed local.
+    Alias(LocalId),
+}
+
+/// Resolve a local through closure aliases into the constructed closure ID.
+fn resolve_closure_local(
+    local: LocalId,
+    definitions: &HashMap<LocalId, ClosureLocalDef>,
+) -> Option<ClosureId> {
+    let mut current = local;
+    let mut seen = HashSet::new();
+    loop {
+        if !seen.insert(current) {
+            return None;
+        }
+        match definitions.get(&current).copied()? {
+            ClosureLocalDef::Closure(id) => return Some(id),
+            ClosureLocalDef::Alias(next) => current = next,
+        }
+    }
+}
+
+/// Return the local behind a plain local operand.
+fn operand_local(operand: &Operand) -> Option<LocalId> {
+    match operand {
+        Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => Some(*local),
+        Operand::Const(_) | Operand::Copy(_) | Operand::Move(_) => None,
     }
 }
 
@@ -269,6 +376,10 @@ struct LoweringCtx<'hir> {
     body: &'hir Body,
     /// The MIR function being constructed.
     function: MirFunction,
+    /// MIR closures constructed while lowering this function.
+    closures: Vec<MirClosure>,
+    /// Global closure id offset for closures constructed by this context.
+    closure_base: usize,
     /// The current block being generated.
     current_block: BlockId,
     /// Mapping of HIR local IDs to MIR local IDs.
@@ -341,6 +452,7 @@ impl<'hir> LoweringCtx<'hir> {
         is_async: bool,
         loop_index_ty: TypeId,
         loop_bool_ty: TypeId,
+        closure_base: usize,
     ) -> Result<Self, LowerError> {
         let span = body
             .blocks
@@ -396,6 +508,8 @@ impl<'hir> LoweringCtx<'hir> {
             item_functions,
             body,
             function,
+            closures: Vec::new(),
+            closure_base,
             current_block: BlockId(0),
             locals,
             exprs: HashMap::new(),
@@ -407,7 +521,7 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     /// Lowers the entire function body to MIR.
-    fn lower(mut self) -> Result<MirFunction, LowerError> {
+    fn lower(mut self) -> Result<LoweredFunction, LowerError> {
         if let HirOrigin::ClassConstructor { class, .. } = self.function.origin {
             let Some(this) = self.function.locals.first().map(|_| LocalId(0)) else {
                 return Err(self.error("constructor is missing synthetic this local", None));
@@ -429,12 +543,12 @@ impl<'hir> LoweringCtx<'hir> {
         } else if self.block()?.terminator.is_none() {
             if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
                 self.set_terminator(Terminator::Return(Operand::Move(Place::Local(LocalId(0)))))?;
-                return Ok(self.function);
+                return Ok((self.function, self.closures));
             }
             self.set_terminator(Terminator::Return(Operand::Const(Constant::None)))?;
         }
 
-        Ok(self.function)
+        Ok((self.function, self.closures))
     }
 
     /// Lowers all statements in a HIR block.
@@ -1590,13 +1704,14 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::ListCallback { op, list, callback } => {
                 let list_operand = self.lower_expr(*list)?;
+                let callback_operand = self.lower_expr(*callback)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListCallback {
                         op: *op,
                         list: list_operand,
-                        callback: callback.clone(),
+                        callback: callback_operand,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -1608,13 +1723,14 @@ impl<'hir> LoweringCtx<'hir> {
             } => {
                 let list_operand = self.lower_expr(*list)?;
                 let initial_operand = initial.map(|expr| self.lower_expr(expr)).transpose()?;
+                let callback_operand = self.lower_expr(*callback)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListReduce {
                         list: list_operand,
                         initial: initial_operand,
-                        callback: callback.clone(),
+                        callback: callback_operand,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -1643,8 +1759,9 @@ impl<'hir> LoweringCtx<'hir> {
             } => {
                 let list_operand = self.lower_expr(*list)?;
                 let start_operand = self.lower_expr(*start)?;
-                let delete_count_operand =
-                    delete_count.map(|count| self.lower_expr(count)).transpose()?;
+                let delete_count_operand = delete_count
+                    .map(|count| self.lower_expr(count))
+                    .transpose()?;
                 let item_operands = items
                     .iter()
                     .map(|item| self.lower_expr(*item))
@@ -2162,6 +2279,22 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DictAssign { target, sources } => {
+                let target_operand = self.lower_expr(*target)?;
+                let source_operands = sources
+                    .iter()
+                    .map(|source| self.lower_expr(*source))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DictAssign {
+                        target: target_operand,
+                        sources: source_operands,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DictCopy { dict } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -2256,6 +2389,53 @@ impl<'hir> LoweringCtx<'hir> {
                     dest,
                     value: Rvalue::DateToIsoString {
                         timestamp_ms: timestamp_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateFromParts { parts } => {
+                let part_operands = parts
+                    .iter()
+                    .map(|part| self.lower_expr(*part))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateFromParts {
+                        parts: part_operands,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateGetPart { part, timestamp_ms } => {
+                let timestamp_operand = self.lower_expr(*timestamp_ms)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateGetPart {
+                        part: *part,
+                        timestamp_ms: timestamp_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateSetPart {
+                part,
+                timestamp_ms,
+                values,
+            } => {
+                let timestamp_operand = self.lower_expr(*timestamp_ms)?;
+                let value_operands = values
+                    .iter()
+                    .map(|value| self.lower_expr(*value))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateSetPart {
+                        part: *part,
+                        timestamp_ms: timestamp_operand,
+                        values: value_operands,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -2356,6 +2536,99 @@ impl<'hir> LoweringCtx<'hir> {
                     dest,
                     value: Rvalue::AsyncOp {
                         op: *op,
+                        args: lowered_args,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::Closure(closure) => {
+                let closure_id = ClosureId(u32_from_usize(
+                    self.closure_base + self.closures.len(),
+                    "MIR closure index does not fit in u32",
+                )?);
+                let captures = closure
+                    .captures
+                    .iter()
+                    .map(|capture| {
+                        self.locals
+                            .get(&capture.source_local)
+                            .copied()
+                            .map(|local| Operand::Copy(Place::Local(local)))
+                            .ok_or_else(|| {
+                                self.error(
+                                    "closure captures a local that is not available in MIR",
+                                    Some(closure.span),
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let mir_captures = closure
+                    .captures
+                    .iter()
+                    .map(|capture| {
+                        self.locals
+                            .get(&capture.source_local)
+                            .copied()
+                            .map(|source_local| MirClosureCapture {
+                                source_local,
+                                symbol: capture.symbol,
+                                ty: capture.ty,
+                                mode: capture.mode,
+                            })
+                            .ok_or_else(|| {
+                                self.error(
+                                    "closure captures a local that is not available in MIR",
+                                    Some(closure.span),
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let params = closure
+                    .params
+                    .iter()
+                    .map(|param| LocalDecl {
+                        ty: param.ty,
+                        kind: LocalKind::Param,
+                        span: param.span,
+                    })
+                    .collect::<Vec<_>>();
+                self.closures.push(MirClosure {
+                    id: closure_id,
+                    params,
+                    captures: mir_captures,
+                    return_ty: closure.return_ty,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        phis: Vec::new(),
+                        statements: Vec::new(),
+                        terminator: None,
+                        span: closure.span,
+                    }],
+                    entry: BlockId(0),
+                    escapes: false,
+                    callback_body: closure.callback_body.clone(),
+                });
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Closure {
+                        id: closure_id,
+                        captures,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ClosureCall { callee, args } => {
+                let callee_operand = self.lower_expr(*callee)?;
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ClosureCall {
+                        callee: callee_operand,
                         args: lowered_args,
                     },
                 });
@@ -2492,6 +2765,7 @@ impl<'hir> LoweringCtx<'hir> {
             ExprKind::Literal(_)
             | ExprKind::Item(_)
             | ExprKind::Call { .. }
+            | ExprKind::ClosureCall { .. }
             | ExprKind::Method { .. }
             | ExprKind::Len { .. }
             | ExprKind::NumericAbs { .. }
@@ -2579,6 +2853,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::DictClear { .. }
             | ExprKind::DictPop { .. }
             | ExprKind::DictUpdate { .. }
+            | ExprKind::DictAssign { .. }
             | ExprKind::DictCopy { .. }
             | ExprKind::DictProjection { .. }
             | ExprKind::StringSplit { .. }
@@ -2588,6 +2863,9 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::HttpGetText { .. }
             | ExprKind::DateNow
             | ExprKind::DateToIsoString { .. }
+            | ExprKind::DateFromParts { .. }
+            | ExprKind::DateGetPart { .. }
+            | ExprKind::DateSetPart { .. }
             | ExprKind::UrlField { .. }
             | ExprKind::FileReadText { .. }
             | ExprKind::FileWriteText { .. }
@@ -2599,6 +2877,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::UnknownCast { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
+            | ExprKind::Closure(_)
             | ExprKind::ListLit(_)
             | ExprKind::SetLit(_)
             | ExprKind::DictLit(_)

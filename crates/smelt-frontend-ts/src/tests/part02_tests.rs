@@ -253,6 +253,7 @@ fn lowers_infinity_identifier() -> Result<(), String> {
         ts!(r#"
 const upper = Infinity;
 const lower = -Infinity;
+const missing = NaN;
 "#),
         &mut ctx,
     )?;
@@ -261,6 +262,9 @@ const lower = -Infinity;
 
     ensure!(body.exprs.iter().any(
         |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value.is_infinite())
+    ));
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value.is_nan())
     ));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -293,6 +297,199 @@ const iso = new Date(now).toISOString();
 }
 
 #[test]
+fn lowers_conditional_expression() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const value = true ? \"yes\" : \"no\";"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "missing conditional expression"
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_conditional_expression_with_mismatched_branches() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(ts!("const value = true ? 1 : \"no\";"), &mut ctx)?;
+    assert_unsupported_ts(&errors, "branches must have the same lowered type")
+}
+
+#[test]
+fn lowers_unary_plus_expression() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const value = +1;"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(1.0)))),
+        "missing unary plus numeric value"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_destructuring_declarations() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const pair: number[] = [1, 2];
+const [first, second] = pair;
+const data: Record<string, number> = { count: 3 };
+const { count } = data;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.locals.len() >= 5,
+        "expected destructuring declarations to create locals"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
+        "missing array destructuring index"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Field { .. })),
+        "missing object destructuring field"
+    );
+    Ok(())
+}
+
+#[test]
+fn infers_object_literal_record_type_without_annotation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const options = { weekStartsOn: 1 };
+const value = options.weekStartsOn;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
+        "missing inferred object literal"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Field { .. })),
+        "missing inferred object field access"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_empty_object_for_date_fns_default_options_alias() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface LocalizedOptions {
+  locale?: string;
+}
+interface WeekOptions {
+  weekStartsOn?: number;
+}
+type DefaultOptions = LocalizedOptions & WeekOptions;
+let defaultOptions: DefaultOptions = {};
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::DictLit(entries) if entries.is_empty())),
+        "missing empty default options object"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_module_mutable_default_options_accessors() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface LocalizedOptions {
+  locale?: string;
+}
+interface WeekOptions {
+  weekStartsOn?: number;
+}
+type DefaultOptions = LocalizedOptions & WeekOptions;
+let defaultOptions: DefaultOptions = {};
+function getDefaultOptions(): DefaultOptions {
+  return defaultOptions;
+}
+function setDefaultOptions(newOptions: DefaultOptions): void {
+  defaultOptions = newOptions;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_date_parts() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const date = new Date(2014, 8, 2, 11, 55, 0);
+const timestamp = date.getTime();
+const year = date.getFullYear();
+const month = date.getMonth();
+const day = date.getDate();
+const utc = Date.UTC(year, month);
+date.setFullYear(year, month, day + 1);
+date.setMonth(0, 1);
+date.setDate(2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateFromParts { .. }))
+    );
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::DateGetPart { .. }))
+            .count(),
+        3
+    );
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::DateSetPart { .. }))
+            .count(),
+        3
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_url_fields_and_rejects_deferred_object_apis() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -308,15 +505,6 @@ const host = new URL("https://example.com/path?q=1").hostname;
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::UrlField { .. }))
     );
-
-    let mut ctx = HirCtx::new();
-    let assign_errors = lowering_errors(
-        ts!(r#"
-const merged = Object.assign({}, { value: 1 });
-"#),
-        &mut ctx,
-    )?;
-    assert_unsupported_ts(&assign_errors, "Object.assign")?;
 
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -362,6 +550,137 @@ const result = value instanceof Box;
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
     );
+    Ok(())
+}
+
+#[test]
+fn folds_date_instanceof_for_timestamp_model() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type DateArg = number | string | Date;
+const value: DateArg = 1;
+const result = value instanceof Date;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(false))))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_date_constructor_member_as_timestamp_passthrough() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const date: Date = new Date(1);
+const value = 2;
+const result = new (date.constructor as unknown)(value);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::Literal(Literal::Int(2) | Literal::Float(2.0))
+    )));
+    Ok(())
+}
+
+#[test]
+fn lowers_new_date_from_datearg_union_to_timestamp() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type DateArg = number | string | Date;
+const value: DateArg = 1;
+const result = new Date(value);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::PrimitiveCast {
+            op: PrimitiveCastOp::ToFloat,
+            ..
+        }
+    )));
+    Ok(())
+}
+
+#[test]
+fn lowers_unary_plus_datearg_to_timestamp() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type DateArg = number | string | Date;
+function timestamp(value: DateArg): number {
+  return +value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(module.items.iter().any(|item| {
+        let Some(Item::Function(function)) = ctx.krate.items.get(item.0 as usize) else {
+            return false;
+        };
+        let Some(body_id) = function.body else {
+            return false;
+        };
+        let Some(body) = ctx.krate.bodies.get(body_id.0 as usize) else {
+            return false;
+        };
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToFloat,
+                    ..
+                }
+            )
+        })
+    }));
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_chain_or_fallback_to_rhs_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Options {
+  in?: number;
+}
+function read(options: Options, date: number): number {
+  return options?.in || date;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn skips_date_fns_context_options_type_only_heritage() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export interface AddOptions<DateType extends Date = Date> extends ContextOptions<DateType> {}
+"#),
+        &mut ctx,
+    )?;
     Ok(())
 }
 

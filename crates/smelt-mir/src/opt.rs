@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{Callee, LocalId, Mir, MirFunction, Operand, Place, Rvalue, Statement, Terminator};
+use smelt_hir::Type;
 
 /// A MIR optimization pass that transforms the MIR.
 pub trait Pass {
@@ -27,7 +28,7 @@ impl Pass for CopyPropagation {
     fn run(&self, mir: &mut Mir) -> bool {
         let mut changed = false;
         for function in &mut mir.functions {
-            changed |= propagate_function(function);
+            changed |= propagate_function(function, &mir.types);
         }
         changed
     }
@@ -54,7 +55,7 @@ pub fn optimize(mir: &mut Mir) {
 }
 
 /// Propagates copies within a function. Returns true if the function was modified.
-fn propagate_function(function: &mut MirFunction) -> bool {
+fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterner) -> bool {
     let mut aliases = HashMap::new();
     let mutated = mutated_locals(function);
 
@@ -66,6 +67,8 @@ fn propagate_function(function: &mut MirFunction) -> bool {
             } = stmt
                 && !mutated.contains(dest)
                 && !mutated.contains(source)
+                && !is_function_local(function, types, *dest)
+                && !is_function_local(function, types, *source)
             {
                 aliases.insert(*dest, resolve_alias(&aliases, *source));
             }
@@ -101,6 +104,18 @@ fn propagate_function(function: &mut MirFunction) -> bool {
     }
 
     changed
+}
+
+/// Return whether a local has a function type that must not be clone-propagated.
+fn is_function_local(
+    function: &MirFunction,
+    types: &smelt_hir::TypeInterner,
+    local: LocalId,
+) -> bool {
+    function
+        .locals
+        .get(local.0 as usize)
+        .is_some_and(|decl| matches!(types.get(decl.ty), Some(Type::Function(_))))
 }
 
 /// Returns locals that are mutated after initialization.
@@ -154,6 +169,13 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(value, aliases, dest)
                 | changed
         }),
+        Rvalue::Closure { captures, .. } => captures.iter_mut().fold(false, |changed, capture| {
+            rewrite_operand_except(capture, aliases, dest) | changed
+        }),
+        Rvalue::ClosureCall { callee, args } => args.iter_mut().fold(
+            rewrite_operand_except(callee, aliases, dest),
+            |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
+        ),
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
         }
@@ -278,10 +300,18 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
         }
-        Rvalue::ListCallback { list, .. } => rewrite_operand_except(list, aliases, dest),
-        Rvalue::ListReduce { list, initial, .. } => {
+        Rvalue::ListCallback { list, callback, .. } => {
+            rewrite_operand_except(list, aliases, dest)
+                | rewrite_operand_except(callback, aliases, dest)
+        }
+        Rvalue::ListReduce {
+            list,
+            initial,
+            callback,
+        } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_optional_operand_except(initial, aliases, dest)
+                | rewrite_operand_except(callback, aliases, dest)
         }
         Rvalue::ListSlice { list, start, end } => {
             rewrite_operand_except(list, aliases, dest)
@@ -436,6 +466,13 @@ fn rewrite_rvalue(
             rewrite_operand_except(dict, aliases, dest)
                 | rewrite_operand_except(other, aliases, dest)
         }
+        Rvalue::DictAssign { target, sources } => {
+            let mut changed = rewrite_operand_except(target, aliases, dest);
+            for source in sources {
+                changed |= rewrite_operand_except(source, aliases, dest);
+            }
+            changed
+        }
         Rvalue::DictCopy { dict } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::DictProjection { dict, .. } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::StringSplit {
@@ -463,6 +500,27 @@ fn rewrite_rvalue(
         Rvalue::DateNow => false,
         Rvalue::DateToIsoString { timestamp_ms } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)
+        }
+        Rvalue::DateFromParts { parts } => {
+            let mut changed = false;
+            for part in parts {
+                changed |= rewrite_operand_except(part, aliases, dest);
+            }
+            changed
+        }
+        Rvalue::DateGetPart { timestamp_ms, .. } => {
+            rewrite_operand_except(timestamp_ms, aliases, dest)
+        }
+        Rvalue::DateSetPart {
+            timestamp_ms,
+            values,
+            ..
+        } => {
+            let mut changed = rewrite_operand_except(timestamp_ms, aliases, dest);
+            for value in values {
+                changed |= rewrite_operand_except(value, aliases, dest);
+            }
+            changed
         }
         Rvalue::UrlField { url, .. } => rewrite_operand_except(url, aliases, dest),
         Rvalue::FileReadText { path } => rewrite_operand_except(path, aliases, dest),

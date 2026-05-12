@@ -18,6 +18,10 @@ pub struct BlockId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LocalId(pub u32);
 
+/// Unique identifier for a closure in MIR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ClosureId(pub u32);
+
 /// The MIR representation of a crate, containing all functions, classes, and interfaces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mir {
@@ -27,6 +31,8 @@ pub struct Mir {
     pub classes: Vec<MirClass>,
     /// All interfaces in the crate.
     pub interfaces: Vec<MirInterface>,
+    /// All closure bodies in the crate.
+    pub closures: Vec<MirClosure>,
     /// Type interner for interned types.
     pub types: smelt_hir::TypeInterner,
     /// Symbol interner for interned identifiers.
@@ -41,6 +47,7 @@ impl Mir {
             functions: Vec::new(),
             classes: Vec::new(),
             interfaces: Vec::new(),
+            closures: Vec::new(),
             types,
             symbols,
         }
@@ -70,6 +77,56 @@ impl Mir {
         self.functions.push(function);
         id
     }
+
+    /// Adds a closure to the MIR and returns its ID.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of closures does not fit in `u32`.
+    pub fn push_closure(&mut self, closure: MirClosure) -> ClosureId {
+        let id = ClosureId(len_to_u32(self.closures.len(), "MIR closure count"));
+        debug_assert_eq!(closure.id, id, "MIR closure IDs must be insertion ordered");
+        self.closures.push(closure);
+        id
+    }
+}
+
+/// MIR representation of a closure body and explicit environment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirClosure {
+    /// Unique closure identifier.
+    pub id: ClosureId,
+    /// Closure parameter locals.
+    pub params: Vec<LocalDecl>,
+    /// Captured environment entries.
+    pub captures: Vec<MirClosureCapture>,
+    /// Return type produced by the closure.
+    pub return_ty: TypeId,
+    /// Lowered blocks for the closure body.
+    pub blocks: Vec<BasicBlock>,
+    /// Entry block ID.
+    pub entry: BlockId,
+    /// Whether this closure escapes the creating function through a return.
+    ///
+    /// Escaping closures must own their captured environment in generated Rust.
+    /// Non-escaping closures can borrow captures, which preserves source
+    /// mutation semantics for iterator-style callbacks.
+    pub escapes: bool,
+    /// Callback-expression body used while legacy callback lowering is migrated.
+    pub callback_body: Option<smelt_hir::CallbackExpr>,
+}
+
+/// One explicit MIR closure capture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MirClosureCapture {
+    /// Source local captured from the enclosing function.
+    pub source_local: LocalId,
+    /// Capture symbol for diagnostics and codegen names.
+    pub symbol: Symbol,
+    /// Captured type.
+    pub ty: TypeId,
+    /// Capture mode.
+    pub mode: smelt_hir::CaptureMode,
 }
 
 /// MIR representation of a class definition.
@@ -433,6 +490,20 @@ pub enum Rvalue {
         /// Numeric operand to transform.
         operand: Operand,
     },
+    /// Construct a closure value from a MIR closure body and captured operands.
+    Closure {
+        /// Closure table identifier.
+        id: ClosureId,
+        /// Captured operands in closure capture order.
+        captures: Vec<Operand>,
+    },
+    /// Call a closure value.
+    ClosureCall {
+        /// Closure value to call.
+        callee: Operand,
+        /// Call arguments.
+        args: Vec<Operand>,
+    },
     /// Raise a floating-point base to a floating-point exponent.
     NumericPow {
         /// Base operand.
@@ -701,8 +772,8 @@ pub enum Rvalue {
         op: smelt_hir::ListCallbackOp,
         /// List value to process.
         list: Operand,
-        /// Capture-free callback expression.
-        callback: smelt_hir::CallbackExpr,
+        /// Closure or callable value.
+        callback: Operand,
     },
     /// Reduce a list with a capture-free reducer callback and initial value.
     ListReduce {
@@ -710,8 +781,8 @@ pub enum Rvalue {
         list: Operand,
         /// Initial accumulator value, or omitted for JavaScript-style first-item seeding.
         initial: Option<Operand>,
-        /// Capture-free reducer callback expression.
-        callback: smelt_hir::CallbackExpr,
+        /// Closure or callable value.
+        callback: Operand,
     },
     /// Take a shallow slice from a list.
     ListSlice {
@@ -1009,6 +1080,13 @@ pub enum Rvalue {
         /// Dictionary supplying entries to copy.
         other: Operand,
     },
+    /// Merge source dictionaries into a target dictionary and return the target.
+    DictAssign {
+        /// Dictionary receiving copied entries.
+        target: Operand,
+        /// Dictionaries supplying entries to copy.
+        sources: Vec<Operand>,
+    },
     /// Return a shallow copy of a dictionary.
     DictCopy {
         /// Dictionary value to copy.
@@ -1056,6 +1134,27 @@ pub enum Rvalue {
     DateToIsoString {
         /// Timestamp in milliseconds.
         timestamp_ms: Operand,
+    },
+    /// Construct a timestamp in milliseconds from local Date constructor parts.
+    DateFromParts {
+        /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.
+        parts: Vec<Operand>,
+    },
+    /// Read a local-time date component from a timestamp.
+    DateGetPart {
+        /// Component to read.
+        part: smelt_hir::DatePart,
+        /// Timestamp in milliseconds.
+        timestamp_ms: Operand,
+    },
+    /// Return a timestamp with a local-time date component replaced.
+    DateSetPart {
+        /// Component to replace.
+        part: smelt_hir::DatePart,
+        /// Timestamp in milliseconds.
+        timestamp_ms: Operand,
+        /// Replacement values accepted by the corresponding JS setter.
+        values: Vec<Operand>,
     },
     /// Extract a parsed URL field.
     UrlField {

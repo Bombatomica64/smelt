@@ -32,6 +32,91 @@ any_values: bool = any(values)
 }
 
 #[test]
+fn emits_python_map_filter_lambda_callbacks() {
+    let source = source_for_py(
+        r#"
+factor: int = 2
+values: list[int] = [1, 2, 3]
+scaled: list[int] = list(map(lambda value: value * factor, values))
+filtered: list[int] = list(filter(lambda value: value > factor, values))
+"#,
+    );
+
+    assert!(source.contains(".iter().enumerate().map("));
+    assert!(source.contains("(item * factor)"));
+    assert!(source.contains(".iter().enumerate().filter("));
+    assert!(source.contains("(item > factor)"));
+}
+
+#[test]
+fn emits_python_first_class_closure_values() {
+    let source = source_for_py(
+        r#"
+from typing import Callable
+
+offset: int = 2
+add_offset: Callable[[int], int] = lambda value: value + offset
+
+def apply(value: int, fn: Callable[[int], int]) -> int:
+    return fn(value)
+
+def make_adder(base: int) -> Callable[[int], int]:
+    add: Callable[[int], int] = lambda value: value + base
+    return add
+
+direct: int = add_offset(3)
+passed: int = apply(4, add_offset)
+adder: Callable[[int], int] = make_adder(5)
+returned: int = adder(6)
+"#,
+    );
+
+    assert!(source.contains("impl FnMut(i64) -> i64"));
+    assert!(source.contains("(3)"));
+    assert!(source.contains("apply(4,"));
+    assert!(source.contains("make_adder(5)"));
+    assert!(source.contains("adder(6)"));
+    assert!(source.contains("move |"));
+}
+
+#[test]
+fn emits_python_default_lambda_closure_values() {
+    let source = source_for_py(
+        r#"
+from typing import Callable
+
+bump: Callable[[int], int] = lambda value=1: value + 1
+defaulted: int = bump()
+explicit: int = bump(4)
+"#,
+    );
+
+    assert!(source.contains("(1)"));
+    assert!(source.contains("(4)"));
+}
+
+#[test]
+fn emits_python_nested_def_closure_values() {
+    let source = source_for_py(
+        r#"
+from typing import Callable
+
+def make_adder(base: int) -> Callable[[int], int]:
+    def add(value: int) -> int:
+        return value + base
+    return add
+
+adder: Callable[[int], int] = make_adder(5)
+result: int = adder(6)
+"#,
+    );
+
+    assert!(source.contains("move |"));
+    assert!(source.contains("make_adder(5)"));
+    assert!(source.contains("adder(6)"));
+}
+
+#[test]
 fn emits_python_sorted_builtin() {
     let source = source_for_py(
         r#"
@@ -191,6 +276,8 @@ fn emits_regex_match_calls() {
 const text = "abc123";
 const pattern = "\\d+";
 const hasDigits = new RegExp(pattern).test(text);
+const alsoHasDigits = RegExp(pattern).test(text);
+const literalHasDigits = /\d+/.test(text);
 "#,
     );
     let py_source = source_for_py(

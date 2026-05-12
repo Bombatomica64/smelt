@@ -8,13 +8,13 @@
     reason = "the private emitter module still exposes helpers to its parent codegen module"
 )]
 
-use crate::{compact_index, id_index, sanitize_ident, EmitError};
-use std::collections::{HashMap, HashSet};
+use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{
     BasicBlock, BuiltinFn, Callee, Constant, HirOrigin, LocalId, LocalKind, Mir, MirFunction,
     Operand, Place, Rvalue, Statement, Terminator,
 };
+use std::collections::{HashMap, HashSet};
 
 mod call;
 mod call_runtime;
@@ -23,8 +23,8 @@ mod control_flow_match;
 mod core;
 mod list;
 mod list_mutation;
-mod list_query;
 mod list_ordering;
+mod list_query;
 mod literals;
 mod map;
 mod numeric;

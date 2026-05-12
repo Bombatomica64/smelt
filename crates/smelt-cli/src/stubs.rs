@@ -140,11 +140,25 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                 out.push_str("}\n");
             }
             Item::TypeAlias(alias) => {
+                let type_params = if alias.type_params.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "<{}>",
+                        alias
+                            .type_params
+                            .iter()
+                            .map(|param| symbol_name(krate, param.name))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
                 push_fmt(
                     &mut out,
                     format_args!(
-                        "export type {} = {};\n",
+                        "export type {}{} = {};\n",
                         symbol_name(krate, alias.name),
+                        type_params,
                         ts_type(krate, alias.ty)
                     ),
                 );
@@ -245,6 +259,9 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Int | Type::Float) => "number".to_owned(),
         Some(Type::String) => "string".to_owned(),
         Some(Type::Unknown) | None => "unknown".to_owned(),
+        Some(Type::TypeParam { name } | Type::Class { name, .. }) => {
+            symbol_name(krate, *name).to_owned()
+        }
         Some(Type::None) => "void".to_owned(),
         Some(Type::List(item) | Type::Set(item)) => {
             format!("Array<{}>", ts_type(krate, *item))
@@ -270,7 +287,6 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
             .map(|item| ts_type(krate, *item))
             .collect::<Vec<_>>()
             .join(" | "),
-        Some(Type::Class { name, .. }) => symbol_name(krate, *name).to_owned(),
         Some(Type::Function(function)) => {
             let params = function
                 .params
@@ -292,6 +308,9 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
         Some(Type::Float) => "float".to_owned(),
         Some(Type::String) => "str".to_owned(),
         Some(Type::Unknown) | None => "typing.Any".to_owned(),
+        Some(Type::TypeParam { name } | Type::Class { name, .. }) => {
+            symbol_name(krate, *name).to_owned()
+        }
         Some(Type::None) => "None".to_owned(),
         Some(Type::List(item)) => format!("list[{}]", py_type(krate, *item)),
         Some(Type::Set(item)) => format!("set[{}]", py_type(krate, *item)),
@@ -312,7 +331,6 @@ fn py_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
             .map(|item| py_type(krate, *item))
             .collect::<Vec<_>>()
             .join(" | "),
-        Some(Type::Class { name, .. }) => symbol_name(krate, *name).to_owned(),
         Some(Type::Function(_)) => "typing.Callable".to_owned(),
         Some(Type::Future(item)) => format!("typing.Awaitable[{}]", py_type(krate, *item)),
     }

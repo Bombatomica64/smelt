@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts a string case operation to its Rust text representation.
     pub(super) fn string_case_text(
         &self,
@@ -176,7 +175,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a string repeat operation to Rust text.
     /// Converts a string repeat operation to Rust text.
-    pub(super) fn string_repeat_text(&self, operand: &Operand, count: &Operand) -> Result<String, EmitError> {
+    pub(super) fn string_repeat_text(
+        &self,
+        operand: &Operand,
+        count: &Operand,
+    ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::String)
@@ -334,7 +337,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a regex split operation to Rust text using the `regex` crate.
     /// Converts a regex split operation to Rust text using the `regex` crate.
-    pub(super) fn regex_split_text(&self, pattern: &Operand, haystack: &Operand) -> Result<String, EmitError> {
+    pub(super) fn regex_split_text(
+        &self,
+        pattern: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
         self.require_string_operands(&[pattern, haystack], "regex split")?;
         let regex_text = format!(
             "regex::Regex::new(&{}).expect(\"regex compile failed\")",
@@ -368,7 +375,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a string character lookup operation to Rust text.
     /// Converts a string character lookup operation to Rust text.
-    pub(super) fn string_char_at_text(&self, operand: &Operand, index: &Operand) -> Result<String, EmitError> {
+    pub(super) fn string_char_at_text(
+        &self,
+        operand: &Operand,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::String)
@@ -485,7 +496,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a string join operation to Rust text.
     /// Converts a string join operation to Rust text.
-    pub(super) fn string_join_text(&self, items: &Operand, separator: &Operand) -> Result<String, EmitError> {
+    pub(super) fn string_join_text(
+        &self,
+        items: &Operand,
+        separator: &Operand,
+    ) -> Result<String, EmitError> {
         let items_ty = self.operand_ty(items)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(items_ty) else {
             return Err(EmitError::new("string join items must be a list"));
@@ -505,5 +520,4 @@ impl FunctionEmitter<'_> {
     }
 
     // JSON and IO string helpers continue in `strings_io.rs`.
-
 }

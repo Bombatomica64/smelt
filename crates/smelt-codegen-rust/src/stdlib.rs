@@ -69,7 +69,14 @@ fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
 
 /// Returns true when a MIR rvalue uses Chrono APIs.
 fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
-    matches!(rvalue, Rvalue::DateNow | Rvalue::DateToIsoString { .. })
+    matches!(
+        rvalue,
+        Rvalue::DateNow
+            | Rvalue::DateToIsoString { .. }
+            | Rvalue::DateFromParts { .. }
+            | Rvalue::DateGetPart { .. }
+            | Rvalue::DateSetPart { .. }
+    )
 }
 
 /// Returns true when a MIR rvalue uses Url APIs.

@@ -3,7 +3,6 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-
     /// Converts an operand for len() to its Rust text representation.
     pub(super) fn len_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
@@ -192,7 +191,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts a numeric power operation to Rust text.
     /// Converts a numeric power operation to Rust text.
-    pub(super) fn numeric_pow_text(&self, base: &Operand, exponent: &Operand) -> Result<String, EmitError> {
+    pub(super) fn numeric_pow_text(
+        &self,
+        base: &Operand,
+        exponent: &Operand,
+    ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(base)?),
             Some(Type::Int | Type::Float)
@@ -230,7 +233,11 @@ impl FunctionEmitter<'_> {
 
     /// Converts an inclusive integer random operation to Rust text.
     /// Converts an inclusive integer random operation to Rust text.
-    pub(super) fn numeric_random_int_text(&self, start: &Operand, end: &Operand) -> Result<String, EmitError> {
+    pub(super) fn numeric_random_int_text(
+        &self,
+        start: &Operand,
+        end: &Operand,
+    ) -> Result<String, EmitError> {
         if self.mir.types.get(self.operand_ty(start)?) != Some(&Type::Int)
             || self.mir.types.get(self.operand_ty(end)?) != Some(&Type::Int)
         {
@@ -258,5 +265,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts a primitive Python-style cast operation to Rust text.
-
 }

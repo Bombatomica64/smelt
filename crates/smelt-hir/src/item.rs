@@ -131,10 +131,25 @@ pub struct Interface {
     pub name: Symbol,
     /// Source location of the interface declaration.
     pub span: Span,
+    /// Generic type parameters declared by the interface.
+    pub type_params: Vec<TypeParamDef>,
     /// Fields of the interface.
     pub fields: Vec<Field>,
     /// Method signatures of the interface.
     pub methods: Vec<MethodSig>,
+}
+
+/// A generic type parameter declaration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeParamDef {
+    /// The type parameter name.
+    pub name: Symbol,
+    /// Optional upper bound or structural constraint.
+    pub constraint: Option<TypeId>,
+    /// Optional default type argument.
+    pub default: Option<TypeId>,
+    /// Source location of the type parameter.
+    pub span: Span,
 }
 
 /// A field in a class or interface.
@@ -185,6 +200,8 @@ pub struct ParamSig {
 pub struct TypeAlias {
     /// The name of the type alias.
     pub name: Symbol,
+    /// Generic type parameters declared by the alias.
+    pub type_params: Vec<TypeParamDef>,
     /// The aliased type.
     pub ty: TypeId,
     /// Source location of the type alias declaration.

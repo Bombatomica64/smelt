@@ -18,7 +18,9 @@ For v1, Smelt should not try to transpile Vitest or pytest internals. The v1 goa
 ## Current Baseline
 
 - Workspace health from the latest required check:
-  - `cargo test`: passed.
+  - `cargo test`: currently fails in
+    `smelt-codegen-rust::tests::part_6_tests::emits_object_assign_call`; generated output no
+    longer contains the exact `let mut assigned = HashMap::new();` string expected by the test.
   - `cargo check`: passed.
   - `cargo clippy`: passed with existing documentation warnings.
 - External repo checks can be used as signal again.
@@ -382,25 +384,96 @@ Probe roots:
 - Fresh checkout: `/tmp/smelt-reclone-rerun-20260511-145915/repos/date-fns`
 - File-level logs: `/tmp/date_fns_compat_20260511_150833`
 - Sibling-index slice logs: `/tmp/date_fns_slice_compat_20260511_150933`
+- Latest rerun logs after additional stdlib/frontend work: `/tmp/date_fns_slice_compat_20260511_180557`
+- Latest rerun logs after Date/runtime work: `/tmp/date_fns_slice_compat_20260511_184420`
+- Latest `src/types.ts` direct probe: `/tmp/date_fns_types_probe_20260512_094830`
+- Latest sibling slices with `src/types.ts`: `/tmp/date_fns_with_types_compat_20260512_094924`
 
 Compatibility numbers:
 
 | Measurement | Result | Notes |
 |---|---:|---|
-| TS/TSX files under `src` | `1491` | Raw source corpus size. |
+| TS/TSX files under `src` | `1529` | Raw source corpus size in the latest checkout. |
 | Vitest-style test files | `254` | Files containing direct `describe` / `it` / `test` calls. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
-| Sibling `index.ts` + `constants` + `test.ts` slices passing `smelt check` | `20 / 254` | More meaningful current compatibility measure. |
-| Same slices passing `smelt build` | `20 / 254` | Every check-green slice emitted Rust. |
-| Same slices passing generated `cargo test` | `20 / 254` | Every build-green slice passed generated Rust tests. |
+| Sibling `index.ts` + `constants` + `test.ts` slices passing `smelt check` | `21 / 250` | Comparable sibling-index `test.ts` sweep. `isExists` newly reaches Rust emission. |
+| Same slices passing `smelt build` | `21 / 250` | Every check-green slice emitted Rust. |
+| Same slices passing generated `cargo test` | `20 / 250` | `isExists` builds but one invalid-date test panics at runtime. |
+| `src/types.ts` direct `smelt check` / `smelt build` | pass / pass | Shared date-fns type file now lowers by itself. |
+| Sibling slices with `src/types.ts` included passing `smelt check` | `23 / 250` | Shared type wall moved into dependency closure/runtime gaps. |
+| Same `src/types.ts` slices passing `smelt build` | `23 / 250` | Every check-green slice emitted Rust. |
+| Same `src/types.ts` slices passing generated `cargo test` | `23 / 250` | All build-green `with_types` slices passed generated Rust tests. |
 | Approx direct Vitest cases covered | `78 / 2882` | Heuristic text count of direct `it(...)` / `test(...)` calls. |
+
+Latest rerun status: `src/types.ts` now passes directly. With `src/types.ts` included in each
+sibling slice, `23` date-fns test slices pass all the way through generated Rust `cargo test`.
+The old minimal sibling slice still leaves `isExists` build-green but runtime-red because invalid
+Date construction panics with `timestamp out of range`; the `with_types` manifest now passes that
+slice, so the remaining work is dependency closure and ordinary TS/runtime coverage rather than the
+shared type file itself.
+
+Generic interface implementation status:
+
+- [x] HIR has explicit generic type parameter types and metadata.
+- [x] TypeScript interfaces can declare generic parameters with constraints and defaults.
+- [x] Generic interface references lower with actual/default type arguments.
+- [x] Generic interface inheritance substitutes parent fields and method signatures.
+- [x] Generic function declarations create type-parameter scopes for annotations.
+- [x] Generic type aliases lower and substitute through generic references.
+- [x] Function type aliases and empty-object intersections such as `DateArg<Date> & {}` lower.
+
+Shared type-file status:
+
+- [x] `src/types.ts` lowers in direct `smelt check`.
+- [x] `src/types.ts` emits Rust in direct `smelt build`.
+- [x] Builtin `Date` heritage, interface construct/index signatures, `keyof`, and the shared
+  `DateArg` / `ContextFn` aliases no longer globally block the file.
+- [ ] Full date-fns slices still need broader dependency closure manifests so helpers such as
+  `toDate`, `constructFrom`, `getDefaultOptions`, and `addMilliseconds` are available when a test
+  imports a higher-level function.
+
+Top normalized latest failure messages for sibling `index.ts` + `constants` + `test.ts` slices:
+
+| Count | Missing support | Representative location |
+|---:|---|---|
+| `196` | `DateArg` type reference lowering without `src/types.ts` in the manifest | `src/toDate/index.ts`, `src/addDays/index.ts`, and many Date helpers. |
+| `152` | Shared option interfaces unavailable without `src/types.ts` | `ContextOptions` users across add/sub/start/end helpers. |
+| `18` | Shared localized option interfaces unavailable without `src/types.ts` | `LocalizedOptions` users in week/format helpers. |
+| `7` | Shared step option interfaces unavailable without `src/types.ts` | interval helpers. |
+| `5` | Method calls only lowered for class values | Date-like receiver paths. |
+| `5` | Inferred return type acceptance for source functions | `src/_lib/getRoundingMethod/index.ts`, parse/rounding helpers. |
+| `5` | Shared rounding option interfaces unavailable without `src/types.ts` | rounding/difference helpers. |
+| `4` | Destructuring declarations | `src/areIntervalsOverlapping/index.ts` and interval helpers. |
+| `3` | Shared week option interfaces unavailable without `src/types.ts` | week helpers. |
+| `2` | Object literal typing without explicit `Record<string, T>` | `src/setDefaultOptions/index.ts`, `_lib/defaultOptions`. |
+| `1` | `typeof value === "function"` narrowing | `src/transpose/index.ts`. |
+| `1` | `GenericDateConstructor` type reference without full shared types | `src/transpose/index.ts`. |
+
+Top blockers when `src/types.ts` is included in every sibling slice:
+
+| Count | Missing support | Representative location |
+|---:|---|---|
+| `75` | Missing dependency closure for imported helpers | `toDate` users across date helpers. |
+| `38` | Destructuring declarations | `src/add/index.ts`, interval and difference helpers. |
+| `14` | Unary plus lowering | `src/compareAsc/index.ts`, `src/closestIndexTo/index.ts`. |
+| `11` | Missing dependency closure for default option helpers | `getDefaultOptions` users. |
+| `10` | `LocalizedOptions` still unavailable in some slices | week/format helpers. |
+| `6` | Method calls only lowered for class values | Date-like receiver paths. |
+| `5` | Inferred return type acceptance for source functions | `src/_lib/getRoundingMethod/index.ts`, parse/rounding helpers. |
+| `4` | Missing dependency closure for `constructNow` | relative/current-date helpers. |
+| `2` | `typeof value === "function"` narrowing | `src/constructFrom/index.ts`, `src/transpose/index.ts`. |
+| `2` | Qualified type references | Locale/namespace-style type references. |
+| `2` | Object literal typing without explicit `Record<string, T>` | default options helpers. |
 
 Current date-fns test slices that pass `smelt check`, `smelt build`, and generated `cargo test`:
 
+- `src/_lib/addLeadingZeros/test.ts` with `src/types.ts`
+- `src/daysToWeeks/test.ts` with `src/types.ts`
 - `src/hoursToMilliseconds/test.ts`
 - `src/hoursToMinutes/test.ts`
 - `src/hoursToSeconds/test.ts`
+- `src/isExists/test.ts` with `src/types.ts`
 - `src/millisecondsToHours/test.ts`
 - `src/millisecondsToMinutes/test.ts`
 - `src/millisecondsToSeconds/test.ts`
@@ -419,17 +492,24 @@ Current date-fns test slices that pass `smelt check`, `smelt build`, and generat
 - `src/yearsToMonths/test.ts`
 - `src/yearsToQuarters/test.ts`
 
+Current date-fns test slices that pass `smelt check` and `smelt build` but fail generated
+`cargo test`:
+
+- `src/isExists/test.ts`: invalid-date case panics with `timestamp out of range`; Date lowering
+  needs an invalid-date representation instead of panicking during construction.
+
 Current date-fns TypeScript blockers with representative break locations:
 
 | Missing support | Representative break location | Current error shape |
 |---|---|---|
 | TS conditional expression lowering | `src/_lib/addLeadingZeros/index.ts` via `src/_lib/addLeadingZeros/test.ts` | `ConditionalExpression` not lowered. |
 | Inferred return type acceptance for source functions | `src/_lib/getRoundingMethod/index.ts` via `src/_lib/getRoundingMethod/test.ts` | `function declarations must have an explicit return type`. |
-| Intersection type annotations | `src/_lib/getTimezoneOffsetInMilliseconds/index.ts` via `src/_lib/getTimezoneOffsetInMilliseconds/test.ts` | `TSIntersectionType` not lowered. |
-| RegExp literals as values | `src/_lib/protectedTokens/index.ts` | `RegExpLiteral` expression not lowered. |
-| Generic interfaces | `src/add/index.ts` via `src/add/test.ts` | `generic interfaces are not lowered yet`. |
-| Generic interface inheritance | `src/areIntervalsOverlapping/index.ts` via `src/areIntervalsOverlapping/test.ts` | `generic interface inheritance is not lowered yet`. |
-| Imported generic type aliases such as `DateArg` | `src/addDays/index.ts`, `src/addHours/index.ts`, `src/addMilliseconds/index.ts`, and many date helpers | `type reference is not lowered yet: DateArg`. |
+| Dependency closure manifests for real date-fns slices | `src/addDays/index.ts`, `src/_lib/getTimezoneOffsetInMilliseconds/index.ts` | unresolved helper imports such as `toDate`, `addMilliseconds`, `constructFrom`, `getDefaultOptions`. |
+| Imported generic type aliases such as `DateArg` without `src/types.ts` | `src/addDays/index.ts`, `src/addHours/index.ts`, `src/addMilliseconds/index.ts`, and many date helpers | `type reference is not lowered yet: DateArg`. |
+| Invalid Date value semantics | `src/isExists/test.ts` | Generated Rust panics with `timestamp out of range` instead of preserving an invalid Date value. |
+| Unary plus | `src/compareAsc/index.ts`, `src/closestIndexTo/index.ts` | `unary operator is not lowered yet: UnaryPlus`. |
+| Conditional type annotations | `src/clamp/index.ts`, `src/closestTo/index.ts` | `TSConditionalType` not lowered. |
+| RegExp literals as values | `src/_lib/protectedTokens/index.ts`, `src/parse/index.ts` | `RegExpLiteral` expression not lowered. |
 | Result type aliases | `src/clamp/index.ts`, `src/closestTo/index.ts` | `type reference is not lowered yet: ClampResult` / `ClosestToResult`. |
 | Destructuring declarations | `src/areIntervalsOverlapping/index.ts` | `destructuring declarations are not lowered yet`. |
 | Object literals without explicit `Record<string, T>` annotation | `src/_lib/defaultOptions/index.ts`, `src/_lib/tzOffsetTransitions.ts` | `object literals currently require a Record<string, T> annotation`. |
@@ -444,9 +524,9 @@ Current date-fns TypeScript blockers with representative break locations:
 | Nested/complex `describe` contents beyond direct `it` / `test` calls | `src/areIntervalsOverlapping/test.ts` in isolated test-file mode | `describe blocks only support direct it/test calls for now`. |
 
 Most failing date-fns feature slices hit library-source type/runtime gaps before Vitest API gaps.
-The next highest-leverage TS work for this repo is generic/interface/type-alias support around
-`DateArg`, Date constructor overloads and Date method receiver typing, conditional expressions,
-destructuring declarations, and RegExp literal values.
+The next highest-leverage TS work for this repo is real import dependency closure for date-fns
+function slices, then destructuring declarations and unary plus. `src/types.ts` itself is no longer
+the wall.
 
 ### First Python Target: Rich
 

@@ -17,27 +17,45 @@ impl ModuleBuilder<'_> {
         };
         let name_text = id.name.as_str();
         let name = self.intern_source_name(name_text);
-        let assertion_return = function
+        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let assertion_return = match function
             .return_type
             .as_ref()
             .and_then(|annotation| self.assertion_return_type(&annotation.type_annotation))
-            .transpose()?;
+            .transpose()
+        {
+            Ok(value) => value,
+            Err(error) => {
+                self.pop_type_parameter_scope();
+                return Err(error);
+            }
+        };
         let return_ty = if assertion_return.is_some() {
             self.ctx.krate.types.intern(Type::None)
         } else {
-            function
+            match function
                 .return_type
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(function.span.start, function.span.end),
-                        "function declarations must have an explicit return type",
-                    )
-                })?
+                .transpose()
+                .and_then(|value| {
+                    value.ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(function.span.start, function.span.end),
+                            "function declarations must have an explicit return type",
+                        )
+                    })
+                })
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    self.pop_type_parameter_scope();
+                    return Err(error);
+                }
+            }
         };
         if function.return_type.is_none() {
+            self.pop_type_parameter_scope();
             return Err(SmeltError::unsupported(
                 self.span(function.span.start, function.span.end),
                 "function declarations must have an explicit return type",
@@ -45,6 +63,7 @@ impl ModuleBuilder<'_> {
         }
         if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
+            self.pop_type_parameter_scope();
             return Err(SmeltError::unsupported(
                 self.span(function.span.start, function.span.end),
                 "async functions must declare a Promise<T> return type",
@@ -64,22 +83,34 @@ impl ModuleBuilder<'_> {
             let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                 self.locals = saved_locals;
                 self.current_async = saved_async;
+                self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
                     "destructured parameters are not lowered yet",
                 ));
             };
-            let ty = param
+            let ty = match param
                 .type_annotation
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "function parameters must have explicit type annotations",
-                    )
-                })?;
+                .transpose()
+                .and_then(|value| {
+                    value.ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(param.span.start, param.span.end),
+                            "function parameters must have explicit type annotations",
+                        )
+                    })
+                })
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    self.locals = saved_locals;
+                    self.current_async = saved_async;
+                    self.pop_type_parameter_scope();
+                    return Err(error);
+                }
+            };
             let param_name = self.intern_source_name(binding.name.as_str());
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
@@ -108,6 +139,7 @@ impl ModuleBuilder<'_> {
         }
         self.locals = saved_locals;
         self.current_async = saved_async;
+        self.pop_type_parameter_scope();
 
         if let Some(error) = errors.into_iter().next() {
             return Err(error);

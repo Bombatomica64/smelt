@@ -213,6 +213,8 @@ fn lowers_number_predicate_calls() -> Result<(), String> {
 const value = 4;
 const finite = Number.isFinite(value);
 const nan = Number.isNaN(value);
+const globalNan = isNaN(value);
+const missing = undefined;
 "#),
         &mut ctx,
     )?;
@@ -224,6 +226,24 @@ const nan = Number.isNaN(value);
             |expr| matches!(expr.kind, ExprKind::NumericPredicate { op, .. } if op == expected)
         ));
     }
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(
+                expr.kind,
+                ExprKind::NumericPredicate {
+                    op: NumericPredicateOp::IsNaN,
+                    ..
+                }
+            ))
+            .count(),
+        2
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::None)))
+    );
     Ok(())
 }
 
@@ -256,6 +276,27 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::DictLit(_)))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_object_assign_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const source: Record<string, number> = { a: 1 };
+const merged = Object.assign({}, source, { b: 2 });
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictAssign { .. }))
     );
     Ok(())
 }
@@ -336,6 +377,8 @@ fn lowers_regexp_test_call() -> Result<(), String> {
 const text = "abc123";
 const pattern = "\\d+";
 const hasDigits = new RegExp(pattern).test(text);
+const alsoHasDigits = RegExp(pattern).test(text);
+const literalHasDigits = /\d+/.test(text);
 "#),
         &mut ctx,
     )?;
@@ -343,15 +386,17 @@ const hasDigits = new RegExp(pattern).test(text);
     let body = module_body(&ctx, module)?;
 
     ensure!(
-        body.exprs.iter().any(|expr| {
-            matches!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(
                 expr.kind,
                 ExprKind::RegexIsMatch {
                     op: RegexMatchOp::Search,
                     ..
                 }
-            )
-        }),
+            ))
+            .count()
+            == 3,
         "expected RegExp.test lowering",
     );
     Ok(())
@@ -378,6 +423,16 @@ const hasDigits = new RegExp(1).test(text);
         &mut ctx,
     )?;
     assert_unsupported_ts(&non_string, "string pattern and haystack")?;
+
+    let mut ctx = HirCtx::new();
+    let literal_flags = lowering_errors(
+        ts!(r#"
+const text = "abc123";
+const hasDigits = /\d+/g.test(text);
+"#),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&literal_flags, "flags")?;
     Ok(())
 }
 

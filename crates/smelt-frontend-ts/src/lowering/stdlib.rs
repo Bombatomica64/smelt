@@ -5,9 +5,82 @@ use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, RegexMatchOp, Type};
 use smelt_stdlib::RuleId;
 
-use super::{stdlib_dispatch, ModuleBuilder, SmeltError};
+use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
 
 impl ModuleBuilder<'_> {
+    /// Lower TypeScript `Object.assign(target, ...sources)` for homogeneous record values.
+    pub(super) fn object_assign_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object" || member.property.name != "assign" {
+            return Ok(None);
+        }
+        let [target_arg, source_args @ ..] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.assign requires a target record and at least one source record",
+            ));
+        };
+        if source_args.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.assign requires at least one source record",
+            ));
+        }
+
+        let mut sources = Vec::with_capacity(source_args.len());
+        let mut record_ty = None;
+        for source_arg in source_args {
+            let source = self.argument_with_hint(source_arg, body, record_ty)?;
+            let source_ty = Self::expr_ty(body, source);
+            if !matches!(self.ctx.krate.types.get(source_ty), Some(Type::Dict(_, _))) {
+                return Err(SmeltError::unsupported(
+                    self.span(source_arg.span().start, source_arg.span().end),
+                    "Object.assign sources must be record values",
+                ));
+            }
+            if let Some(expected_ty) = record_ty {
+                if source_ty != expected_ty {
+                    return Err(SmeltError::unsupported(
+                        self.span(source_arg.span().start, source_arg.span().end),
+                        "Object.assign sources must share the target record type",
+                    ));
+                }
+            } else {
+                record_ty = Some(source_ty);
+            }
+            sources.push(source);
+        }
+
+        let Some(record_ty) = record_ty else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.assign requires record-typed arguments",
+            ));
+        };
+        let target = self.argument_with_hint(target_arg, body, Some(record_ty))?;
+        if Self::expr_ty(body, target) != record_ty {
+            return Err(SmeltError::unsupported(
+                self.span(target_arg.span().start, target_arg.span().end),
+                "Object.assign target must share the source record type",
+            ));
+        }
+
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictAssign { target, sources },
+            ty: record_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
     pub(super) fn json_stringify_call(
         &mut self,
@@ -119,28 +192,13 @@ impl ModuleBuilder<'_> {
         if member.property.name != "test" {
             return Ok(None);
         }
-        let Expression::NewExpression(new_expr) = &member.object else {
-            return Ok(None);
-        };
-        let Expression::Identifier(callee) = &new_expr.callee else {
-            return Ok(None);
-        };
-        if callee.name != "RegExp" {
-            return Ok(None);
-        }
-        let [pattern_argument] = new_expr.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new RegExp() currently requires exactly one string pattern argument",
-            ));
-        };
         let [haystack_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "RegExp.test() requires exactly one string argument",
             ));
         };
-        let pattern = self.argument(pattern_argument, body)?;
+        let pattern = self.regexp_pattern_expression(&member.object, body)?;
         let haystack = self.argument(haystack_argument, body)?;
         if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
@@ -160,6 +218,78 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Extract a pattern string from a supported TypeScript RegExp-producing expression.
+    fn regexp_pattern_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match expression {
+            Expression::NewExpression(new_expr) => {
+                let Expression::Identifier(callee) = &new_expr.callee else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "RegExp.test() requires a RegExp receiver",
+                    ));
+                };
+                if callee.name != "RegExp" {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "RegExp.test() requires a RegExp receiver",
+                    ));
+                }
+                let [pattern_argument] = new_expr.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "RegExp construction currently requires exactly one string pattern argument",
+                    ));
+                };
+                self.argument(pattern_argument, body)
+            }
+            Expression::CallExpression(call_expr) => {
+                let Expression::Identifier(callee) = &call_expr.callee else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call_expr.span.start, call_expr.span.end),
+                        "RegExp.test() requires a RegExp receiver",
+                    ));
+                };
+                if callee.name != "RegExp" {
+                    return Err(SmeltError::unsupported(
+                        self.span(call_expr.span.start, call_expr.span.end),
+                        "RegExp.test() requires a RegExp receiver",
+                    ));
+                }
+                let [pattern_argument] = call_expr.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call_expr.span.start, call_expr.span.end),
+                        "RegExp construction currently requires exactly one string pattern argument",
+                    ));
+                };
+                self.argument(pattern_argument, body)
+            }
+            Expression::RegExpLiteral(literal) => {
+                if !literal.regex.flags.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(literal.span.start, literal.span.end),
+                        "RegExp literals with flags are not lowered yet",
+                    ));
+                }
+                let ty = self.ctx.krate.types.intern(Type::String);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(smelt_hir::Literal::String(
+                        literal.regex.pattern.text.to_string(),
+                    )),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }))
+            }
+            _ => Err(SmeltError::unsupported(
+                self.expression_span(expression),
+                "RegExp.test() requires a RegExp receiver",
+            )),
+        }
     }
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
@@ -302,8 +432,7 @@ impl ModuleBuilder<'_> {
         };
         let element_ty = *list_element_ty;
         let comparator = if let Some(argument) = comparator_argument {
-            let callback =
-                self.capture_free_arrow_callback(argument, &[element_ty, element_ty])?;
+            let callback = self.arrow_callback(argument, &[element_ty, element_ty], body)?;
             let number_ty = self.ctx.krate.types.intern(Type::Float);
             self.require_callback_ty(callback.ty, number_ty, call, "array sort")?;
             Some(callback)
@@ -417,7 +546,10 @@ impl ModuleBuilder<'_> {
         match method {
             "splice" | "toSpliced" => {
                 let [start_arg, rest @ ..] = call.arguments.as_slice() else {
-                    return Err(SmeltError::unsupported(span, "array splice requires a start argument"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array splice requires a start argument",
+                    ));
                 };
                 let start = self.slice_index_argument(start_arg, body)?;
                 let delete_count = rest
@@ -454,7 +586,10 @@ impl ModuleBuilder<'_> {
             }
             "fill" => {
                 let [value_arg, rest @ ..] = call.arguments.as_slice() else {
-                    return Err(SmeltError::unsupported(span, "array fill requires a value argument"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array fill requires a value argument",
+                    ));
                 };
                 if rest.len() > 2 {
                     return Err(SmeltError::unsupported(
@@ -469,8 +604,14 @@ impl ModuleBuilder<'_> {
                         "array fill value must match the array element type",
                     ));
                 }
-                let start = rest.first().map(|argument| self.slice_index_argument(argument, body)).transpose()?;
-                let end = rest.get(1).map(|argument| self.slice_index_argument(argument, body)).transpose()?;
+                let start = rest
+                    .first()
+                    .map(|argument| self.slice_index_argument(argument, body))
+                    .transpose()?;
+                let end = rest
+                    .get(1)
+                    .map(|argument| self.slice_index_argument(argument, body))
+                    .transpose()?;
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListFill {
                         list,
@@ -497,7 +638,10 @@ impl ModuleBuilder<'_> {
                 }
                 let target = self.slice_index_argument(target_arg, body)?;
                 let start = self.slice_index_argument(start_arg, body)?;
-                let end = rest.first().map(|argument| self.slice_index_argument(argument, body)).transpose()?;
+                let end = rest
+                    .first()
+                    .map(|argument| self.slice_index_argument(argument, body))
+                    .transpose()?;
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListCopyWithin {
                         list,
@@ -511,7 +655,10 @@ impl ModuleBuilder<'_> {
             }
             "with" => {
                 let [index_arg, value_arg] = call.arguments.as_slice() else {
-                    return Err(SmeltError::unsupported(span, "array with requires index and value arguments"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array with requires index and value arguments",
+                    ));
                 };
                 let index = self.slice_index_argument(index_arg, body)?;
                 let value = self.argument(value_arg, body)?;
@@ -529,7 +676,10 @@ impl ModuleBuilder<'_> {
             }
             "flat" => {
                 if call.arguments.len() > 1 {
-                    return Err(SmeltError::unsupported(span, "array flat supports depth 0 or 1"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array flat supports depth 0 or 1",
+                    ));
                 }
                 let Some(Type::List(flat_item_ty)) = self.ctx.krate.types.get(element_ty) else {
                     return Ok(None);
@@ -543,11 +693,20 @@ impl ModuleBuilder<'_> {
             }
             "flatMap" => {
                 let [callback_arg] = call.arguments.as_slice() else {
-                    return Err(SmeltError::unsupported(span, "array flatMap requires one callback argument"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array flatMap requires one callback argument",
+                    ));
                 };
                 let index_ty = self.ctx.krate.types.intern(Type::Float);
-                let callback = self.capture_free_arrow_callback(callback_arg, &[element_ty, index_ty])?;
-                let Some(Type::List(flat_item_ty)) = self.ctx.krate.types.get(callback.ty) else {
+                let callback = self.callback_argument(
+                    callback_arg,
+                    &[element_ty, index_ty, list_ty],
+                    "array flatMap",
+                    body,
+                )?;
+                let Some(Type::List(flat_item_ty)) = self.ctx.krate.types.get(callback.return_ty)
+                else {
                     return Err(SmeltError::unsupported(
                         self.span(callback_arg.span().start, callback_arg.span().end),
                         "array flatMap callback must return an array",
@@ -558,7 +717,7 @@ impl ModuleBuilder<'_> {
                     kind: ExprKind::ListCallback {
                         op: ListCallbackOp::FlatMap,
                         list,
-                        callback,
+                        callback: callback.expr,
                     },
                     ty,
                     span,
@@ -576,7 +735,8 @@ impl ModuleBuilder<'_> {
                     }
                 };
                 let comparator = if let Some(argument) = comparator_argument {
-                    let callback = self.capture_free_arrow_callback(argument, &[element_ty, element_ty])?;
+                    let callback =
+                        self.arrow_callback(argument, &[element_ty, element_ty], body)?;
                     let number_ty = self.ctx.krate.types.intern(Type::Float);
                     self.require_callback_ty(callback.ty, number_ty, call, "array toSorted")?;
                     Some(callback)
@@ -599,7 +759,10 @@ impl ModuleBuilder<'_> {
             }
             "toReversed" => {
                 if !call.arguments.is_empty() {
-                    return Err(SmeltError::unsupported(span, "array toReversed requires no arguments"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array toReversed requires no arguments",
+                    ));
                 }
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListReversed { list },
@@ -615,14 +778,19 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let index_ty = self.ctx.krate.types.intern(Type::Float);
-                let callback = self.capture_free_arrow_callback(callback_arg, &[element_ty, index_ty])?;
+                let callback = self.callback_argument(
+                    callback_arg,
+                    &[element_ty, index_ty, list_ty],
+                    "array findLast/findLastIndex",
+                    body,
+                )?;
                 let bool_ty = self.ctx.krate.types.intern(Type::Bool);
                 let context = if method == "findLast" {
                     "array findLast"
                 } else {
                     "array findLastIndex"
                 };
-                self.require_callback_ty(callback.ty, bool_ty, call, context)?;
+                self.require_callback_ty(callback.return_ty, bool_ty, call, context)?;
                 let op = if method == "findLast" {
                     ListCallbackOp::FindLast
                 } else {
@@ -634,14 +802,21 @@ impl ModuleBuilder<'_> {
                     index_ty
                 };
                 Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::ListCallback { op, list, callback },
+                    kind: ExprKind::ListCallback {
+                        op,
+                        list,
+                        callback: callback.expr,
+                    },
                     ty,
                     span,
                 })))
             }
             "keys" | "values" | "entries" => {
                 if !call.arguments.is_empty() {
-                    return Err(SmeltError::unsupported(span, "array projection methods require no arguments"));
+                    return Err(SmeltError::unsupported(
+                        span,
+                        "array projection methods require no arguments",
+                    ));
                 }
                 let op = match method {
                     "keys" => ListProjectionOp::Keys,
@@ -657,7 +832,11 @@ impl ModuleBuilder<'_> {
                     ListProjectionOp::Values => list_ty,
                     ListProjectionOp::Entries => {
                         let int_ty = self.ctx.krate.types.intern(Type::Int);
-                        let tuple_ty = self.ctx.krate.types.intern(Type::Tuple(vec![int_ty, element_ty]));
+                        let tuple_ty = self
+                            .ctx
+                            .krate
+                            .types
+                            .intern(Type::Tuple(vec![int_ty, element_ty]));
                         self.ctx.krate.types.intern(Type::List(tuple_ty))
                     }
                 };

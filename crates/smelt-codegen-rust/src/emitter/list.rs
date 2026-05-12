@@ -4,7 +4,11 @@ use super::*;
 
 impl FunctionEmitter<'_> {
     /// Converts a list containment operation to Rust text.
-    pub(super) fn list_contains_text(&self, list: &Operand, item: &Operand) -> Result<String, EmitError> {
+    pub(super) fn list_contains_text(
+        &self,
+        list: &Operand,
+        item: &Operand,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list contains receiver must be a list"));
@@ -25,7 +29,11 @@ impl FunctionEmitter<'_> {
     /// Converts a list-to-set constructor conversion to Rust text.
     /// Converts a set containment operation to Rust text.
     /// Converts a list-to-set constructor conversion to Rust text.
-    pub(super) fn list_to_set_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_to_set_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list-to-set source must be a list"));
@@ -83,7 +91,11 @@ impl FunctionEmitter<'_> {
     /// Converts a list concatenation operation to Rust text.
     /// Converts a list concatenation operation to Rust text.
     /// Converts a list concatenation operation to Rust text.
-    pub(super) fn list_concat_text(&self, left: &Operand, right: &Operand) -> Result<String, EmitError> {
+    pub(super) fn list_concat_text(
+        &self,
+        left: &Operand,
+        right: &Operand,
+    ) -> Result<String, EmitError> {
         let left_ty = self.operand_ty(left)?;
         if self.mir.types.get(left_ty) != self.mir.types.get(self.operand_ty(right)?) {
             return Err(EmitError::new(
@@ -198,7 +210,9 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("array fill receiver must be a list"));
         };
         if self.operand_ty(value)? != *item_ty || dest_ty != list_ty {
-            return Err(EmitError::new("array fill value and destination must match the list type"));
+            return Err(EmitError::new(
+                "array fill value and destination must match the list type",
+            ));
         }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
@@ -207,8 +221,14 @@ impl FunctionEmitter<'_> {
         };
         let list_text = self.local_name(*local)?;
         let value_text = self.operand_text(value)?;
-        let start_text = start.map(|operand| self.operand_text(operand)).transpose()?.unwrap_or_else(|| "0.0".to_owned());
-        let end_text = end.map(|operand| self.operand_text(operand)).transpose()?.unwrap_or_else(|| "fill_len as f64".to_owned());
+        let start_text = start
+            .map(|operand| self.operand_text(operand))
+            .transpose()?
+            .unwrap_or_else(|| "0.0".to_owned());
+        let end_text = end
+            .map(|operand| self.operand_text(operand))
+            .transpose()?
+            .unwrap_or_else(|| "fill_len as f64".to_owned());
         Ok(format!(
             "{{ let fill_len = {list_text}.len(); let fill_start = if {start_text} < 0.0 {{ fill_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(fill_len) }}; let fill_end = if {end_text} < 0.0 {{ fill_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(fill_len) }}; for fill_index in fill_start..fill_end {{ {list_text}[fill_index] = {value_text}.clone(); }} {list_text}.clone() }}"
         ))
@@ -225,7 +245,9 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) || dest_ty != list_ty {
-            return Err(EmitError::new("array copyWithin destination must match the list type"));
+            return Err(EmitError::new(
+                "array copyWithin destination must match the list type",
+            ));
         }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
@@ -235,7 +257,10 @@ impl FunctionEmitter<'_> {
         let list_text = self.local_name(*local)?;
         let target_text = self.operand_text(target)?;
         let start_text = self.operand_text(start)?;
-        let end_text = end.map(|operand| self.operand_text(operand)).transpose()?.unwrap_or_else(|| "copy_len as f64".to_owned());
+        let end_text = end
+            .map(|operand| self.operand_text(operand))
+            .transpose()?
+            .unwrap_or_else(|| "copy_len as f64".to_owned());
         Ok(format!(
             "{{ let copy_len = {list_text}.len(); let copy_target = if {target_text} < 0.0 {{ copy_len.saturating_sub((-{target_text}) as usize) }} else {{ ({target_text} as usize).min(copy_len) }}; let copy_start = if {start_text} < 0.0 {{ copy_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(copy_len) }}; let copy_end = if {end_text} < 0.0 {{ copy_len.saturating_sub((-{end_text}) as usize) }} else {{ ({end_text} as usize).min(copy_len) }}; let copy_items = {list_text}.iter().skip(copy_start).take(copy_end.saturating_sub(copy_start)).cloned().collect::<Vec<_>>(); for (offset, item) in copy_items.into_iter().enumerate() {{ if copy_target + offset < copy_len {{ {list_text}[copy_target + offset] = item; }} }} {list_text}.clone() }}"
         ))
@@ -245,7 +270,11 @@ impl FunctionEmitter<'_> {
     /// Converts a list copy operation to Rust text.
     /// Converts a list push operation to Rust text.
     /// Converts a list copy operation to Rust text.
-    pub(super) fn list_copy_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_copy_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
             return Err(EmitError::new("list copy receiver must be a list"));
@@ -271,7 +300,9 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("array with receiver must be a list"));
         };
         if dest_ty != list_ty || self.operand_ty(value)? != *item_ty {
-            return Err(EmitError::new("array with value and destination must match the list type"));
+            return Err(EmitError::new(
+                "array with value and destination must match the list type",
+            ));
         }
         let list_text = self.operand_text(list)?;
         let index_text = self.operand_text(index)?;
@@ -282,7 +313,11 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts one-level array flattening to Rust text.
-    pub(super) fn list_flat_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_flat_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array flat receiver must be a list"));
@@ -291,7 +326,9 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("array flat receiver must contain arrays"));
         };
         if self.mir.types.get(dest_ty) != Some(&Type::List(*item_ty)) {
-            return Err(EmitError::new("array flat destination must match nested item type"));
+            return Err(EmitError::new(
+                "array flat destination must match nested item type",
+            ));
         }
         Ok(format!(
             "{}.iter().flat_map(|items| items.iter().cloned()).collect::<Vec<_>>()",
@@ -317,11 +354,15 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(dest_ty) != Some(&Type::List(int_ty)) {
                     return Err(EmitError::new("array keys destination must be int list"));
                 }
-                Ok(format!("(0..{list_text}.len()).map(|idx| idx as i64).collect::<Vec<_>>()"))
+                Ok(format!(
+                    "(0..{list_text}.len()).map(|idx| idx as i64).collect::<Vec<_>>()"
+                ))
             }
             smelt_hir::ListProjectionOp::Values => {
                 if dest_ty != list_ty {
-                    return Err(EmitError::new("array values destination must match receiver"));
+                    return Err(EmitError::new(
+                        "array values destination must match receiver",
+                    ));
                 }
                 Ok(format!("{list_text}.clone()"))
             }
@@ -349,7 +390,11 @@ impl FunctionEmitter<'_> {
     /// Converts a list count operation to Rust text.
     /// Converts a tuple containment operation to Rust text.
     /// Converts a list-to-tuple constructor conversion to Rust text.
-    pub(super) fn list_to_tuple_text(&self, list: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
+    pub(super) fn list_to_tuple_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list-to-tuple source must be a list"));
@@ -379,5 +424,4 @@ impl FunctionEmitter<'_> {
     }
 
     // Converts a homogeneous tuple-to-set constructor conversion to Rust text.
-
 }
