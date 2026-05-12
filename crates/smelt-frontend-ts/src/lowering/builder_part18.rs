@@ -136,7 +136,7 @@ impl ModuleBuilder<'_> {
                     .map(|param| self.substitute_type_params(param, substitutions))
                     .collect();
                 let return_ty = self.substitute_type_params(function.return_ty, substitutions);
-                self.ctx.krate.types.intern(Type::Function(smelt_hir::FunctionType {
+                self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params,
                     return_ty,
                     is_async: function.is_async,

@@ -117,6 +117,35 @@ async function run(): Promise<number> {
 }
 
 #[test]
+fn emits_typescript_rest_closure_values() {
+    let source = source_for(
+        r#"
+const sum = (...values: number[]): number => values[0] + values[1];
+const total = sum(2, 3, 4);
+"#,
+    );
+
+    assert!(source.contains("|arg0|"));
+    assert!(source.contains("vec![2.0, 3.0, 4.0]"));
+    assert!(source.contains("arg0[0].clone() + arg0[1].clone()"));
+}
+
+#[test]
+fn emits_typescript_top_level_rest_functions() {
+    let source = source_for(
+        r#"
+function sum(...values: number[]): number {
+  return values[0] + values[1];
+}
+const total = sum(2, 3, 4);
+"#,
+    );
+
+    assert!(source.contains("fn sum(arg_0: Vec<f64>) -> f64"));
+    assert!(source.contains("vec![2.0, 3.0, 4.0]"));
+}
+
+#[test]
 fn emits_math_abs_call() {
     let source = source_for(
         r#"

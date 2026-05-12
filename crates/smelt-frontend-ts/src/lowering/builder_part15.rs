@@ -46,7 +46,7 @@ impl ModuleBuilder<'_> {
                 .ctx
                 .krate
                 .types
-                .intern(Type::Function(smelt_hir::FunctionType {
+                .intern(Type::Function(FunctionType {
                     params,
                     return_ty,
                     is_async,
@@ -86,7 +86,7 @@ impl ModuleBuilder<'_> {
                     .ctx
                     .krate
                     .types
-                    .intern(Type::Function(smelt_hir::FunctionType {
+                    .intern(Type::Function(FunctionType {
                         params: function.params.iter().map(|param| param.ty).collect(),
                         return_ty: function.return_ty,
                         is_async: function.is_async,

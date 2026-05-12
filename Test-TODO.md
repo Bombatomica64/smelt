@@ -388,13 +388,16 @@ Probe roots:
 - Latest rerun logs after Date/runtime work: `/tmp/date_fns_slice_compat_20260511_184420`
 - Latest `src/types.ts` direct probe: `/tmp/date_fns_types_probe_20260512_094830`
 - Latest sibling slices with `src/types.ts`: `/tmp/date_fns_with_types_compat_20260512_094924`
+- Latest full `src/**/*.ts(x)` manifest probe after import refactor:
+  `/tmp/date_fns_full_compat_20260512_152219`
 
 Compatibility numbers:
 
 | Measurement | Result | Notes |
 |---|---:|---|
-| TS/TSX files under `src` | `1529` | Raw source corpus size in the latest checkout. |
-| Vitest-style test files | `254` | Files containing direct `describe` / `it` / `test` calls. |
+| TS/TSX files under `src` | `1536` | Raw source corpus size in the latest checkout. |
+| Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
+| Full `src/**/*.ts(x)` manifest `smelt check` | fail | First blocker is optional chaining in `src/isSaturday/index.ts`. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
 | Sibling `index.ts` + `constants` + `test.ts` slices passing `smelt check` | `21 / 250` | Comparable sibling-index `test.ts` sweep. `isExists` newly reaches Rust emission. |
@@ -406,12 +409,15 @@ Compatibility numbers:
 | Same `src/types.ts` slices passing generated `cargo test` | `23 / 250` | All build-green `with_types` slices passed generated Rust tests. |
 | Approx direct Vitest cases covered | `78 / 2882` | Heuristic text count of direct `it(...)` / `test(...)` calls. |
 
-Latest rerun status: `src/types.ts` now passes directly. With `src/types.ts` included in each
-sibling slice, `23` date-fns test slices pass all the way through generated Rust `cargo test`.
-The old minimal sibling slice still leaves `isExists` build-green but runtime-red because invalid
-Date construction panics with `timestamp out of range`; the `with_types` manifest now passes that
-slice, so the remaining work is dependency closure and ordinary TS/runtime coverage rather than the
-shared type file itself.
+Latest rerun status: full date-fns import resolution now gets far enough to hit source-language
+semantics instead of shared-type import failures. A full manifest containing all `1536`
+`src/**/*.ts(x)` entries fails first in `src/isSaturday/index.ts` on `options?.in`, reported as
+`call argument kind is not lowered yet: ChainExpression`. Optional chaining is broad in date-fns:
+`?.` appears `462` times across `319` files, and `options?.in` appears `249` times.
+
+`src/types.ts` still passes directly. With `src/types.ts` included in each sibling slice, `23`
+date-fns test slices pass all the way through generated Rust `cargo test`. The next full-repo wall
+is optional chaining / nullish access, not the shared type file.
 
 Generic interface implementation status:
 
@@ -429,9 +435,24 @@ Shared type-file status:
 - [x] `src/types.ts` emits Rust in direct `smelt build`.
 - [x] Builtin `Date` heritage, interface construct/index signatures, `keyof`, and the shared
   `DateArg` / `ContextFn` aliases no longer globally block the file.
-- [ ] Full date-fns slices still need broader dependency closure manifests so helpers such as
-  `toDate`, `constructFrom`, `getDefaultOptions`, and `addMilliseconds` are available when a test
-  imports a higher-level function.
+- [x] Full manifest import traversal reaches date helper source files instead of stopping on
+  `src/types.ts`.
+- [ ] Full date-fns still needs optional chaining / nullish access lowering before the import
+  refactor can expose deeper blockers.
+
+Full manifest first blocker:
+
+| File | Unsupported feature | Current error shape |
+|---|---|---|
+| `src/isSaturday/index.ts` | Optional chaining in call argument, `options?.in` | `call argument kind is not lowered yet: ChainExpression`. |
+
+Optional chaining surface in date-fns:
+
+| Pattern | Count |
+|---|---:|
+| Files containing `?.` | `319` |
+| Total `?.` matches | `462` |
+| `options?.in` matches | `249` |
 
 Top normalized latest failure messages for sibling `index.ts` + `constants` + `test.ts` slices:
 

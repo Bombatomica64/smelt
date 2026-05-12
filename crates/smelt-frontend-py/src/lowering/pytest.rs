@@ -173,7 +173,7 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        // Parameters — only positional/keyword args, no *args / **kwargs.
+        // Parameters, with Python variadics represented as list/dict parameters.
         for param_with_default in func.parameters.iter_non_variadic_params() {
             let p = &param_with_default.parameter;
             let param_name_str = p.name.as_str();
@@ -240,13 +240,69 @@ impl ModuleBuilder<'_> {
             });
         }
 
-        if func.parameters.vararg.is_some() || func.parameters.kwarg.is_some() {
-            self.locals = saved_locals;
-            self.current_async = saved_async;
-            return Err(SmeltError::unsupported(
-                self.span(func.range),
-                format!("function '{name_str}': *args and **kwargs are not yet supported"),
-            ));
+        let mut variadics = FunctionVariadics::default();
+        if let Some(vararg) = &func.parameters.vararg {
+            let param_name_str = vararg.name.as_str();
+            let item_ty = vararg
+                .annotation
+                .as_deref()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(vararg.range),
+                        format!("parameter '*{param_name_str}' must have an explicit type annotation"),
+                    )
+                })
+                .and_then(|ann| self.annotation_to_hir(ann))?;
+            let list_ty = self.intern_type(Type::List(item_ty));
+            let param_name = self.intern_name(param_name_str);
+            let local = fn_body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty: list_ty,
+                mutable: false,
+                span: self.span(vararg.range),
+            });
+            fn_body.params.push(local);
+            self.locals.insert(param_name_str.to_owned(), local);
+            let index = params.len();
+            params.push(Param {
+                name: param_name,
+                local,
+                ty: list_ty,
+                span: self.span(vararg.range),
+            });
+            variadics.vararg = Some(VarArgParam { index, item_ty });
+        }
+        if let Some(kwarg) = &func.parameters.kwarg {
+            let param_name_str = kwarg.name.as_str();
+            let value_ty = kwarg
+                .annotation
+                .as_deref()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(kwarg.range),
+                        format!("parameter '**{param_name_str}' must have an explicit value type annotation"),
+                    )
+                })
+                .and_then(|ann| self.annotation_to_hir(ann))?;
+            let string_ty = self.intern_type(Type::String);
+            let dict_ty = self.intern_type(Type::Dict(string_ty, value_ty));
+            let param_name = self.intern_name(param_name_str);
+            let local = fn_body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty: dict_ty,
+                mutable: false,
+                span: self.span(kwarg.range),
+            });
+            fn_body.params.push(local);
+            self.locals.insert(param_name_str.to_owned(), local);
+            let index = params.len();
+            params.push(Param {
+                name: param_name,
+                local,
+                ty: dict_ty,
+                span: self.span(kwarg.range),
+            });
+            variadics.kwarg = Some(KwArgParam { index, value_ty });
         }
 
         // Lower the body statements.
@@ -279,6 +335,10 @@ impl ModuleBuilder<'_> {
         let item_id = self.ctx.krate.push_item(item);
         self.items.insert(name_str.to_owned(), item_id);
         self.exports.insert(name_str.to_owned(), item_id);
+        if variadics.vararg.is_some() || variadics.kwarg.is_some() {
+            self.function_variadics
+                .insert(name_str.to_owned(), variadics);
+        }
         Ok(item_id)
     }
 

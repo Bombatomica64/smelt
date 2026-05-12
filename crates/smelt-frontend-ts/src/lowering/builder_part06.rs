@@ -643,6 +643,19 @@ impl ModuleBuilder<'_> {
                     .transpose()
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let rest = arrow.params.rest.as_ref().and_then(|_rest| {
+            let index = params.len().checked_sub(1)?;
+            let param_ty = params.get(index).copied()?;
+            let item_ty = match self.ctx.krate.types.get(param_ty) {
+                Some(Type::List(item_ty)) => *item_ty,
+                _ => param_ty,
+            };
+            Some(RestParam { index, item_ty })
+        });
+        let mut closure_defaults = defaults;
+        if rest.is_some() {
+            closure_defaults.push(None);
+        }
         let return_ty = arrow
             .return_type
             .as_ref()
@@ -661,7 +674,7 @@ impl ModuleBuilder<'_> {
             ));
         }
         let symbol = self.intern_source_name(name);
-        let fn_ty = self.ctx.krate.types.intern(Type::Function(smelt_hir::FunctionType {
+        let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: params.clone(),
             return_ty,
             is_async: false,
@@ -678,7 +691,8 @@ impl ModuleBuilder<'_> {
             LocalCallback {
                 callback,
                 params,
-                defaults,
+                defaults: closure_defaults,
+                rest,
                 return_ty,
             },
         );

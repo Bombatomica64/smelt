@@ -121,13 +121,13 @@ pub(crate) fn lower_manifest_entries(
     manifest_path: &Path,
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let sources = config
+    let root_sources = config
         .entries()
         .iter()
         .map(|path| resolve_manifest_path(manifest_dir, path))
         .map(read_manifest_source)
         .collect::<Result<Vec<_>, _>>()?;
-    let sources = dependency_closure(sources)?;
+    let sources = dependency_closure(root_sources)?;
 
     let files = order_manifest_sources(&sources)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?

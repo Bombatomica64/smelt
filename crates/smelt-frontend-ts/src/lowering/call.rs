@@ -278,7 +278,11 @@ impl ModuleBuilder<'_> {
             let (params, return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
             {
                 (
-                    function.params.iter().map(|param| param.ty).collect(),
+                    function
+                        .params
+                        .iter()
+                        .map(|param| param.ty)
+                        .collect::<Vec<_>>(),
                     function.return_ty,
                     function.is_async,
                 )
@@ -288,13 +292,37 @@ impl ModuleBuilder<'_> {
                     "callee item is not a function",
                 ));
             };
-            let mut args = Vec::new();
-            for arg in &call.arguments {
-                args.push(self.argument(arg, body)?);
+            let rest = self.function_rests.get(callee_ident.name.as_str()).copied();
+            let fixed_param_count = rest.map_or(params.len(), |rest| rest.index);
+            if rest.is_none() && call.arguments.len() > fixed_param_count {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "function call argument count does not match parameters",
+                ));
+            }
+            let mut args = call
+                .arguments
+                .iter()
+                .take(fixed_param_count)
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            if let Some(rest) = rest {
+                let rest_args = call
+                    .arguments
+                    .iter()
+                    .skip(rest.index)
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::ListLit(rest_args),
+                    ty: rest_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             }
             let callee = body.push_expr(Expr {
                 kind: ExprKind::Item(item),
-                ty: self.ctx.krate.types.intern(Type::Function(smelt_hir::FunctionType {
+                ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params,
                     return_ty,
                     is_async,
@@ -336,17 +364,22 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let supplied_arg_count = call.arguments.len();
-        let defaults = self
-            .local_callbacks
-            .get(callee_ident.name.as_str())
+        let callback_meta = self.local_callbacks.get(callee_ident.name.as_str()).cloned();
+        let defaults = callback_meta
+            .as_ref()
             .map_or_else(|| vec![None; function.params.len()], |callback| {
                 callback.defaults.clone()
             });
+        let rest = callback_meta.as_ref().and_then(|callback| callback.rest);
+        let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
         let required_arg_count = defaults
             .iter()
+            .take(fixed_param_count)
             .position(Option::is_some)
-            .unwrap_or(function.params.len());
-        if supplied_arg_count < required_arg_count || supplied_arg_count > function.params.len() {
+            .unwrap_or(fixed_param_count);
+        if supplied_arg_count < required_arg_count
+            || (rest.is_none() && supplied_arg_count > function.params.len())
+        {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "closure call argument count does not match closure parameters",
@@ -355,9 +388,10 @@ impl ModuleBuilder<'_> {
         let mut args = call
             .arguments
             .iter()
+            .take(fixed_param_count)
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        for index in supplied_arg_count..function.params.len() {
+        for index in supplied_arg_count..fixed_param_count {
             let Some(default) = defaults.get(index).and_then(|default| *default) else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -365,6 +399,20 @@ impl ModuleBuilder<'_> {
                 ));
             };
             args.push(default);
+        }
+        if let Some(rest) = rest {
+            let rest_args = call
+                .arguments
+                .iter()
+                .skip(rest.index)
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::ListLit(rest_args),
+                ty: rest_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
         }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ClosureCall { callee, args },

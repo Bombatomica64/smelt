@@ -268,8 +268,22 @@ impl ModuleBuilder<'_> {
             name.to_owned(),
             LocalCallback {
                 callback,
-                params: function.params,
-                defaults,
+                params: function.params.clone(),
+                defaults: {
+                    let mut resized_defaults = defaults;
+                    resized_defaults.resize(function.params.len(), None);
+                    resized_defaults
+                },
+                vararg: Self::lambda_vararg_metadata(
+                    lambda,
+                    &function.params,
+                    &self.ctx.krate.types,
+                ),
+                kwarg: Self::lambda_kwarg_metadata(
+                    lambda,
+                    &function.params,
+                    &self.ctx.krate.types,
+                ),
                 return_ty: function.return_ty,
             },
         );
@@ -286,12 +300,6 @@ impl ModuleBuilder<'_> {
             return Err(SmeltError::unsupported(
                 self.span(func.range),
                 "async nested closures need async closure-body lowering",
-            ));
-        }
-        if func.parameters.vararg.is_some() || func.parameters.kwarg.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(func.range),
-                "variadic nested closures need rest-parameter closure lowering",
             ));
         }
         let return_ty = func
@@ -320,7 +328,13 @@ impl ModuleBuilder<'_> {
                 })
                 .and_then(|annotation| self.annotation_to_hir(annotation))?;
             params.push(param_ty);
-            callback_params.insert(param.name.as_str(), (index, param_ty));
+            callback_params.insert(
+                param.name.as_str(),
+                CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty: param_ty,
+                },
+            );
             defaults.push(
                 param_with_default
                     .default
@@ -329,6 +343,59 @@ impl ModuleBuilder<'_> {
                     .transpose()?,
             );
         }
+        let vararg = if let Some(vararg) = &func.parameters.vararg {
+            let item_ty = vararg
+                .annotation
+                .as_deref()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(vararg.range),
+                        "*args nested closure parameters must have explicit type annotations",
+                    )
+                })
+                .and_then(|annotation| self.annotation_to_hir(annotation))?;
+            let list_ty = self.intern_type(Type::List(item_ty));
+            let index = params.len();
+            params.push(list_ty);
+            defaults.push(None);
+            callback_params.insert(
+                vararg.name.as_str(),
+                CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty: list_ty,
+                },
+            );
+            Some(VarArgParam { index, item_ty })
+        } else {
+            None
+        };
+        let kwarg = if let Some(kwarg) = &func.parameters.kwarg {
+            let value_ty = kwarg
+                .annotation
+                .as_deref()
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(kwarg.range),
+                        "**kwargs nested closure parameters must have explicit value type annotations",
+                    )
+                })
+                .and_then(|annotation| self.annotation_to_hir(annotation))?;
+            let string_ty = self.intern_type(Type::String);
+            let dict_ty = self.intern_type(Type::Dict(string_ty, value_ty));
+            let index = params.len();
+            params.push(dict_ty);
+            defaults.push(None);
+            callback_params.insert(
+                kwarg.name.as_str(),
+                CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty: dict_ty,
+                },
+            );
+            Some(KwArgParam { index, value_ty })
+        } else {
+            None
+        };
         let [Stmt::Return(return_stmt)] = func.body.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(func.range),
@@ -368,10 +435,52 @@ impl ModuleBuilder<'_> {
                 callback,
                 params,
                 defaults,
+                vararg,
+                kwarg,
                 return_ty,
             },
         );
         Ok(())
+    }
+
+    /// Return call-packing metadata for lambda `*args` when Callable uses one list.
+    fn lambda_vararg_metadata(
+        lambda: &ruff_python_ast::ExprLambda,
+        params: &[TypeId],
+        types: &smelt_hir::TypeInterner,
+    ) -> Option<VarArgParam> {
+        let lambda_params = lambda.parameters.as_ref()?;
+        lambda_params.vararg.as_ref()?;
+        let [param_ty] = params else {
+            return None;
+        };
+        let Some(Type::List(item_ty)) = types.get(*param_ty) else {
+            return None;
+        };
+        Some(VarArgParam {
+            index: 0,
+            item_ty: *item_ty,
+        })
+    }
+
+    /// Return call-packing metadata for lambda `**kwargs` when Callable uses one dict.
+    fn lambda_kwarg_metadata(
+        lambda: &ruff_python_ast::ExprLambda,
+        params: &[TypeId],
+        types: &smelt_hir::TypeInterner,
+    ) -> Option<KwArgParam> {
+        let lambda_params = lambda.parameters.as_ref()?;
+        lambda_params.kwarg.as_ref()?;
+        let [param_ty] = params else {
+            return None;
+        };
+        let Some(Type::Dict(_, value_ty)) = types.get(*param_ty) else {
+            return None;
+        };
+        Some(KwArgParam {
+            index: 0,
+            value_ty: *value_ty,
+        })
     }
 
     /// Lower a Python assert statement to a conditional failure path.

@@ -133,6 +133,68 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_discovers_python_ast_import_forms() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/pkg/sub"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "py-ast-import-discovery"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "py_ast_import_discovery"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(project_path.join("src/pkg/__init__.py"), "")?;
+    fs::write(project_path.join("src/pkg/sub/__init__.py"), "")?;
+    fs::write(
+        project_path.join("src/alpha.py"),
+        "def first() -> int:\n    return 2\n",
+    )?;
+    fs::write(
+        project_path.join("src/beta.py"),
+        "def second() -> int:\n    return 3\n",
+    )?;
+    fs::write(
+        project_path.join("src/pkg/util.py"),
+        "def bonus() -> int:\n    return 4\n",
+    )?;
+    fs::write(
+        project_path.join("src/pkg/sub/helper.py"),
+        "from ..util import bonus\n\ndef compute(value: int) -> int:\n    return bonus() + value\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.py"),
+        r#"import alpha, beta
+from pkg.sub.helper import (
+    compute,
+)
+
+result: int = alpha.first() + beta.second() + compute(5)
+print(result)
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"14\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
 fn build_runs_typescript_entry_importing_python_function() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

@@ -64,6 +64,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     pytest_mode: bool,
     /// Local lambda callbacks with explicit callable annotations.
     local_callbacks: HashMap<String, LocalCallback>,
+    /// Variadic parameter metadata for top-level Python function items.
+    function_variadics: HashMap<String, FunctionVariadics>,
 }
 
 /// A local Python lambda value that can be consumed by callback APIs without escaping.
@@ -75,8 +77,39 @@ struct LocalCallback {
     params: Vec<TypeId>,
     /// Default argument expressions in source order.
     defaults: Vec<Option<smelt_hir::ExprId>>,
+    /// Positional vararg metadata when the source closure uses `*args`.
+    vararg: Option<VarArgParam>,
+    /// Keyword vararg metadata when the source closure uses `**kwargs`.
+    kwarg: Option<KwArgParam>,
     /// Return type produced by the callback.
     return_ty: TypeId,
+}
+
+/// A Python `*args` parameter represented as one list argument.
+#[derive(Debug, Clone, Copy)]
+struct VarArgParam {
+    /// Parameter index of the packed positional list in the lowered closure.
+    index: usize,
+    /// Element type accepted by each extra source-language positional argument.
+    item_ty: TypeId,
+}
+
+/// A Python `**kwargs` parameter represented as one dictionary argument.
+#[derive(Debug, Clone, Copy)]
+struct KwArgParam {
+    /// Parameter index of the packed keyword dictionary in the lowered closure.
+    index: usize,
+    /// Value type accepted by each source-language keyword argument.
+    value_ty: TypeId,
+}
+
+/// Python top-level function variadic parameters represented after lowering.
+#[derive(Debug, Clone, Copy, Default)]
+struct FunctionVariadics {
+    /// Positional `*args` packing metadata.
+    vararg: Option<VarArgParam>,
+    /// Keyword `**kwargs` packing metadata.
+    kwarg: Option<KwArgParam>,
 }
 
 /// A closure expression prepared for a callback-consuming Python API.
@@ -158,6 +191,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             pytest_fixtures: HashMap::new(),
             current_async: false,
             local_callbacks: HashMap::new(),
+            function_variadics: HashMap::new(),
         }
     }
 

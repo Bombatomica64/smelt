@@ -117,6 +117,70 @@ result: int = adder(6)
 }
 
 #[test]
+fn emits_python_vararg_lambda_closure_values() {
+    let source = source_for_py(
+        r#"
+from typing import Callable
+
+sum_two: Callable[[int, int], int] = lambda *values: values[0] + values[1]
+result: int = sum_two(2, 3)
+"#,
+    );
+
+    assert!(source.contains("|arg0, arg1|"));
+    assert!(source.contains("vec![arg0, arg1][0].clone() + vec![arg0, arg1][1].clone()"));
+    assert!(source.contains("(2, 3)"));
+}
+
+#[test]
+fn emits_python_nested_def_vararg_and_kwarg_closure_values() {
+    let source = source_for_py(
+        r#"
+def run() -> int:
+    def sum_values(*values: int) -> int:
+        return values[0] + values[1]
+
+    def pick(**kwargs: int) -> int:
+        return kwargs["value"] + kwargs["bonus"]
+
+    total: int = sum_values(2, 3, 4)
+    extras: dict[str, int] = {"bonus": 6}
+    chosen: int = pick(value=5, **extras)
+    return total + chosen
+"#,
+    );
+
+    assert!(source.contains("|arg0| { (arg0[0].clone() + arg0[1].clone()) }"));
+    assert!(source.contains("vec![2, 3, 4]"));
+    assert!(source.contains("arg0.get(\"value\").cloned().unwrap_or(0)"));
+    assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
+    assert!(source.contains("assigned.extend"));
+}
+
+#[test]
+fn emits_python_top_level_vararg_and_kwarg_functions() {
+    let source = source_for_py(
+        r#"
+def sum_values(*values: int) -> int:
+    return values[0] + values[1]
+
+def pick(**kwargs: int) -> int:
+    return kwargs["value"] + kwargs["bonus"]
+
+total: int = sum_values(2, 3, 4)
+extras: dict[str, int] = {"bonus": 6}
+chosen: int = pick(value=5, **extras)
+"#,
+    );
+
+    assert!(source.contains("fn sum_values(arg_0: Vec<i64>) -> i64"));
+    assert!(source.contains("vec![2, 3, 4]"));
+    assert!(source.contains("fn pick(arg_0: ::std::collections::HashMap<String, i64>) -> i64"));
+    assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
+    assert!(source.contains("assigned.extend"));
+}
+
+#[test]
 fn emits_python_sorted_builtin() {
     let source = source_for_py(
         r#"
@@ -374,7 +438,7 @@ for (const entry: [string, number] of mapping) {
         )
     );
     assert!(source.contains("while"));
-    assert!(source.contains("last = entry.clone();"));
+    assert!(source.contains("let entry: (String, f64)"));
 }
 
 #[test]

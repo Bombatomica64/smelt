@@ -435,10 +435,10 @@ impl ModuleBuilder<'_> {
                 "array callback methods currently require arrow function callbacks",
             ));
         };
-        if arrow.r#async || arrow.params.rest.is_some() {
+        if arrow.r#async {
             return Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
-                "async and rest-parameter callbacks need closure-body lowering",
+                "async callbacks need closure-body lowering",
             ));
         }
         self.arrow_callback_from_params(arrow, expected_param_tys, body)
@@ -451,7 +451,9 @@ impl ModuleBuilder<'_> {
         expected_param_tys: &[smelt_hir::TypeId],
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
-        if arrow.params.items.is_empty() || arrow.params.items.len() > expected_param_tys.len() {
+        if (arrow.params.items.is_empty() && arrow.params.rest.is_none())
+            || arrow.params.items.len() > expected_param_tys.len()
+        {
             return Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
                 "array callback parameter count is not supported for this method",
@@ -466,6 +468,61 @@ impl ModuleBuilder<'_> {
                 ));
             };
             self.bind_callback_param_pattern(&param.pattern, index, expected_ty, &mut params)?;
+        }
+        if let Some(rest) = &arrow.params.rest {
+            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest callback parameters need closure-body lowering",
+                ));
+            };
+            let rest_index = arrow.params.items.len();
+            let rest_ty = expected_param_tys.get(rest_index).copied().ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest callback parameter has no expected input type",
+                )
+            })?;
+            if matches!(self.ctx.krate.types.get(rest_ty), Some(Type::List(_)))
+                && expected_param_tys.len() == rest_index + 1
+            {
+                params.insert(
+                    binding.name.as_str(),
+                    CallbackExpr {
+                        kind: CallbackExprKind::Param(rest_index),
+                        ty: rest_ty,
+                    },
+                );
+            } else {
+                let rest_items = expected_param_tys
+                    .iter()
+                    .enumerate()
+                    .skip(rest_index)
+                    .map(|(index, ty)| CallbackExpr {
+                        kind: CallbackExprKind::Param(index),
+                        ty: *ty,
+                    })
+                    .collect::<Vec<_>>();
+                let item_ty = rest
+                    .type_annotation
+                    .as_ref()
+                    .and_then(|annotation| {
+                        let list_ty = self.ts_type_to_hir(&annotation.type_annotation).ok()?;
+                        match self.ctx.krate.types.get(list_ty) {
+                            Some(Type::List(item_ty)) => Some(*item_ty),
+                            _ => None,
+                        }
+                    })
+                    .or_else(|| rest_items.first().map(|item| item.ty))
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                params.insert(
+                    binding.name.as_str(),
+                    CallbackExpr {
+                        kind: CallbackExprKind::ListLit(rest_items),
+                        ty: self.ctx.krate.types.intern(Type::List(item_ty)),
+                    },
+                );
+            }
         }
         let expression = if arrow.expression {
             let [Statement::ExpressionStatement(statement)] = arrow.body.statements.as_slice()
@@ -603,12 +660,6 @@ impl ModuleBuilder<'_> {
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
     ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
-        if arrow.params.rest.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "rest-parameter closures need closure-body lowering",
-            ));
-        }
         let mut params = Vec::new();
         for param in &arrow.params.items {
             let BindingPattern::BindingIdentifier(_) = &param.pattern else {
@@ -628,6 +679,32 @@ impl ModuleBuilder<'_> {
                         "local closure parameters must have explicit type annotations",
                     )
                 })?;
+            params.push(ty);
+        }
+        if let Some(rest) = &arrow.params.rest {
+            let BindingPattern::BindingIdentifier(_) = &rest.rest.argument else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest closure parameters need closure-body lowering",
+                ));
+            };
+            let ty = rest
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(rest.span.start, rest.span.end),
+                        "rest closure parameters must have explicit array type annotations",
+                    )
+                })?;
+            if !matches!(self.ctx.krate.types.get(ty), Some(Type::List(_))) {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest closure parameter type must be an array type",
+                ));
+            }
             params.push(ty);
         }
         Ok(params)
@@ -841,6 +918,57 @@ impl ModuleBuilder<'_> {
             }
             Expression::ParenthesizedExpression(parenthesized) => {
                 self.callback_expression(&parenthesized.expression, params, body)
+            }
+            Expression::ComputedMemberExpression(member) => {
+                let receiver = self.callback_expression(&member.object, params, body)?;
+                let Expression::NumericLiteral(index) = &member.expression else {
+                    return Err(SmeltError::unsupported(
+                        self.span(member.span.start, member.span.end),
+                        "callback computed access needs a static numeric index",
+                    ));
+                };
+                if index.value.fract() != 0.0 || index.value < 0.0 {
+                    return Err(SmeltError::unsupported(
+                        self.span(index.span.start, index.span.end),
+                        "callback computed access index must be a non-negative integer",
+                    ));
+                }
+                let index_usize =
+                    index
+                        .value
+                        .to_string()
+                        .parse::<usize>()
+                        .map_err(|err| {
+                            SmeltError::unsupported(
+                                self.span(index.span.start, index.span.end),
+                                format!("callback computed access index is invalid: {err}"),
+                            )
+                        })?;
+                let item_ty = match self.ctx.krate.types.get(receiver.ty) {
+                    Some(Type::Tuple(items)) => items
+                        .get(index_usize)
+                        .copied()
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(member.span.start, member.span.end),
+                                "callback tuple index is out of bounds",
+                            )
+                        })?,
+                    Some(Type::List(item_ty)) => *item_ty,
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(member.span.start, member.span.end),
+                            "callback computed access receiver must be a tuple or array",
+                        ));
+                    }
+                };
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Index {
+                        receiver: Box::new(receiver),
+                        index: index_usize,
+                    },
+                    ty: item_ty,
+                })
             }
             Expression::AssignmentExpression(assign) => {
                 let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left else {

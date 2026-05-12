@@ -58,9 +58,9 @@ impl ModuleBuilder<'_> {
                 match meaningful.as_slice() {
                     [] => Ok(self.ctx.krate.types.intern(Type::None)),
                     [single] => Ok(*single),
-                    _ if meaningful.iter().all(|ty| {
+                    _ if meaningful.iter().all(|member_ty| {
                         matches!(
-                            self.ctx.krate.types.get(*ty),
+                            self.ctx.krate.types.get(*member_ty),
                             Some(Type::Class { .. } | Type::Dict(_, _))
                         )
                     }) =>
@@ -138,7 +138,7 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
-                Ok(self.ctx.krate.types.intern(Type::Function(smelt_hir::FunctionType {
+                Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params,
                     return_ty,
                     is_async: false,

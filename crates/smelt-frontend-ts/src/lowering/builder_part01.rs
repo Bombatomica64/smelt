@@ -24,6 +24,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             narrowed_locals: Vec::new(),
             type_param_scopes: Vec::new(),
             local_callbacks: HashMap::new(),
+            function_rests: HashMap::new(),
         }
     }
 

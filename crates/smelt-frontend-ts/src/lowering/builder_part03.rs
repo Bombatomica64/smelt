@@ -127,6 +127,68 @@ impl ModuleBuilder<'_> {
                 span: self.span(binding.span.start, binding.span.end),
             });
         }
+        let rest = if let Some(rest) = &function.params.rest {
+            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                self.locals = saved_locals;
+                self.current_async = saved_async;
+                self.pop_type_parameter_scope();
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest parameters need rest binding lowering",
+                ));
+            };
+            let ty = match rest
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()
+                .and_then(|value| {
+                    value.ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(rest.span.start, rest.span.end),
+                            "rest function parameters must have explicit array type annotations",
+                        )
+                    })
+                }) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.locals = saved_locals;
+                    self.current_async = saved_async;
+                    self.pop_type_parameter_scope();
+                    return Err(error);
+                }
+            };
+            let item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(ty) {
+                *item_ty
+            } else {
+                self.locals = saved_locals;
+                self.current_async = saved_async;
+                self.pop_type_parameter_scope();
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest function parameter type must be an array type",
+                ));
+            };
+            let param_name = self.intern_source_name(binding.name.as_str());
+            let local = body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty,
+                mutable: false,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+            body.params.push(local);
+            self.locals.insert(binding.name.to_string(), local);
+            let index = params.len();
+            params.push(Param {
+                name: param_name,
+                local,
+                ty,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+            Some(RestParam { index, item_ty })
+        } else {
+            None
+        };
 
         let mut errors = Vec::new();
         for statement in &function_body.statements {
@@ -157,6 +219,9 @@ impl ModuleBuilder<'_> {
             owner: FunctionOwner::Module,
         }));
         self.items.insert(name_text.to_owned(), item);
+        if let Some(rest) = rest {
+            self.function_rests.insert(name_text.to_owned(), rest);
+        }
         if let Some((parameter_name, target)) = assertion_return
             && let Some(param_index) = function.params.items.iter().position(|param| {
                 matches!(

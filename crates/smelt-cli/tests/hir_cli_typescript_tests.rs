@@ -462,6 +462,57 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_follows_named_imports_through_parent_index_barrel() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/add"))?;
+    fs::create_dir_all(project_path.join("src/sub"))?;
+    fs::create_dir_all(project_path.join("src/fp/_lib"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-parent-index-barrel"
+version = "0.1.0"
+
+[sources]
+entries = ["src/fp/_lib/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_parent_index_barrel"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/add/index.ts"),
+        "export function add(value: number): number {\n  return value + 1;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/sub/index.ts"),
+        "export function sub(value: number): number {\n  return value - 1;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/index.ts"),
+        "export * from \"./add/index.ts\";\nexport * from \"./sub/index.ts\";\n",
+    )?;
+    fs::write(
+        project_path.join("src/fp/_lib/main.ts"),
+        "import { add } from \"../../index.ts\";\nconst result = add(4);\nconsole.log(result);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
 fn build_dependency_closure_ignores_typescript_type_only_edges() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

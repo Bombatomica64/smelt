@@ -461,10 +461,10 @@ impl ModuleBuilder<'_> {
         let params = lambda.parameters.as_ref().ok_or_else(|| {
             SmeltError::unsupported(self.span(lambda.range), "lambda requires parameters")
         })?;
-        if params.vararg.is_some() || params.kwarg.is_some() || !params.kwonlyargs.is_empty() {
+        if !params.kwonlyargs.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(lambda.range),
-                "varargs, kwargs, and keyword-only lambda parameters are not supported",
+                "keyword-only lambda parameters need callable keyword parameter modelling",
             ));
         }
         let param_items = params
@@ -472,7 +472,7 @@ impl ModuleBuilder<'_> {
             .iter()
             .chain(&params.args)
             .collect::<Vec<_>>();
-        if param_items.is_empty() || param_items.len() > expected_param_tys.len() {
+        if param_items.len() > expected_param_tys.len() {
             return Err(SmeltError::unsupported(
                 self.span(lambda.range),
                 "lambda parameter count does not match callback input",
@@ -482,7 +482,48 @@ impl ModuleBuilder<'_> {
         for (index, param) in param_items.iter().enumerate() {
             callback_params.insert(
                 param.parameter.name.as_str(),
-                (index, expected_param_tys[index]),
+                CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty: expected_param_tys[index],
+                },
+            );
+        }
+        if let Some(vararg) = &params.vararg {
+            let rest_items = expected_param_tys
+                .iter()
+                .enumerate()
+                .skip(param_items.len())
+                .map(|(index, ty)| CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty: *ty,
+                })
+                .collect::<Vec<_>>();
+            let item_ty = rest_items
+                .first()
+                .map_or_else(|| self.intern_type(Type::Unknown), |item| item.ty);
+            callback_params.insert(
+                vararg.name.as_str(),
+                CallbackExpr {
+                    kind: CallbackExprKind::ListLit(rest_items),
+                    ty: self.intern_type(Type::List(item_ty)),
+                },
+            );
+        }
+        if let Some(kwarg) = &params.kwarg {
+            let kwarg_ty = expected_param_tys
+                .last()
+                .copied()
+                .unwrap_or_else(|| {
+                    let string_ty = self.intern_type(Type::String);
+                    let unknown_ty = self.intern_type(Type::Unknown);
+                    self.intern_type(Type::Dict(string_ty, unknown_ty))
+                });
+            callback_params.insert(
+                kwarg.name.as_str(),
+                CallbackExpr {
+                    kind: CallbackExprKind::Param(expected_param_tys.len().saturating_sub(1)),
+                    ty: kwarg_ty,
+                },
             );
         }
         self.python_callback_expr(&lambda.body, &callback_params, body)
@@ -518,16 +559,13 @@ impl ModuleBuilder<'_> {
     fn python_callback_expr(
         &mut self,
         expr: &Expr,
-        params: &HashMap<&str, (usize, TypeId)>,
+        params: &HashMap<&str, CallbackExpr>,
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         match expr {
             Expr::Name(name) => {
-                if let Some((index, ty)) = params.get(name.id.as_str()).copied() {
-                    return Ok(CallbackExpr {
-                        kind: CallbackExprKind::Param(index),
-                        ty,
-                    });
+                if let Some(param) = params.get(name.id.as_str()).cloned() {
+                    return Ok(param);
                 }
                 let Some(local) = self.locals.get(name.id.as_str()).copied() else {
                     return Err(SmeltError::unsupported(
@@ -626,6 +664,85 @@ impl ModuleBuilder<'_> {
                     },
                     ty: self.intern_type(Type::Bool),
                 })
+            }
+            Expr::Subscript(sub) => {
+                let receiver = self.python_callback_expr(&sub.value, params, body)?;
+                match sub.slice.as_ref() {
+                    Expr::NumberLiteral(number) => {
+                        let Number::Int(value) = &number.value else {
+                            return Err(SmeltError::unsupported(
+                                self.span(number.range),
+                                "callback list index must be an integer",
+                            ));
+                        };
+                        let index = value.as_i64().ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(number.range),
+                                "callback list index is too large",
+                            )
+                        })?;
+                        if index < 0 {
+                            return Err(SmeltError::unsupported(
+                                self.span(number.range),
+                                "callback list index must be non-negative",
+                            ));
+                        }
+                        let index_usize = usize::try_from(index).map_err(|err| {
+                            SmeltError::unsupported(
+                                self.span(number.range),
+                                format!("callback list index does not fit in usize: {err}"),
+                            )
+                        })?;
+                        let item_ty = match self.ctx.krate.types.get(receiver.ty) {
+                            Some(Type::Tuple(items)) => items
+                                .get(index_usize)
+                                .copied()
+                                .ok_or_else(|| {
+                                    SmeltError::unsupported(
+                                        self.span(sub.range),
+                                        "callback tuple index is out of bounds",
+                                    )
+                                })?,
+                            Some(Type::List(item_ty)) => *item_ty,
+                            _ => {
+                                return Err(SmeltError::unsupported(
+                                    self.span(sub.range),
+                                    "callback numeric subscript receiver must be a tuple or list",
+                                ));
+                            }
+                        };
+                        Ok(CallbackExpr {
+                            kind: CallbackExprKind::Index {
+                                receiver: Box::new(receiver),
+                                index: index_usize,
+                            },
+                            ty: item_ty,
+                        })
+                    }
+                    Expr::StringLiteral(string) => {
+                        let value_ty = match self.ctx.krate.types.get(receiver.ty) {
+                            Some(Type::Dict(_, value_ty)) => *value_ty,
+                            _ => {
+                                return Err(SmeltError::unsupported(
+                                    self.span(sub.range),
+                                    "callback string subscript receiver must be a dict",
+                                ));
+                            }
+                        };
+                        let field_text = string.value.to_string();
+                        Ok(CallbackExpr {
+                            kind: CallbackExprKind::Field {
+                                receiver: Box::new(receiver),
+                                field: self.intern_name(&field_text),
+                            },
+                            ty: value_ty,
+                        })
+                    }
+                    _ => Err(SmeltError::unsupported(
+                        self.span(sub.range),
+                        "callback subscript index must be a static int or string",
+                    )),
+                }
             }
             _ => Err(SmeltError::unsupported(
                 self.span(expr.range()),

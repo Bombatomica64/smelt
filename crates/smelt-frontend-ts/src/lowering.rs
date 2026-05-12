@@ -73,8 +73,19 @@ struct LocalCallback {
     params: Vec<smelt_hir::TypeId>,
     /// Default argument expressions in source order.
     defaults: Vec<Option<smelt_hir::ExprId>>,
+    /// Rest parameter metadata when the source closure uses `...args`.
+    rest: Option<RestParam>,
     /// Return type produced by the callback.
     return_ty: smelt_hir::TypeId,
+}
+
+/// A JavaScript/TypeScript rest parameter represented as one list argument.
+#[derive(Debug, Clone, Copy)]
+struct RestParam {
+    /// Parameter index of the packed rest list in the lowered closure.
+    index: usize,
+    /// Element type accepted by each extra source-language argument.
+    item_ty: smelt_hir::TypeId,
 }
 
 /// A closure expression prepared for a callback-consuming API.
@@ -220,6 +231,8 @@ struct ModuleBuilder<'ctx> {
     type_param_scopes: Vec<HashMap<String, smelt_hir::TypeId>>,
     /// Local closure values available to non-escaping callback consumers.
     local_callbacks: HashMap<String, LocalCallback>,
+    /// Rest-parameter metadata for top-level function declarations.
+    function_rests: HashMap<String, RestParam>,
 }
 
 // Lowering builder implementation split into small include files.

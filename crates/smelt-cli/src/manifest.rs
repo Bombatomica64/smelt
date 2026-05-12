@@ -5,9 +5,19 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
+
+use oxc_resolver::{ResolveOptions, Resolver};
+use smelt_frontend_py::{
+    ast::{
+        Stmt, StmtImport, StmtImportFrom,
+        visitor::{Visitor, walk_stmt},
+    },
+    parse_module,
+};
+use smelt_hir::FileId;
 
 use crate::lowering::SourceLang;
 
@@ -19,7 +29,20 @@ pub(crate) struct ManifestSource {
     /// Source language inferred from the file extension.
     lang: SourceLang,
     /// Import specifiers found before lowering.
-    imports: Vec<String>,
+    imports: Vec<ManifestImport>,
+    /// Resolved local dependency paths used for dependency-first ordering.
+    dependencies: Vec<PathBuf>,
+}
+
+/// Import metadata found while scanning source text.
+#[derive(Debug, Clone)]
+struct ManifestImport {
+    /// Module specifier as written in source.
+    module: String,
+    /// Named value imports, when the statement exposes them cheaply.
+    names: Option<Vec<String>>,
+    /// Python relative import level from `from .pkg import name` syntax.
+    python_relative_level: Option<u32>,
 }
 
 /// Mutable state while visiting the manifest import graph.
@@ -52,10 +75,17 @@ pub(crate) fn read_manifest_source(
     let file_string = path.display().to_string();
     let lang = SourceLang::from_path(&file_string)?;
     let source = fs::read_to_string(&path)?;
+    let imports = scan_imports(&source, lang).map_err(|message| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("failed to scan imports in {}: {message}", path.display()),
+        )
+    })?;
     Ok(ManifestSource {
         path,
         lang,
-        imports: scan_imports(&source, lang),
+        imports,
+        dependencies: Vec::new(),
     })
 }
 
@@ -114,7 +144,7 @@ fn manifest_source_index(sources: &[ManifestSource]) -> HashMap<PathBuf, usize> 
 
 /// Adds one source and recursively adds local import targets that exist on disk.
 fn collect_manifest_source(
-    source: ManifestSource,
+    mut source: ManifestSource,
     sources: &mut Vec<ManifestSource>,
     seen: &mut HashSet<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -125,38 +155,103 @@ fn collect_manifest_source(
     let imports = source.imports.clone();
     let source_path = source.path.clone();
     let lang = source.lang;
+    let mut dependencies = Vec::new();
+    for import in &imports {
+        dependencies.extend(resolve_import_to_existing_sources(
+            &source_path,
+            lang,
+            import,
+        )?);
+    }
+    source.dependencies.clone_from(&dependencies);
     sources.push(source);
-    for import in imports {
-        if let Some(path) = resolve_import_to_existing_source(&source_path, lang, &import)? {
-            let dep = read_manifest_source(path)?;
-            collect_manifest_source(dep, sources, seen)?;
-        }
+    for path in dependencies {
+        let dep = read_manifest_source(path)?;
+        collect_manifest_source(dep, sources, seen)?;
     }
     Ok(())
 }
 
-/// Resolves a local import specifier to an existing source file.
-fn resolve_import_to_existing_source(
+/// Resolves a local import specifier to existing source files.
+fn resolve_import_to_existing_sources(
     importer_path: &Path,
     importer_lang: SourceLang,
-    import: &str,
-) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
-    let base = match importer_lang {
-        SourceLang::TypeScript if import.starts_with('.') => importer_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(import),
-        SourceLang::Python if import.starts_with('.') => importer_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(import.trim_start_matches('.').replace('.', "/")),
-        SourceLang::Python => PathBuf::from(import.replace('.', "/")),
-        SourceLang::TypeScript => return Ok(None),
-    };
+    import: &ManifestImport,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    if importer_lang == SourceLang::TypeScript {
+        return resolve_typescript_import_to_existing_sources(importer_path, import);
+    }
+
+    let base = python_import_base(importer_path, import);
     for candidate in manifest_import_candidates(&base) {
         if candidate.is_file() {
-            return Ok(Some(candidate.canonicalize()?));
+            return Ok(vec![candidate.canonicalize()?]);
         }
+    }
+    Ok(Vec::new())
+}
+
+/// Builds the filesystem base path for a Python import using AST relative levels.
+fn python_import_base(importer_path: &Path, import: &ManifestImport) -> PathBuf {
+    let importer_dir = importer_path.parent().unwrap_or_else(|| Path::new("."));
+    let base_dir = import.python_relative_level.map_or_else(
+        || importer_dir.to_path_buf(),
+        |level| python_relative_base_dir(importer_dir, level),
+    );
+    if import.module.is_empty() {
+        base_dir
+    } else {
+        base_dir.join(import.module.replace('.', "/"))
+    }
+}
+
+/// Moves from an importer directory to the package root implied by leading dots.
+fn python_relative_base_dir(importer_dir: &Path, level: u32) -> PathBuf {
+    let mut base = importer_dir.to_path_buf();
+    for _ in 1..level {
+        if let Some(parent) = base.parent() {
+            base = parent.to_path_buf();
+        }
+    }
+    base
+}
+
+/// Resolves a TypeScript import specifier with `oxc_resolver`.
+fn resolve_typescript_import_to_existing_sources(
+    importer_path: &Path,
+    import: &ManifestImport,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let resolver = typescript_resolver();
+    let Some(candidate) = resolve_typescript_path(&resolver, importer_path, &import.module)? else {
+        return Ok(Vec::new());
+    };
+    resolve_barrel_import_targets(&resolver, &candidate, import)
+        .or_else(|| Some(vec![candidate.canonicalize().ok()?]))
+        .ok_or_else(|| "failed to canonicalize TypeScript import candidate".into())
+}
+
+/// Builds the resolver options used for TypeScript manifest dependency discovery.
+fn typescript_resolver() -> Resolver {
+    Resolver::new(ResolveOptions {
+        extensions: vec![".ts".into(), ".py".into()],
+        main_files: vec!["index".into(), "__init__".into()],
+        ..ResolveOptions::default()
+    })
+}
+
+/// Resolves one TypeScript module specifier and returns supported Smelt sources.
+fn resolve_typescript_path(
+    resolver: &Resolver,
+    importer_path: &Path,
+    module: &str,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let importer = importer_path.canonicalize()?;
+    let Ok(resolution) = resolver.resolve_file(importer, module) else {
+        return Ok(None);
+    };
+    let path = resolution.into_path_buf();
+    if SourceLang::from_path(&path.display().to_string()).is_ok() {
+        return Ok(Some(path));
     }
     Ok(None)
 }
@@ -187,11 +282,11 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
     let Some(source) = visit.sources.get(idx) else {
         return Ok(());
     };
-    for import in &source.imports {
-        if let Some(dep) = resolve_import_to_manifest_source(source, import, visit.index)
-            && dep != idx
-        {
-            visit_manifest_source(dep, visit)?;
+    for dependency in &source.dependencies {
+        if let Some(dep) = visit.index.get(&normalize_path_key(dependency)).copied() {
+            if dep != idx {
+                visit_manifest_source(dep, visit)?;
+            }
         }
     }
 
@@ -199,32 +294,6 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
     visit.permanent.insert(idx);
     visit.ordered.push(idx);
     Ok(())
-}
-
-/// Resolves an import specifier to a known manifest source when it is local.
-fn resolve_import_to_manifest_source(
-    importer: &ManifestSource,
-    import: &str,
-    index: &HashMap<PathBuf, usize>,
-) -> Option<usize> {
-    let base = match importer.lang {
-        SourceLang::TypeScript if import.starts_with('.') => importer
-            .path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(import),
-        SourceLang::Python if import.starts_with('.') => importer
-            .path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join(import.trim_start_matches('.').replace('.', "/")),
-        SourceLang::Python => PathBuf::from(import.replace('.', "/")),
-        SourceLang::TypeScript => PathBuf::from(import),
-    };
-
-    manifest_import_candidates(&base)
-        .into_iter()
-        .find_map(|candidate| index.get(&normalize_path_key(&candidate)).copied())
 }
 
 /// Builds possible source paths for an import specifier.
@@ -238,6 +307,71 @@ fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
         candidates.push(base.join("__init__.py"));
     }
     candidates
+}
+
+/// Resolves named imports from an `index.ts` barrel to the matching re-export files.
+fn resolve_barrel_import_targets(
+    resolver: &Resolver,
+    candidate: &Path,
+    import: &ManifestImport,
+) -> Option<Vec<PathBuf>> {
+    if candidate.file_name().is_none_or(|name| name != "index.ts") {
+        return None;
+    }
+    let names = import.names.as_ref()?;
+    if names.is_empty() {
+        return None;
+    }
+    let source = fs::read_to_string(candidate).ok()?;
+    let export_map = scan_typescript_barrel_exports(&source);
+    let mut targets = vec![candidate.canonicalize().ok()?];
+    for name in names {
+        let module = export_map.get(name)?;
+        let target = resolve_typescript_path(resolver, candidate, module).ok()??;
+        targets.push(target.canonicalize().ok()?);
+    }
+    Some(targets)
+}
+
+/// Maps simple named exports in a TypeScript barrel file to their module specifiers.
+fn scan_typescript_barrel_exports(source: &str) -> HashMap<String, String> {
+    let mut exports = HashMap::new();
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("export ") || !trimmed.contains(" from ") {
+            continue;
+        }
+        let Some((left, right)) = trimmed.split_once(" from ") else {
+            continue;
+        };
+        let Some(module) = quoted_module_specifier(right) else {
+            continue;
+        };
+        if left.trim() == "export *" {
+            if let Some(name) = barrel_export_name_from_module(&module) {
+                exports.insert(name, module);
+            }
+            continue;
+        }
+        let Some(export_specifiers_start) = left.trim().strip_prefix("export {") else {
+            continue;
+        };
+        let Some(export_specifiers) = export_specifiers_start.trim().strip_suffix('}') else {
+            continue;
+        };
+        for name in named_specifiers(export_specifiers, true) {
+            exports.insert(name, module.clone());
+        }
+    }
+    exports
+}
+
+/// Infers the exported symbol name from `./name/index.ts` barrel entries.
+fn barrel_export_name_from_module(module: &str) -> Option<String> {
+    let trimmed = module.strip_prefix("./").unwrap_or(module);
+    let mut parts = trimmed.split('/');
+    let name = parts.next()?;
+    (parts.next() == Some("index.ts")).then(|| name.to_owned())
 }
 
 /// Normalizes a path key without requiring the path to already exist.
@@ -258,15 +392,15 @@ fn normalize_path_key(path: &Path) -> PathBuf {
 }
 
 /// Scans TypeScript and Python source text for import module specifiers.
-fn scan_imports(source: &str, lang: SourceLang) -> Vec<String> {
+fn scan_imports(source: &str, lang: SourceLang) -> Result<Vec<ManifestImport>, String> {
     match lang {
-        SourceLang::TypeScript => scan_typescript_imports(source),
+        SourceLang::TypeScript => Ok(scan_typescript_imports(source)),
         SourceLang::Python => scan_python_imports(source),
     }
 }
 
 /// Scans TypeScript import and re-export module specifiers.
-fn scan_typescript_imports(source: &str) -> Vec<String> {
+fn scan_typescript_imports(source: &str) -> Vec<ManifestImport> {
     source
         .lines()
         .filter_map(|line| {
@@ -278,37 +412,130 @@ fn scan_typescript_imports(source: &str) -> Vec<String> {
                 let specifier = trimmed
                     .split_once(" from ")
                     .map_or(trimmed.strip_prefix("import "), |(_, right)| Some(right))?;
-                return quoted_module_specifier(specifier);
+                let module = quoted_module_specifier(specifier)?;
+                let names = trimmed
+                    .split_once(" from ")
+                    .and_then(|(left, _)| named_imports_from_import_clause(left));
+                return Some(ManifestImport {
+                    module,
+                    names,
+                    python_relative_level: None,
+                });
             }
             if trimmed.starts_with("export ") && trimmed.contains(" from ") {
                 let (_, right) = trimmed.split_once(" from ")?;
-                return quoted_module_specifier(right);
+                return quoted_module_specifier(right).map(|module| ManifestImport {
+                    module,
+                    names: None,
+                    python_relative_level: None,
+                });
             }
             None
         })
         .collect()
 }
 
-/// Scans Python `import module` and `from module import name` specifiers.
-fn scan_python_imports(source: &str) -> Vec<String> {
-    let mut imports = Vec::new();
-    for line in source.lines() {
-        let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix("from ") {
-            if let Some((module, _)) = rest.split_once(" import ") {
-                imports.push(module.trim().to_owned());
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("import ") {
-            let first_module = rest
-                .split(',')
-                .next()
-                .and_then(|part| part.split_whitespace().next());
-            if let Some(module_name) = first_module {
-                imports.push(module_name.to_owned());
-            }
+/// Scans Python `import module` and `from module import name` specifiers with Ruff AST.
+fn scan_python_imports(source: &str) -> Result<Vec<ManifestImport>, String> {
+    let module = parse_module(source, FileId(0)).map_err(format_python_parse_errors)?;
+    let mut visitor = PythonImportVisitor {
+        imports: Vec::new(),
+    };
+    for stmt in &module.body {
+        visitor.visit_stmt(stmt);
+    }
+    Ok(visitor.imports)
+}
+
+/// Ruff AST visitor that records Python imports while preserving parser semantics.
+struct PythonImportVisitor {
+    /// Import edges discovered while walking the Python AST.
+    imports: Vec<ManifestImport>,
+}
+
+impl<'a> Visitor<'a> for PythonImportVisitor {
+    /// Records import statements and walks nested bodies for dependency closure.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "the AST visitor must delegate every non-import statement to Ruff's walker"
+    )]
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        match stmt {
+            Stmt::Import(import) => self.import_stmt(import),
+            Stmt::ImportFrom(import) => self.import_from_stmt(import),
+            _ => walk_stmt(self, stmt),
         }
     }
-    imports
+}
+
+impl PythonImportVisitor {
+    /// Adds one manifest import edge for every module in a Python `import` statement.
+    fn import_stmt(&mut self, stmt: &StmtImport) {
+        for alias in &stmt.names {
+            self.imports.push(ManifestImport {
+                module: alias.name.as_str().to_owned(),
+                names: None,
+                python_relative_level: None,
+            });
+        }
+    }
+
+    /// Adds the module edge from a Python `from ... import ...` statement.
+    fn import_from_stmt(&mut self, stmt: &StmtImportFrom) {
+        self.imports.push(ManifestImport {
+            module: stmt
+                .module
+                .as_ref()
+                .map_or_else(String::new, |module| module.as_str().to_owned()),
+            names: None,
+            python_relative_level: (stmt.level > 0).then_some(stmt.level),
+        });
+    }
+}
+
+/// Formats parser diagnostics for manifest import discovery errors.
+fn format_python_parse_errors(errors: Vec<smelt_frontend_py::SmeltError>) -> String {
+    errors
+        .into_iter()
+        .map(|error| format!("{}: {}", error.code, error.message))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Extracts named imports from a simple TypeScript import clause.
+fn named_imports_from_import_clause(input: &str) -> Option<Vec<String>> {
+    let start = input.find('{')?;
+    let end = input.rfind('}')?;
+    let body_start = start.checked_add(1)?;
+    let body = input.get(body_start..end)?;
+    Some(named_specifiers(body, false))
+}
+
+/// Extracts value names from comma-separated import/export specifiers.
+fn named_specifiers(input: &str, use_alias: bool) -> Vec<String> {
+    input
+        .split(',')
+        .filter_map(|part| {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            if trimmed.starts_with("type ") {
+                return None;
+            }
+            let without_type = trimmed.trim();
+            let raw_name = without_type
+                .split_once(" as ")
+                .map_or(
+                    without_type,
+                    |(name, alias)| {
+                        if use_alias { alias } else { name }
+                    },
+                );
+            let specifier_name = raw_name.trim();
+            (!specifier_name.is_empty()).then(|| specifier_name.to_owned())
+        })
+        .collect()
 }
 
 /// Extracts the first quoted module specifier from an import tail.
