@@ -44,7 +44,9 @@ impl ModuleBuilder<'_> {
                         .symbols
                         .get(parent_name)
                         .unwrap_or("<unknown>");
-                    if parent_name_text == "ContextOptions" {
+                    if parent_name_text == "ContextOptions"
+                        || self.type_only_imports.contains(parent_name_text)
+                    {
                         continue;
                     }
                     return Err(SmeltError::unsupported(

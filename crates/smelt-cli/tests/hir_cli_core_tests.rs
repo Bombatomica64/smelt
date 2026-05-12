@@ -193,6 +193,57 @@ def test_null_file_protocols():
 }
 
 #[test]
+fn build_runs_python_value_returning_or_none() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "py-or-none"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "py_or_none"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.py"),
+        r#"
+class Obj:
+    id: str
+
+    def __init__(self, id: str) -> None:
+        self.id = id
+
+obj: Obj = Obj("a")
+value: str | None = obj.id or None
+print(value)
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = common::cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(
+        &actual_stdout,
+        &"Some(\"a\")\n".to_owned(),
+        "unexpected stdout",
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn check_emits_typescript_declaration_stubs_for_linked_modules() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();
@@ -347,6 +398,59 @@ clone-strategy = "aggressive"
 
     let actual_stdout = common::cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn check_orders_manifest_entries_by_type_only_import_dependencies() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/isSaturday"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "type-only-import-order"
+version = "0.1.0"
+
+[sources]
+entries = ["src/isSaturday/index.ts", "src/index.ts", "src/types.ts"]
+
+[output]
+target = "./dist"
+crate-name = "type_only_import_order"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/types.ts"),
+        r#"export interface ContextOptions<DateType extends Date = Date> {
+  in?: DateType;
+}
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/index.ts"),
+        r#"export type { ContextOptions } from "./types";
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/isSaturday/index.ts"),
+        r#"import type { ContextOptions } from "../index";
+
+interface LocalOptions<DateType extends Date = Date> extends ContextOptions<DateType> {}
+
+export function touch(options: LocalOptions): void {
+  const context = options.in;
+}
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "check"])?;
 
     Ok(())
 }

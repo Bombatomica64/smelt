@@ -225,10 +225,26 @@ impl ModuleBuilder<'_> {
         if let Expression::StaticMemberExpression(member) = &call.callee {
             let receiver = self.expression(&member.object, body)?;
             let method = self.intern_source_name(member.property.name.as_str());
-            let (return_ty, _) = self.resolve_method(Self::expr_ty(body, receiver), method)?;
+            let receiver_ty = Self::expr_ty(body, receiver);
+            let optional_access =
+                call.optional || member.optional || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)));
+            let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+            let (return_ty, _) = self.resolve_method(access_receiver_ty, method)?;
             let mut args = Vec::new();
             for arg in &call.arguments {
                 args.push(self.argument(arg, body)?);
+            }
+            if optional_access {
+                let ty = self.optional_chain_result_type(return_ty);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::OptionalMethod {
+                        receiver,
+                        method,
+                        args,
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             }
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Method {

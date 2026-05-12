@@ -4,7 +4,6 @@ use super::*;
 
 impl FunctionEmitter<'_> {
     /// Converts a list search operation to Rust text.
-    /// Converts a list search operation to Rust text.
     pub(super) fn list_search_text(
         &self,
         op: smelt_hir::ListSearchOp,
@@ -32,13 +31,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a capture-free callback list operation to Rust iterator text.
-    /// Converts a capture-free callback list operation to Rust iterator text.
-    /// Converts a capture-free callback list operation to Rust iterator text.
-    /// Converts a capture-free callback list operation to Rust iterator text.
-    /// Converts a capture-free callback list operation to Rust iterator text.
-    /// Converts a capture-free callback list operation to Rust iterator text.
-    /// Converts a capture-free callback list operation to Rust iterator text.
-    /// Converts a capture-free callback list operation to Rust iterator text.
     pub(super) fn list_callback_text(
         &self,
         op: smelt_hir::ListCallbackOp,
@@ -46,14 +38,14 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let callback = self.closure_callback_body(callback)?;
+        let callback_body = self.closure_callback_body(callback)?;
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list callback receiver must be a list"));
         };
         let element_ty = *list_element_ty;
         let list_text = self.operand_text(list)?;
-        let callback_text = self.callback_expr_text(callback, &["item", "index", "array"])?;
+        let callback_text = self.callback_expr_text(callback_body, &["item", "index", "array"])?;
         let closure = format!(
             "|(index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}"
         );
@@ -62,7 +54,7 @@ impl FunctionEmitter<'_> {
         );
         match op {
             smelt_hir::ListCallbackOp::Map => {
-                if self.mir.types.get(dest_ty) != Some(&Type::List(callback.ty)) {
+                if self.mir.types.get(dest_ty) != Some(&Type::List(callback_body.ty)) {
                     return Err(EmitError::new("array map destination must be a list"));
                 }
                 Ok(format!(
@@ -70,7 +62,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::ListCallbackOp::Filter => {
-                self.validate_bool_callback(callback, "array filter")?;
+                self.validate_bool_callback(callback_body, "array filter")?;
                 if dest_ty != list_ty {
                     return Err(EmitError::new(
                         "array filter destination must match the receiver list type",
@@ -81,7 +73,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::ListCallbackOp::Find => {
-                self.validate_bool_callback(callback, "array find")?;
+                self.validate_bool_callback(callback_body, "array find")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
                     return Err(EmitError::new(
                         "array find destination must be optional element type",
@@ -92,7 +84,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::ListCallbackOp::FindIndex => {
-                self.validate_bool_callback(callback, "array findIndex")?;
+                self.validate_bool_callback(callback_body, "array findIndex")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Float) {
                     return Err(EmitError::new(
                         "array findIndex destination must be a number",
@@ -103,7 +95,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::ListCallbackOp::FindLast => {
-                self.validate_bool_callback(callback, "array findLast")?;
+                self.validate_bool_callback(callback_body, "array findLast")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
                     return Err(EmitError::new(
                         "array findLast destination must be optional element type",
@@ -114,7 +106,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::ListCallbackOp::FindLastIndex => {
-                self.validate_bool_callback(callback, "array findLastIndex")?;
+                self.validate_bool_callback(callback_body, "array findLastIndex")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Float) {
                     return Err(EmitError::new(
                         "array findLastIndex destination must be a number",
@@ -125,14 +117,14 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::ListCallbackOp::Some => {
-                self.validate_bool_callback(callback, "array some")?;
+                self.validate_bool_callback(callback_body, "array some")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
                     return Err(EmitError::new("array some destination must be boolean"));
                 }
                 Ok(format!("{list_text}.iter().enumerate().any({closure})"))
             }
             smelt_hir::ListCallbackOp::Every => {
-                self.validate_bool_callback(callback, "array every")?;
+                self.validate_bool_callback(callback_body, "array every")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
                     return Err(EmitError::new("array every destination must be boolean"));
                 }
@@ -147,7 +139,8 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::ListCallbackOp::FlatMap => {
-                let Some(Type::List(callback_item_ty)) = self.mir.types.get(callback.ty) else {
+                let Some(Type::List(callback_item_ty)) = self.mir.types.get(callback_body.ty)
+                else {
                     return Err(EmitError::new(
                         "array flatMap callback must return an array",
                     ));
@@ -172,7 +165,7 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let callback = self.closure_callback_body(callback)?;
+        let callback_body = self.closure_callback_body(callback)?;
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array reduce receiver must be a list"));
@@ -185,14 +178,14 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        if callback.ty != dest_ty {
+        if callback_body.ty != dest_ty {
             return Err(EmitError::new(
                 "array reduce initial value and callback result must match the destination type",
             ));
         }
         let list_text = self.operand_text(list)?;
         let callback_text =
-            self.callback_expr_text(callback, &["acc", "item", "index", "array"])?;
+            self.callback_expr_text(callback_body, &["acc", "item", "index", "array"])?;
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
@@ -209,13 +202,6 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Validates that a lowered callback expression returns a boolean.
-    /// Validates that a lowered callback expression returns a boolean.
-    /// Validates that a lowered callback expression returns a boolean.
-    /// Validates that a lowered callback expression returns a boolean.
-    /// Validates that a lowered callback expression returns a boolean.
-    /// Validates that a lowered callback expression returns a boolean.
-    /// Validates that a lowered callback expression returns a boolean.
     /// Validates that a lowered callback expression returns a boolean.
     pub(super) fn validate_bool_callback(
         &self,
@@ -236,7 +222,7 @@ impl FunctionEmitter<'_> {
         let closure = self
             .mir
             .closures
-            .get(id.0 as usize)
+            .get(usize::try_from(id.0).unwrap_or(usize::MAX))
             .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?;
         let callback = closure.callback_body.as_ref().ok_or_else(|| {
             EmitError::new("general closure bodies are not supported in Rust codegen yet")
@@ -292,9 +278,13 @@ impl FunctionEmitter<'_> {
                 } = statement
                     && *dest == local
                 {
-                    let closure = self.mir.closures.get(id.0 as usize).ok_or_else(|| {
-                        EmitError::new("list callback references an unknown closure")
-                    })?;
+                    let closure = self
+                        .mir
+                        .closures
+                        .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                        .ok_or_else(|| {
+                            EmitError::new("list callback references an unknown closure")
+                        })?;
                     return closure.callback_body.as_ref().ok_or_else(|| {
                         EmitError::new("list callback closure has no callback body")
                     });

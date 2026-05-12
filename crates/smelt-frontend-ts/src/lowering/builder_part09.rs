@@ -273,6 +273,23 @@ impl ModuleBuilder<'_> {
             Argument::ArrayExpression(array) => self.array_expression(array, body, None),
             Argument::ObjectExpression(object) => self.object_expression(object, body, None),
             Argument::CallExpression(call) => self.call_expression(call, body),
+            Argument::ChainExpression(chain) => self.chain_expression(chain, body),
+            Argument::NewExpression(new_expr) => {
+                let Expression::Identifier(callee) = &new_expr.callee else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "call argument new expressions require a direct class name",
+                    ));
+                };
+                if callee.name == "Date" {
+                    self.new_date_expression(new_expr, body)
+                } else {
+                    Err(SmeltError::unsupported(
+                        self.span(callee.span.start, callee.span.end),
+                        format!("unsupported call argument constructor `{}`", callee.name),
+                    ))
+                }
+            }
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
             _ => Err(SmeltError::unsupported(
@@ -743,6 +760,11 @@ impl ModuleBuilder<'_> {
             "getFullYear" => Some(DatePart::FullYear),
             "getMonth" => Some(DatePart::Month),
             "getDate" => Some(DatePart::Date),
+            "getDay" => Some(DatePart::Day),
+            "getHours" => Some(DatePart::Hour),
+            "getMinutes" => Some(DatePart::Minute),
+            "getSeconds" => Some(DatePart::Second),
+            "getMilliseconds" => Some(DatePart::Millisecond),
             _ => None,
         };
         if let Some(part) = getter_part {
@@ -752,8 +774,8 @@ impl ModuleBuilder<'_> {
                     format!("Date.{method}() does not accept arguments"),
                 ));
             }
-            let timestamp_ms = self.expression(&member.object, body)?;
-            self.ensure_numeric_date_receiver(timestamp_ms, member, body)?;
+            let receiver = self.expression(&member.object, body)?;
+            let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::DateGetPart { part, timestamp_ms },
@@ -765,6 +787,10 @@ impl ModuleBuilder<'_> {
             "setFullYear" => Some(DatePart::FullYear),
             "setMonth" => Some(DatePart::Month),
             "setDate" => Some(DatePart::Date),
+            "setHours" => Some(DatePart::Hour),
+            "setMinutes" => Some(DatePart::Minute),
+            "setSeconds" => Some(DatePart::Second),
+            "setMilliseconds" => Some(DatePart::Millisecond),
             _ => None,
         };
         let Some(part) = setter_part else {
@@ -776,8 +802,8 @@ impl ModuleBuilder<'_> {
                 format!("Date.{method}() requires at least one numeric argument"),
             ));
         }
-        let timestamp_ms = self.expression(&member.object, body)?;
-        self.ensure_numeric_date_receiver(timestamp_ms, member, body)?;
+        let receiver = self.expression(&member.object, body)?;
+        let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
         let mut values = Vec::with_capacity(call.arguments.len());
         for argument in &call.arguments {
             let value = self.argument(argument, body)?;
@@ -815,23 +841,32 @@ impl ModuleBuilder<'_> {
         Ok(Some(value))
     }
 
-    /// Validate that a lowered Date receiver is represented as a numeric timestamp.
-    fn ensure_numeric_date_receiver(
-        &self,
-        timestamp_ms: smelt_hir::ExprId,
+    /// Convert a Date-like receiver into the timestamp expression used by Date operations.
+    fn date_receiver_timestamp(
+        &mut self,
+        receiver: smelt_hir::ExprId,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        body: &Body,
-    ) -> Result<(), SmeltError> {
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, timestamp_ms)),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(SmeltError::unsupported(
-                self.span(member.object.span().start, member.object.span().end),
-                "Date method receiver must be a timestamp value",
-            ));
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Int | Type::Float)) {
+            return Ok(receiver);
         }
-        Ok(())
+        if self.is_date_constructor_arg_type(receiver_ty) {
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToFloat,
+                    operand: receiver,
+                },
+                ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(member.object.span().start, member.object.span().end),
+            "Date method receiver must be a timestamp or Date-like value",
+        ))
     }
 
     // Continued in the next split builder file.

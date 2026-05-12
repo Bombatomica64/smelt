@@ -9,9 +9,9 @@ use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, ClassElement,
     Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
-    MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program, PropertyKey,
-    SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement, TSType,
-    TSTypeName,
+    ImportOrExportKind, MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program,
+    PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement,
+    TSType, TSTypeName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -219,6 +219,8 @@ struct ModuleBuilder<'ctx> {
     test_builtins: HashSet<String>,
     /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.
     namespace_imports: HashSet<String>,
+    /// Local names imported only for TypeScript type positions.
+    type_only_imports: HashSet<String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Literal constant items visible from already-lowered modules.

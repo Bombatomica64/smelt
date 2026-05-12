@@ -13,6 +13,8 @@ pub enum BinOp {
     Mul,
     /// Division operator.
     Div,
+    /// Remainder operator.
+    Rem,
     /// Equality operator.
     Eq,
     /// Inequality operator.
@@ -39,6 +41,7 @@ pub const fn bin_op_text(op: BinOp) -> &'static str {
         BinOp::Sub => "-",
         BinOp::Mul => "*",
         BinOp::Div => "/",
+        BinOp::Rem => "%",
         BinOp::Eq => "==",
         BinOp::NotEq => "!=",
         BinOp::Lt => "<",

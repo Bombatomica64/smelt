@@ -75,6 +75,10 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                     });
                 }
             }
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "HIR validation only needs special handling for callback-bearing expressions"
+            )]
             match &expr.kind {
                 ExprKind::ListCallback { callback, .. } | ExprKind::ListReduce { callback, .. } => {
                     let Some(callback_expr) = body.exprs.get(callback.0 as usize) else {

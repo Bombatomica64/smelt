@@ -18,6 +18,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_async: false,
             test_builtins: HashSet::new(),
             namespace_imports: HashSet::new(),
+            type_only_imports: HashSet::new(),
             object_namespaces,
             const_literals,
             assertion_functions: HashMap::new(),
@@ -362,6 +363,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ImportDeclarationSpecifier::ImportSpecifier(specifier_data) => {
                     let imported = module_export_name(&specifier_data.imported);
                     let local = specifier_data.local.name.as_str().to_owned();
+                    if import.import_kind == ImportOrExportKind::Type
+                        || specifier_data.import_kind == ImportOrExportKind::Type
+                    {
+                        self.type_only_imports.insert(local.clone());
+                    }
                     (imported, local)
                 }
                 ImportDeclarationSpecifier::ImportDefaultSpecifier(specifier_data) => (
@@ -371,9 +377,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ImportDeclarationSpecifier::ImportNamespaceSpecifier(specifier_data) => {
                     let local = specifier_data.local.name.as_str().to_owned();
                     self.namespace_imports.insert(local.clone());
+                    if import.import_kind == ImportOrExportKind::Type {
+                        self.type_only_imports.insert(local.clone());
+                    }
                     ("*".to_owned(), local)
                 }
             };
+            if import.import_kind == ImportOrExportKind::Type {
+                self.type_only_imports.insert(local.clone());
+            }
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
             module.imports.push(Import {

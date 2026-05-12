@@ -350,6 +350,7 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Subtraction => BinOp::Sub,
             BinaryOperator::Multiplication => BinOp::Mul,
             BinaryOperator::Division => BinOp::Div,
+            BinaryOperator::Remainder => BinOp::Rem,
             BinaryOperator::StrictEquality => BinOp::Eq,
             BinaryOperator::StrictInequality => BinOp::NotEq,
             BinaryOperator::Equality | BinaryOperator::Inequality => {

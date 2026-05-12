@@ -102,9 +102,16 @@ impl FunctionEmitter<'_> {
             } => Ok(format!(
                 "if {} {{ {} }} else {{ {} }}",
                 self.operand_text(cond)?,
-                self.operand_text(then_operand)?,
-                self.operand_text(else_operand)?
+                self.operand_as_type_text(then_operand, dest_ty)?,
+                self.operand_as_type_text(else_operand, dest_ty)?
             )),
+            Rvalue::OptionalField { receiver, field } => self.optional_field_text(receiver, *field),
+            Rvalue::OptionalIndex { receiver, index } => self.optional_index_text(receiver, index),
+            Rvalue::OptionalMethod {
+                receiver,
+                method,
+                args,
+            } => self.optional_method_text(receiver, *method, args),
             Rvalue::InstanceOf {
                 value: operand,
                 class,
@@ -418,6 +425,137 @@ impl FunctionEmitter<'_> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
             Operand::Const(_) => Err(EmitError::new("await operand cannot be a constant")),
+        }
+    }
+
+    /// Emits Rust for a TypeScript optional-chain field read.
+    pub(super) fn optional_field_text(
+        &self,
+        receiver: &Operand,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
+        if is_optional {
+            let value = self.field_access_text("_smelt_value", inner_ty, field)?;
+            Ok(format!(
+                "{receiver_text}.as_ref().map(|_smelt_value| {value})"
+            ))
+        } else {
+            let value = self.field_access_text(&receiver_text, inner_ty, field)?;
+            Ok(format!("Some({value})"))
+        }
+    }
+
+    /// Emits Rust for a TypeScript optional-chain index read.
+    pub(super) fn optional_index_text(
+        &self,
+        receiver: &Operand,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
+        if is_optional {
+            let value = self.index_access_text("_smelt_value", inner_ty, index)?;
+            Ok(format!(
+                "{receiver_text}.as_ref().map(|_smelt_value| {value})"
+            ))
+        } else {
+            let value = self.index_access_text(&receiver_text, inner_ty, index)?;
+            Ok(format!("Some({value})"))
+        }
+    }
+
+    /// Emits Rust for a TypeScript optional-chain method call.
+    pub(super) fn optional_method_text(
+        &self,
+        receiver: &Operand,
+        method: Symbol,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        let (receiver_text, _inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
+        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let args_text = args
+            .iter()
+            .map(|arg| self.operand_text(arg))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        if is_optional {
+            Ok(format!(
+                "{receiver_text}.as_ref().map(|_smelt_value| _smelt_value.{method_name}({args_text}))"
+            ))
+        } else {
+            Ok(format!("Some({receiver_text}.{method_name}({args_text}))"))
+        }
+    }
+
+    /// Returns receiver source, the non-optional receiver type, and whether it was optional.
+    fn optional_receiver_parts(
+        &self,
+        receiver: &Operand,
+    ) -> Result<(String, TypeId, bool), EmitError> {
+        let receiver_ty = self.operand_ty(receiver)?;
+        let receiver_text = self.operand_text(receiver)?;
+        if let Some(Type::Optional(inner)) = self.mir.types.get(receiver_ty) {
+            Ok((receiver_text, *inner, true))
+        } else {
+            Ok((receiver_text, receiver_ty, false))
+        }
+    }
+
+    /// Emits a field read against a named in-scope receiver value.
+    fn field_access_text(
+        &self,
+        receiver_text: &str,
+        receiver_ty: TypeId,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        if let Some(Type::Dict(key, _)) = self.mir.types.get(receiver_ty)
+            && self.mir.types.get(*key) == Some(&Type::String)
+        {
+            let field_name = self.symbol_name(field)?;
+            return Ok(format!(
+                "{receiver_text}.get({field_name:?}).cloned().expect(\"missing field\")"
+            ));
+        }
+        let Some(Type::Class { .. }) = self.mir.types.get(receiver_ty) else {
+            return Err(EmitError::new(
+                "optional field codegen requires a class or string-keyed dict receiver",
+            ));
+        };
+        Ok(format!(
+            "{receiver_text}.{}.clone()",
+            sanitize_ident(self.symbol_name(field)?)
+        ))
+    }
+
+    /// Emits an index read against a named in-scope receiver value.
+    fn index_access_text(
+        &self,
+        receiver_text: &str,
+        receiver_ty: TypeId,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        match self.mir.types.get(receiver_ty) {
+            Some(Type::List(_)) => {
+                let index_text =
+                    self.normalized_index_text(&format!("{receiver_text}.len()"), index)?;
+                Ok(format!(
+                    "{receiver_text}.get({index_text}).cloned().expect(\"index out of bounds\")"
+                ))
+            }
+            Some(Type::Dict(_, _)) => Ok(format!(
+                "{receiver_text}.get(&{}).cloned().expect(\"index out of bounds\")",
+                self.operand_text(index)?
+            )),
+            Some(Type::String) => {
+                let index_text =
+                    self.normalized_index_text(&format!("{receiver_text}.chars().count()"), index)?;
+                Ok(format!(
+                    "{receiver_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
+                ))
+            }
+            _ => Err(EmitError::new(
+                "optional index codegen requires a list, string, or dict receiver",
+            )),
         }
     }
 

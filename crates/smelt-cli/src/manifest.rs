@@ -54,6 +54,11 @@ struct ManifestGraphVisit<'a> {
     /// Dependency-first output order.
     ordered: Vec<usize>,
     /// Nodes currently on the DFS stack.
+    ///
+    /// Back edges are allowed because TypeScript and Python modules can form
+    /// import cycles. The manifest sorter still emits each source once in a
+    /// stable order; later lowering stages are responsible for reporting any
+    /// cycle shape whose runtime symbols cannot be resolved yet.
     temporary: HashSet<usize>,
     /// Nodes already visited.
     permanent: HashSet<usize>,
@@ -270,13 +275,7 @@ fn visit_manifest_source(idx: usize, visit: &mut ManifestGraphVisit<'_>) -> Resu
         return Ok(());
     }
     if !visit.temporary.insert(idx) {
-        return Err(format!(
-            "cyclic manifest import involving {}",
-            visit.sources.get(idx).map_or_else(
-                || "<unknown>".to_owned(),
-                |source| source.path.display().to_string()
-            )
-        ));
+        return Ok(());
     }
 
     let Some(source) = visit.sources.get(idx) else {
@@ -353,7 +352,11 @@ fn scan_typescript_barrel_exports(source: &str) -> HashMap<String, String> {
             }
             continue;
         }
-        let Some(export_specifiers_start) = left.trim().strip_prefix("export {") else {
+        let export_clause = left.trim();
+        let Some(export_specifiers_start) = export_clause
+            .strip_prefix("export {")
+            .or_else(|| export_clause.strip_prefix("export type {"))
+        else {
             continue;
         };
         let Some(export_specifiers) = export_specifiers_start.trim().strip_suffix('}') else {
@@ -405,9 +408,6 @@ fn scan_typescript_imports(source: &str) -> Vec<ManifestImport> {
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if trimmed.starts_with("import type ") || trimmed.starts_with("export type ") {
-                return None;
-            }
             if trimmed.starts_with("import ") {
                 let specifier = trimmed
                     .split_once(" from ")
@@ -422,7 +422,9 @@ fn scan_typescript_imports(source: &str) -> Vec<ManifestImport> {
                     python_relative_level: None,
                 });
             }
-            if trimmed.starts_with("export ") && trimmed.contains(" from ") {
+            if (trimmed.starts_with("export ") || trimmed.starts_with("export type "))
+                && trimmed.contains(" from ")
+            {
                 let (_, right) = trimmed.split_once(" from ")?;
                 return quoted_module_specifier(right).map(|module| ManifestImport {
                     module,
@@ -520,10 +522,7 @@ fn named_specifiers(input: &str, use_alias: bool) -> Vec<String> {
             if trimmed.is_empty() {
                 return None;
             }
-            if trimmed.starts_with("type ") {
-                return None;
-            }
-            let without_type = trimmed.trim();
+            let without_type = trimmed.strip_prefix("type ").unwrap_or(trimmed).trim();
             let raw_name = without_type
                 .split_once(" as ")
                 .map_or(

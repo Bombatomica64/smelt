@@ -1,12 +1,15 @@
 impl ModuleBuilder<'_> {
     fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
         match ty {
+            TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
             TSType::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
             TSType::TSStringKeyword(_) => Ok(self.ctx.krate.types.intern(Type::String)),
             TSType::TSBooleanKeyword(_) | TSType::TSTypePredicate(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Bool))
             }
-            TSType::TSUnknownKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            TSType::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::None)),
             TSType::TSVoidKeyword(_) | TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::None))
             }
@@ -15,6 +18,15 @@ impl ModuleBuilder<'_> {
                     Ok(self.ctx.krate.types.intern(Type::String))
                 }
                 oxc::ast::ast::TSLiteral::NumericLiteral(_) => {
+                    Ok(self.ctx.krate.types.intern(Type::Float))
+                }
+                oxc::ast::ast::TSLiteral::UnaryExpression(unary)
+                    if unary.operator == UnaryOperator::UnaryNegation
+                        && matches!(
+                            unary.argument,
+                            Expression::NumericLiteral(_)
+                        ) =>
+                {
                     Ok(self.ctx.krate.types.intern(Type::Float))
                 }
                 oxc::ast::ast::TSLiteral::BooleanLiteral(_) => {
@@ -103,46 +115,70 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
             TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSType::TSIndexedAccessType(indexed) => self.indexed_access_type_to_hir(indexed),
+            TSType::TSTypeLiteral(literal) => self.type_literal_to_hir(literal),
+            TSType::TSMappedType(mapped) => {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = mapped
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(annotation))
+                    .transpose()?
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
+            }
             TSType::TSFunctionType(function) => {
-                if function.type_parameters.is_some() || function.this_param.is_some() {
+                if function.this_param.is_some() {
                     return Err(SmeltError::unsupported(
                         self.span(function.span.start, function.span.end),
-                        "generic and this-parameter function types are not lowered yet",
+                        "this-parameter function types are not lowered yet",
                     ));
                 }
+                self.push_type_parameter_scope(function.type_parameters.as_deref())?;
                 let mut params = Vec::new();
-                for param in &function.params.items {
-                    if param.optional {
-                        return Err(SmeltError::unsupported(
-                            self.span(param.span.start, param.span.end),
-                            "optional function type parameters are not lowered yet",
-                        ));
+                let result = (|| {
+                    for param in &function.params.items {
+                        let param_ty = param
+                            .type_annotation
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(param.span.start, param.span.end),
+                                    "function type parameters require explicit type annotations",
+                                )
+                            })?;
+                        let param_ty = if param.optional {
+                            self.ctx.krate.types.intern(Type::Optional(param_ty))
+                        } else {
+                            param_ty
+                        };
+                        params.push(param_ty);
                     }
-                    let param_ty = param
-                        .type_annotation
-                        .as_ref()
-                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                        .transpose()?
-                        .ok_or_else(|| {
-                            SmeltError::unsupported(
-                                self.span(param.span.start, param.span.end),
-                                "function type parameters require explicit type annotations",
-                            )
-                        })?;
-                    params.push(param_ty);
-                }
-                if function.params.rest.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(function.params.span.start, function.params.span.end),
-                        "rest function type parameters are not lowered yet",
-                    ));
-                }
-                let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
-                Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
-                    params,
-                    return_ty,
-                    is_async: false,
-                })))
+                    if let Some(rest) = &function.params.rest {
+                        let rest_ty = rest
+                            .type_annotation
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(rest.span.start, rest.span.end),
+                                    "rest function type parameters require explicit array types",
+                                )
+                            })?;
+                        params.push(rest_ty);
+                    }
+                    let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
+                    Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
+                        params,
+                        return_ty,
+                        is_async: false,
+                    })))
+                })();
+                self.pop_type_parameter_scope();
+                result
             }
             TSType::TSThisType(this_ty) => {
                 let Some(class_name) = &self.current_class else {
@@ -173,6 +209,79 @@ impl ModuleBuilder<'_> {
                 format!("type annotation is not lowered yet: {ty:?}"),
             )),
         }
+    }
+
+    /// Convert an inline TypeScript object type into Smelt's record-like dict type.
+    fn type_literal_to_hir(
+        &mut self,
+        literal: &oxc::ast::ast::TSTypeLiteral<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let mut value_tys = Vec::new();
+        for member in &literal.members {
+            let TSSignature::TSPropertySignature(prop) = member else {
+                continue;
+            };
+            if prop.computed && !is_static_property_key(&prop.key) {
+                continue;
+            }
+            let prop_ty = prop
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            let value_ty = if prop.optional {
+                self.ctx.krate.types.intern(Type::Optional(prop_ty))
+            } else {
+                prop_ty
+            };
+            if !value_tys.contains(&value_ty) {
+                value_tys.push(value_ty);
+            }
+        }
+        let value_ty = match value_tys.as_slice() {
+            [] => self.ctx.krate.types.intern(Type::Unknown),
+            [single] => *single,
+            _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
+        };
+        Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
+    }
+
+    /// Convert an indexed access type such as `Parameters<Fn>[0]` to an item type.
+    fn indexed_access_type_to_hir(
+        &mut self,
+        indexed: &oxc::ast::ast::TSIndexedAccessType<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let object_ty = self.ts_type_to_hir(&indexed.object_type)?;
+        match self.ctx.krate.types.get(object_ty) {
+            Some(Type::Tuple(items)) => {
+                if let Some(index) = Self::numeric_literal_type_index(&indexed.index_type) {
+                    return Ok(items
+                        .get(index)
+                        .copied()
+                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown)));
+                }
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
+            Some(Type::List(item) | Type::Set(item)) => Ok(*item),
+            Some(Type::Dict(_, value)) => Ok(*value),
+            _ => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+        }
+    }
+
+    /// Extract a non-negative integer from a numeric literal type.
+    fn numeric_literal_type_index(ty: &TSType<'_>) -> Option<usize> {
+        let TSType::TSLiteralType(literal) = ty else {
+            return None;
+        };
+        let oxc::ast::ast::TSLiteral::NumericLiteral(number) = &literal.literal else {
+            return None;
+        };
+        let text = number.raw.as_ref()?;
+        (number.value.fract() == 0.0 && number.value >= 0.0)
+            .then(|| text.parse::<usize>().ok())
+            .flatten()
     }
 
     /// Extract `asserts value is T` metadata from a TypeScript return annotation.
@@ -311,6 +420,29 @@ impl ModuleBuilder<'_> {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Future(lowered_item)))
             }
+            ("Parameters", [function_arg]) => {
+                let function_ty = self.ts_type_to_hir(function_arg)?;
+                if let Some(Type::Function(function_ty_data)) = self.ctx.krate.types.get(function_ty)
+                {
+                    Ok(self
+                        .ctx
+                        .krate
+                        .types
+                        .intern(Type::Tuple(function_ty_data.params.clone())))
+                } else {
+                    let item = self.ctx.krate.types.intern(Type::Unknown);
+                    Ok(self.ctx.krate.types.intern(Type::List(item)))
+                }
+            }
+            ("ReturnType", [function_arg]) => {
+                let function_ty = self.ts_type_to_hir(function_arg)?;
+                if let Some(Type::Function(function_ty_data)) = self.ctx.krate.types.get(function_ty)
+                {
+                    Ok(function_ty_data.return_ty)
+                } else {
+                    Ok(self.ctx.krate.types.intern(Type::Unknown))
+                }
+            }
             _ => {
                 let symbol = self.intern_type_name(name_text);
                 if let Some(interface) = self.find_interface(symbol).cloned() {
@@ -393,19 +525,46 @@ impl ModuleBuilder<'_> {
                             .iter()
                             .find(|item| item.name == field)
                             .map(|item| item.ty)
+                        })
+                })
+                .or_else(|| {
+                    self.find_interface(*name).and_then(|interface| {
+                        interface
+                            .fields
+                            .iter()
+                            .find(|item| item.name == field)
+                            .map(|item| item.ty)
                     })
                 })
                 .ok_or_else(|| {
                     let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
                     SmeltError::unsupported(
                         self.span(0, 0),
-                        format!("unknown class field `{field_name}`"),
+                        format!("unknown class or interface field `{field_name}`"),
                     )
                 }),
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
-                "field access is only lowered for Record<string, T> and class values for now",
+                "field access is only lowered for Record<string, T>, class, and interface values for now",
             )),
+        }
+    }
+
+    /// Return the inner type for an optional receiver, or the original type otherwise.
+    fn optional_receiver_inner_type(&self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(ty) {
+            *inner
+        } else {
+            ty
+        }
+    }
+
+    /// Wrap a result type in `Optional`, avoiding nested optionals from optional fields.
+    fn optional_chain_result_type(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+            ty
+        } else {
+            self.ctx.krate.types.intern(Type::Optional(ty))
         }
     }
 

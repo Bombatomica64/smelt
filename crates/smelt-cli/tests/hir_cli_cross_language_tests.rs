@@ -264,6 +264,7 @@ fn end_to_end_examples_match_expected_outputs() -> TestResult {
         "24_interface_method_signature",
         "25_private_protected_metadata",
         "26_interface_inheritance_optional_computed",
+        "27_optional_chains",
     ] {
         verify_end_to_end_example(name)?;
     }

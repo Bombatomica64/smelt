@@ -114,6 +114,7 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::Subtraction => BinOp::Sub,
                     BinaryOperator::Multiplication => BinOp::Mul,
                     BinaryOperator::Division => BinOp::Div,
+                    BinaryOperator::Remainder => BinOp::Rem,
                     BinaryOperator::StrictEquality => BinOp::Eq,
                     BinaryOperator::StrictInequality => BinOp::NotEq,
                     BinaryOperator::Equality | BinaryOperator::Inequality => {
@@ -126,8 +127,7 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::LessEqualThan => BinOp::Lte,
                     BinaryOperator::GreaterThan => BinOp::Gt,
                     BinaryOperator::GreaterEqualThan => BinOp::Gte,
-                    BinaryOperator::Remainder
-                    | BinaryOperator::Exponential
+                    BinaryOperator::Exponential
                     | BinaryOperator::ShiftLeft
                     | BinaryOperator::ShiftRight
                     | BinaryOperator::ShiftRightZeroFill
@@ -281,39 +281,10 @@ impl ModuleBuilder<'_> {
                     span: self.span(await_expr.span.start, await_expr.span.end),
                 }))
             }
-            Expression::StaticMemberExpression(member) => {
-                if member.optional {
-                    return Err(SmeltError::unsupported(
-                        self.span(member.span.start, member.span.end),
-                        "optional member access is not lowered yet",
-                    ));
-                }
-                if let Some(expr) = self.url_field_expression(member, body)? {
-                    return Ok(expr);
-                }
-                let receiver = self.expression(&member.object, body)?;
-                let field = self.intern_source_name(member.property.name.as_str());
-                if member.property.name == "length"
-                    && self.supports_stdlib_length(Self::expr_ty(body, receiver))
-                    || member.property.name == "size"
-                        && self.supports_stdlib_size(Self::expr_ty(body, receiver))
-                {
-                    let ty = self.ctx.krate.types.intern(Type::Float);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Len { operand: receiver },
-                        ty,
-                        span: self.span(member.span.start, member.span.end),
-                    }));
-                }
-                let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Field { receiver, field },
-                    ty,
-                    span: self.span(member.span.start, member.span.end),
-                }))
-            }
+            Expression::StaticMemberExpression(member) => self.static_member(member, body),
             Expression::ComputedMemberExpression(member) => self.computed_member(member, body),
             Expression::CallExpression(call) => self.call_expression(call, body),
+            Expression::ChainExpression(chain) => self.chain_expression(chain, body),
             Expression::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
                 &as_expr.type_annotation,

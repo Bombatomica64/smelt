@@ -69,13 +69,24 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("Date getter receiver must be numeric"));
         }
         let timestamp_text = self.operand_text(timestamp_ms)?;
-        let accessor = match part {
-            smelt_hir::DatePart::FullYear => "date.year() as f64",
-            smelt_hir::DatePart::Month => "date.month0() as f64",
-            smelt_hir::DatePart::Date => "date.day() as f64",
+        let (trait_use, accessor) = match part {
+            smelt_hir::DatePart::FullYear => ("chrono::Datelike as _", "date.year() as f64"),
+            smelt_hir::DatePart::Month => ("chrono::Datelike as _", "date.month0() as f64"),
+            smelt_hir::DatePart::Date => ("chrono::Datelike as _", "date.day() as f64"),
+            smelt_hir::DatePart::Day => (
+                "chrono::Datelike as _",
+                "date.weekday().num_days_from_sunday() as f64",
+            ),
+            smelt_hir::DatePart::Hour => ("chrono::Timelike as _", "date.hour() as f64"),
+            smelt_hir::DatePart::Minute => ("chrono::Timelike as _", "date.minute() as f64"),
+            smelt_hir::DatePart::Second => ("chrono::Timelike as _", "date.second() as f64"),
+            smelt_hir::DatePart::Millisecond => (
+                "chrono::Timelike as _",
+                "(date.nanosecond() / 1_000_000) as f64",
+            ),
         };
         Ok(format!(
-            "{{ use chrono::Datelike as _; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).map_or(f64::NAN, |date| {accessor}) }}"
+            "{{ use {trait_use}; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).map_or(f64::NAN, |date| {accessor}) }}"
         ))
     }
 
@@ -134,9 +145,59 @@ impl FunctionEmitter<'_> {
                 };
                 format!("date.with_day({day} as u32)")
             }
+            smelt_hir::DatePart::Day => {
+                return Err(EmitError::new("Date.setDay is not a JavaScript API"));
+            }
+            smelt_hir::DatePart::Hour => {
+                let Some(hour) = value_texts.first() else {
+                    return Err(EmitError::new("Date.setHours requires an hour value"));
+                };
+                let minute = value_texts.get(1).map_or("date.minute()", String::as_str);
+                let second = value_texts.get(2).map_or("date.second()", String::as_str);
+                let nano = value_texts.get(3).map_or_else(
+                    || "date.nanosecond()".to_owned(),
+                    |milli| format!("({milli} as u32) * 1_000_000"),
+                );
+                format!(
+                    "date.with_hour({hour} as u32).and_then(|date| date.with_minute({minute} as u32)).and_then(|date| date.with_second({second} as u32)).and_then(|date| date.with_nanosecond({nano}))"
+                )
+            }
+            smelt_hir::DatePart::Minute => {
+                let Some(minute) = value_texts.first() else {
+                    return Err(EmitError::new("Date.setMinutes requires a minute value"));
+                };
+                let second = value_texts.get(1).map_or("date.second()", String::as_str);
+                let nano = value_texts.get(2).map_or_else(
+                    || "date.nanosecond()".to_owned(),
+                    |milli| format!("({milli} as u32) * 1_000_000"),
+                );
+                format!(
+                    "date.with_minute({minute} as u32).and_then(|date| date.with_second({second} as u32)).and_then(|date| date.with_nanosecond({nano}))"
+                )
+            }
+            smelt_hir::DatePart::Second => {
+                let Some(second) = value_texts.first() else {
+                    return Err(EmitError::new("Date.setSeconds requires a second value"));
+                };
+                let nano = value_texts.get(1).map_or_else(
+                    || "date.nanosecond()".to_owned(),
+                    |milli| format!("({milli} as u32) * 1_000_000"),
+                );
+                format!(
+                    "date.with_second({second} as u32).and_then(|date| date.with_nanosecond({nano}))"
+                )
+            }
+            smelt_hir::DatePart::Millisecond => {
+                let Some(milli) = value_texts.first() else {
+                    return Err(EmitError::new(
+                        "Date.setMilliseconds requires a millisecond value",
+                    ));
+                };
+                format!("date.with_nanosecond(({milli} as u32) * 1_000_000)")
+            }
         };
         Ok(format!(
-            "{{ use chrono::Datelike as _; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).and_then(|date| {update}).map(|date| date.timestamp_millis()).unwrap_or(i64::MIN) }}"
+            "{{ use chrono::{{Datelike as _, Timelike as _}}; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).and_then(|date| {update}).map(|date| date.timestamp_millis()).unwrap_or(i64::MIN) }}"
         ))
     }
 

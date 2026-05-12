@@ -85,7 +85,7 @@ impl ModuleBuilder<'_> {
 
             // --- Binary / boolean / comparison operators ---
             Expr::BinOp(b) => self.binop_expression(b, body),
-            Expr::BoolOp(b) => self.boolop_expression(b, body),
+            Expr::BoolOp(b) => self.boolop_expression(b, body, type_hint),
             Expr::Compare(c) => self.compare_expression(c, body),
 
             // --- Unary operators ---
@@ -136,8 +136,8 @@ impl ModuleBuilder<'_> {
                 }
                 let receiver = self.expression(&attr.value, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
-                let field_ty = self.field_type(receiver_ty)?;
                 let field = self.intern_name(attr.attr.as_str());
+                let field_ty = self.field_type(receiver_ty, field)?;
                 Ok(body.push_expr(HirExpr {
                     kind: ExprKind::Field { receiver, field },
                     ty: field_ty,
@@ -354,11 +354,12 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower a boolean operator — fold `a and b and c` into left-associative pairs.
+    /// Lower a boolean operator or Python's value-returning `or` fallback.
     fn boolop_expression(
         &mut self,
         b: &ruff_python_ast::ExprBoolOp,
         body: &mut Body,
+        type_hint: Option<TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let op = match b.op {
             BoolOp::And => BinOp::And,
@@ -382,6 +383,14 @@ impl ModuleBuilder<'_> {
                 Self::expr_span(body, acc).start,
                 Self::expr_span(body, rhs).end,
             );
+            if b.op == BoolOp::Or {
+                if let Some(value_or) =
+                    self.value_or_expression((acc, rhs), span, body, type_hint)?
+                {
+                    acc = value_or;
+                    continue;
+                }
+            }
             acc = body.push_expr(HirExpr {
                 kind: ExprKind::BinOp { op, lhs: acc, rhs },
                 ty: bool_ty,
@@ -389,6 +398,94 @@ impl ModuleBuilder<'_> {
             });
         }
         Ok(acc)
+    }
+
+    /// Lower `lhs or rhs` when Python returns one of the operands instead of a bool.
+    fn value_or_expression(
+        &mut self,
+        operands: (smelt_hir::ExprId, smelt_hir::ExprId),
+        span: Span,
+        body: &mut Body,
+        type_hint: Option<TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let (lhs, rhs) = operands;
+        let lhs_ty = Self::expr_ty(body, lhs);
+        let rhs_ty = Self::expr_ty(body, rhs);
+        if self.ctx.krate.types.get(lhs_ty) == Some(&Type::Bool)
+            && self.ctx.krate.types.get(rhs_ty) == Some(&Type::Bool)
+        {
+            return Ok(None);
+        }
+        let Some(ty) = self.value_or_result_type(lhs_ty, rhs_ty, type_hint) else {
+            return Ok(None);
+        };
+        let cond = self.truthiness_expr(lhs, span, body)?;
+        Ok(Some(body.push_expr(HirExpr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: lhs,
+                else_expr: rhs,
+            },
+            ty,
+            span,
+        })))
+    }
+
+    /// Resolve the HIR result type for value-returning Python `or`.
+    fn value_or_result_type(
+        &mut self,
+        lhs_ty: TypeId,
+        rhs_ty: TypeId,
+        type_hint: Option<TypeId>,
+    ) -> Option<TypeId> {
+        if lhs_ty == rhs_ty {
+            return Some(lhs_ty);
+        }
+        if let Some(hint) = type_hint
+            && let Some(Type::Optional(inner)) = self.ctx.krate.types.get(hint)
+            && ((*inner == lhs_ty && self.ctx.krate.types.get(rhs_ty) == Some(&Type::None))
+                || (*inner == rhs_ty && self.ctx.krate.types.get(lhs_ty) == Some(&Type::None)))
+        {
+            return Some(hint);
+        }
+        if self.ctx.krate.types.get(rhs_ty) == Some(&Type::None) {
+            return Some(self.intern_type(Type::Optional(lhs_ty)));
+        }
+        if self.ctx.krate.types.get(lhs_ty) == Some(&Type::None) {
+            return Some(self.intern_type(Type::Optional(rhs_ty)));
+        }
+        None
+    }
+
+    /// Build a boolean condition for Python truthiness in supported fallback expressions.
+    fn truthiness_expr(
+        &mut self,
+        operand: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let operand_ty = Self::expr_ty(body, operand);
+        if self.ctx.krate.types.get(operand_ty) == Some(&Type::Bool) {
+            return Ok(operand);
+        }
+        if !matches!(
+            self.ctx.krate.types.get(operand_ty),
+            Some(Type::Int | Type::Float | Type::String)
+        ) {
+            return Err(SmeltError::unsupported(
+                span,
+                "value-returning `or` currently supports bool, int, float, and str left operands",
+            ));
+        }
+        let ty = self.intern_type(Type::Bool);
+        Ok(body.push_expr(HirExpr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToBool,
+                operand,
+            },
+            ty,
+            span,
+        }))
     }
 
     /// Lower a comparison expression.  Only single-op, non-chained comparisons.

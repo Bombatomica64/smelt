@@ -2,11 +2,11 @@
 
 use super::*;
 use smelt_hir::{
-    BinOp, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp, ListProjectionOp,
-    ListSearchOp, Literal, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetProjectionOp, SetRemoveOp, Stmt,
-    StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide,
-    Type,
+    BinOp, DatePart, DictProjectionOp, ExprKind, FileId, Function, Item, ListCallbackOp,
+    ListProjectionOp, ListSearchOp, Literal, ModuleId, NumericExtremaOp, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetProjectionOp,
+    SetRemoveOp, Stmt, StringAffixOp, StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Type,
 };
 
 /// Fail the current test with a formatted message when `cond` is false.

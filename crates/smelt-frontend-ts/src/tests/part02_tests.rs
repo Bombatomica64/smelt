@@ -453,14 +453,27 @@ fn lowers_date_fns_date_parts() -> Result<(), String> {
     let module_id = lower_ok(
         ts!(r#"
 const date = new Date(2014, 8, 2, 11, 55, 0);
+function timestamp(value: number): number {
+  return value;
+}
+const callArg = timestamp(new Date(2014, 8, 1));
 const timestamp = date.getTime();
 const year = date.getFullYear();
 const month = date.getMonth();
 const day = date.getDate();
+const remaining = day % 5;
+const hours = date.getHours();
+const minutes = date.getMinutes();
+const seconds = date.getSeconds();
+const milliseconds = date.getMilliseconds();
 const utc = Date.UTC(year, month);
 date.setFullYear(year, month, day + 1);
 date.setMonth(0, 1);
 date.setDate(2);
+date.setHours(hours, minutes, seconds, milliseconds);
+date.setMinutes(minutes, seconds, milliseconds);
+date.setSeconds(seconds, milliseconds);
+date.setMilliseconds(milliseconds);
 "#),
         &mut ctx,
     )?;
@@ -476,14 +489,14 @@ date.setDate(2);
             .iter()
             .filter(|expr| matches!(expr.kind, ExprKind::DateGetPart { .. }))
             .count(),
-        3
+        7
     );
     ensure_eq!(
         body.exprs
             .iter()
             .filter(|expr| matches!(expr.kind, ExprKind::DateSetPart { .. }))
             .count(),
-        3
+        7
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -663,6 +676,144 @@ interface Options {
 }
 function read(options: Options, date: number): number {
   return options?.in || date;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_chain_call_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Options {
+  in?: number;
+}
+function useContext(date: number, context?: number): number {
+  return context || date;
+}
+function read(options: Options, date: number): number {
+  return useContext(date, options?.in);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_chain_context_into_date_get_day() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface ContextOptions<DateType extends Date = Date> {
+  in?: DateType;
+}
+type DateArg<DateType extends Date> = DateType | number | string;
+function toDate<DateType extends Date>(
+  date: DateArg<DateType>,
+  context?: DateType,
+): DateType {
+  return date as DateType;
+}
+function isSaturday<DateType extends Date>(
+  date: DateArg<DateType>,
+  options: ContextOptions<DateType>,
+): boolean {
+  return toDate(date, options?.in).getDay() === 6;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(
+        module.items.iter().any(|item| {
+            let Some(Item::Function(function)) = ctx.krate.items.get(item.0 as usize) else {
+                return false;
+            };
+            let Some(body_id) = function.body else {
+                return false;
+            };
+            let body = &ctx.krate.bodies[body_id.0 as usize];
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::DateGetPart {
+                        part: DatePart::Day,
+                        ..
+                    }
+                )
+            })
+        }),
+        "expected getDay() to lower as a Date day-of-week operation",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_locale_type_surfaces() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import type { DateArg, WeekOptions } from "../types";
+
+export interface LocaleOptions extends WeekOptions {}
+
+export type FormatDistanceFn = (
+  token: FormatDistanceToken,
+  count: number,
+  options?: FormatDistanceFnOptions,
+) => string;
+
+export interface FormatDistanceFnOptions {
+  comparison?: -1 | 0 | 1;
+}
+
+export type FormatDistanceLocale<Template> = {
+  [Token in FormatDistanceToken]: Template;
+};
+
+export type FormatDistanceToken = "xSeconds" | "xMinutes";
+
+export type FormatRelativeFn = <DateType extends Date>(
+  date: DateArg<DateType>,
+  options?: { unit: LocaleUnit },
+) => string;
+
+export type LocaleUnit = "second" | "minute";
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_fp_type_surfaces() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export type FPFnInput = (...args: any[]) => any;
+export type FPArity = 1 | 2 | 3 | 4;
+export type FPFn<Fn extends FPFnInput> = FPFn2<
+  ReturnType<Fn>,
+  Parameters<Fn>[1],
+  Parameters<Fn>[0]
+>;
+export interface FPFn1<Result, Arg> {
+  (arg: Arg): Result;
+}
+export interface FPFn2<Result, Arg2, Arg1> {
+  (arg2: Arg2): FPFn1<Result, Arg1>;
+  (arg2: Arg2, arg1: Arg1): Result;
 }
 "#),
         &mut ctx,

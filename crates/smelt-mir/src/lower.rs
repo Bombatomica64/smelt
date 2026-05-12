@@ -315,6 +315,10 @@ fn closure_definitions(function: &MirFunction) -> HashMap<LocalId, ClosureLocalD
             let Statement::Assign { dest, value } = statement else {
                 continue;
             };
+            #[expect(
+                clippy::wildcard_enum_match_arm,
+                reason = "closure escape analysis only tracks closure definitions and aliases"
+            )]
             match value {
                 Rvalue::Closure { id, .. } => {
                     definitions.insert(*dest, ClosureLocalDef::Closure(*id));
@@ -1129,6 +1133,18 @@ impl<'hir> LoweringCtx<'hir> {
                     field: *field,
                 })
             }
+            ExprKind::OptionalField { receiver, field } => {
+                let receiver_operand = self.lower_expr(*receiver)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::OptionalField {
+                        receiver: receiver_operand,
+                        field: *field,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Index { receiver, index } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
                 let base = self.local_operand(receiver_operand, expr.span)?;
@@ -1137,6 +1153,40 @@ impl<'hir> LoweringCtx<'hir> {
                     base,
                     index: Box::new(index_operand),
                 })
+            }
+            ExprKind::OptionalIndex { receiver, index } => {
+                let receiver_operand = self.lower_expr(*receiver)?;
+                let index_operand = self.lower_expr(*index)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::OptionalIndex {
+                        receiver: receiver_operand,
+                        index: index_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::OptionalMethod {
+                receiver,
+                method,
+                args,
+            } => {
+                let receiver_operand = self.lower_expr(*receiver)?;
+                let lowered_args = args
+                    .iter()
+                    .map(|arg| self.lower_expr(*arg))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::OptionalMethod {
+                        receiver: receiver_operand,
+                        method: *method,
+                        args: lowered_args,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
             }
             ExprKind::Len { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
@@ -2542,8 +2592,14 @@ impl<'hir> LoweringCtx<'hir> {
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::Closure(closure) => {
+                let closure_index = self
+                    .closure_base
+                    .checked_add(self.closures.len())
+                    .ok_or_else(|| {
+                        self.error("MIR closure index overflowed usize", Some(expr.span))
+                    })?;
                 let closure_id = ClosureId(u32_from_usize(
-                    self.closure_base + self.closures.len(),
+                    closure_index,
                     "MIR closure index does not fit in u32",
                 )?);
                 let captures = closure
@@ -2767,6 +2823,9 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::Call { .. }
             | ExprKind::ClosureCall { .. }
             | ExprKind::Method { .. }
+            | ExprKind::OptionalField { .. }
+            | ExprKind::OptionalIndex { .. }
+            | ExprKind::OptionalMethod { .. }
             | ExprKind::Len { .. }
             | ExprKind::NumericAbs { .. }
             | ExprKind::NumericRound { .. }

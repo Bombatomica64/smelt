@@ -425,6 +425,29 @@ pub enum Rvalue {
         /// Operand used when the condition is false.
         else_operand: Operand,
     },
+    /// Read a field through a TypeScript optional-chain receiver.
+    OptionalField {
+        /// Receiver operand, either `T` or `Option<T>`.
+        receiver: Operand,
+        /// Field name to read when the receiver is present.
+        field: Symbol,
+    },
+    /// Read an index through a TypeScript optional-chain receiver.
+    OptionalIndex {
+        /// Receiver operand, either an indexable `T` or `Option<T>`.
+        receiver: Operand,
+        /// Index operand used when the receiver is present.
+        index: Operand,
+    },
+    /// Call a method through a TypeScript optional-chain receiver.
+    OptionalMethod {
+        /// Receiver operand, either `T` or `Option<T>`.
+        receiver: Operand,
+        /// Method name to call when the receiver is present.
+        method: Symbol,
+        /// Call arguments.
+        args: Vec<Operand>,
+    },
     /// Test whether a value is an instance of a class.
     InstanceOf {
         /// Value being tested. Kept as an operand so side effects are evaluated before the check.

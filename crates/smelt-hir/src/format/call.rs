@@ -23,8 +23,28 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let field_name = krate.symbols.get(*field).unwrap_or("<unknown>");
             format!("{}.{}", expr_ref(*receiver), field_name)
         }
+        ExprKind::OptionalField { receiver, field } => {
+            let field_name = krate.symbols.get(*field).unwrap_or("<unknown>");
+            format!("{}?.{}", expr_ref(*receiver), field_name)
+        }
         ExprKind::Index { receiver, index } => {
             format!("{}[{}]", expr_ref(*receiver), expr_ref(*index))
+        }
+        ExprKind::OptionalIndex { receiver, index } => {
+            format!("{}?.[{}]", expr_ref(*receiver), expr_ref(*index))
+        }
+        ExprKind::OptionalMethod {
+            receiver,
+            method,
+            args,
+        } => {
+            let method_name = krate.symbols.get(*method).unwrap_or("<unknown>");
+            format!(
+                "{}?.{}({})",
+                expr_ref(*receiver),
+                method_name,
+                expr_list_text(args)
+            )
         }
         ExprKind::Len { operand } => format!("len {}", expr_ref(*operand)),
         ExprKind::NumericAbs { operand } => format!("numeric_abs {}", expr_ref(*operand)),

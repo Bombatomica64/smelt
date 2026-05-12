@@ -177,7 +177,11 @@ fn validate_rvalue_exists(
             }
         }
         Rvalue::Closure { id, captures } => {
-            if mir.closures.get(id.0 as usize).is_none() {
+            if mir
+                .closures
+                .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                .is_none()
+            {
                 errors.push(ValidationError {
                     message: format!("closure rvalue references unknown closure {id:?}"),
                 });
@@ -204,6 +208,19 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, cond, errors);
             validate_operand_exists(function, then_operand, errors);
             validate_operand_exists(function, else_operand, errors);
+        }
+        Rvalue::OptionalField { receiver, .. } => {
+            validate_operand_exists(function, receiver, errors);
+        }
+        Rvalue::OptionalIndex { receiver, index } => {
+            validate_operand_exists(function, receiver, errors);
+            validate_operand_exists(function, index, errors);
+        }
+        Rvalue::OptionalMethod { receiver, args, .. } => {
+            validate_operand_exists(function, receiver, errors);
+            for arg in args {
+                validate_operand_exists(function, arg, errors);
+            }
         }
         Rvalue::InstanceOf { value: operand, .. } => {
             validate_operand_exists(function, operand, errors);
@@ -862,6 +879,19 @@ fn validate_rvalue(
             validate_operand(function, definitions, cond, errors);
             validate_operand(function, definitions, then_operand, errors);
             validate_operand(function, definitions, else_operand, errors);
+        }
+        Rvalue::OptionalField { receiver, .. } => {
+            validate_operand(function, definitions, receiver, errors);
+        }
+        Rvalue::OptionalIndex { receiver, index } => {
+            validate_operand(function, definitions, receiver, errors);
+            validate_operand(function, definitions, index, errors);
+        }
+        Rvalue::OptionalMethod { receiver, args, .. } => {
+            validate_operand(function, definitions, receiver, errors);
+            for arg in args {
+                validate_operand(function, definitions, arg, errors);
+            }
         }
         Rvalue::InstanceOf { value: operand, .. } => {
             validate_operand(function, definitions, operand, errors);

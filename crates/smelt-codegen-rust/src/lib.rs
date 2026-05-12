@@ -77,6 +77,7 @@ use rust::{CodeWriter, RustIdent};
 
 /// Options for controlling code emission behavior.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct EmitOptions {
     /// The name of the Rust crate to generate.
     pub crate_name: String,

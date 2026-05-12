@@ -23,8 +23,8 @@ use smelt_hir::{
     ClosureCapture, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId,
     Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,
     LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, Param, Pattern as HirPattern, SetProjectionOp, SourceFile, Span,
-    Stmt as HirStmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
+    NumericUnaryFuncOp, Param, Pattern as HirPattern, PrimitiveCastOp, SetProjectionOp, SourceFile,
+    Span, Stmt as HirStmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
     StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
 };
 use smelt_stdlib::RuleId;

@@ -12,18 +12,71 @@ For v1, Smelt should not try to transpile Vitest or pytest internals. The v1 goa
 |---|---|---|
 | 1 | `date-fns/date-fns` | Large typed TS utility library with many simple Vitest tests. |
 | 2 | `Textualize/rich` | Real Python library with many plain pytest asserts. |
-| 3 | `Effect-TS/effect` | Large typed TS library, good stress target after simple Vitest lowering works. |
+| 3 | `remeda/remeda` | Large typed TS utility library with Vitest tests and less runtime-framework noise than Effect. |
 | 4 | `encode/httpx` | Typed Python library with real pytest tests and useful stdlib/protocol coverage. |
+
+Deferred TS stress target:
+
+- `Effect-TS/effect`: keep as a later stress target for large runtime/schema/typeclass patterns
+  after utility-library and test-framework parity is stronger.
 
 ## Current Baseline
 
 - Workspace health from the latest required check:
-  - `cargo test`: currently fails in
-    `smelt-codegen-rust::tests::part_6_tests::emits_object_assign_call`; generated output no
-    longer contains the exact `let mut assigned = HashMap::new();` string expected by the test.
+  - `cargo test`: passed.
   - `cargo check`: passed.
-  - `cargo clippy`: passed with existing documentation warnings.
+  - `cargo clippy`: passed with warnings only.
 - External repo checks can be used as signal again.
+
+### External Probe: 2026-05-12 Alternative TS Targets
+
+Fresh clone root: `/tmp/smelt-alt-ts-probe-20260512_165432/repos`
+
+Checked the first three proposed Effect alternatives:
+
+| Repo | Approx TS files | Approx runtime test files | Framework | Probe | `smelt check` | Current first blocker |
+|---|---:|---:|---|---|---:|---|
+| `remeda/remeda` | `585` total, `517` package runtime `.ts` files | `174` | Vitest | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | `packages/remeda/src/internal/types/StrictFunction.ts`: rest parameters in `TSFunctionType`, `(...args: never) => unknown`. |
+| `remeda/remeda` | same | same | Vitest | focused `toUpperCase` slice | fail | Same `StrictFunction.ts` blocker, reached through `purry.ts`. |
+| `sindresorhus/ky` | `52` | AVA tests in `test/*.ts` | AVA | full `source` + `test` manifest | fail | `source/core/Ky.ts`: object spread properties, optional class fields, `Symbol`, `Object`, richer callbacks, and callback binary operators. |
+| `sindresorhus/ky` | same | same | AVA | focused `source/index.ts` slice | fail | `source/core/constants.ts`: exported non-primitive constants/calls, array callback arity, unresolved callback locals, and unannotated exported arrow constant. |
+| `supermacro/neverthrow` | `8` | `2` | Vitest | full `src` + `tests` manifest | fail | Superseded by the cycle fix: now reaches `src/result.ts` and fails on forward class references to `Ok`/`Err`, parenthesized function types returning `Generator`, generic interface methods, generic classes, tuple `never`, tuple rest types, and conditional tuple element types. |
+| `supermacro/neverthrow` | same | same | Vitest | focused `src/result.ts` slice | fail | Superseded by the cycle fix: same `src/result.ts` lowering surface as the full manifest. |
+
+Recommendation:
+
+- Promote `remeda/remeda` over `Effect-TS/effect` as the third primary target for now. Its
+  first blocker is narrow and directly useful for typed utility libraries.
+- Keep `neverthrow` as a small focused follow-up for generic class and advanced type-surface
+  support; it is relevant but too small to replace a large target.
+- Keep `ky` as a later async/HTTP/browser-runtime target. It adds AVA compatibility plus Fetch,
+  server, stream, object spread, class-field, and browser API pressure all at once.
+
+### External Probe: 2026-05-12 Effect Rerun
+
+Re-ran Effect after the latest TypeScript/date work.
+
+- Focused numeric slice manifest:
+  `/tmp/smelt-reclone-rerun-20260511-145915/runs/effect/Smelt.toml`
+- Focused numeric slice log root: `/tmp/effect_probe_20260512_164905`
+- Full package manifest/log root: `/tmp/effect_full_probe_20260512_164926`
+- Full package manifest size: `1758` `.ts`/`.tsx` files under `packages`.
+
+Results:
+
+| Slice | `smelt check` | Generated `cargo test` | Current first blocker |
+|---|---:|---:|---|
+| `Effect-TS/effect` numeric slice | fail | n/a | `packages/effect/src/Number.ts`: exported `dual(...)` constants and other non-Math helper calls still block lowering before the test file can run. |
+| `Effect-TS/effect` full packages | fail | n/a | `packages/ai/ai/src/AiError.ts`: `typeof TypeId` type query, namespace member import resolution for `Predicate.hasProperty`, `Schema.Struct(...).annotations(...)` exported const calls, `Schema.TaggedError(...)` class inheritance, and block-bodied callbacks with more than a single return. |
+
+Effect test-framework compatibility is not the current front wall:
+
+- `@effect/vitest` imports are recognized.
+- `describe.concurrent` is accepted.
+- `U.deepStrictEqual(...)` is already represented as an Effect-style assertion helper target.
+
+The remaining Effect blockers are mostly TypeScript library semantics and Effect runtime/schema
+patterns, not public test API discovery.
 
 ### External Probe: 2026-05-11 Fresh Reclones
 
@@ -37,7 +90,7 @@ Results:
 | Slice | `smelt check` | `smelt build` | Generated `cargo test` | Current first blocker |
 |---|---:|---:|---:|---|
 | `date-fns/date-fns` `quartersToMonths` | pass | pass | pass, 4/4 tests | Green. Only warning is generated non-snake-case module stub. |
-| `Effect-TS/effect` numeric slice | fail | fail | n/a | `packages/effect/src/Number.ts`: exported const values/call expressions still handle only primitive or selected Math shapes, `Iterable` type references are unsupported, helpers such as `multiply`, `sum`, `subtract`, and `Order` remain unresolved, and exported arrow-function constants still need explicit return types in some cases. |
+| `Effect-TS/effect` numeric slice | fail | fail | n/a | Superseded by the 2026-05-12 rerun: `packages/effect/src/Number.ts` still blocks on exported `dual(...)` constants, non-Math helper calls, `Iterable`, `reduce`, unannotated `for...of` bindings, unresolved helpers such as `multiply`, `sum`, `subtract`, and `Order`, and one exported arrow-function constant that still needs an explicit return type. |
 | `Textualize/rich` `NullFile` | fail | fail | n/a | `_null_file.py`: member/method call rejected with “only calls to top-level functions, class constructors, and print() are supported”. |
 | `encode/httpx` status codes | fail | fail | n/a | `_status_codes.py`: primitive conversion over unsupported value and class/member call rejected. |
 | `pallets/click` `_utils` | fail | fail | n/a | `Sentinel` uses complex generic base-class expression; follow-on unresolved `Sentinel` and type variable `t`. |
@@ -329,11 +382,32 @@ TypeScript:
 - [x] Arrow functions assigned to `const`
 - [x] Function overload declarations should be ignored/merged with implementation when safe.
 - [ ] `Iterable<T>` type references.
+- [ ] Type queries such as `typeof TypeId` in exported type aliases.
 - [ ] `TSFunctionType` annotations, especially rest args and callback/lazy evaluator shapes.
+- [ ] `never` in rest parameter type positions, required by Remeda's
+      `StrictFunction = (...args: never) => unknown`; implement according to
+      `specs/never-type-plan.md`.
 - [ ] Inference or safe acceptance for unannotated exported/test-adjacent function declarations
       when upstream TypeScript would infer the return type.
 - [ ] Exported non-primitive const call expressions used by Effect, especially `dual(...)`-style
       helpers and typeclass instance constructors.
+- [ ] Object spread properties in object literals, required by Ky.
+- [ ] Optional class fields, required by Ky.
+- [ ] `Symbol` and `Object` global constants/helpers, required by Ky.
+- [ ] Callback binary operators and multi-statement callbacks in array/object helper calls, required
+      by Ky.
+- [x] Manifest import cycles should not be rejected by the dependency sorter. Unsupported cycle
+      semantics should surface as normal lowering/codegen diagnostics.
+- [ ] Forward class references inside one module, required by Neverthrow's `ok(...)` and `err(...)`
+      functions before `Ok` / `Err` class declarations.
+- [ ] Generic classes, required by Neverthrow's `Ok<T, E>` and `Err<T, E>`.
+- [ ] Tuple rest types and conditional tuple element types, required by Neverthrow's type helpers.
+- [ ] Fluent exported helper chains such as `Schema.Struct(...).annotations(...)`.
+- [ ] Class inheritance and mixin/factory extends expressions such as
+      `class X extends Schema.TaggedError<X>(...)(...)`.
+- [ ] Block-bodied callbacks with normal statement flow, not only a single `return` statement.
+- [ ] Namespace import member resolution against external package stubs, for example
+      `Predicate.hasProperty`.
 
 Python:
 
@@ -390,6 +464,14 @@ Probe roots:
 - Latest sibling slices with `src/types.ts`: `/tmp/date_fns_with_types_compat_20260512_094924`
 - Latest full `src/**/*.ts(x)` manifest probe after import refactor:
   `/tmp/date_fns_full_compat_20260512_152219`
+- Latest full manifest probe after chain-argument wiring:
+  `/tmp/date_fns_full_compat_20260512_160135`
+- Latest full manifest probe with `src/types.ts` forced first:
+  `/tmp/date_fns_full_types_first_20260512_160330`
+- Latest full manifest probe after chain/import/Date receiver work:
+  `/tmp/date_fns_full_compat_20260512_163625`
+- Latest full manifest probe with shared type files forced first:
+  `/tmp/date_fns_full_types_first_20260512_163841`
 
 Compatibility numbers:
 
@@ -397,7 +479,8 @@ Compatibility numbers:
 |---|---:|---|
 | TS/TSX files under `src` | `1536` | Raw source corpus size in the latest checkout. |
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
-| Full `src/**/*.ts(x)` manifest `smelt check` | fail | First blocker is optional chaining in `src/isSaturday/index.ts`. |
+| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Gets past chain/import/Date receiver blockers; current wall is `src/locale/types.ts`. |
+| Full manifest with shared type files forced first `smelt check` | fail | Same `src/locale/types.ts` blockers, so this is real locale type-surface work, not only ordering. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
 | Sibling `index.ts` + `constants` + `test.ts` slices passing `smelt check` | `21 / 250` | Comparable sibling-index `test.ts` sweep. `isExists` newly reaches Rust emission. |
@@ -409,15 +492,15 @@ Compatibility numbers:
 | Same `src/types.ts` slices passing generated `cargo test` | `23 / 250` | All build-green `with_types` slices passed generated Rust tests. |
 | Approx direct Vitest cases covered | `78 / 2882` | Heuristic text count of direct `it(...)` / `test(...)` calls. |
 
-Latest rerun status: full date-fns import resolution now gets far enough to hit source-language
-semantics instead of shared-type import failures. A full manifest containing all `1536`
-`src/**/*.ts(x)` entries fails first in `src/isSaturday/index.ts` on `options?.in`, reported as
-`call argument kind is not lowered yet: ChainExpression`. Optional chaining is broad in date-fns:
-`?.` appears `462` times across `319` files, and `options?.in` appears `249` times.
+Latest rerun status: the full sorted manifest now gets past the previous `isSaturday` chain,
+`ContextOptions.in`, and Date receiver blockers. The first failing file is now
+`src/locale/types.ts`, with locale type-surface features that do not directly lower into runtime
+behavior yet. Forcing `src/types.ts` and `src/locale/types.ts` to the front produces the same
+locale failures, so this is no longer just manifest ordering.
 
 `src/types.ts` still passes directly. With `src/types.ts` included in each sibling slice, `23`
 date-fns test slices pass all the way through generated Rust `cargo test`. The next full-repo wall
-is optional chaining / nullish access, not the shared type file.
+is `src/locale/types.ts`.
 
 Generic interface implementation status:
 
@@ -437,14 +520,20 @@ Shared type-file status:
   `DateArg` / `ContextFn` aliases no longer globally block the file.
 - [x] Full manifest import traversal reaches date helper source files instead of stopping on
   `src/types.ts`.
-- [ ] Full date-fns still needs optional chaining / nullish access lowering before the import
-  refactor can expose deeper blockers.
+- [x] Full date-fns gets past `ContextOptions` / `options?.in` / `toDate(...).getDay()`.
+- [ ] Full date-fns still needs locale type-surface lowering/rejection strategy for
+  `src/locale/types.ts`.
 
 Full manifest first blocker:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
-| `src/isSaturday/index.ts` | Optional chaining in call argument, `options?.in` | `call argument kind is not lowered yet: ChainExpression`. |
+| `src/locale/types.ts` | Imported type-only heritage from `../types.ts` | `extended interface WeekOptions is not declared`. |
+| `src/locale/types.ts` | Optional parameters in function type aliases | `optional function type parameters are not lowered yet`. |
+| `src/locale/types.ts` | Negative numeric literal type | `literal type annotation is not lowered yet: TSLiteralType(... UnaryNegation ...)`. |
+| `src/locale/types.ts` | Mapped types | `TSMappedType` not lowered. |
+| `src/locale/types.ts` | Generic function type aliases | `generic and this-parameter function types are not lowered yet`. |
+| `src/locale/types.ts` | Inline object type literals | `TSTypeLiteral` not lowered. |
 
 Optional chaining surface in date-fns:
 
@@ -588,6 +677,17 @@ Current first blockers from the 2026-05-11 rerun:
   calls, especially Effect/typeclass helpers.
 - `Iterable<T>` type references are unsupported.
 - Some helper values/functions remain unresolved because the exported const/call layer is skipped.
+
+Current first blockers from the 2026-05-12 rerun:
+
+- Focused numeric slice still fails in `packages/effect/src/Number.ts` before generated Rust tests
+  can be emitted.
+- Full `packages/**/*.ts(x)` manifest fails earlier in `packages/ai/ai/src/AiError.ts`.
+- Full-repo first wall includes `typeof TypeId` type queries, external namespace member resolution
+  for `Predicate.hasProperty`, fluent Schema helper chains, `Schema.TaggedError(...)` class
+  inheritance, and block-bodied callbacks with ordinary statement flow.
+- Effect test APIs are not the current blocker: `@effect/vitest`, `describe.concurrent`, and
+  `U.deepStrictEqual(...)` are already past the first failure point.
 
 ### Second Python Target: HTTPX
 

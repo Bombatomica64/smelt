@@ -215,6 +215,16 @@ pub enum DatePart {
     Month,
     /// One-based day of month.
     Date,
+    /// Zero-based day of week, starting on Sunday.
+    Day,
+    /// Hour of day.
+    Hour,
+    /// Minute of hour.
+    Minute,
+    /// Second of minute.
+    Second,
+    /// Millisecond of second.
+    Millisecond,
 }
 
 /// A field available on a parsed URL value.

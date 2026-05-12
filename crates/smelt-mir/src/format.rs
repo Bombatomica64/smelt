@@ -196,6 +196,24 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(else_operand)
             )
         }
+        Rvalue::OptionalField { receiver, field } => {
+            format!("{}?.field{}", operand_text(receiver), field.0)
+        }
+        Rvalue::OptionalIndex { receiver, index } => {
+            format!("{}?.[{}]", operand_text(receiver), operand_text(index))
+        }
+        Rvalue::OptionalMethod {
+            receiver,
+            method,
+            args,
+        } => {
+            let args_text = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!(
+                "{}?.method{}({args_text})",
+                operand_text(receiver),
+                method.0
+            )
+        }
         Rvalue::InstanceOf {
             value: operand,
             class,

@@ -35,9 +35,22 @@ pub enum ExprKind {
         receiver: ExprId,
         field: Symbol,
     },
+    OptionalField {
+        receiver: ExprId,
+        field: Symbol,
+    },
     Index {
         receiver: ExprId,
         index: ExprId,
+    },
+    OptionalIndex {
+        receiver: ExprId,
+        index: ExprId,
+    },
+    OptionalMethod {
+        receiver: ExprId,
+        method: Symbol,
+        args: Vec<ExprId>,
     },
     Len {
         operand: ExprId,

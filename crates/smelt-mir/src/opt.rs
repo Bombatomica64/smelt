@@ -114,7 +114,7 @@ fn is_function_local(
 ) -> bool {
     function
         .locals
-        .get(local.0 as usize)
+        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
         .is_some_and(|decl| matches!(types.get(decl.ty), Some(Type::Function(_))))
 }
 
@@ -188,6 +188,15 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(then_operand, aliases, dest)
                 | rewrite_operand_except(else_operand, aliases, dest)
         }
+        Rvalue::OptionalField { receiver, .. } => rewrite_operand_except(receiver, aliases, dest),
+        Rvalue::OptionalIndex { receiver, index } => {
+            rewrite_operand_except(receiver, aliases, dest)
+                | rewrite_operand_except(index, aliases, dest)
+        }
+        Rvalue::OptionalMethod { receiver, args, .. } => args.iter_mut().fold(
+            rewrite_operand_except(receiver, aliases, dest),
+            |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
+        ),
         Rvalue::InstanceOf { value: operand, .. }
         | Rvalue::UnknownIs { value: operand, .. }
         | Rvalue::UnknownCast { value: operand, .. } => {

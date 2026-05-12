@@ -104,36 +104,72 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower a TypeScript optional chain wrapper by delegating to its chain element.
+    fn chain_expression(
+        &mut self,
+        chain: &oxc::ast::ast::ChainExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match &chain.expression {
+            ChainElement::CallExpression(call) => self.call_expression(call, body),
+            ChainElement::StaticMemberExpression(member) => self.static_member(member, body),
+            ChainElement::ComputedMemberExpression(member) => self.computed_member(member, body),
+            ChainElement::TSNonNullExpression(non_null) => {
+                self.expression(&non_null.expression, body)
+            }
+            ChainElement::PrivateFieldExpression(private_field) => Err(SmeltError::unsupported(
+                self.span(private_field.span.start, private_field.span.end),
+                "private field optional chains are not lowered yet",
+            )),
+        }
+    }
+
     /// Lower a static member access expression.
     fn static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if member.optional {
-            return Err(SmeltError::unsupported(
-                self.span(member.span.start, member.span.end),
-                "optional member access is not lowered yet",
-            ));
-        }
         if let Some(expr) = self.namespace_member_expression(member, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.url_field_expression(member, body)? {
+            return Ok(expr);
+        }
         let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let optional_access =
+            member.optional || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)));
+        let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
         let field = self.intern_source_name(member.property.name.as_str());
         if member.property.name == "length"
-            && self.supports_stdlib_length(Self::expr_ty(body, receiver))
+            && self.supports_stdlib_length(access_receiver_ty)
             || member.property.name == "size"
-                && self.supports_stdlib_size(Self::expr_ty(body, receiver))
+                && self.supports_stdlib_size(access_receiver_ty)
         {
             let ty = self.ctx.krate.types.intern(Type::Float);
+            if optional_access {
+                return Err(SmeltError::unsupported(
+                    self.span(member.span.start, member.span.end),
+                    "optional length and size access is not lowered yet",
+                ));
+            }
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Len { operand: receiver },
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
+        let field_ty = self.class_field_type(access_receiver_ty, field)?;
+        if optional_access {
+            let ty = self.optional_chain_result_type(field_ty);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::OptionalField { receiver, field },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
+        let ty = field_ty;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
             ty,
@@ -147,16 +183,22 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if member.optional {
-            return Err(SmeltError::unsupported(
-                self.span(member.span.start, member.span.end),
-                "optional index access is not lowered yet",
-            ));
-        }
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
-        if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(receiver_ty).cloned() {
+        let optional_access =
+            member.optional || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)));
+        let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
+        if optional_access {
+            let value_ty = self.index_type(access_receiver_ty)?;
+            let ty = self.optional_chain_result_type(value_ty);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::OptionalIndex { receiver, index },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
+        if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(access_receiver_ty).cloned() {
             let index = self.static_tuple_index(index, body, items.len(), member.span)?;
             let Some(ty) = items.get(index).copied() else {
                 return Err(SmeltError::unsupported(
@@ -173,8 +215,8 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        self.reject_negative_bracket_index(receiver_ty, index, body, member.span)?;
-        let ty = self.index_type(receiver_ty)?;
+        self.reject_negative_bracket_index(access_receiver_ty, index, body, member.span)?;
+        let ty = self.index_type(access_receiver_ty)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty,

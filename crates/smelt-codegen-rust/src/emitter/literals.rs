@@ -5,6 +5,7 @@ use crate::rust::RustExpr;
 
 impl FunctionEmitter<'_> {}
 
+/// Converts a MIR constant to Rust source text.
 pub(super) fn constant_text(constant: &Constant) -> String {
     match constant {
         Constant::Bool(value) => value.to_string(),
@@ -77,7 +78,7 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
             } = statement
                 && let Some(callback) = mir
                     .closures
-                    .get(id.0 as usize)
+                    .get(usize::try_from(id.0).unwrap_or(usize::MAX))
                     .and_then(|closure| closure.callback_body.as_ref())
             {
                 assigned_callback_locals(callback, &mut locals);

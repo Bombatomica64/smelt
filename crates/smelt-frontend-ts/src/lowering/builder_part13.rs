@@ -1148,6 +1148,7 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Subtraction => Ok(BinOp::Sub),
             BinaryOperator::Multiplication => Ok(BinOp::Mul),
             BinaryOperator::Division => Ok(BinOp::Div),
+            BinaryOperator::Remainder => Ok(BinOp::Rem),
             BinaryOperator::StrictEquality => Ok(BinOp::Eq),
             BinaryOperator::StrictInequality => Ok(BinOp::NotEq),
             BinaryOperator::LessThan => Ok(BinOp::Lt),

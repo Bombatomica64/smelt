@@ -4,12 +4,34 @@ impl ModuleBuilder<'_> {
     // -----------------------------------------------------------------------
 
     /// Infer the element type of a field access on `receiver_ty`.
-    fn field_type(&self, receiver_ty: TypeId) -> Result<TypeId, SmeltError> {
+    fn field_type(&self, receiver_ty: TypeId, field: Symbol) -> Result<TypeId, SmeltError> {
         match self.ctx.krate.types.get(receiver_ty) {
-            Some(Type::Class { .. }) => {
-                // Field types on classes will be resolved when class lowering lands.
-                Ok(receiver_ty)
-            }
+            Some(Type::Class { name, .. }) => self
+                .ctx
+                .krate
+                .items
+                .iter()
+                .find_map(|item| {
+                    let Item::Class(class) = item else {
+                        return None;
+                    };
+                    if class.name != *name {
+                        return None;
+                    }
+                    class
+                        .fields
+                        .iter()
+                        .find(|class_field| class_field.name == field)
+                        .map(|class_field| class_field.ty)
+                        .or_else(|| class.fields.is_empty().then_some(receiver_ty))
+                })
+                .ok_or_else(|| {
+                    let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
+                    SmeltError::unsupported(
+                        Span::new(self.file_id, 0, 0),
+                        format!("unknown class field `{field_name}`"),
+                    )
+                }),
             _ => Err(SmeltError::unsupported(
                 Span::new(self.file_id, 0, 0),
                 "attribute access is only supported on class instances",

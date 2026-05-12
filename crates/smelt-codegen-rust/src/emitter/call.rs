@@ -196,7 +196,7 @@ impl FunctionEmitter<'_> {
             Ok(("{}", "\"null\"".to_owned()))
         } else if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_))
+            Some(Type::List(_) | Type::Dict(_, _) | Type::Tuple(_) | Type::Optional(_))
         ) {
             Ok(("{:?}", self.operand_text(operand)?))
         } else {

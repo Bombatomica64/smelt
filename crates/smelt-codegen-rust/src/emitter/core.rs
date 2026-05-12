@@ -255,6 +255,15 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.mir.types.get(target) == Some(&Type::Unknown) {
             return self.unknown_wrap_text(operand);
         }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            let operand_ty = self.operand_ty(operand)?;
+            if self.mir.types.get(operand_ty) == Some(&Type::None) {
+                return Ok("None".to_owned());
+            }
+            if operand_ty == *inner {
+                return Ok(format!("Some({})", self.operand_text(operand)?));
+            }
+        }
         self.operand_text(operand)
     }
 

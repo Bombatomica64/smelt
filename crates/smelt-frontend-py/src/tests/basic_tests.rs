@@ -123,6 +123,38 @@ def choose(flag: bool, left: int, right: int) -> int:
 }
 
 #[test]
+fn value_returning_or_none_lowers_to_optional_conditional() -> TestResult {
+    let source = py!(r#"
+class Obj:
+    id: str
+
+    def __init__(self, id: str) -> None:
+        self.id = id
+
+obj: Obj = Obj("a")
+value: str | None = obj.id or None
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_module(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let module_body = body(&ctx, module.body.ok_or("expected module body")?)?;
+    ensure(
+        module_body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::Conditional {
+                    then_expr: _,
+                    else_expr: _,
+                    ..
+                }
+            ) && matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+        }),
+        "expected value-returning or to lower to an optional conditional",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn async_function_and_await_lower() -> TestResult {
     let source = py!(r#"
 async def lift(value: int) -> int:

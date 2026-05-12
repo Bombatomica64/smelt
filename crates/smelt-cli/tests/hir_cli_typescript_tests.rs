@@ -552,3 +552,45 @@ clone-strategy = "aggressive"
 
     Ok(())
 }
+
+#[test]
+fn build_dependency_closure_allows_typescript_import_cycles() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-import-cycle"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_import_cycle"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/a.ts"),
+        "import './b';\nexport function aValue(): number {\n  return 4;\n}\n",
+    )?;
+    fs::write(project_path.join("src/b.ts"), "import './a';\n")?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { aValue } from './a';\nconst result = aValue();\nconsole.log(result);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"4\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
