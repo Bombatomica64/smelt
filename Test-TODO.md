@@ -36,8 +36,8 @@ Checked the first three proposed Effect alternatives:
 
 | Repo | Approx TS files | Approx runtime test files | Framework | Probe | `smelt check` | Current first blocker |
 |---|---:|---:|---|---|---:|---|
-| `remeda/remeda` | `585` total, `517` package runtime `.ts` files | `174` | Vitest | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | Superseded by the never step-1 rerun: now reaches `packages/remeda/src/internal/lazyDataLastImpl.ts`, where the data-last closure returns `fn(data, ...args)`. |
-| `remeda/remeda` | same | same | Vitest | focused `toUpperCase` slice | fail | Superseded by the never step-1 rerun: same `lazyDataLastImpl.ts` callback body call/spread blocker. |
+| `remeda/remeda` | `585` total, `517` package runtime `.ts` files | `174` | Vitest | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | Now reaches `packages/remeda/src/pipe.ts`: callback expression kind, destructured `for...of` binding, and field access on a non-record/class/interface type. |
+| `remeda/remeda` | same | same | Vitest | focused `toUpperCase` slice | fail | Rerun focused slice after type-test `.test-d.ts` handling advances. |
 | `sindresorhus/ky` | `52` | AVA tests in `test/*.ts` | AVA | full `source` + `test` manifest | fail | `source/core/Ky.ts`: object spread properties, optional class fields, `Symbol`, `Object`, richer callbacks, and callback binary operators. |
 | `sindresorhus/ky` | same | same | AVA | focused `source/index.ts` slice | fail | `source/core/constants.ts`: exported non-primitive constants/calls, array callback arity, unresolved callback locals, and unannotated exported arrow constant. |
 | `supermacro/neverthrow` | `8` | `2` | Vitest | full `src` + `tests` manifest | fail | Superseded by the cycle fix: now reaches `src/result.ts` and fails on forward class references to `Ok`/`Err`, parenthesized function types returning `Generator`, generic interface methods, generic classes, tuple `never`, tuple rest types, and conditional tuple element types. |
@@ -330,7 +330,7 @@ TypeScript table tests later:
 - [x] Inline direct `beforeEach` / `afterEach` arrow callbacks into each generated test.
 - [x] Support nested `describe` blocks with inherited lifecycle hooks.
 - [ ] Support dynamic table sources.
-- [ ] Support Vitest type-test imports such as `expectTypeOf` / `assertType` as no-op compile-time
+- [x] Support Vitest type-test imports such as `expectTypeOf` / `assertType` as no-op compile-time
       assertions once type-only test files are in scope.
 
 ## Priority 5: Import Graph And Real Project Slices
@@ -379,6 +379,8 @@ TypeScript:
 - [ ] Array iteration and readonly array parameters
 - [x] Exported object constants
   - [x] Exported primitive literal constants.
+  - [x] Exported and local literal object constants, including `{ ... } as const`, lower as
+        importable/reusable record literals.
 - [x] Arrow functions assigned to `const`
 - [x] Function overload declarations should be ignored/merged with implementation when safe.
 - [ ] `Iterable<T>` type references.
@@ -389,6 +391,20 @@ TypeScript:
       `specs/never-type-plan.md`.
 - [ ] Function calls with spread arguments inside closure/callback bodies, required by Remeda's
       `lazyDataLastImpl.ts` data-last helper: `(data: unknown): unknown => fn(data, ...args)`.
+- [x] Local arrow function constants declared after a function body that reads them, required by
+      Remeda's `add.ts`: `add(...)` calls `purry(addImplementation, args)` before the
+      `const addImplementation = (...) => ...` declaration appears.
+- [x] Overload-aware call lowering, required by Remeda's `add.test.ts`: `add(10, 5)` should
+      select the data-first overload instead of the implementation rest signature.
+- [x] Call-expression callees for curried/data-last APIs, required by Remeda's `add.test.ts`:
+      `add(5)(10)`.
+- [x] Generic `Record<K, V>` where `K` is constrained to `PropertyKey`, required by Remeda's
+      `internal/types/UpsertProp.ts` type-level helper.
+- [x] Object spread properties in object literals, required by Remeda's `addProp.ts`.
+- [x] Type-test `.test-d.ts` handling for Remeda's `addProp.test-d.ts`, including
+      `{} as { ... }` call arguments and `expectTypeOf` no-op type assertions.
+- [ ] `pipe.ts` runtime lowering gaps in Remeda: callback expression kind, destructured
+      `for...of` binding, and field access on a non-record/class/interface type.
 - [ ] Inference or safe acceptance for unannotated exported/test-adjacent function declarations
       when upstream TypeScript would infer the return type.
 - [ ] Exported non-primitive const call expressions used by Effect, especially `dual(...)`-style
@@ -742,12 +758,25 @@ eight-repo rerun.
   - `packages/remeda/src/toUpperCase.ts`
   - `packages/remeda/src/toUpperCase.test.ts`
 - First blocker:
-  - Superseded by 2026-05-12 never step-1 rerun:
+  - Superseded by 2026-05-13 overload rerun:
     - focused log root: `/tmp/smelt-alt-ts-probe-20260512_165432/runs/remeda_to_upper_after_never_step1_180952`
     - full log root: `/tmp/smelt-alt-ts-probe-20260512_165432/runs/remeda_full_after_never_step1_180952`
-    - new blocker: `packages/remeda/src/internal/lazyDataLastImpl.ts` has a data-last closure
-      returning `fn(data, ...args)`, which currently reports `callback expression kind is not
-      supported yet`.
+    - previous blocker fixed: `packages/remeda/src/internal/utilityEvaluators.ts` now lowers
+      literal `{ ... } as const` object constants, local `EMPTY_PIPE` reads, and the unannotated
+      generic `lazyIdentityEvaluator` arrow const.
+    - previous blocker fixed: `packages/remeda/src/add.ts` can read `addImplementation` before the
+      local arrow const declaration appears.
+    - previous blocker fixed: `packages/remeda/src/add.test.ts` now lowers overload-aware calls for
+      `add(10, 5)` and call-expression callees for `add(5)(10)`.
+    - previous blocker fixed: `packages/remeda/src/internal/types/UpsertProp.ts` now preserves
+      generic `Record<K, V>` keys for later type-parameter substitution after first trying the
+      concrete key lowering path.
+    - previous blocker fixed: `packages/remeda/src/addProp.ts` now lowers object spread literals,
+      computed property keys, and `addPropImplementation`.
+    - previous blocker fixed: `packages/remeda/src/addProp.test-d.ts` now lowers type assertion
+      call arguments such as `{} as { ... }` and erases Vitest `expectTypeOf` type assertions.
+    - new blocker: `packages/remeda/src/pipe.ts` needs callback expression support,
+      destructured `for...of` bindings, and field access on a non-record/class/interface type.
 
 `psf/requests`:
 

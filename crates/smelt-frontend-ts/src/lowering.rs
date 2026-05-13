@@ -4,7 +4,10 @@ mod stdlib;
 mod stdlib_dispatch;
 use std::collections::{HashMap, HashSet};
 
-use crate::{HirCtx, SmeltError, camel_to_snake, test_support};
+use crate::{
+    HirCtx, ObjectConst, ObjectConstEntry, OverloadSignature, SmeltError, camel_to_snake,
+    test_support,
+};
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, ClassElement,
@@ -186,7 +189,7 @@ pub fn to_hir_with_path(
             .collect());
     }
 
-    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), ctx);
+    let mut builder = ModuleBuilder::new(file_id, path.to_owned(), source.to_owned(), ctx);
     builder.program(&parsed.program)
 }
 
@@ -198,6 +201,8 @@ struct ModuleBuilder<'ctx> {
     file_id: FileId,
     /// Source path for module metadata.
     path: String,
+    /// Source text for cheap declaration-order probes.
+    source: String,
     /// Mutable reference to the HIR context.
     ctx: &'ctx mut HirCtx,
     /// Local variable bindings in current scope.
@@ -212,6 +217,10 @@ struct ModuleBuilder<'ctx> {
     interfaces: HashMap<String, smelt_hir::ItemId>,
     /// Fields for each class.
     class_fields: HashMap<String, Vec<Field>>,
+    /// Fields carried by structural type aliases.
+    type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
+    /// Fields attached to callable intersection types.
+    callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
     /// Currently processing class name, if any.
     current_class: Option<String>,
     /// Whether the current lowered function body is async.
@@ -226,16 +235,28 @@ struct ModuleBuilder<'ctx> {
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Literal constant items visible from already-lowered modules.
     const_literals: HashMap<String, ConstLiteral>,
+    /// Object literal constants visible from current and already-lowered modules.
+    const_objects: HashMap<String, ObjectConst>,
     /// User assertion functions declared with `asserts value is T`.
     assertion_functions: HashMap<String, AssertionNarrowing>,
+    /// User predicate functions declared with `value is T`.
+    predicate_functions: HashMap<String, AssertionNarrowing>,
     /// Active local narrowings from guards and assertion calls.
     narrowed_locals: Vec<HashMap<String, smelt_hir::TypeId>>,
     /// Active generic type parameter scopes.
     type_param_scopes: Vec<HashMap<String, smelt_hir::TypeId>>,
+    /// Constraints for active generic type parameters keyed by HIR type parameter symbol.
+    type_param_constraint_scopes: Vec<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>>,
     /// Local closure values available to non-escaping callback consumers.
     local_callbacks: HashMap<String, LocalCallback>,
     /// Rest-parameter metadata for top-level function declarations.
     function_rests: HashMap<String, RestParam>,
+    /// Forward-visible function declaration signatures for hoisted callback calls.
+    forward_function_types: HashMap<String, (smelt_hir::Symbol, smelt_hir::TypeId)>,
+    /// Function item slots reserved for local hoisted declarations.
+    local_function_items: HashMap<String, smelt_hir::ItemId>,
+    /// TypeScript overload signatures keyed by implementation name.
+    function_overloads: HashMap<String, Vec<OverloadSignature>>,
 }
 
 // Lowering builder implementation split into small include files.

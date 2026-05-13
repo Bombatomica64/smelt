@@ -452,6 +452,13 @@ pub enum Rvalue {
         /// Call arguments.
         args: Vec<Operand>,
     },
+    /// Return an optional value's content or a fallback operand.
+    OptionalCoalesce {
+        /// Optional operand to inspect.
+        optional: Operand,
+        /// Fallback operand used when the optional is empty.
+        fallback: Operand,
+    },
     /// Test whether a value is an instance of a class.
     InstanceOf {
         /// Value being tested. Kept as an operand so side effects are evaluated before the check.

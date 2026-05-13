@@ -232,7 +232,9 @@ fn validate_callback_expr(
                 validate_callback_expr(body_idx, body, item, errors);
             }
         }
-        CallbackExprKind::Index { receiver, .. } | CallbackExprKind::Field { receiver, .. } => {
+        CallbackExprKind::Index { receiver, .. }
+        | CallbackExprKind::Field { receiver, .. }
+        | CallbackExprKind::HasField { receiver, .. } => {
             validate_callback_expr(body_idx, body, receiver, errors);
         }
         CallbackExprKind::Unary { operand, .. } => {
@@ -242,12 +244,23 @@ fn validate_callback_expr(
             validate_callback_expr(body_idx, body, lhs, errors);
             validate_callback_expr(body_idx, body, rhs, errors);
         }
+        CallbackExprKind::Conditional {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            validate_callback_expr(body_idx, body, cond, errors);
+            validate_callback_expr(body_idx, body, then_expr, errors);
+            validate_callback_expr(body_idx, body, else_expr, errors);
+        }
         CallbackExprKind::Call { callee, args } => {
             validate_callback_expr(body_idx, body, callee, errors);
             for arg in args {
                 validate_callback_expr(body_idx, body, &arg.expr, errors);
             }
         }
-        CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
+        CallbackExprKind::Param(_)
+        | CallbackExprKind::Function(_)
+        | CallbackExprKind::Literal(_) => {}
     }
 }

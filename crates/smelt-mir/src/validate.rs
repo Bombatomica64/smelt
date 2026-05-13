@@ -245,6 +245,10 @@ fn validate_rvalue_exists(
                 validate_operand_exists(function, arg, errors);
             }
         }
+        Rvalue::OptionalCoalesce { optional, fallback } => {
+            validate_operand_exists(function, optional, errors);
+            validate_operand_exists(function, fallback, errors);
+        }
         Rvalue::InstanceOf { value: operand, .. } => {
             validate_operand_exists(function, operand, errors);
         }
@@ -921,6 +925,10 @@ fn validate_rvalue(
             for arg in args {
                 validate_operand(function, definitions, arg, errors);
             }
+        }
+        Rvalue::OptionalCoalesce { optional, fallback } => {
+            validate_operand(function, definitions, optional, errors);
+            validate_operand(function, definitions, fallback, errors);
         }
         Rvalue::InstanceOf { value: operand, .. } => {
             validate_operand(function, definitions, operand, errors);

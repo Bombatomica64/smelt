@@ -201,15 +201,13 @@ impl ModuleBuilder<'_> {
                 {
                     return self.expression(&logical.right, body);
                 }
-                let op = match logical.operator {
-                    LogicalOperator::And => BinOp::And,
-                    LogicalOperator::Or => BinOp::Or,
-                    LogicalOperator::Coalesce => {
-                        return Err(SmeltError::unsupported(
-                            self.span(logical.span.start, logical.span.end),
-                            "nullish coalescing is not lowered yet",
-                        ));
-                    }
+                if logical.operator == LogicalOperator::Coalesce {
+                    return self.nullish_coalesce_expression(logical, body);
+                }
+                let op = if logical.operator == LogicalOperator::And {
+                    BinOp::And
+                } else {
+                    BinOp::Or
                 };
                 let lhs = self.expression(&logical.left, body)?;
                 let rhs = self.expression(&logical.right, body)?;
@@ -235,19 +233,27 @@ impl ModuleBuilder<'_> {
                     self.expression_with_hint(&conditional.alternate, body, branch_hint)?;
                 let then_ty = Self::expr_ty(body, then_expr);
                 let else_ty = Self::expr_ty(body, else_expr);
-                if then_ty != else_ty {
+                let ty = if then_ty == else_ty {
+                    then_ty
+                } else if type_hint
+                    .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
+                    || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
+                    || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
+                {
+                    self.ctx.krate.types.intern(Type::Unknown)
+                } else {
                     return Err(SmeltError::unsupported(
                         self.span(conditional.span.start, conditional.span.end),
                         "conditional expression branches must have the same lowered type",
                     ));
-                }
+                };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Conditional {
                         cond,
                         then_expr,
                         else_expr,
                     },
-                    ty: then_ty,
+                    ty,
                     span: self.span(conditional.span.start, conditional.span.end),
                 }))
             }
@@ -321,6 +327,7 @@ impl ModuleBuilder<'_> {
             Expression::StaticMemberExpression(member) => self.static_member(member, body),
             Expression::ComputedMemberExpression(member) => self.computed_member(member, body),
             Expression::CallExpression(call) => self.call_expression(call, body),
+            Expression::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
             Expression::ChainExpression(chain) => self.chain_expression(chain, body),
             Expression::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
@@ -362,7 +369,7 @@ impl ModuleBuilder<'_> {
                 if callee.name == "Date" {
                     return self.new_date_expression(new_expr, body);
                 }
-                if callee.name == "Error" {
+                if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
                     return self.error_constructor_expression(new_expr, body);
                 }
                 if callee.name == "URL" {
@@ -402,68 +409,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }))
             }
-            Expression::TemplateLiteral(tpl) => {
-                let str_ty = self.ctx.krate.types.intern(Type::String);
-                let span = self.span(tpl.span.start, tpl.span.end);
-
-                // Build the first segment from the first quasi.
-                let Some(first_quasi) = tpl.quasis.first() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(tpl.span.start, tpl.span.end),
-                        "template literals must contain at least one quasi",
-                    ));
-                };
-                let first_str = first_quasi
-                    .value
-                    .cooked
-                    .as_ref()
-                    .map_or_else(|| first_quasi.value.raw.as_str(), |c| c.as_str())
-                    .to_owned();
-                let mut acc = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(first_str)),
-                    ty: str_ty,
-                    span,
-                });
-
-                for (i, interp) in tpl.expressions.iter().enumerate() {
-                    // Concatenate the interpolated expression
-                    let part = self.expression(interp, body)?;
-                    acc = body.push_expr(Expr {
-                        kind: ExprKind::BinOp {
-                            op: BinOp::Add,
-                            lhs: acc,
-                            rhs: part,
-                        },
-                        ty: str_ty,
-                        span,
-                    });
-                    // Concatenate the next quasi string (skip empty ones to keep HIR tidy)
-                    if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
-                        let s = quasi
-                            .value
-                            .cooked
-                            .as_ref()
-                            .map_or_else(|| quasi.value.raw.as_str(), |c| c.as_str());
-                        if !s.is_empty() {
-                            let lit = body.push_expr(Expr {
-                                kind: ExprKind::Literal(Literal::String(s.to_owned())),
-                                ty: str_ty,
-                                span,
-                            });
-                            acc = body.push_expr(Expr {
-                                kind: ExprKind::BinOp {
-                                    op: BinOp::Add,
-                                    lhs: acc,
-                                    rhs: lit,
-                                },
-                                ty: str_ty,
-                                span,
-                            });
-                        }
-                    }
-                }
-                Ok(acc)
-            }
+            Expression::TemplateLiteral(tpl) => self.template_literal_expression(tpl, body),
             Expression::TaggedTemplateExpression(tagged) => Err(SmeltError::unsupported(
                 self.span(tagged.span.start, tagged.span.end),
                 "tagged template literals are not supported",
@@ -473,6 +419,70 @@ impl ModuleBuilder<'_> {
                 format!("expression kind is not lowered yet: {expression:?}"),
             )),
         }
+    }
+
+    /// Lower a template literal as string concatenation.
+    fn template_literal_expression(
+        &mut self,
+        tpl: &oxc::ast::ast::TemplateLiteral<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let str_ty = self.ctx.krate.types.intern(Type::String);
+        let span = self.span(tpl.span.start, tpl.span.end);
+        let Some(first_quasi) = tpl.quasis.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(tpl.span.start, tpl.span.end),
+                "template literals must contain at least one quasi",
+            ));
+        };
+        let first_str = first_quasi
+            .value
+            .cooked
+            .as_ref()
+            .map_or_else(|| first_quasi.value.raw.as_str(), |c| c.as_str())
+            .to_owned();
+        let mut acc = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(first_str)),
+            ty: str_ty,
+            span,
+        });
+
+        for (i, interp) in tpl.expressions.iter().enumerate() {
+            let part = self.expression(interp, body)?;
+            acc = body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Add,
+                    lhs: acc,
+                    rhs: part,
+                },
+                ty: str_ty,
+                span,
+            });
+            if let Some(quasi) = tpl.quasis.get(i.saturating_add(1)) {
+                let s = quasi
+                    .value
+                    .cooked
+                    .as_ref()
+                    .map_or_else(|| quasi.value.raw.as_str(), |c| c.as_str());
+                if !s.is_empty() {
+                    let lit = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::String(s.to_owned())),
+                        ty: str_ty,
+                        span,
+                    });
+                    acc = body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: BinOp::Add,
+                            lhs: acc,
+                            rhs: lit,
+                        },
+                        ty: str_ty,
+                        span,
+                    });
+                }
+            }
+        }
+        Ok(acc)
     }
 
     // Continued in the next split builder file.

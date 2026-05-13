@@ -6,6 +6,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<Vec<TypeParamDef>, SmeltError> {
         let Some(params) = params else {
             self.type_param_scopes.push(HashMap::new());
+            self.type_param_constraint_scopes.push(HashMap::new());
             return Ok(Vec::new());
         };
 
@@ -18,6 +19,7 @@ impl ModuleBuilder<'_> {
         self.type_param_scopes.push(scope);
 
         let mut lowered = Vec::new();
+        let mut constraints = HashMap::new();
         for param in &params.params {
             let name = self.intern_type_name(param.name.name.as_str());
             let constraint = param
@@ -25,6 +27,9 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|constraint| self.ts_type_to_hir(constraint))
                 .transpose()?;
+            if let Some(constraint) = constraint {
+                constraints.insert(name, constraint);
+            }
             let default = param
                 .default
                 .as_ref()
@@ -37,12 +42,14 @@ impl ModuleBuilder<'_> {
                 span: self.span(param.span.start, param.span.end),
             });
         }
+        self.type_param_constraint_scopes.push(constraints);
         Ok(lowered)
     }
 
     /// Pop the current TypeScript type parameter scope.
     fn pop_type_parameter_scope(&mut self) {
         self.type_param_scopes.pop();
+        self.type_param_constraint_scopes.pop();
     }
 
     /// Resolve a type parameter by source name from innermost to outermost scope.
@@ -51,6 +58,17 @@ impl ModuleBuilder<'_> {
             .iter()
             .rev()
             .find_map(|scope| scope.get(name).copied())
+    }
+
+    /// Resolve a lowered type parameter's active constraint, if any.
+    fn type_parameter_constraint(
+        &self,
+        name: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        self.type_param_constraint_scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(&name).copied())
     }
 
     /// Builds a substitution map from generic parameter symbols to actual argument types.

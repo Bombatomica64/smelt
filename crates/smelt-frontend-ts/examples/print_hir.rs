@@ -2,7 +2,6 @@
 //!
 //! Used for local debugging of frontend lowering behavior.
 
-#![expect(clippy::print_stdout, reason = "example prints compact HIR output")]
 #![expect(
     clippy::cast_possible_truncation,
     reason = "example file IDs are small indexes from command-line arguments"
@@ -16,12 +15,17 @@
     reason = "debug mode intentionally prints the raw HIR crate"
 )]
 
-use std::{env, fs, path::Path};
+use std::{
+    env, fs,
+    io::{self, Write},
+    path::Path,
+};
 
 use smelt_frontend_ts::{HirCtx, to_hir};
 use smelt_hir::{FileId, format_compact};
 
 fn main() -> Result<(), String> {
+    let mut stdout = io::stdout().lock();
     let mut debug = false;
     let mut paths = Vec::new();
 
@@ -29,9 +33,11 @@ fn main() -> Result<(), String> {
         match arg.as_str() {
             "--debug" => debug = true,
             "--help" | "-h" => {
-                println!(
+                writeln!(
+                    stdout,
                     "usage: cargo run -p smelt-frontend-ts --example ts_print_hir -- [--debug] <file.ts> [...]"
-                );
+                )
+                .map_err(|error| error.to_string())?;
                 return Ok(());
             }
             _ => paths.push(arg),
@@ -57,9 +63,10 @@ fn main() -> Result<(), String> {
     }
 
     if debug {
-        println!("{:#?}", ctx.krate);
+        writeln!(stdout, "{:#?}", ctx.krate).map_err(|error| error.to_string())?;
     } else {
-        print!("{}", format_compact(&ctx.krate, &loaded));
+        write!(stdout, "{}", format_compact(&ctx.krate, &loaded))
+            .map_err(|error| error.to_string())?;
     }
 
     Ok(())

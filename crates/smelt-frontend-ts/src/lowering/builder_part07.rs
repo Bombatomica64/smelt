@@ -64,6 +64,7 @@ impl ModuleBuilder<'_> {
     fn for_left_pattern(
         &mut self,
         left: &ForStatementLeft<'_>,
+        iter_ty: smelt_hir::TypeId,
         body: &mut Body,
     ) -> Result<smelt_hir::PatternId, SmeltError> {
         let ForStatementLeft::VariableDeclaration(decl) = left else {
@@ -90,17 +91,11 @@ impl ModuleBuilder<'_> {
                 "destructured for...of bindings are not lowered yet",
             ));
         };
-        let ty = declarator
-            .type_annotation
-            .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-            .transpose()?
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(declarator.span.start, declarator.span.end),
-                    "for...of bindings must have explicit type annotations",
-                )
-            })?;
+        let ty = if let Some(annotation) = &declarator.type_annotation {
+            self.ts_type_to_hir(&annotation.type_annotation)?
+        } else {
+            self.index_type(iter_ty)?
+        };
         let name = binding.name.as_str();
         let symbol = self.intern_source_name(name);
         let local = body.push_local(LocalDecl {
@@ -111,6 +106,62 @@ impl ModuleBuilder<'_> {
         });
         self.locals.insert(name.to_owned(), local);
         Ok(body.push_pattern(Pattern::Binding(local)))
+    }
+
+    /// Extract a destructured for-of binding, lowering the loop item into a temp local.
+    ///
+    /// MIR for-loops currently assign each iteration item into a single binding
+    /// pattern. For destructuring, Smelt binds that item to a compiler-generated
+    /// local and inserts ordinary destructuring `let` statements at the start of
+    /// the loop body.
+    fn for_left_destructuring<'a>(
+        &mut self,
+        left: &'a ForStatementLeft<'a>,
+        iter_ty: smelt_hir::TypeId,
+        body: &mut Body,
+    ) -> Result<
+        Option<(
+            smelt_hir::PatternId,
+            smelt_hir::ExprId,
+            &'a BindingPattern<'a>,
+            Option<smelt_hir::TypeId>,
+            bool,
+        )>,
+        SmeltError,
+    > {
+        let ForStatementLeft::VariableDeclaration(decl) = left else {
+            return Ok(None);
+        };
+        if decl.declarations.len() != 1 {
+            return Ok(None);
+        }
+        let Some(declarator) = decl.declarations.first() else {
+            return Ok(None);
+        };
+        if matches!(declarator.id, BindingPattern::BindingIdentifier(_)) {
+            return Ok(None);
+        }
+        let item_ty = declarator
+            .type_annotation
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?
+            .unwrap_or(self.index_type(iter_ty)?);
+        let symbol = self.intern_source_name("__smelt_for_item");
+        let local = body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty: item_ty,
+            mutable: true,
+            span: self.span(declarator.span.start, declarator.span.end),
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::Local(local),
+            ty: item_ty,
+            span: self.span(declarator.span.start, declarator.span.end),
+        });
+        let pat = body.push_pattern(Pattern::Binding(local));
+        let mutable = decl.kind == oxc::ast::ast::VariableDeclarationKind::Let;
+        Ok(Some((pat, value, &declarator.id, Some(item_ty), mutable)))
     }
 
     /// Adapt TypeScript for-of iterables whose Rust representation is not indexable.

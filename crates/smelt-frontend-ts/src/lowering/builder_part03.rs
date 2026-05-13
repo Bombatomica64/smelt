@@ -31,6 +31,18 @@ impl ModuleBuilder<'_> {
                 return Err(error);
             }
         };
+        let predicate_return = match function
+            .return_type
+            .as_ref()
+            .and_then(|annotation| self.predicate_return_type(&annotation.type_annotation))
+            .transpose()
+        {
+            Ok(value) => value,
+            Err(error) => {
+                self.pop_type_parameter_scope();
+                return Err(error);
+            }
+        };
         let return_ty = if assertion_return.is_some() {
             self.ctx.krate.types.intern(Type::None)
         } else {
@@ -209,7 +221,7 @@ impl ModuleBuilder<'_> {
         }
 
         let body_id = self.ctx.krate.push_body(body);
-        let item = self.ctx.krate.push_item(Item::Function(Function {
+        let function_item = Function {
             name,
             span: self.span(function.span.start, function.span.end),
             params,
@@ -218,7 +230,16 @@ impl ModuleBuilder<'_> {
             is_test: false,
             body: Some(body_id),
             owner: FunctionOwner::Module,
-        }));
+        };
+        let item = if let Some(item) = self.local_function_items.get(name_text).copied() {
+            let index = usize::try_from(item.0).unwrap_or(usize::MAX);
+            if let Some(slot) = self.ctx.krate.items.get_mut(index) {
+                *slot = Item::Function(function_item);
+            }
+            item
+        } else {
+            self.ctx.krate.push_item(Item::Function(function_item))
+        };
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.function_rests.insert(name_text.to_owned(), rest);
@@ -233,6 +254,23 @@ impl ModuleBuilder<'_> {
             })
         {
             self.assertion_functions.insert(
+                name_text.to_owned(),
+                AssertionNarrowing {
+                    param_index,
+                    target,
+                },
+            );
+        }
+        if let Some((parameter_name, target)) = predicate_return
+            && let Some(param_index) = function.params.items.iter().position(|param| {
+                matches!(
+                    &param.pattern,
+                    BindingPattern::BindingIdentifier(binding)
+                        if binding.name.as_str() == parameter_name
+                )
+            })
+        {
+            self.predicate_functions.insert(
                 name_text.to_owned(),
                 AssertionNarrowing {
                     param_index,

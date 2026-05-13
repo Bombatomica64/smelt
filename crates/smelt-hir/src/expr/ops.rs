@@ -91,6 +91,8 @@ pub enum PrimitiveCastOp {
 pub enum NumericPredicateOp {
     /// Test whether a number is finite.
     IsFinite,
+    /// Test whether a number is an integer.
+    IsInteger,
     /// Test whether a number is NaN.
     IsNaN,
 }

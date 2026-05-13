@@ -26,6 +26,8 @@ use crate::lowering::SourceLang;
 pub(crate) struct ManifestSource {
     /// Original manifest entry resolved against the manifest directory.
     pub(crate) path: PathBuf,
+    /// Source text read while scanning imports.
+    pub(crate) source: String,
     /// Source language inferred from the file extension.
     lang: SourceLang,
     /// Import specifiers found before lowering.
@@ -88,6 +90,7 @@ pub(crate) fn read_manifest_source(
     })?;
     Ok(ManifestSource {
         path,
+        source,
         lang,
         imports,
         dependencies: Vec::new(),

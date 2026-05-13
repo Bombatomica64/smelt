@@ -229,19 +229,27 @@ fn lowers_number_parse_int_call() -> Result<(), String> {
     let module_id = lower_ok(
         ts!(r#"
 const value = Number.parseInt("42");
+const decimalValue = Number.parseInt("42", 10);
 "#),
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body.exprs.iter().any(|expr| matches!(
-        expr.kind,
-        ExprKind::PrimitiveCast {
-            op: PrimitiveCastOp::ToInt,
-            ..
-        }
-    )));
+    let parse_count = body
+        .exprs
+        .iter()
+        .filter(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToInt,
+                    ..
+                }
+            )
+        })
+        .count();
+    ensure_eq!(parse_count, 2);
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -1009,6 +1017,7 @@ fn lowers_global_numeric_parse_calls() -> Result<(), String> {
     let module_id = lower_ok(
         ts!(r#"
 const intValue = parseInt("42");
+const decimalIntValue = parseInt("42", 10);
 const floatValue = parseFloat("42.5");
 "#),
         &mut ctx,
@@ -1016,13 +1025,20 @@ const floatValue = parseFloat("42.5");
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    ensure!(body.exprs.iter().any(|expr| matches!(
-        expr.kind,
-        ExprKind::PrimitiveCast {
-            op: PrimitiveCastOp::ToInt,
-            ..
-        }
-    )));
+    let int_parse_count = body
+        .exprs
+        .iter()
+        .filter(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToInt,
+                    ..
+                }
+            )
+        })
+        .count();
+    ensure_eq!(int_parse_count, 2);
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::PrimitiveCast {

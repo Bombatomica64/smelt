@@ -197,6 +197,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(receiver, aliases, dest),
             |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
         ),
+        Rvalue::OptionalCoalesce { optional, fallback } => {
+            rewrite_operand_except(optional, aliases, dest)
+                | rewrite_operand_except(fallback, aliases, dest)
+        }
         Rvalue::InstanceOf { value: operand, .. }
         | Rvalue::UnknownIs { value: operand, .. }
         | Rvalue::UnknownCast { value: operand, .. } => {

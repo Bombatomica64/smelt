@@ -408,6 +408,9 @@ impl FunctionEmitter<'_> {
             smelt_hir::CallbackExprKind::Capture(local) => {
                 self.local_name(LocalId(local.0)).map(str::to_owned)
             }
+            smelt_hir::CallbackExprKind::Function(function) => {
+                Ok(sanitize_ident(self.symbol_name(*function)?))
+            }
             smelt_hir::CallbackExprKind::AssignCapture { target, value } => {
                 let target_text = self.local_name(LocalId(target.0))?;
                 let value_text = self.callback_expr_text(value, params)?;
@@ -451,6 +454,22 @@ impl FunctionEmitter<'_> {
                     )),
                 }
             }
+            smelt_hir::CallbackExprKind::HasField { receiver, field } => {
+                let receiver_text = self.callback_expr_text(receiver, params)?;
+                let field_text = self.symbol_name(*field)?;
+                match self.mir.types.get(receiver.ty) {
+                    Some(Type::Dict(key, _)) if self.mir.types.get(*key) == Some(&Type::String) => {
+                        Ok(format!("{receiver_text}.contains_key({field_text:?})"))
+                    }
+                    Some(Type::Unknown) => Ok(format!(
+                        "matches!({receiver_text}, SmeltUnknown::Object(ref map) if map.contains_key({field_text:?}))"
+                    )),
+                    Some(Type::Class { .. }) => Ok("true".to_owned()),
+                    _ => Err(EmitError::new(
+                        "callback `in` check requires a record, unknown, or class receiver",
+                    )),
+                }
+            }
             smelt_hir::CallbackExprKind::Unary { op, operand } => {
                 let op_text = match op {
                     smelt_hir::UnaryOp::Not => "!",
@@ -466,6 +485,16 @@ impl FunctionEmitter<'_> {
                 self.callback_expr_text(lhs, params)?,
                 smelt_hir::bin_op_text(*op),
                 self.callback_expr_text(rhs, params)?
+            )),
+            smelt_hir::CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => Ok(format!(
+                "if {} {{ {} }} else {{ {} }}",
+                self.callback_expr_text(cond, params)?,
+                self.callback_expr_as_type_text(then_expr, expr.ty, params)?,
+                self.callback_expr_as_type_text(else_expr, expr.ty, params)?
             )),
             smelt_hir::CallbackExprKind::Call { callee, args } => {
                 let callee_text = self.callback_expr_text(callee, params)?;
@@ -484,6 +513,24 @@ impl FunctionEmitter<'_> {
                 Ok(format!("{callee_text}({args_text})"))
             }
         }
+    }
+
+    /// Converts a callback expression to Rust text expected at a target type.
+    pub(super) fn callback_expr_as_type_text(
+        &self,
+        expr: &smelt_hir::CallbackExpr,
+        target: TypeId,
+        params: &[&str],
+    ) -> Result<String, EmitError> {
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            if self.mir.types.get(expr.ty) == Some(&Type::None) {
+                return Ok("None".to_owned());
+            }
+            if expr.ty == *inner {
+                return Ok(format!("Some({})", self.callback_expr_text(expr, params)?));
+            }
+        }
+        self.callback_expr_text(expr, params)
     }
 
     /// Converts a list slice operation to Rust text.

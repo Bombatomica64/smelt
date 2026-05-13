@@ -493,6 +493,365 @@ const value = NumberInstances.double(4);
 }
 
 #[test]
+fn exported_literal_object_constants_are_visible_to_later_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export const SKIP_ITEM = { done: false, hasNext: false } as const;
+"#),
+        "src/utilityEvaluators.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { SKIP_ITEM } from "./utilityEvaluators";
+const value = SKIP_ITEM;
+"#),
+        "src/main.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
+        "expected imported object const to lower as a Rust record literal"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_lazy_utility_evaluator_consts_lower() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+type LazyResult<T> =
+  | { done: true; hasNext: false }
+  | { done: false; hasNext: false }
+  | { done: false; hasNext: true; next: T };
+
+const EMPTY_PIPE = { done: true, hasNext: false } as const;
+export const SKIP_ITEM = { done: false, hasNext: false } as const;
+export const lazyEmptyEvaluator = <T>(): LazyResult<T> => EMPTY_PIPE;
+export const lazyIdentityEvaluator = <T>(value: T) =>
+  ({
+    hasNext: true,
+    next: value,
+    done: false,
+  }) as const;
+"#),
+        "src/internal/utilityEvaluators.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 4);
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
+        "expected static and inferred object const paths to lower object literals"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_local_arrow_const_is_visible_before_declaration_order() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+type StrictFunction = (...args: never) => unknown;
+
+function purry(fn: StrictFunction, args: readonly unknown[]): unknown {
+  return 0;
+}
+
+export function add(...args: readonly unknown[]): unknown {
+  return purry(addImplementation, args);
+}
+
+const addImplementation = (value: number, addend: number): number =>
+  value + addend;
+"#),
+        "src/add.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(
+        module.items.len() >= 3,
+        "expected local arrow const to lower as a callable item"
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_))),
+        "expected function item argument to lower through a first-class closure"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_overload_calls_select_public_signature() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+export function add(value: number, addend: number): number;
+export function add(addend: number): (value: number) => number;
+export function add(...args: readonly unknown[]): unknown {
+  return args;
+}
+
+const dataFirst = add(10, 5);
+const dataLast = add(5)(10);
+"#),
+        "src/add.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "expected curried overload call to lower as a closure call"
+    );
+    ensure!(
+        body.locals
+            .iter()
+            .any(|local| matches!(ctx.krate.types.get(local.ty), Some(Type::Float))),
+        "expected data-first overload call to produce number"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_overload_signatures_are_visible_to_imports() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export function add(value: bigint, addend: bigint): bigint;
+export function add(value: number, addend: number): number;
+export function add(addend: number): (value: number) => number;
+export function add(...args: readonly unknown[]): unknown {
+  return args;
+}
+"#),
+        "src/add.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { add } from "./add";
+const dataFirst = add(10, 5);
+const dataLast = add(5)(10);
+"#),
+        "src/add.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "expected imported curried overload call to lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_pipe_overload_infers_curried_generic_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+type UpsertProp<T, K, V> = T & Record<K, V>;
+
+export function addProp<T, K extends PropertyKey, V>(
+  obj: T,
+  prop: K,
+  value: V,
+): UpsertProp<T, K, V>;
+export function addProp<T, K extends PropertyKey, V>(
+  prop: K,
+  value: V,
+): (obj: T) => UpsertProp<T, K, V>;
+export function addProp(...args: readonly unknown[]): unknown {
+  return args;
+}
+
+export function pipe<A>(data: A): A;
+export function pipe<A, B>(data: A, funcA: (input: A) => B): B;
+export function pipe(...args: readonly unknown[]): unknown {
+  return args[0];
+}
+
+const actual = pipe({ a: 1 }, addProp("b", 2));
+"#),
+        "src/addProp.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.locals
+            .iter()
+            .any(|local| local.name.and_then(|name| ctx.krate.names.get(name)) == Some("actual")),
+        "expected Remeda-style pipe/addProp call to lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_predicate_array_arrows_lower_as_closure_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+export function allPass<T>(
+  data: T,
+  fns: readonly ((data: T) => boolean)[],
+): boolean;
+export function allPass<T>(
+  fns: readonly ((data: T) => boolean)[],
+): (data: T) => boolean;
+export function allPass(...args: readonly unknown[]): unknown {
+  return args[0];
+}
+
+const fns = [(x: number) => x % 3 === 0, (x: number) => x % 4 === 0] as const;
+const dataFirst = allPass(12, fns);
+const dataLast = allPass(fns)(12);
+"#),
+        "src/allPass.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.locals
+            .iter()
+            .any(|local| local.name.and_then(|name| ctx.krate.names.get(name)) == Some("fns")),
+        "expected predicate array binding to lower"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "expected data-last allPass call to lower as a closure call"
+    );
+    Ok(())
+}
+
+#[test]
+fn vitest_body_can_read_inferred_module_const_function_array() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { describe, expect, test } from "vitest";
+
+function allPass<T>(data: T, fns: readonly ((data: T) => boolean)[]): boolean {
+  return true;
+}
+
+const fns = [(x: number) => x % 3 === 0, (x: number) => x % 4 === 0] as const;
+
+describe("data first", () => {
+  test("allPass", () => {
+    expect(allPass(12, fns)).toBe(true);
+  });
+});
+"#),
+        "src/allPass.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(
+        module.items.iter().any(|item| {
+            matches!(
+                ctx.krate.items.get(item.0 as usize),
+                Some(Item::Function(function)) if function.is_test
+            )
+        }),
+        "expected Vitest body using module const function array to lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_capitalize_generic_string_constraint_lowers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+export function capitalize<T extends string>(data: T): Capitalize<T>;
+export function capitalize(): <T extends string>(data: T) => Capitalize<T>;
+export function capitalize(...args: readonly unknown[]): unknown {
+  return args[0];
+}
+
+const capitalizeImplementation = <T extends string>(data: T): Capitalize<T> =>
+  `${data[0]?.toUpperCase() ?? ""}${data.slice(1)}` as Capitalize<T>;
+
+const templated = capitalize("prefix_123" as `prefix_${number}`);
+"#),
+        "src/capitalize.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.locals.iter().any(|local| {
+            local.name.and_then(|name| ctx.krate.names.get(name))
+                == Some("capitalizeImplementation")
+        }),
+        "expected generic string-constrained implementation const to lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn remeda_with_precision_block_bodied_arrow_expression_lowers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+const MAX_PRECISION = 15;
+
+export const withPrecision =
+  (roundingFn: (value: number) => number) =>
+  (value: number, precision: number): number => {
+    if (precision === 0) {
+      return roundingFn(value);
+    }
+
+    if (precision > MAX_PRECISION || precision < -MAX_PRECISION) {
+      throw new RangeError("precision must be between -15 and 15");
+    }
+
+    const shiftedValue = value + precision;
+    const rounded = roundingFn(shiftedValue);
+    return rounded - precision;
+  };
+"#),
+        "src/internal/withPrecision.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(
+        module.items.iter().any(|item| {
+            matches!(
+                ctx.krate.items.get(item.0 as usize),
+                Some(Item::Function(function))
+                    if ctx.krate.names.get(function.name) == Some("withPrecision")
+            )
+        }),
+        "expected block-bodied arrow expression export to lower"
+    );
+    Ok(())
+}
+
+#[test]
 fn unknown_and_readonly_unknown_array_types_lower() -> Result<(), String> {
     let source = ts!(r#"
 export function identity(value: unknown): unknown {

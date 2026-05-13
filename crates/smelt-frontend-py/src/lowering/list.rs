@@ -442,10 +442,9 @@ impl ModuleBuilder<'_> {
                     self.collect_callback_captures(item, body, captures);
                 }
             }
-            CallbackExprKind::Index { receiver, .. } => {
-                self.collect_callback_captures(receiver, body, captures);
-            }
-            CallbackExprKind::Field { receiver, .. } => {
+            CallbackExprKind::Index { receiver, .. }
+            | CallbackExprKind::Field { receiver, .. }
+            | CallbackExprKind::HasField { receiver, .. } => {
                 self.collect_callback_captures(receiver, body, captures);
             }
             CallbackExprKind::Unary { operand, .. } => {
@@ -455,13 +454,24 @@ impl ModuleBuilder<'_> {
                 self.collect_callback_captures(lhs, body, captures);
                 self.collect_callback_captures(rhs, body, captures);
             }
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                self.collect_callback_captures(cond, body, captures);
+                self.collect_callback_captures(then_expr, body, captures);
+                self.collect_callback_captures(else_expr, body, captures);
+            }
             CallbackExprKind::Call { callee, args } => {
                 self.collect_callback_captures(callee, body, captures);
                 for arg in args {
                     self.collect_callback_captures(&arg.expr, body, captures);
                 }
             }
-            CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
+            CallbackExprKind::Param(_)
+            | CallbackExprKind::Function(_)
+            | CallbackExprKind::Literal(_) => {}
         }
     }
 

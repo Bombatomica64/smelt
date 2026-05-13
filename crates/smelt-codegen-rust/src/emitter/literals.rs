@@ -178,7 +178,8 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
             }
         }
         smelt_hir::CallbackExprKind::Index { receiver, .. }
-        | smelt_hir::CallbackExprKind::Field { receiver, .. } => {
+        | smelt_hir::CallbackExprKind::Field { receiver, .. }
+        | smelt_hir::CallbackExprKind::HasField { receiver, .. } => {
             assigned_callback_locals(receiver, locals);
         }
         smelt_hir::CallbackExprKind::Unary { operand, .. } => {
@@ -188,6 +189,15 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
             assigned_callback_locals(lhs, locals);
             assigned_callback_locals(rhs, locals);
         }
+        smelt_hir::CallbackExprKind::Conditional {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            assigned_callback_locals(cond, locals);
+            assigned_callback_locals(then_expr, locals);
+            assigned_callback_locals(else_expr, locals);
+        }
         smelt_hir::CallbackExprKind::Call { callee, args } => {
             assigned_callback_locals(callee, locals);
             for arg in args {
@@ -196,6 +206,7 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
         }
         smelt_hir::CallbackExprKind::Param(_)
         | smelt_hir::CallbackExprKind::Capture(_)
+        | smelt_hir::CallbackExprKind::Function(_)
         | smelt_hir::CallbackExprKind::Literal(_) => {}
     }
 }

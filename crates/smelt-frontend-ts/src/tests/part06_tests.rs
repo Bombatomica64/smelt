@@ -255,7 +255,7 @@ for (let item of values) {
         &mut ctx,
     )?;
 
-    assert_unsupported_ts(&errors, "explicit type annotations")
+    assert_unsupported_ts(&errors, "index access is only lowered")
 }
 
 #[test]

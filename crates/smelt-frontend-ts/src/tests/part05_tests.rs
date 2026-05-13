@@ -387,6 +387,37 @@ for (const entry: [string, number] of mapping) {
 }
 
 #[test]
+fn lowers_destructured_for_of_bindings() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const pairs: [string, number][] = [["a", 1]];
+let total: number = 0;
+for (const [key, value] of pairs) {
+  total = total + value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
+        "expected destructured for-of binding to lower tuple indexes",
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_static_tuple_index() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

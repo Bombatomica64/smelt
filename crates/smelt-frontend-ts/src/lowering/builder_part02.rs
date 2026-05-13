@@ -10,19 +10,26 @@ impl ModuleBuilder<'_> {
             Some(Type::Function(function)) => Some(function),
             _ => None,
         });
-        let return_ty = arrow
+        let _type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let declared_return_ty = match arrow
             .return_type
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-            .transpose()?
-            .or_else(|| function_hint.as_ref().map(|function| function.return_ty))
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(arrow.span.start, arrow.span.end),
-                    "exported arrow function constants must have an explicit return type",
-                )
-            })?;
-        if arrow.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))) {
+            .transpose()
+        {
+            Ok(value) => value.or_else(|| function_hint.as_ref().map(|function| function.return_ty)),
+            Err(error) => {
+                self.pop_type_parameter_scope();
+                return Err(error);
+            }
+        };
+        if arrow.r#async
+            && !matches!(
+                declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
+                Some(Type::Future(_))
+            )
+        {
+            self.pop_type_parameter_scope();
             return Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
                 "async arrow function constants must declare a Promise<T> return type",
@@ -38,27 +45,39 @@ impl ModuleBuilder<'_> {
             let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                 self.locals = saved_locals;
                 self.current_async = saved_async;
+                self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
                     "destructured arrow function parameters are not lowered yet",
                 ));
             };
-            let ty = param
+            let param_annotation_ty = match param
                 .type_annotation
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?
-                .or_else(|| {
-                    function_hint
-                        .as_ref()
-                        .and_then(|function| function.params.get(params.len()).copied())
-                })
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "arrow function parameters must have explicit type annotations",
-                    )
-                })?;
+                .transpose()
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    self.locals = saved_locals;
+                    self.current_async = saved_async;
+                    self.pop_type_parameter_scope();
+                    return Err(error);
+                }
+            };
+            let Some(ty) = param_annotation_ty.or_else(|| {
+                function_hint
+                    .as_ref()
+                    .and_then(|function| function.params.get(params.len()).copied())
+            }) else {
+                self.locals = saved_locals;
+                self.current_async = saved_async;
+                self.pop_type_parameter_scope();
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "arrow function parameters must have explicit type annotations",
+                ));
+            };
             let param_name = self.intern_source_name(binding.name.as_str());
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
@@ -77,11 +96,17 @@ impl ModuleBuilder<'_> {
         }
 
         let mut errors = Vec::new();
+        let mut inferred_return_ty = None;
         if arrow.expression {
             match arrow.body.statements.as_slice() {
                 [Statement::ExpressionStatement(statement)] => {
-                    match self.expression(&statement.expression, &mut body) {
+                    match self.expression_with_hint(
+                        &statement.expression,
+                        &mut body,
+                        declared_return_ty,
+                    ) {
                         Ok(value) => {
+                            inferred_return_ty = Some(Self::expr_ty(&body, value));
                             body.push_stmt(Stmt::Return(Some(value)));
                         }
                         Err(error) => errors.push(error),
@@ -105,8 +130,19 @@ impl ModuleBuilder<'_> {
         self.locals = saved_locals;
         self.current_async = saved_async;
         if let Some(error) = errors.into_iter().next() {
+            self.pop_type_parameter_scope();
             return Err(error);
         }
+        let return_ty = declared_return_ty
+            .or(inferred_return_ty)
+            .ok_or_else(|| {
+                self.pop_type_parameter_scope();
+                SmeltError::unsupported(
+                    self.span(arrow.span.start, arrow.span.end),
+                    "block-bodied arrow function constants must have an explicit return type",
+                )
+            })?;
+        self.pop_type_parameter_scope();
 
         let body_id = self.ctx.krate.push_body(body);
         let name = self.intern_source_name(name_text);

@@ -216,13 +216,19 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let value = self.expression(expression, body)?;
+        if Self::is_const_type_assertion(annotation) {
+            return self.expression(expression, body);
+        }
         let target = self.ts_type_to_hir(annotation)?;
         if self.concrete_type_requires_never_value(target) {
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "type assertion cannot construct a never value",
             ));
+        }
+        let value = self.expression_with_hint(expression, body, Some(target))?;
+        if Self::expr_ty(body, value) == target {
+            return Ok(value);
         }
         if self.ctx.krate.types.get(Self::expr_ty(body, value)) == Some(&Type::Unknown)
             && target != Self::expr_ty(body, value)
@@ -233,7 +239,23 @@ impl ModuleBuilder<'_> {
                 span: self.span(span.start, span.end),
             }));
         }
-        Ok(value)
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: target,
+            span: self.span(span.start, span.end),
+        }))
+    }
+
+    /// Return whether a TypeScript assertion is the runtime-erased `as const` form.
+    fn is_const_type_assertion(annotation: &TSType<'_>) -> bool {
+        matches!(
+            annotation,
+            TSType::TSTypeReference(reference)
+                if matches!(
+                    &reference.type_name,
+                    TSTypeName::IdentifierReference(name) if name.name == "const"
+                )
+        )
     }
 
     /// Lower a function call argument.
@@ -288,6 +310,23 @@ impl ModuleBuilder<'_> {
             Argument::ObjectExpression(object) => self.object_expression(object, body, None),
             Argument::CallExpression(call) => self.call_expression(call, body),
             Argument::ChainExpression(chain) => self.chain_expression(chain, body),
+            Argument::TemplateLiteral(template) => self.template_literal_expression(template, body),
+            Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
+                &as_expr.expression,
+                &as_expr.type_annotation,
+                as_expr.span,
+                body,
+            ),
+            Argument::TSTypeAssertion(assertion) => self.type_assertion_expression(
+                &assertion.expression,
+                &assertion.type_annotation,
+                assertion.span,
+                body,
+            ),
+            Argument::TSSatisfiesExpression(satisfies) => {
+                let target = self.ts_type_to_hir(&satisfies.type_annotation)?;
+                self.expression_with_hint(&satisfies.expression, body, Some(target))
+            }
             Argument::NewExpression(new_expr) => {
                 let Expression::Identifier(callee) = &new_expr.callee else {
                     return Err(SmeltError::unsupported(
@@ -323,6 +362,22 @@ impl ModuleBuilder<'_> {
         match argument {
             Argument::ArrayExpression(array) => self.array_expression(array, body, type_hint),
             Argument::ObjectExpression(object) => self.object_expression(object, body, type_hint),
+            Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
+                &as_expr.expression,
+                &as_expr.type_annotation,
+                as_expr.span,
+                body,
+            ),
+            Argument::TSTypeAssertion(assertion) => self.type_assertion_expression(
+                &assertion.expression,
+                &assertion.type_annotation,
+                assertion.span,
+                body,
+            ),
+            Argument::TSSatisfiesExpression(satisfies) => {
+                let target = self.ts_type_to_hir(&satisfies.type_annotation)?;
+                self.expression_with_hint(&satisfies.expression, body, Some(target))
+            }
             _ => self.argument(argument, body),
         }
     }

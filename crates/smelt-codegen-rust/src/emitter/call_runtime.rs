@@ -34,14 +34,24 @@ impl FunctionEmitter<'_> {
                 Ok(format!("::std::collections::HashSet::from([{items_text}])"))
             }
             Rvalue::Dict(entries) => {
+                let dict_types = match self.mir.types.get(dest_ty) {
+                    Some(Type::Dict(key_ty, value_ty)) => Some((*key_ty, *value_ty)),
+                    _ => None,
+                };
                 let entries_text = entries
                     .iter()
                     .map(|(key, entry_value)| {
-                        Ok(format!(
-                            "({}, {})",
-                            self.operand_text(key)?,
+                        let key_text = if let Some((key_ty, _)) = dict_types {
+                            self.operand_as_type_text(key, key_ty)?
+                        } else {
+                            self.operand_text(key)?
+                        };
+                        let value_text = if let Some((_, value_ty)) = dict_types {
+                            self.operand_as_type_text(entry_value, value_ty)?
+                        } else {
                             self.operand_text(entry_value)?
-                        ))
+                        };
+                        Ok(format!("({key_text}, {value_text})"))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
@@ -112,6 +122,9 @@ impl FunctionEmitter<'_> {
                 method,
                 args,
             } => self.optional_method_text(receiver, *method, args),
+            Rvalue::OptionalCoalesce { optional, fallback } => {
+                self.optional_coalesce_text(optional, fallback)
+            }
             Rvalue::InstanceOf {
                 value: operand,
                 class,
@@ -501,6 +514,24 @@ impl FunctionEmitter<'_> {
             Ok((receiver_text, *inner, true))
         } else {
             Ok((receiver_text, receiver_ty, false))
+        }
+    }
+
+    /// Emits TypeScript nullish coalescing for optional operands.
+    fn optional_coalesce_text(
+        &self,
+        optional: &Operand,
+        fallback: &Operand,
+    ) -> Result<String, EmitError> {
+        let optional_ty = self.operand_ty(optional)?;
+        match self.mir.types.get(optional_ty) {
+            Some(Type::Optional(inner)) => Ok(format!(
+                "{}.clone().unwrap_or({})",
+                self.operand_text(optional)?,
+                self.operand_as_type_text(fallback, *inner)?
+            )),
+            Some(Type::None) => self.operand_text(fallback),
+            _ => self.operand_text(optional),
         }
     }
 

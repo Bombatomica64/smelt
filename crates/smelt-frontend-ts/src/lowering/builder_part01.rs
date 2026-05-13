@@ -1,12 +1,17 @@
 impl<'ctx> ModuleBuilder<'ctx> {
     /// Create a new module builder.
-    fn new(file_id: FileId, path: String, ctx: &'ctx mut HirCtx) -> Self {
+    fn new(file_id: FileId, path: String, source: String, ctx: &'ctx mut HirCtx) -> Self {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
+        let const_objects = ctx.object_consts.clone();
         let object_namespaces = ctx.object_namespaces.clone();
+        let function_overloads = ctx.overloads.clone();
+        let type_alias_fields = ctx.type_alias_fields.clone();
+        let callable_fields = ctx.callable_fields.clone();
         Self {
             file_id,
             path,
+            source,
             ctx,
             locals: HashMap::new(),
             module_globals: HashMap::new(),
@@ -14,6 +19,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             classes,
             interfaces,
             class_fields: HashMap::new(),
+            type_alias_fields,
+            callable_fields,
             current_class: None,
             current_async: false,
             test_builtins: HashSet::new(),
@@ -21,11 +28,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_only_imports: HashSet::new(),
             object_namespaces,
             const_literals,
+            const_objects,
             assertion_functions: HashMap::new(),
+            predicate_functions: HashMap::new(),
             narrowed_locals: Vec::new(),
             type_param_scopes: Vec::new(),
+            type_param_constraint_scopes: Vec::new(),
             local_callbacks: HashMap::new(),
             function_rests: HashMap::new(),
+            forward_function_types: HashMap::new(),
+            local_function_items: HashMap::new(),
+            function_overloads,
         }
     }
 
@@ -121,6 +134,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut after_each = Vec::new();
         let implemented_functions = implemented_function_names(program);
         self.collect_module_globals(program);
+        self.collect_overload_signatures(program, &implemented_functions);
+        self.predeclare_type_alias_items(program);
+        self.collect_forward_function_types(program, &implemented_functions);
+        self.predeclare_function_items(program, &implemented_functions, &mut errors);
+        let forward_arrow_consts = self.forward_arrow_const_names(program);
+        for statement in &program.body {
+            if let Statement::VariableDeclaration(variable) = statement {
+                match self.arrow_function_const_item_declarations(variable, &forward_arrow_consts) {
+                    Ok(items) => module.items.extend(items),
+                    Err(error) => errors.push(error),
+                }
+            }
+        }
         for statement in &program.body {
             if let Statement::ImportDeclaration(import) = statement {
                 self.import_declaration(import, &mut module);
@@ -290,7 +316,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                 continue;
             };
+            if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                && let Some(init) = &declarator.init
+                && let Some(object) = Self::object_const_initializer(init)
+                && let Ok(value) = self.object_const_from_expression(object, None)
+            {
+                self.const_objects
+                    .insert(binding.name.as_str().to_owned(), value);
+            }
+            if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                && let Some(init) = &declarator.init
+                && let Ok(value) = self.literal_const_expression(init)
+            {
+                self.module_globals
+                    .insert(binding.name.as_str().to_owned(), value.ty);
+                self.const_literals
+                    .insert(binding.name.as_str().to_owned(), value);
+            }
             let Some(annotation) = &declarator.type_annotation else {
+                if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                    && let Some(init) = &declarator.init
+                    && Self::is_arrow_array_initializer(init)
+                    && let Ok(ty) = self.infer_module_global_initializer_type(init)
+                {
+                    self.module_globals
+                        .insert(binding.name.as_str().to_owned(), ty);
+                }
                 continue;
             };
             if let Ok(ty) = self.ts_type_to_hir(&annotation.type_annotation) {
@@ -298,6 +349,431 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .insert(binding.name.as_str().to_owned(), ty);
             }
         }
+    }
+
+    /// Return true for const array initializers whose function elements must be visible in tests.
+    fn is_arrow_array_initializer(init: &Expression<'_>) -> bool {
+        match init {
+            Expression::ArrayExpression(array) => array
+                .elements
+                .iter()
+                .any(|element| matches!(element, ArrayExpressionElement::ArrowFunctionExpression(_))),
+            Expression::TSAsExpression(as_expr) => Self::is_arrow_array_initializer(&as_expr.expression),
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::is_arrow_array_initializer(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::is_arrow_array_initializer(&non_null.expression)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::is_arrow_array_initializer(&parenthesized.expression)
+            }
+            _ => false,
+        }
+    }
+
+    /// Infer the type of a top-level constant initializer for later test-body reads.
+    fn infer_module_global_initializer_type(
+        &mut self,
+        init: &Expression<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let mut body = Body::new(None, self.expression_span(init));
+        let expr = self.expression_with_hint(init, &mut body, None)?;
+        Ok(Self::expr_ty(&body, expr))
+    }
+
+    /// Collect TypeScript overload signatures for concrete implementations.
+    fn collect_overload_signatures(
+        &mut self,
+        program: &Program<'_>,
+        implemented_functions: &HashSet<String>,
+    ) {
+        for statement in &program.body {
+            match statement {
+                Statement::FunctionDeclaration(function)
+                    if is_implemented_overload_signature(function, implemented_functions) =>
+                {
+                    self.collect_overload_signature(function);
+                }
+                Statement::ExportNamedDeclaration(export) => {
+                    if let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+                        && is_implemented_overload_signature(function, implemented_functions)
+                    {
+                        self.collect_overload_signature(function);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Collect one overload signature, skipping signatures outside the current type surface.
+    fn collect_overload_signature(&mut self, function: &oxc::ast::ast::Function<'_>) {
+        let Some(id) = &function.id else {
+            return;
+        };
+        if let Ok(signature) = self.overload_signature(function) {
+            self.function_overloads
+                .entry(id.name.to_string())
+                .or_default()
+                .push(signature.clone());
+            self.ctx
+                .overloads
+                .entry(id.name.to_string())
+                .or_default()
+                .push(signature);
+        }
+    }
+
+    /// Lower a TypeScript overload declaration into callable metadata.
+    fn overload_signature(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> Result<OverloadSignature, SmeltError> {
+        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let result = (|| {
+            let mut params = Vec::new();
+            for param in &function.params.items {
+                let ty = param
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(param.span.start, param.span.end),
+                            "overload parameters must have explicit type annotations",
+                        )
+                    })?;
+                params.push(ty);
+            }
+            if function.params.rest.is_some() {
+                return Err(SmeltError::unsupported(
+                    self.span(function.span.start, function.span.end),
+                    "overload rest parameters are not lowered yet",
+                ));
+            }
+            let return_ty = function
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(function.span.start, function.span.end),
+                        "overload declarations must have explicit return types",
+                    )
+                })?;
+            Ok(OverloadSignature {
+                params,
+                return_ty,
+                is_async: function.r#async,
+            })
+        })();
+        self.pop_type_parameter_scope();
+        result
+    }
+
+    /// Collect top-level function signatures before lowering function bodies.
+    fn collect_forward_function_types(
+        &mut self,
+        program: &Program<'_>,
+        implemented_functions: &HashSet<String>,
+    ) {
+        for statement in &program.body {
+            match statement {
+                Statement::FunctionDeclaration(function) => {
+                    if function.declare
+                        || is_implemented_overload_signature(function, implemented_functions)
+                    {
+                        continue;
+                    }
+                    self.collect_forward_function_type(function);
+                }
+                Statement::ExportNamedDeclaration(export) => {
+                    let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+                    else {
+                        continue;
+                    };
+                    if function.declare
+                        || is_implemented_overload_signature(function, implemented_functions)
+                    {
+                        continue;
+                    }
+                    self.collect_forward_function_type(function);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Collect one function declaration signature for hoisted callback references.
+    fn collect_forward_function_type(&mut self, function: &oxc::ast::ast::Function<'_>) {
+        let Some(id) = &function.id else {
+            return;
+        };
+        let Ok(_type_params) = self.push_type_parameter_scope(function.type_parameters.as_deref())
+        else {
+            return;
+        };
+        let result = self.forward_function_type(function, id.name.as_str());
+        self.pop_type_parameter_scope();
+        if let Ok((symbol, ty, rest)) = result {
+            self.forward_function_types
+                .insert(id.name.to_string(), (symbol, ty));
+            if let Some(rest) = rest {
+                self.function_rests.insert(id.name.to_string(), rest);
+            }
+        }
+    }
+
+    /// Build the callable type for a forward function declaration.
+    fn forward_function_type(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        name_text: &str,
+    ) -> Result<(smelt_hir::Symbol, smelt_hir::TypeId, Option<RestParam>), SmeltError> {
+        let name = self.intern_source_name(name_text);
+        let mut params = Vec::new();
+        for param in &function.params.items {
+            let Some(annotation) = &param.type_annotation else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "function parameters must have explicit type annotations",
+                ));
+            };
+            params.push(self.ts_type_to_hir(&annotation.type_annotation)?);
+        }
+        let rest = if let Some(rest) = &function.params.rest {
+            let Some(annotation) = &rest.type_annotation else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest function parameters must have explicit array type annotations",
+                ));
+            };
+            let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            let Some(Type::List(item_ty)) = self.ctx.krate.types.get(ty) else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest function parameter type must be an array type",
+                ));
+            };
+            let index = params.len();
+            params.push(ty);
+            Some(RestParam {
+                index,
+                item_ty: *item_ty,
+            })
+        } else {
+            None
+        };
+        let Some(return_type) = &function.return_type else {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "function declarations must have an explicit return type",
+            ));
+        };
+        let return_ty = self.ts_type_to_hir(&return_type.type_annotation)?;
+        let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            return_ty,
+            is_async: function.r#async,
+        }));
+        Ok((name, ty, rest))
+    }
+
+    /// Reserve HIR item slots for hoisted top-level function declarations.
+    fn predeclare_function_items(
+        &mut self,
+        program: &Program<'_>,
+        implemented_functions: &HashSet<String>,
+        errors: &mut Vec<SmeltError>,
+    ) {
+        for statement in &program.body {
+            match statement {
+                Statement::FunctionDeclaration(function) => {
+                    if function.declare
+                        || is_implemented_overload_signature(function, implemented_functions)
+                    {
+                        continue;
+                    }
+                    if let Err(error) = self.predeclare_function_item(function) {
+                        errors.push(error);
+                    }
+                }
+                Statement::ExportNamedDeclaration(export) => {
+                    let Some(Declaration::FunctionDeclaration(function)) = &export.declaration
+                    else {
+                        continue;
+                    };
+                    if function.declare
+                        || is_implemented_overload_signature(function, implemented_functions)
+                    {
+                        continue;
+                    }
+                    if let Err(error) = self.predeclare_function_item(function) {
+                        errors.push(error);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Lower type aliases early so hoisted function signatures can use them.
+    fn predeclare_type_alias_items(&mut self, program: &Program<'_>) {
+        for _ in 0_usize..2_usize {
+            for statement in &program.body {
+                match statement {
+                    Statement::TSTypeAliasDeclaration(alias) => {
+                        drop(self.type_alias_declaration(alias));
+                    }
+                    Statement::ExportNamedDeclaration(export) => {
+                        if let Some(Declaration::TSTypeAliasDeclaration(alias)) =
+                            &export.declaration
+                        {
+                            drop(self.type_alias_declaration(alias));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    /// Reserve one function item with its callable signature and no body yet.
+    fn predeclare_function_item(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> Result<(), SmeltError> {
+        let id = function.id.as_ref().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "anonymous function declarations are not lowered yet",
+            )
+        })?;
+        if self.local_function_items.contains_key(id.name.as_str()) {
+            return Ok(());
+        }
+        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let predicate_return = function
+            .return_type
+            .as_ref()
+            .and_then(|annotation| self.predicate_return_type(&annotation.type_annotation))
+            .transpose();
+        let result = self.predeclared_function(function, id.name.as_str());
+        self.pop_type_parameter_scope();
+        let item = self.ctx.krate.push_item(Item::Function(result?));
+        if let Ok(Some((parameter_name, target))) = predicate_return
+            && let Some(param_index) = function.params.items.iter().position(|param| {
+                matches!(
+                    &param.pattern,
+                    BindingPattern::BindingIdentifier(binding)
+                        if binding.name.as_str() == parameter_name
+                )
+            })
+        {
+            self.predicate_functions.insert(
+                id.name.to_string(),
+                AssertionNarrowing {
+                    param_index,
+                    target,
+                },
+            );
+        }
+        self.items.insert(id.name.to_string(), item);
+        self.local_function_items.insert(id.name.to_string(), item);
+        Ok(())
+    }
+
+    /// Build the body-less function item used by declaration hoisting.
+    fn predeclared_function(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        name_text: &str,
+    ) -> Result<Function, SmeltError> {
+        let name = self.intern_source_name(name_text);
+        let mut params = Vec::new();
+        for (index, param) in function.params.items.iter().enumerate() {
+            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "destructured parameters are not lowered yet",
+                ));
+            };
+            let Some(annotation) = &param.type_annotation else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "function parameters must have explicit type annotations",
+                ));
+            };
+            let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            params.push(Param {
+                name: self.intern_source_name(binding.name.as_str()),
+                local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
+                ty,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+        }
+        if let Some(rest) = &function.params.rest {
+            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest parameters need rest binding lowering",
+                ));
+            };
+            let Some(annotation) = &rest.type_annotation else {
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest function parameters must have explicit array type annotations",
+                ));
+            };
+            let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            let item_ty = match self.ctx.krate.types.get(ty) {
+                Some(Type::List(item_ty)) => *item_ty,
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(rest.span.start, rest.span.end),
+                        "rest function parameter type must be an array type",
+                    ));
+                }
+            };
+            let index = params.len();
+            self.function_rests.insert(
+                name_text.to_owned(),
+                RestParam {
+                    index,
+                    item_ty,
+                },
+            );
+            params.push(Param {
+                name: self.intern_source_name(binding.name.as_str()),
+                local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
+                ty,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+        }
+        let return_ty = function
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(function.span.start, function.span.end),
+                    "function declarations must have an explicit return type",
+                )
+            })?;
+        Ok(Function {
+            name,
+            span: self.span(function.span.start, function.span.end),
+            params,
+            return_ty,
+            is_async: function.r#async,
+            is_test: false,
+            body: None,
+            owner: FunctionOwner::Module,
+        })
     }
 
     /// Lower `export { name } from "module"` metadata and local aliases.
@@ -327,7 +803,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.ctx.export_aliases.insert(exported.clone(), item);
             }
             if let Some(namespace) = self.object_namespaces.get(&exported).cloned() {
-                self.ctx.object_namespaces.insert(exported, namespace);
+                self.ctx.object_namespaces.insert(exported.clone(), namespace);
+            }
+            if let Some(value) = self.const_objects.get(&exported).cloned() {
+                self.ctx.object_consts.insert(exported.clone(), value);
+            }
+            if let Some(overloads) = self.function_overloads.get(&exported).cloned() {
+                self.ctx.overloads.insert(exported, overloads);
             }
         }
     }
@@ -424,8 +906,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(value) = self.const_literals.get(imported).cloned() {
             self.const_literals.insert(local.to_owned(), value);
         }
+        if let Some(value) = self.const_objects.get(imported).cloned() {
+            self.const_objects.insert(local.to_owned(), value);
+        }
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
             self.object_namespaces.insert(local.to_owned(), namespace);
+        }
+        if let Some(overloads) = self.function_overloads.get(imported).cloned() {
+            self.function_overloads.insert(local.to_owned(), overloads);
+        } else if let Some(overloads) = self.ctx.overloads.get(imported).cloned() {
+            self.function_overloads.insert(local.to_owned(), overloads);
         }
     }
 
@@ -454,8 +944,19 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "exported const declarations require an initializer",
                 )
             })?;
-            if let Expression::ObjectExpression(object) = init {
-                self.object_namespace_const_declaration(binding.name.as_str(), object)?;
+            if let Some(object) = Self::direct_object_initializer(init) {
+                if self.object_namespace_const_declaration(binding.name.as_str(), object)? {
+                    continue;
+                }
+            }
+            if let Some(object) = Self::object_const_initializer(init) {
+                let type_hint = declarator
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?;
+                let item = self.object_const_declaration(binding.name.as_str(), object, type_hint)?;
+                items.push(item);
                 continue;
             }
             if let Expression::ArrowFunctionExpression(arrow) = init {
@@ -501,12 +1002,129 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(items)
     }
 
+    /// Lower top-level local arrow `const` declarations into private callable items.
+    fn arrow_function_const_item_declarations(
+        &mut self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+        forward_arrow_consts: &HashSet<String>,
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+            return Ok(Vec::new());
+        }
+        let mut items = Vec::new();
+        for declarator in &decl.declarations {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                continue;
+            };
+            let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                continue;
+            };
+            if !forward_arrow_consts.contains(binding.name.as_str()) {
+                continue;
+            }
+            if self.items.contains_key(binding.name.as_str()) {
+                continue;
+            }
+            let type_hint = declarator
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
+            let item =
+                self.arrow_function_const_declaration(binding.name.as_str(), arrow, type_hint)?;
+            items.push(item);
+        }
+        Ok(items)
+    }
+
+    /// Find top-level arrow consts that earlier function bodies reference by name.
+    fn forward_arrow_const_names(&self, program: &Program<'_>) -> HashSet<String> {
+        let mut arrow_consts = Vec::new();
+        let mut function_spans = Vec::new();
+        for statement in &program.body {
+            match statement {
+                Statement::VariableDeclaration(variable) => {
+                    if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+                        continue;
+                    }
+                    for declarator in &variable.declarations {
+                        if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                            && matches!(declarator.init, Some(Expression::ArrowFunctionExpression(_)))
+                        {
+                            arrow_consts
+                                .push((binding.name.as_str().to_owned(), binding.span.start));
+                        }
+                    }
+                }
+                Statement::FunctionDeclaration(function) => {
+                    function_spans.push((function.span.start, function.span.end));
+                }
+                Statement::ExportNamedDeclaration(export) => {
+                    if let Some(Declaration::FunctionDeclaration(function)) = &export.declaration {
+                        function_spans.push((function.span.start, function.span.end));
+                    }
+                }
+                _ => {}
+            }
+        }
+        arrow_consts
+            .into_iter()
+            .filter_map(|(name, const_start)| {
+                let referenced = function_spans
+                    .iter()
+                    .filter(|(function_start, _)| *function_start < const_start)
+                    .any(|(function_start, function_end)| {
+                        self.source
+                            .get(
+                                usize::try_from(*function_start).unwrap_or(usize::MAX)
+                                    ..usize::try_from(*function_end).unwrap_or(usize::MAX),
+                            )
+                            .is_some_and(|text| text.contains(&name))
+                    });
+                referenced.then_some(name)
+            })
+            .collect()
+    }
+
+    /// Return a directly written object initializer without stripping assertions.
+    fn direct_object_initializer<'a>(
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::ObjectExpression<'a>> {
+        match expression {
+            Expression::ObjectExpression(object) => Some(object),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::direct_object_initializer(&parenthesized.expression)
+            }
+            _ => None,
+        }
+    }
+
+    /// Return an object initializer after removing TypeScript-only wrappers.
+    fn object_const_initializer<'a>(
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::ObjectExpression<'a>> {
+        match expression {
+            Expression::ObjectExpression(object) => Some(object),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::object_const_initializer(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => Self::object_const_initializer(&as_expr.expression),
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::object_const_initializer(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::object_const_initializer(&non_null.expression)
+            }
+            _ => None,
+        }
+    }
+
     /// Lower an exported object constant that only groups existing exports into namespace metadata.
     fn object_namespace_const_declaration(
         &mut self,
         name_text: &str,
         object: &oxc::ast::ast::ObjectExpression<'_>,
-    ) -> Result<(), SmeltError> {
+    ) -> Result<bool, SmeltError> {
         let mut members = HashMap::new();
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {
@@ -535,20 +1153,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
             };
             let Expression::Identifier(value_ident) = &object_property.value else {
-                return Err(SmeltError::unsupported(
-                    self.span(
-                        object_property.value.span().start,
-                        object_property.value.span().end,
-                    ),
-                    "exported object namespace values must reference existing items",
-                ));
+                return Ok(false);
             };
             let value_name = value_ident.name.as_str();
             let Some(item) = self.items.get(value_name).copied() else {
-                return Err(SmeltError::unsupported(
-                    self.span(value_ident.span.start, value_ident.span.end),
-                    format!("exported object namespace member `{value_name}` is unresolved"),
-                ));
+                return Ok(false);
             };
             members.insert(key_text, item);
         }
@@ -557,7 +1166,131 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.ctx
             .object_namespaces
             .insert(name_text.to_owned(), members);
-        Ok(())
+        Ok(true)
+    }
+
+    /// Lower an exported static object constant into importable const metadata.
+    fn object_const_declaration(
+        &mut self,
+        name_text: &str,
+        object: &oxc::ast::ast::ObjectExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let value = self.object_const_from_expression(object, type_hint)?;
+        let span = self.span(object.span.start, object.span.end);
+        let mut body = Body::new(None, span);
+        let expr = self.object_const_expression(&value, object.span.start, object.span.end, &mut body);
+        let body_id = self.ctx.krate.push_body(body);
+        let name = self.intern_source_name(name_text);
+        let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+            name,
+            ty: value.ty,
+            value: expr,
+            body: body_id,
+            span,
+        }));
+        self.items.insert(name_text.to_owned(), item);
+        self.const_objects
+            .insert(name_text.to_owned(), value.clone());
+        self.ctx.object_consts.insert(name_text.to_owned(), value);
+        Ok(item)
+    }
+
+    /// Convert a static object expression into reusable literal-object metadata.
+    fn object_const_from_expression(
+        &mut self,
+        object: &oxc::ast::ast::ObjectExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<ObjectConst, SmeltError> {
+        let mut entries = Vec::new();
+        for property in &object.properties {
+            let ObjectPropertyKind::ObjectProperty(object_property) = property else {
+                return Err(SmeltError::unsupported(
+                    self.span(property.span().start, property.span().end),
+                    "object const spread properties are not lowered yet",
+                ));
+            };
+            if object_property.computed || object_property.method {
+                return Err(SmeltError::unsupported(
+                    self.span(object_property.span.start, object_property.span.end),
+                    "object consts require static data properties",
+                ));
+            }
+            let key = match &object_property.key {
+                PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
+                PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(
+                            object_property.key.span().start,
+                            object_property.key.span().end,
+                        ),
+                        "object const keys must be static string keys",
+                    ));
+                }
+            };
+            let literal = self.literal_const_expression(&object_property.value)?;
+            entries.push(ObjectConstEntry {
+                key,
+                value: literal.literal,
+                value_ty: literal.ty,
+            });
+        }
+        let ty = self.object_const_type(&entries, type_hint);
+        Ok(ObjectConst { entries, ty })
+    }
+
+    /// Infer the HIR dictionary type for a static object const.
+    fn object_const_type(
+        &mut self,
+        entries: &[ObjectConstEntry],
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
+        if let Some(ty) = type_hint
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _)))
+        {
+            return ty;
+        }
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let first_value_ty = entries.first().map(|entry| entry.value_ty);
+        let value_ty = first_value_ty
+            .filter(|first_ty| entries.iter().all(|entry| entry.value_ty == *first_ty))
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+    }
+
+    /// Recreate a static object const inside the currently lowered body.
+    fn object_const_expression(
+        &mut self,
+        value: &ObjectConst,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let span = self.span(start, end);
+        let entries = value
+            .entries
+            .iter()
+            .map(|entry| {
+                let key = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(entry.key.clone())),
+                    ty: key_ty,
+                    span,
+                });
+                let entry_value = body.push_expr(Expr {
+                    kind: ExprKind::Literal(entry.value.clone()),
+                    ty: entry.value_ty,
+                    span,
+                });
+                (key, entry_value)
+            })
+            .collect();
+        body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty: value.ty,
+            span,
+        })
     }
 
     // Continued in the next split builder file.

@@ -435,8 +435,105 @@ impl ModuleBuilder<'_> {
             out.insert(name, target);
         } else if let Some((name, target)) = self.null_guard(expression) {
             out.insert(name, target);
+        } else if let Some((name, target)) = self.predicate_call_guard(expression) {
+            out.insert(name, target);
         }
         (!out.is_empty()).then_some(out)
+    }
+
+    /// Discover local type facts proven after a guard exits early.
+    fn inverse_guard_narrowing(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<HashMap<String, smelt_hir::TypeId>> {
+        let mut out = HashMap::new();
+        if let Expression::LogicalExpression(logical) = expression
+            && logical.operator == LogicalOperator::Or
+        {
+            if let Some(left) = self.inverse_guard_narrowing(&logical.left, body) {
+                out.extend(left);
+            }
+            if let Some(right) = self.inverse_guard_narrowing(&logical.right, body) {
+                out.extend(right);
+            }
+        } else if let Some((name, target)) = self.optional_none_inverse_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Expression::UnaryExpression(unary) = expression
+            && unary.operator == UnaryOperator::LogicalNot
+            && let Some(narrowing) = self.guard_narrowing(&unary.argument, body)
+        {
+            out.extend(narrowing);
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
+    /// Recognize `value === undefined/null` guards whose true branch exits.
+    fn optional_none_inverse_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return None;
+        }
+        let name = match (&binary.left, &binary.right) {
+            (Expression::Identifier(identifier), Expression::Identifier(undefined))
+                if undefined.name == "undefined" =>
+            {
+                identifier.name.as_str()
+            }
+            (Expression::Identifier(identifier), Expression::NullLiteral(_)) => {
+                identifier.name.as_str()
+            }
+            _ => return None,
+        };
+        let local = self.locals.get(name).copied()?;
+        let local_ty = self.narrowed_type(name).unwrap_or_else(|| Self::local_ty(body, local));
+        match self.ctx.krate.types.get(local_ty).cloned() {
+            Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
+            Some(Type::Union(items)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let remaining = items
+                    .into_iter()
+                    .filter(|item| *item != none_ty)
+                    .collect::<Vec<_>>();
+                match remaining.as_slice() {
+                    [single] => Some((name.to_owned(), *single)),
+                    [] => None,
+                    _ => Some((
+                        name.to_owned(),
+                        self.ctx.krate.types.intern(Type::Union(remaining)),
+                    )),
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Return whether a source statement always exits the current flow path.
+    fn statement_must_exit(statement: &Statement<'_>) -> bool {
+        match statement {
+            Statement::ReturnStatement(_)
+            | Statement::BreakStatement(_)
+            | Statement::ContinueStatement(_)
+            | Statement::ThrowStatement(_) => true,
+            Statement::BlockStatement(block) => block
+                .body
+                .last()
+                .is_some_and(Self::statement_must_exit),
+            Statement::IfStatement(if_stmt) => if_stmt.alternate.as_ref().is_some_and(|alternate| {
+                Self::statement_must_exit(&if_stmt.consequent)
+                    && Self::statement_must_exit(alternate)
+            }),
+            _ => false,
+        }
     }
 
     /// Recognize `typeof value === "kind"` guard expressions.
@@ -527,6 +624,22 @@ impl ModuleBuilder<'_> {
         let unknown = self.ctx.krate.types.intern(Type::Unknown);
         let ty = self.ctx.krate.types.intern(Type::List(unknown));
         Some((identifier.name.to_string(), ty))
+    }
+
+    /// Recognize a call to a user-defined `value is T` predicate function.
+    fn predicate_call_guard(&self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::CallExpression(call) = expression else {
+            return None;
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return None;
+        };
+        let predicate = self.predicate_functions.get(callee.name.as_str())?;
+        let arg = call.arguments.get(predicate.param_index)?;
+        let Argument::Identifier(identifier) = arg else {
+            return None;
+        };
+        Some((identifier.name.to_string(), predicate.target))
     }
 
     /// Recognize `value === null` guard expressions.
@@ -632,6 +745,8 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         body: &mut Body,
     ) -> Result<(), SmeltError> {
+        self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let result = (|| {
         let params = self.arrow_callback_param_types(arrow)?;
         let defaults = arrow
             .params
@@ -726,6 +841,9 @@ impl ModuleBuilder<'_> {
             value: Some(value),
         });
         Ok(())
+        })();
+        self.pop_type_parameter_scope();
+        result
     }
 
     /// Lower a binding pattern in a variable declaration.
@@ -817,11 +935,30 @@ impl ModuleBuilder<'_> {
                         "array destructuring rest bindings are not lowered yet",
                     ));
                 }
-                let item_ty = self.index_type(Self::expr_ty(body, receiver))?;
+                let receiver_ty = Self::expr_ty(body, receiver);
+                let tuple_items = match self.ctx.krate.types.get(receiver_ty).cloned() {
+                    Some(Type::Tuple(items)) => Some(items),
+                    _ => None,
+                };
+                let fallback_item_ty = if tuple_items.is_none() {
+                    Some(self.index_type(receiver_ty)?)
+                } else {
+                    None
+                };
                 for (idx, element) in array.elements.iter().enumerate() {
                     let Some(element) = element else {
                         continue;
                     };
+                    let item_ty = tuple_items
+                        .as_ref()
+                        .and_then(|items| items.get(idx).copied())
+                        .or(fallback_item_ty)
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(element.span().start, element.span().end),
+                                "array destructuring index is outside tuple type",
+                            )
+                        })?;
                     let idx = u32::try_from(idx).map_err(|err| {
                         SmeltError::unsupported(
                             self.span(array.span.start, array.span.end),

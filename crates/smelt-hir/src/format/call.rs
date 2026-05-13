@@ -46,6 +46,10 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_list_text(args)
             )
         }
+        ExprKind::OptionalCoalesce { optional, fallback } => {
+            format!("{} ?? {}", expr_ref(*optional), expr_ref(*fallback))
+        }
+        ExprKind::TypeAssert { value } => format!("assert_type {}", expr_ref(*value)),
         ExprKind::Len { operand } => format!("len {}", expr_ref(*operand)),
         ExprKind::NumericAbs { operand } => format!("numeric_abs {}", expr_ref(*operand)),
         ExprKind::NumericRound { op, operand } => {
@@ -68,6 +72,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::NumericPredicate { op, operand } => {
             let op_name = match op {
                 crate::expr::NumericPredicateOp::IsFinite => "is_finite",
+                crate::expr::NumericPredicateOp::IsInteger => "is_integer",
                 crate::expr::NumericPredicateOp::IsNaN => "is_nan",
             };
             format!("numeric_{op_name} {}", expr_ref(*operand))

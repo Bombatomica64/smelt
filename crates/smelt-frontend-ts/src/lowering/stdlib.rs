@@ -571,7 +571,8 @@ impl ModuleBuilder<'_> {
         };
         let element_ty = *list_element_ty;
         let item = self.argument(item_argument, body)?;
-        if Self::expr_ty(body, item) != element_ty {
+        let item_ty = Self::expr_ty(body, item);
+        if item_ty != element_ty {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array push argument must match the array element type",
@@ -993,7 +994,10 @@ impl ModuleBuilder<'_> {
         }
         let operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
-        if method == "substring" && self.ctx.krate.types.get(operand_ty) != Some(&Type::String) {
+        let effective_operand_ty = self.type_param_constraint_or_self(operand_ty);
+        if method == "substring"
+            && self.ctx.krate.types.get(effective_operand_ty) != Some(&Type::String)
+        {
             return Ok(None);
         }
         let start = call
@@ -1007,7 +1011,7 @@ impl ModuleBuilder<'_> {
             .map(|argument| self.slice_index_argument(argument, body))
             .transpose()?;
 
-        match self.ctx.krate.types.get(operand_ty) {
+        match self.ctx.krate.types.get(effective_operand_ty) {
             Some(Type::String) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(Some(body.push_expr(Expr {
@@ -1043,7 +1047,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let index = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, index)) != Some(&Type::Float) {
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, index)),
+            Some(Type::Int | Type::Float)
+        ) {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "slice indexes must be numbers",

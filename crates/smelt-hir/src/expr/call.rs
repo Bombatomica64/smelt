@@ -32,6 +32,8 @@ pub enum CallbackExprKind {
     Param(usize),
     /// A local captured from the enclosing HIR body.
     Capture(LocalId),
+    /// A free function or callable item referenced from inside a callback.
+    Function(Symbol),
     /// Assignment to a mutable local captured from the enclosing HIR body.
     AssignCapture {
         /// Captured local assigned by the callback.
@@ -57,6 +59,13 @@ pub enum CallbackExprKind {
         /// Static field or string key.
         field: Symbol,
     },
+    /// Static field/key presence check inside a callback expression.
+    HasField {
+        /// Receiver being checked.
+        receiver: Box<CallbackExpr>,
+        /// Static field or string key.
+        field: Symbol,
+    },
     /// A unary operation.
     Unary {
         /// Operation to apply.
@@ -72,6 +81,15 @@ pub enum CallbackExprKind {
         lhs: Box<CallbackExpr>,
         /// Right operand.
         rhs: Box<CallbackExpr>,
+    },
+    /// A conditional expression.
+    Conditional {
+        /// Boolean condition.
+        cond: Box<CallbackExpr>,
+        /// Expression evaluated when the condition is true.
+        then_expr: Box<CallbackExpr>,
+        /// Expression evaluated when the condition is false.
+        else_expr: Box<CallbackExpr>,
     },
     /// A call performed inside a callback expression.
     Call {

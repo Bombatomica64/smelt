@@ -333,6 +333,9 @@ impl ModuleBuilder<'_> {
             ArrayExpressionElement::StaticMemberExpression(member) => {
                 self.static_member(member, body)
             }
+            ArrayExpressionElement::ArrowFunctionExpression(arrow) => {
+                self.arrow_function_expression(arrow, body)
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(element.span().start, element.span().end),
                 format!("array element kind is not lowered yet: {element:?}"),
@@ -397,15 +400,13 @@ impl ModuleBuilder<'_> {
         {
             return self.expression(&logical.right, body);
         }
-        let op = match logical.operator {
-            LogicalOperator::And => BinOp::And,
-            LogicalOperator::Or => BinOp::Or,
-            LogicalOperator::Coalesce => {
-                return Err(SmeltError::unsupported(
-                    self.span(logical.span.start, logical.span.end),
-                    "nullish coalescing is not lowered yet",
-                ));
-            }
+        if logical.operator == LogicalOperator::Coalesce {
+            return self.nullish_coalesce_expression(logical, body);
+        }
+        let op = if logical.operator == LogicalOperator::And {
+            BinOp::And
+        } else {
+            BinOp::Or
         };
         let lhs = self.expression(&logical.left, body)?;
         let rhs = self.expression(&logical.right, body)?;
@@ -415,6 +416,73 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(logical.span.start, logical.span.end),
         }))
+    }
+
+    /// Lower TypeScript nullish coalescing while preserving falsey values.
+    fn nullish_coalesce_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let optional = self.expression(&logical.left, body)?;
+        let optional_ty = Self::expr_ty(body, optional);
+        let Some(ty) = self.non_nullish_type(optional_ty) else {
+            if self.ctx.krate.types.get(optional_ty) == Some(&Type::None) {
+                let fallback = self.expression(&logical.right, body)?;
+                return Ok(fallback);
+            }
+            return Ok(optional);
+        };
+        let fallback = self.expression_with_hint(&logical.right, body, Some(ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        let ty = if fallback_ty == ty {
+            ty
+        } else if matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Union(items)) if items.contains(&fallback_ty)
+        ) {
+            fallback_ty
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(logical.span.start, logical.span.end),
+                "nullish coalescing fallback must match the non-nullish value type",
+            ));
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::OptionalCoalesce { optional, fallback },
+            ty,
+            span: self.span(logical.span.start, logical.span.end),
+        }))
+    }
+
+    /// Return the type left after removing TypeScript nullish values.
+    fn non_nullish_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::Optional(inner)) => Some(inner),
+            Some(Type::Union(items)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let mut remaining = Vec::new();
+                for item in items {
+                    if item == none_ty {
+                        continue;
+                    }
+                    let normalized = match self.ctx.krate.types.get(item).cloned() {
+                        Some(Type::Optional(inner)) => inner,
+                        _ => item,
+                    };
+                    if !remaining.contains(&normalized) {
+                        remaining.push(normalized);
+                    }
+                }
+                match remaining.as_slice() {
+                    [single] => Some(*single),
+                    [] => None,
+                    _ => Some(self.ctx.krate.types.intern(Type::Union(remaining))),
+                }
+            }
+            Some(Type::None) => None,
+            _ => Some(ty),
+        }
     }
 
     /// Lower a unary expression.
@@ -500,6 +568,14 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if object
+            .properties
+            .iter()
+            .any(|property| matches!(property, ObjectPropertyKind::SpreadProperty(_)))
+        {
+            return self.object_expression_with_spread(object, body, type_hint);
+        }
+
         let mut entries = Vec::new();
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {
@@ -508,34 +584,13 @@ impl ModuleBuilder<'_> {
                     "object spread properties are not lowered yet",
                 ));
             };
-            if object_property.computed || object_property.method {
+            if object_property.method {
                 return Err(SmeltError::unsupported(
                     self.span(object_property.span.start, object_property.span.end),
-                    "computed object keys and object methods are not lowered yet",
+                    "object methods are not lowered yet",
                 ));
             }
-            let key_text = match &object_property.key {
-                PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
-                PropertyKey::StringLiteral(lit) => lit.value.to_string(),
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.span(
-                            object_property.key.span().start,
-                            object_property.key.span().end,
-                        ),
-                        "object literal keys must be static string keys",
-                    ));
-                }
-            };
-            let key_ty = self.ctx.krate.types.intern(Type::String);
-            let key = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String(key_text)),
-                ty: key_ty,
-                span: self.span(
-                    object_property.key.span().start,
-                    object_property.key.span().end,
-                ),
-            });
+            let key = self.object_property_key_expr(object_property, body)?;
             let value = self.expression(&object_property.value, body)?;
             entries.push((key, value));
         }
@@ -545,6 +600,196 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(object.span.start, object.span.end),
         }))
+    }
+
+    /// Lower an object expression that uses JavaScript spread properties.
+    ///
+    /// The spread order is preserved by lowering each contiguous explicit
+    /// property run into a dictionary literal and combining those chunks with
+    /// spread sources through the ordered `DictAssign` operation.
+    fn object_expression_with_spread(
+        &mut self,
+        object: &oxc::ast::ast::ObjectExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let mut record_ty = self.dict_type_from_hint(type_hint);
+        let mut sources = Vec::new();
+        let mut pending_entries = Vec::new();
+
+        for property in &object.properties {
+            match property {
+                ObjectPropertyKind::ObjectProperty(object_property) => {
+                    if object_property.method {
+                        return Err(SmeltError::unsupported(
+                            self.span(object_property.span.start, object_property.span.end),
+                            "object methods are not lowered yet",
+                        ));
+                    }
+                    let key = self.object_property_key_expr(object_property, body)?;
+                    let value = self.expression(&object_property.value, body)?;
+                    pending_entries.push((key, value));
+                }
+                ObjectPropertyKind::SpreadProperty(spread) => {
+                    self.flush_object_spread_entries(
+                        &mut pending_entries,
+                        &mut sources,
+                        &mut record_ty,
+                        body,
+                        object.span,
+                    );
+                    let source = self.expression(&spread.argument, body)?;
+                    let source_ty = Self::expr_ty(body, source);
+                    self.accept_object_spread_source(source_ty, record_ty, spread.span)?;
+                    if record_ty.is_none()
+                        && matches!(self.ctx.krate.types.get(source_ty), Some(Type::Dict(_, _)))
+                    {
+                        record_ty = Some(source_ty);
+                    }
+                    sources.push(source);
+                }
+            }
+        }
+        self.flush_object_spread_entries(
+            &mut pending_entries,
+            &mut sources,
+            &mut record_ty,
+            body,
+            object.span,
+        );
+
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let fallback_value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let record_ty = record_ty
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Dict(key_ty, fallback_value_ty)));
+        let target = body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty: record_ty,
+            span: self.span(object.span.start, object.span.start),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictAssign { target, sources },
+            ty: record_ty,
+            span: self.span(object.span.start, object.span.end),
+        }))
+    }
+
+    /// Lower an object property key to a dictionary key expression.
+    fn object_property_key_expr(
+        &mut self,
+        object_property: &oxc::ast::ast::ObjectProperty<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if object_property.computed {
+            return match &object_property.key {
+                PropertyKey::Identifier(identifier) => self.identifier_expression(
+                    identifier.name.as_str(),
+                    identifier.span.start,
+                    identifier.span.end,
+                    body,
+                ),
+                PropertyKey::StringLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::String);
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::String(literal.value.to_string())),
+                        ty,
+                        span: self.span(literal.span.start, literal.span.end),
+                    }))
+                }
+                PropertyKey::NumericLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::Float);
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Float(literal.value)),
+                        ty,
+                        span: self.span(literal.span.start, literal.span.end),
+                    }))
+                }
+                _ => Err(SmeltError::unsupported(
+                    self.span(
+                        object_property.key.span().start,
+                        object_property.key.span().end,
+                    ),
+                    "computed object keys support identifiers and literal keys for now",
+                )),
+            };
+        }
+
+        let key_text = match &object_property.key {
+            PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
+            PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(
+                        object_property.key.span().start,
+                        object_property.key.span().end,
+                    ),
+                    "object literal keys must be static string keys or computed expressions",
+                ));
+            }
+        };
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(key_text)),
+            ty: key_ty,
+            span: self.span(
+                object_property.key.span().start,
+                object_property.key.span().end,
+            ),
+        }))
+    }
+
+    /// Flush pending explicit properties into an ordered object-spread source.
+    fn flush_object_spread_entries(
+        &mut self,
+        pending_entries: &mut Vec<(smelt_hir::ExprId, smelt_hir::ExprId)>,
+        sources: &mut Vec<smelt_hir::ExprId>,
+        record_ty: &mut Option<smelt_hir::TypeId>,
+        body: &mut Body,
+        span: oxc::span::Span,
+    ) {
+        if pending_entries.is_empty() {
+            return;
+        }
+        let entries = std::mem::take(pending_entries);
+        let chunk_ty = self.object_literal_type(&entries, *record_ty, body);
+        if record_ty.is_none() {
+            *record_ty = Some(chunk_ty);
+        }
+        sources.push(body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty: record_ty.unwrap_or(chunk_ty),
+            span: self.span(span.start, span.end),
+        }));
+    }
+
+    /// Validate a source expression used by an object spread property.
+    fn accept_object_spread_source(
+        &self,
+        source_ty: smelt_hir::TypeId,
+        record_ty: Option<smelt_hir::TypeId>,
+        span: oxc::span::Span,
+    ) -> Result<(), SmeltError> {
+        match self.ctx.krate.types.get(source_ty) {
+            Some(Type::Dict(_, _)) if record_ty.is_none() || record_ty == Some(source_ty) => Ok(()),
+            Some(Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => Ok(()),
+            _ => Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "object spread sources must be record, generic object, or unknown values",
+            )),
+        }
+    }
+
+    /// Extract a dictionary type from a contextual object-literal type hint.
+    fn dict_type_from_hint(&self, type_hint: Option<smelt_hir::TypeId>) -> Option<smelt_hir::TypeId> {
+        let ty = type_hint?;
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Dict(_, _)) => Some(ty),
+            Some(Type::Union(members)) => members
+                .iter()
+                .copied()
+                .find(|member| matches!(self.ctx.krate.types.get(*member), Some(Type::Dict(_, _)))),
+            _ => None,
+        }
     }
 
     /// Infer the dictionary type used for a lowered object literal.
@@ -587,6 +832,9 @@ impl ModuleBuilder<'_> {
                 ty: value.ty,
                 span,
             })));
+        }
+        if let Some(value) = self.const_objects.get(member_name).cloned() {
+            return Ok(Some(self.object_const_expression(&value, member.span.start, member.span.end, body)));
         }
         let item = self
             .object_namespaces

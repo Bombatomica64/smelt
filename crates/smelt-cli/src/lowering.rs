@@ -3,16 +3,13 @@
 //! This module owns source-language detection plus HIR lowering entrypoints
 //! used by CLI commands and manifest-driven builds.
 
-use std::{
-    collections::HashMap,
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, fs, io, path::Path};
 
 use smelt_hir::{FileId, ModuleId};
 
 use crate::manifest::{
-    dependency_closure, order_manifest_sources, read_manifest_source, resolve_manifest_path,
+    ManifestSource, dependency_closure, order_manifest_sources, read_manifest_source,
+    resolve_manifest_path,
 };
 
 /// Source language inferred from a file path.
@@ -45,6 +42,14 @@ struct FrontendLoweringState {
     ts_export_aliases: HashMap<String, smelt_hir::ItemId>,
     /// TypeScript exported object constants used as namespace-like APIs.
     ts_object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
+    /// TypeScript exported object constants with static literal values.
+    ts_object_consts: HashMap<String, smelt_frontend_ts::ObjectConst>,
+    /// TypeScript overload signatures visible across manifest entries.
+    ts_overloads: HashMap<String, Vec<smelt_frontend_ts::OverloadSignature>>,
+    /// TypeScript structural type-alias fields visible across manifest entries.
+    ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
+    /// TypeScript callable intersection fields visible across manifest entries.
+    ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python `IntEnum` member values visible to later manifest entries.
@@ -129,13 +134,13 @@ pub(crate) fn lower_manifest_entries(
         .collect::<Result<Vec<_>, _>>()?;
     let sources = dependency_closure(root_sources)?;
 
-    let files = order_manifest_sources(&sources)
+    let ordered_sources = order_manifest_sources(&sources)
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
         .into_iter()
-        .filter_map(|idx| sources.get(idx).map(|source| source.path.clone()))
+        .filter_map(|idx| sources.get(idx))
         .collect::<Vec<_>>();
 
-    if files.is_empty() {
+    if ordered_sources.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "manifest has no source entries to lower",
@@ -143,21 +148,22 @@ pub(crate) fn lower_manifest_entries(
         .into());
     }
 
-    lower_ordered_manifest_files(&files)
+    lower_ordered_manifest_sources(&ordered_sources)
 }
 
 /// Lowers already ordered manifest files into one shared HIR crate.
-fn lower_ordered_manifest_files(
-    files: &[PathBuf],
+fn lower_ordered_manifest_sources(
+    sources: &[&ManifestSource],
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     let mut modules = Vec::new();
 
-    for (idx, file) in files.iter().enumerate() {
-        let (next_krate, module, next_state) = lower_manifest_file(krate, state, file, idx)?;
+    for (idx, source) in sources.iter().enumerate() {
+        let (next_krate, module, next_state) = lower_manifest_source(krate, state, source, idx)?;
         krate = next_krate;
         state = next_state;
+        let file = &source.path;
         if let Ok(module_idx) = usize::try_from(module.0)
             && let Some(module_value) = krate.modules.get_mut(module_idx)
         {
@@ -170,23 +176,27 @@ fn lower_ordered_manifest_files(
 }
 
 /// Lowers one manifest file with the language-specific frontend.
-fn lower_manifest_file(
+fn lower_manifest_source(
     krate: smelt_hir::Crate,
     state: FrontendLoweringState,
-    file: &Path,
+    source: &ManifestSource,
     idx: usize,
 ) -> Result<(smelt_hir::Crate, ModuleId, FrontendLoweringState), Box<dyn std::error::Error>> {
+    let file = &source.path;
     let file_string = file.display().to_string();
-    let source = fs::read_to_string(file)?;
     match SourceLang::from_path(&file_string)? {
         SourceLang::TypeScript => {
             let mut ctx = smelt_frontend_ts::HirCtx {
                 krate,
                 export_aliases: state.ts_export_aliases,
                 object_namespaces: state.ts_object_namespaces,
+                object_consts: state.ts_object_consts,
+                overloads: state.ts_overloads,
+                type_alias_fields: state.ts_type_alias_fields,
+                callable_fields: state.ts_callable_fields,
             };
             let module = smelt_frontend_ts::to_hir_with_path(
-                &source,
+                &source.source,
                 FileId(u32::try_from(idx).map_err(|error| {
                     io::Error::new(
                         io::ErrorKind::InvalidInput,
@@ -203,6 +213,10 @@ fn lower_manifest_file(
                 FrontendLoweringState {
                     ts_export_aliases: ctx.export_aliases,
                     ts_object_namespaces: ctx.object_namespaces,
+                    ts_object_consts: ctx.object_consts,
+                    ts_overloads: ctx.overloads,
+                    ts_type_alias_fields: ctx.type_alias_fields,
+                    ts_callable_fields: ctx.callable_fields,
                     py_module_namespaces: state.py_module_namespaces,
                     py_enum_members: state.py_enum_members,
                 },
@@ -215,7 +229,7 @@ fn lower_manifest_file(
                 enum_members: state.py_enum_members,
             };
             let module = smelt_frontend_py::to_hir_with_path(
-                &source,
+                &source.source,
                 FileId(u32::try_from(idx).map_err(|error| {
                     io::Error::new(
                         io::ErrorKind::InvalidInput,
@@ -232,6 +246,10 @@ fn lower_manifest_file(
                 FrontendLoweringState {
                     ts_export_aliases: state.ts_export_aliases,
                     ts_object_namespaces: state.ts_object_namespaces,
+                    ts_object_consts: state.ts_object_consts,
+                    ts_overloads: state.ts_overloads,
+                    ts_type_alias_fields: state.ts_type_alias_fields,
+                    ts_callable_fields: state.ts_callable_fields,
                     py_module_namespaces: ctx.module_namespaces,
                     py_enum_members: ctx.enum_members,
                 },

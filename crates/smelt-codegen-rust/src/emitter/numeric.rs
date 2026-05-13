@@ -146,8 +146,15 @@ impl FunctionEmitter<'_> {
         }
         let method_name = match op {
             smelt_hir::NumericPredicateOp::IsFinite => "is_finite",
+            smelt_hir::NumericPredicateOp::IsInteger => "fract() == 0.0",
             smelt_hir::NumericPredicateOp::IsNaN => "is_nan",
         };
+        if matches!(op, smelt_hir::NumericPredicateOp::IsInteger) {
+            return Ok(format!(
+                "{}.fract() == 0.0",
+                self.float_operand_text(operand)?
+            ));
+        }
         Ok(format!(
             "{}.{}()",
             self.float_operand_text(operand)?,

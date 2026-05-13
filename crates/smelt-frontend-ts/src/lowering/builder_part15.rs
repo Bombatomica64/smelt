@@ -303,11 +303,22 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
+        if callee.name == "parseInt" {
+            let operand = self.parse_int_operand("parseInt", call, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToInt,
+                    operand,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let (op, result_ty) = match callee.name.as_str() {
             "String" => (PrimitiveCastOp::ToString, Type::String),
             "Number" | "parseFloat" => (PrimitiveCastOp::ToFloat, Type::Float),
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
-            "parseInt" => (PrimitiveCastOp::ToInt, Type::Float),
             _ => return Ok(None),
         };
         let [arg] = call.arguments.as_slice() else {

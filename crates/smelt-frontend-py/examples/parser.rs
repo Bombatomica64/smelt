@@ -1,4 +1,3 @@
-#![expect(clippy::print_stdout, reason = "example binary")]
 #![expect(
     clippy::str_to_string,
     reason = "example code keeps simple string conversion close to existing style"
@@ -16,13 +15,18 @@
 //! By default the full `{:#?}` AST is printed.
 //! Pass `--summary` to print only the top-level statement count.
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    io::{self, Write},
+    path::Path,
+};
 
 use pico_args::Arguments;
 use smelt_frontend_py::parse_module;
 use smelt_hir::FileId;
 
 fn main() -> Result<(), String> {
+    let mut stdout = io::stdout().lock();
     let mut args = Arguments::from_env();
 
     let summary_only = args.contains("--summary");
@@ -38,13 +42,15 @@ fn main() -> Result<(), String> {
         parse_module(&source, FileId(0)).map_err(|errors| format!("parse errors:\n{errors:#?}"))?;
 
     if summary_only {
-        println!(
+        writeln!(
+            stdout,
             "{}: {} top-level statements",
             path.display(),
             module.body.len()
-        );
+        )
+        .map_err(|error| error.to_string())?;
     } else {
-        println!("{module:#?}");
+        writeln!(stdout, "{module:#?}").map_err(|error| error.to_string())?;
     }
 
     Ok(())

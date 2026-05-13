@@ -1,4 +1,3 @@
-#![expect(clippy::print_stdout, reason = "example binary")]
 #![expect(
     clippy::cast_possible_truncation,
     reason = "example file IDs are small indexes from command-line arguments"
@@ -18,12 +17,17 @@
 //! cargo run -p smelt-frontend-py --example py_print_hir -- [--debug] <file.py> [...]
 //! ```
 
-use std::{env, fs, path::Path};
+use std::{
+    env, fs,
+    io::{self, Write},
+    path::Path,
+};
 
 use smelt_frontend_py::{HirCtx, to_hir};
 use smelt_hir::{FileId, format_compact};
 
 fn main() -> Result<(), String> {
+    let mut stdout = io::stdout().lock();
     let mut debug = false;
     let mut paths: Vec<String> = Vec::new();
 
@@ -31,9 +35,11 @@ fn main() -> Result<(), String> {
         match arg.as_str() {
             "--debug" => debug = true,
             "--help" | "-h" => {
-                println!(
+                writeln!(
+                    stdout,
                     "usage: cargo run -p smelt-frontend-py --example py_print_hir -- [--debug] <file.py> [...]"
-                );
+                )
+                .map_err(|error| error.to_string())?;
                 return Ok(());
             }
             _ => paths.push(arg),
@@ -59,9 +65,10 @@ fn main() -> Result<(), String> {
     }
 
     if debug {
-        println!("{:#?}", ctx.krate);
+        writeln!(stdout, "{:#?}", ctx.krate).map_err(|error| error.to_string())?;
     } else {
-        print!("{}", format_compact(&ctx.krate, &loaded));
+        write!(stdout, "{}", format_compact(&ctx.krate, &loaded))
+            .map_err(|error| error.to_string())?;
     }
 
     Ok(())

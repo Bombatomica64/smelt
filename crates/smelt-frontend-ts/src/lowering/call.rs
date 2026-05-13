@@ -5,6 +5,9 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.type_test_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.date_call(call, body)? {
             return Ok(expr);
         }
@@ -262,6 +265,33 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.local_callable_call(call, body)? {
             return Ok(expr);
         }
+        if let Expression::CallExpression(callee_call) = &call.callee {
+            let callee = self.call_expression(callee_call, body)?;
+            let Some(Type::Function(function)) =
+                self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(callee_call.span.start, callee_call.span.end),
+                    "call expression callee must return a function",
+                ));
+            };
+            if call.arguments.len() != function.params.len() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "curried call argument count does not match selected overload",
+                ));
+            }
+            let args = call
+                .arguments
+                .iter()
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty: function.return_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
         if let Expression::Identifier(callee_ident) = &call.callee {
             if self.locals.contains_key(callee_ident.name.as_str()) {
                 let callee = self.identifier_expression(
@@ -285,7 +315,7 @@ impl ModuleBuilder<'_> {
                 if function
                     .params
                     .iter()
-                    .any(|param| self.type_contains_never(*param))
+                    .any(|param| self.concrete_type_requires_never_value(*param))
                 {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
@@ -304,7 +334,7 @@ impl ModuleBuilder<'_> {
                     format!("unresolved function `{}`", callee_ident.name),
                 ));
             };
-            let (params, return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
+            let (params, implementation_return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
             {
                 (
                     function
@@ -321,8 +351,31 @@ impl ModuleBuilder<'_> {
                     "callee item is not a function",
                 ));
             };
-            let rest = self.function_rests.get(callee_ident.name.as_str()).copied();
-            if params.iter().any(|param| self.type_contains_never(*param)) {
+            let mut rest = self.function_rests.get(callee_ident.name.as_str()).copied();
+            let selected_overload = self.selected_overload_signature(
+                callee_ident.name.as_str(),
+                &call.arguments,
+                call.span,
+                body,
+            )?;
+            if rest.is_none()
+                && selected_overload.is_some()
+                && params.len() == 1
+                && let Some(param_ty) = params.first()
+                && let Some(Type::List(item_ty)) = self.ctx.krate.types.get(*param_ty)
+            {
+                rest = Some(RestParam {
+                    index: 0,
+                    item_ty: *item_ty,
+                });
+            }
+            let return_ty = selected_overload
+                .as_ref()
+                .map_or(implementation_return_ty, |signature| signature.return_ty);
+            if params
+                .iter()
+                .any(|param| self.concrete_type_requires_never_value(*param))
+            {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "calls through function types with never parameters are not lowered",
@@ -359,7 +412,7 @@ impl ModuleBuilder<'_> {
                 kind: ExprKind::Item(item),
                 ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params,
-                    return_ty,
+                    return_ty: implementation_return_ty,
                     is_async,
                 })),
                 span: self.span(callee_ident.span.start, callee_ident.span.end),
@@ -374,6 +427,183 @@ impl ModuleBuilder<'_> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Select the TypeScript overload signature that matches a call site.
+    fn selected_overload_signature(
+        &mut self,
+        name: &str,
+        arguments: &[Argument<'_>],
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<Option<OverloadSignature>, SmeltError> {
+        let Some(signatures) = self
+            .function_overloads
+            .get(name)
+            .cloned()
+            .or_else(|| self.ctx.overloads.get(name).cloned())
+        else {
+            return Ok(None);
+        };
+        let mut lowered_arg_tys = Vec::new();
+        for argument in arguments {
+            let arg = self.argument(argument, body)?;
+            lowered_arg_tys.push(Self::expr_ty(body, arg));
+        }
+        for signature in signatures {
+            if signature.params.len() != lowered_arg_tys.len() {
+                continue;
+            }
+            let mut substitutions = HashMap::new();
+            if signature
+                .params
+                .iter()
+                .zip(&lowered_arg_tys)
+                .all(|(expected, actual)| {
+                    self.infer_overload_type(*expected, *actual, &mut substitutions)
+                })
+            {
+                return Ok(Some(self.instantiate_overload_signature(signature, &substitutions)));
+            }
+        }
+        Err({
+                SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    format!("no overload of `{name}` matches this call"),
+                )
+            })
+    }
+
+    /// Instantiate a selected overload signature with inferred generic types.
+    fn instantiate_overload_signature(
+        &mut self,
+        signature: OverloadSignature,
+        substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> OverloadSignature {
+        let params = signature
+            .params
+            .into_iter()
+            .map(|param| self.substitute_type_params(param, substitutions))
+            .collect();
+        let return_ty = self.substitute_type_params(signature.return_ty, substitutions);
+        OverloadSignature {
+            params,
+            return_ty,
+            is_async: signature.is_async,
+        }
+    }
+
+    /// Infer generic overload substitutions while checking argument compatibility.
+    fn infer_overload_type(
+        &mut self,
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        let expected = self.substitute_type_params(expected, substitutions);
+        if expected == actual {
+            return true;
+        }
+        match (
+            self.ctx.krate.types.get(expected).cloned(),
+            self.ctx.krate.types.get(actual).cloned(),
+        ) {
+            (Some(Type::TypeParam { name }), _) => {
+                substitutions.insert(name, actual);
+                true
+            }
+            (Some(Type::Unknown), _)
+            | (_, Some(Type::Unknown | Type::TypeParam { .. }))
+            | (Some(Type::Float), Some(Type::Int))
+            | (Some(Type::Int), Some(Type::Float)) => true,
+            (Some(Type::Optional(inner)), _) if inner == actual => true,
+            (Some(Type::Optional(inner)), _) => self.infer_overload_type(inner, actual, substitutions),
+            (Some(Type::List(expected_item)), Some(Type::List(actual_item)))
+            | (Some(Type::Set(expected_item)), Some(Type::Set(actual_item)))
+            | (Some(Type::Future(expected_item)), Some(Type::Future(actual_item))) => {
+                self.infer_overload_type(expected_item, actual_item, substitutions)
+            }
+            (Some(Type::Dict(expected_key, expected_value)), Some(Type::Dict(actual_key, actual_value))) => {
+                self.infer_overload_type(expected_key, actual_key, substitutions)
+                    && self.infer_overload_type(expected_value, actual_value, substitutions)
+            }
+            (Some(Type::Tuple(expected_items)), Some(Type::Tuple(actual_items))) => {
+                expected_items.len() == actual_items.len()
+                    && expected_items
+                        .into_iter()
+                        .zip(actual_items)
+                        .all(|(expected_item, actual_item)| {
+                            self.infer_overload_type(expected_item, actual_item, substitutions)
+                        })
+            }
+            (Some(Type::Class { name: expected_name, args: expected_args }), Some(Type::Class { name: actual_name, args: actual_args })) => {
+                expected_name == actual_name
+                    && expected_args.len() == actual_args.len()
+                    && expected_args.into_iter().zip(actual_args).all(
+                        |(expected_arg, actual_arg)| {
+                            self.infer_overload_type(expected_arg, actual_arg, substitutions)
+                        },
+                    )
+            }
+            (Some(Type::Function(expected_function)), Some(Type::Function(actual_function))) => {
+                self.infer_overload_function_type(&expected_function, &actual_function, substitutions)
+            }
+            (Some(Type::Union(expected_items)), _) => expected_items
+                .into_iter()
+                .any(|item| self.infer_overload_type(item, actual, &mut substitutions.clone())),
+            (_, Some(Type::Union(actual_items))) => actual_items
+                .into_iter()
+                .any(|item| self.infer_overload_type(expected, item, &mut substitutions.clone())),
+            _ => false,
+        }
+    }
+
+    /// Infer compatibility for function-typed overload parameters.
+    fn infer_overload_function_type(
+        &mut self,
+        expected: &FunctionType,
+        actual: &FunctionType,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        if expected.is_async != actual.is_async || expected.params.len() != actual.params.len() {
+            return false;
+        }
+        let mut actual_substitutions = HashMap::new();
+        for (expected_param, actual_param) in expected.params.iter().zip(&actual.params) {
+            let expected_param = self.substitute_type_params(*expected_param, substitutions);
+            if !self.infer_callable_parameter_type(
+                expected_param,
+                *actual_param,
+                &mut actual_substitutions,
+            ) {
+                return false;
+            }
+        }
+        let actual_return_ty = self.substitute_type_params(actual.return_ty, &actual_substitutions);
+        self.infer_overload_type(expected.return_ty, actual_return_ty, substitutions)
+    }
+
+    /// Check that an actual callback can accept the input required by an overload parameter.
+    fn infer_callable_parameter_type(
+        &mut self,
+        required_input: smelt_hir::TypeId,
+        actual_param: smelt_hir::TypeId,
+        actual_substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        let actual_param = self.substitute_type_params(actual_param, actual_substitutions);
+        if actual_param == required_input {
+            return true;
+        }
+        match self.ctx.krate.types.get(actual_param).cloned() {
+            Some(Type::TypeParam { name }) => {
+                actual_substitutions.insert(name, required_input);
+                true
+            }
+            Some(Type::Unknown) => true,
+            _ => {
+                self.infer_overload_type(actual_param, required_input, actual_substitutions)
+            }
+        }
     }
 
     /// Lower a call whose callee is a local closure or function-typed local.
@@ -548,5 +778,82 @@ impl ModuleBuilder<'_> {
                 "spread call requires at least one argument",
             )
         })
+    }
+
+    /// Lower type-test-only assertion calls to a no-op expression.
+    ///
+    /// APIs such as Vitest's `expectTypeOf` and `expect-type` assertions exist
+    /// to make TypeScript's checker verify source types. They do not represent
+    /// runtime behavior, so Smelt lowers the value under test to keep ordinary
+    /// expression/type errors visible and erases the assertion call itself.
+    fn type_test_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(root_call) = self.type_test_root_call(call) else {
+            return Ok(None);
+        };
+        if let Some(value) = root_call.arguments.first() {
+            let _ = self.argument(value, body)?;
+        }
+        let ty = self.ctx.krate.types.intern(Type::None);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Return the root `expectTypeOf(...)`-style call for a type-test chain.
+    fn type_test_root_call<'a>(
+        &self,
+        call: &'a oxc::ast::ast::CallExpression<'a>,
+    ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
+        if self.is_type_test_root_callee(&call.callee) {
+            return Some(call);
+        }
+        match &call.callee {
+            Expression::StaticMemberExpression(member) => self.type_test_root_expression(&member.object),
+            Expression::ComputedMemberExpression(member) => {
+                self.type_test_root_expression(&member.object)
+            }
+            _ => None,
+        }
+    }
+
+    /// Return the root type-test call for an expression in a member chain.
+    fn type_test_root_expression<'a>(
+        &self,
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
+        match expression {
+            Expression::CallExpression(call) => self.type_test_root_call(call),
+            Expression::StaticMemberExpression(member) => self.type_test_root_expression(&member.object),
+            Expression::ComputedMemberExpression(member) => {
+                self.type_test_root_expression(&member.object)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.type_test_root_expression(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => self.type_test_root_expression(&as_expr.expression),
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.type_test_root_expression(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.type_test_root_expression(&non_null.expression)
+            }
+            _ => None,
+        }
+    }
+
+    /// Return whether `callee` starts a supported type-test assertion chain.
+    fn is_type_test_root_callee(&self, callee: &Expression<'_>) -> bool {
+        matches!(
+            callee,
+            Expression::Identifier(ident)
+                if self.test_builtins.contains(ident.name.as_str())
+                    && test_support::is_type_test_builtin_name(ident.name.as_str())
+        )
     }
 }

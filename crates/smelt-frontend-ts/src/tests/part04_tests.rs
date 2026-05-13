@@ -212,6 +212,7 @@ fn lowers_number_predicate_calls() -> Result<(), String> {
         ts!(r#"
 const value = 4;
 const finite = Number.isFinite(value);
+const integer = Number.isInteger(value);
 const nan = Number.isNaN(value);
 const globalNan = isNaN(value);
 const missing = undefined;
@@ -221,7 +222,11 @@ const missing = undefined;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
 
-    for expected in [NumericPredicateOp::IsFinite, NumericPredicateOp::IsNaN] {
+    for expected in [
+        NumericPredicateOp::IsFinite,
+        NumericPredicateOp::IsInteger,
+        NumericPredicateOp::IsNaN,
+    ] {
         ensure!(body.exprs.iter().any(
             |expr| matches!(expr.kind, ExprKind::NumericPredicate { op, .. } if op == expected)
         ));
@@ -342,6 +347,86 @@ const arity = fnValue.length;
 }
 
 #[test]
+fn lowers_never_rest_strict_function_spread_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type StrictFunction = (...args: never) => unknown;
+
+function callStrict(fn: StrictFunction, args: readonly unknown[]): unknown {
+  return fn(...args);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn allows_strict_function_as_function_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type StrictFunction = (...args: never) => unknown;
+
+function dataLast(fn: StrictFunction, args: readonly unknown[]): unknown {
+  return fn(...args);
+}
+
+function purry(fn: StrictFunction, args: readonly unknown[]): unknown {
+  return dataLast(fn, args);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::Call { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_parenthesized_callable_intersection_type_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LazyFn = (value: unknown) => unknown;
+type LazyMeta = { readonly single?: boolean };
+export type LazyDefinition = {
+  readonly lazy: LazyMeta & ((...args: any) => LazyFn);
+  readonly lazyArgs: readonly unknown[];
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Function(function) if function.params.len() == 1))
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_object_has_own_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -361,6 +446,131 @@ const second = mapping.hasOwnProperty("b");
             .filter(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
             .count()
             == 2
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_generic_record_key_aliases_for_later_instantiation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type UpsertProp<T, K extends PropertyKey, V> = T & Record<K, V>;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 1);
+    ensure!(
+        ctx.krate.types.all().iter().any(|ty| matches!(
+            ty,
+            Type::Dict(key, _) if matches!(ctx.krate.types.get(*key), Some(Type::TypeParam { .. }))
+        )),
+        "expected generic Record<K, V> to preserve K for later substitution",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_object_spread_literals_as_ordered_assignments() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const base: Record<string, number> = { a: 1, b: 2 };
+const merged: Record<string, number> = { ...base, b: 3, c: 4 };
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictAssign { .. })),
+        "expected object spread to lower to an ordered dictionary assignment",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_generic_object_spread_with_computed_key() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type UpsertProp<T, K extends PropertyKey, V> = T & Record<K, V>;
+export const addPropImplementation = <T, K extends PropertyKey, V>(
+  obj: T,
+  prop: K,
+  value: V,
+): UpsertProp<T, K, V> => ({ ...obj, [prop]: value });
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    let function = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Function(function) => Some(function),
+            _ => None,
+        })
+        .ok_or_else(|| "missing lowered function".to_owned())?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictAssign { .. })),
+        "expected generic spread and computed key to lower through DictAssign",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_type_assertion_call_arguments_with_asserted_object_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function readA(value: Record<string, string>): string {
+  return value.a;
+}
+const result = readA({} as { a: string });
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::DictLit(_)
+                if matches!(ctx.krate.types.get(expr.ty), Some(Type::Dict(_, value)) if ctx.krate.types.get(*value) == Some(&Type::String))
+        )),
+        "expected asserted object call argument to use the asserted object type",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_vitest_expect_type_of_as_type_only_noop() -> Result<(), String> {
+    let source = ts!(r#"
+import { expectTypeOf, test } from "vitest";
+
+test("type assertion", () => {
+  const result = {} as { a: string };
+  expectTypeOf(result).toEqualTypeOf<{ a: string }>();
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/type.test-d.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::None))),
+        "expected type-test assertion to lower to a no-op expression",
     );
     Ok(())
 }

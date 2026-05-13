@@ -8,8 +8,15 @@ impl ModuleBuilder<'_> {
         let name = self.intern_type_name(name_text);
         let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
         let result = self.ts_type_to_hir(&alias.type_annotation);
+        let fields = self.type_fields_from_ts(&alias.type_annotation).ok();
         self.pop_type_parameter_scope();
         let ty = result?;
+        if let Some(fields) = fields
+            && !fields.is_empty()
+        {
+            self.type_alias_fields.insert(name, fields.clone());
+            self.ctx.type_alias_fields.insert(name, fields);
+        }
         let item = self.ctx.krate.push_item(Item::TypeAlias(smelt_hir::TypeAlias {
             name,
             type_params,
@@ -243,6 +250,14 @@ impl ModuleBuilder<'_> {
                         else_block,
                     },
                 );
+                if if_stmt.alternate.is_none()
+                    && Self::statement_must_exit(&if_stmt.consequent)
+                    && let Some(narrowing) = self.inverse_guard_narrowing(&if_stmt.test, body)
+                {
+                    for (name, target) in narrowing {
+                        self.apply_narrowing(name, target);
+                    }
+                }
                 Ok(())
             }
             Statement::WhileStatement(while_stmt) => {
@@ -266,8 +281,37 @@ impl ModuleBuilder<'_> {
                 }
                 let iter = self.expression(&for_stmt.right, body)?;
                 let iter = self.for_of_iterable(iter, &for_stmt.right, body);
-                let pat = self.for_left_pattern(&for_stmt.left, body)?;
-                let loop_body = self.block_from_statement(&for_stmt.body, body)?;
+                let destructured =
+                    self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
+                let (pat, loop_body) =
+                    if let Some((pat, value, binding, annotated_ty, mutable)) = destructured {
+                        let loop_body = body.push_block(self.statement_span(&for_stmt.body));
+                        self.binding_declaration(
+                            binding,
+                            Some(value),
+                            annotated_ty,
+                            mutable,
+                            body,
+                            loop_body,
+                        )?;
+                        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+                            for nested_statement in &block_stmt.body {
+                                self.statement_in_block(nested_statement, body, loop_body)?;
+                            }
+                        } else {
+                            self.statement_in_block(&for_stmt.body, body, loop_body)?;
+                        }
+                        (pat, loop_body)
+                    } else {
+                        (
+                            self.for_left_pattern(
+                                &for_stmt.left,
+                                Self::expr_ty(body, iter),
+                                body,
+                            )?,
+                            self.block_from_statement(&for_stmt.body, body)?,
+                        )
+                    };
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {

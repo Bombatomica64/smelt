@@ -121,13 +121,25 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
     match &callback.kind {
         smelt_hir::CallbackExprKind::Capture(_)
         | smelt_hir::CallbackExprKind::AssignCapture { .. } => true,
-        smelt_hir::CallbackExprKind::Param(_) | smelt_hir::CallbackExprKind::Literal(_) => false,
+        smelt_hir::CallbackExprKind::Param(_)
+        | smelt_hir::CallbackExprKind::Function(_)
+        | smelt_hir::CallbackExprKind::Literal(_) => false,
         smelt_hir::CallbackExprKind::ListLit(items) => items.iter().any(callback_has_capture),
-        smelt_hir::CallbackExprKind::Index { receiver, .. } => callback_has_capture(receiver),
-        smelt_hir::CallbackExprKind::Field { receiver, .. } => callback_has_capture(receiver),
+        smelt_hir::CallbackExprKind::Index { receiver, .. }
+        | smelt_hir::CallbackExprKind::Field { receiver, .. }
+        | smelt_hir::CallbackExprKind::HasField { receiver, .. } => callback_has_capture(receiver),
         smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_capture(operand),
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_capture(lhs) || callback_has_capture(rhs)
+        }
+        smelt_hir::CallbackExprKind::Conditional {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            callback_has_capture(cond)
+                || callback_has_capture(then_expr)
+                || callback_has_capture(else_expr)
         }
         smelt_hir::CallbackExprKind::Call { callee, args } => {
             callback_has_capture(callee) || args.iter().any(|arg| callback_has_capture(&arg.expr))

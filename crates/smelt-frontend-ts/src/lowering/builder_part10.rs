@@ -326,7 +326,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower direct TypeScript `Number.isFinite` and `Number.isNaN` calls.
+    /// Lower direct TypeScript numeric predicate calls.
     fn number_predicate_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -342,6 +342,7 @@ impl ModuleBuilder<'_> {
                 }
                 let op = match member.property.name.as_str() {
                     "isFinite" => NumericPredicateOp::IsFinite,
+                    "isInteger" => NumericPredicateOp::IsInteger,
                     "isNaN" => NumericPredicateOp::IsNaN,
                     _ => return Ok(None),
                 };
@@ -359,7 +360,10 @@ impl ModuleBuilder<'_> {
             ));
         };
         let operand = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::Float) {
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+            Some(Type::Int | Type::Float)
+        ) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!("{source_name} requires a number argument"),
@@ -412,7 +416,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower direct TypeScript `Number.parseInt(...)` calls without a radix argument.
+    /// Lower direct TypeScript `Number.parseInt(...)` calls.
     fn number_parse_int_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -427,19 +431,7 @@ impl ModuleBuilder<'_> {
         if object.name != "Number" || member.property.name != "parseInt" {
             return Ok(None);
         }
-        let [argument] = call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "Number.parseInt requires exactly one string argument",
-            ));
-        };
-        let operand = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "Number.parseInt requires a string argument",
-            ));
-        }
+        let operand = self.parse_int_operand("Number.parseInt", call, body)?;
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::PrimitiveCast {
@@ -449,6 +441,49 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower and validate TypeScript `parseInt` string and radix arguments.
+    ///
+    /// Smelt currently represents integer parsing as a primitive string-to-int
+    /// cast without a radix field. The common decimal radix form is still
+    /// accepted here after checking that the radix expression is numeric.
+    fn parse_int_operand(
+        &mut self,
+        source_name: &str,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let argument = match call.arguments.as_slice() {
+            [argument] => argument,
+            [argument, radix] => {
+                let radix_expr = self.argument(radix, body)?;
+                if !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, radix_expr)),
+                    Some(Type::Int | Type::Float)
+                ) {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        format!("{source_name} requires a numeric radix argument"),
+                    ));
+                }
+                argument
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("{source_name} requires a string argument and optional numeric radix"),
+                ));
+            }
+        };
+        let operand = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{source_name} requires a string argument"),
+            ));
+        }
+        Ok(operand)
     }
 
     /// Lower direct TypeScript `.toString()` calls without a radix argument.

@@ -329,7 +329,8 @@ impl ModuleBuilder<'_> {
         if call.arguments.is_empty() {
             let operand = self.expression(&member.object, body)?;
             let operand_ty = Self::expr_ty(body, operand);
-            if self.ctx.krate.types.get(operand_ty) == Some(&Type::String) {
+            let effective_operand_ty = self.type_param_constraint_or_self(operand_ty);
+            if self.ctx.krate.types.get(effective_operand_ty) == Some(&Type::String) {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::StringCase { op, operand },

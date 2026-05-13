@@ -214,6 +214,9 @@ fn rvalue_text(value: &Rvalue) -> String {
                 method.0
             )
         }
+        Rvalue::OptionalCoalesce { optional, fallback } => {
+            format!("{} ?? {}", operand_text(optional), operand_text(fallback))
+        }
         Rvalue::InstanceOf {
             value: operand,
             class,
@@ -272,6 +275,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::NumericPredicate { op, operand } => {
             let op_text = match op {
                 smelt_hir::NumericPredicateOp::IsFinite => "is_finite",
+                smelt_hir::NumericPredicateOp::IsInteger => "is_integer",
                 smelt_hir::NumericPredicateOp::IsNaN => "is_nan",
             };
             format!("numeric_{op_text} {}", operand_text(operand))

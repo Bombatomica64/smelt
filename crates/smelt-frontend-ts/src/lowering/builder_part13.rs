@@ -417,7 +417,9 @@ impl ModuleBuilder<'_> {
                     self.collect_callback_captures(item, body, captures);
                 }
             }
-            CallbackExprKind::Index { receiver, .. } | CallbackExprKind::Field { receiver, .. } => {
+            CallbackExprKind::Index { receiver, .. }
+            | CallbackExprKind::Field { receiver, .. }
+            | CallbackExprKind::HasField { receiver, .. } => {
                 self.collect_callback_captures(receiver, body, captures);
             }
             CallbackExprKind::Unary { operand, .. } => {
@@ -427,13 +429,22 @@ impl ModuleBuilder<'_> {
                 self.collect_callback_captures(lhs, body, captures);
                 self.collect_callback_captures(rhs, body, captures);
             }
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                self.collect_callback_captures(cond, body, captures);
+                self.collect_callback_captures(then_expr, body, captures);
+                self.collect_callback_captures(else_expr, body, captures);
+            }
             CallbackExprKind::Call { callee, args } => {
                 self.collect_callback_captures(callee, body, captures);
                 for arg in args {
                     self.collect_callback_captures(&arg.expr, body, captures);
                 }
             }
-            CallbackExprKind::Param(_) | CallbackExprKind::Literal(_) => {}
+            CallbackExprKind::Param(_) | CallbackExprKind::Function(_) | CallbackExprKind::Literal(_) => {}
         }
     }
 
@@ -807,9 +818,19 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let return_expression = self.arrow_return_expression(arrow)?;
         let mut capture_names = Vec::new();
-        self.collect_expression_capture_names(return_expression, &param_names, &mut capture_names);
+        if arrow.expression {
+            let return_expression = self.arrow_return_expression(arrow)?;
+            self.collect_expression_capture_names(
+                return_expression,
+                &param_names,
+                &mut capture_names,
+            );
+        } else {
+            for statement in &arrow.body.statements {
+                self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
+            }
+        }
         capture_names.sort();
         capture_names.dedup();
 
@@ -847,7 +868,22 @@ impl ModuleBuilder<'_> {
             });
         }
 
-        let value = self.expression(return_expression, &mut closure_body);
+        let lowering_result = if arrow.expression {
+            let return_expression = self.arrow_return_expression(arrow)?;
+            self.expression(return_expression, &mut closure_body)
+                .map(|value| {
+                    closure_body.push_stmt(Stmt::Return(Some(value)));
+                })
+        } else {
+            let mut result = Ok(());
+            for statement in &arrow.body.statements {
+                if let Err(error) = self.statement(statement, &mut closure_body) {
+                    result = Err(error);
+                    break;
+                }
+            }
+            result
+        };
         for (name, prior) in saved_locals.into_iter().rev() {
             if let Some(local) = prior {
                 self.locals.insert(name, local);
@@ -855,8 +891,7 @@ impl ModuleBuilder<'_> {
                 self.locals.remove(name.as_str());
             }
         }
-        let value = value?;
-        closure_body.push_stmt(Stmt::Return(Some(value)));
+        lowering_result?;
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys.to_vec(),
@@ -875,6 +910,45 @@ impl ModuleBuilder<'_> {
             ty: closure_ty,
             span,
         }))
+    }
+
+    /// Lower an arrow function expression as a first-class closure value.
+    fn arrow_function_expression(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let result = (|| {
+        if arrow.r#async {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "async arrow expressions need async closure lowering",
+            ));
+        }
+        let params = self.arrow_callback_param_types(arrow)?;
+        let explicit_return_ty = arrow
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?;
+        if let Ok(callback) = self.arrow_callback_from_params(arrow, &params, body) {
+            let return_ty = explicit_return_ty.unwrap_or(callback.ty);
+            if callback.ty != return_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(arrow.span.start, arrow.span.end),
+                    "arrow expression return type does not match its annotation",
+                ));
+            }
+            let span = self.span(arrow.span.start, arrow.span.end);
+            return Ok(self.callback_expr_to_closure(callback, &params, span, body));
+        }
+        let return_ty =
+            explicit_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        self.arrow_closure_body_expr(arrow, &params, return_ty, body)
+        })();
+        self.pop_type_parameter_scope();
+        result
     }
 
     /// Return the expression produced by an arrow function body.
@@ -971,6 +1045,54 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Collect outer identifier names referenced by a block-bodied arrow statement.
+    fn collect_statement_capture_names(
+        &self,
+        statement: &Statement<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match statement {
+            Statement::VariableDeclaration(decl) => {
+                let mut local_names = param_names.clone();
+                for declarator in &decl.declarations {
+                    if let BindingPattern::BindingIdentifier(binding) = &declarator.id {
+                        local_names.insert(binding.name.as_str().to_owned());
+                    }
+                }
+                for declarator in &decl.declarations {
+                    if let Some(init) = &declarator.init {
+                        self.collect_expression_capture_names(init, &local_names, captures);
+                    }
+                }
+            }
+            Statement::ExpressionStatement(statement) => {
+                self.collect_expression_capture_names(&statement.expression, param_names, captures);
+            }
+            Statement::ReturnStatement(statement) => {
+                if let Some(argument) = &statement.argument {
+                    self.collect_expression_capture_names(argument, param_names, captures);
+                }
+            }
+            Statement::IfStatement(statement) => {
+                self.collect_expression_capture_names(&statement.test, param_names, captures);
+                self.collect_statement_capture_names(&statement.consequent, param_names, captures);
+                if let Some(alternate) = &statement.alternate {
+                    self.collect_statement_capture_names(alternate, param_names, captures);
+                }
+            }
+            Statement::BlockStatement(block) => {
+                for child in &block.body {
+                    self.collect_statement_capture_names(child, param_names, captures);
+                }
+            }
+            Statement::ThrowStatement(statement) => {
+                self.collect_expression_capture_names(&statement.argument, param_names, captures);
+            }
+            _ => {}
+        }
+    }
+
     /// Lower either an inline arrow callback or a local closure callback value.
     fn callback_argument(
         &mut self,
@@ -1040,6 +1162,36 @@ impl ModuleBuilder<'_> {
             Expression::Identifier(identifier) => {
                 if let Some(param) = params.get(identifier.name.as_str()).cloned() {
                     return Ok(param);
+                }
+                if identifier.name == "undefined" {
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::None),
+                        ty: self.ctx.krate.types.intern(Type::None),
+                    });
+                }
+                if let Some(item) = self.items.get(identifier.name.as_str()).copied() {
+                    let span = self.span(identifier.span.start, identifier.span.end);
+                    let ty = self.item_expr_type(item, span)?;
+                    let Item::Function(function) = self.item_ref(item) else {
+                        return Err(SmeltError::unsupported(
+                            span,
+                            "callback item references must resolve to functions",
+                        ));
+                    };
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::Function(function.name),
+                        ty,
+                    });
+                }
+                if let Some((name, ty)) = self
+                    .forward_function_types
+                    .get(identifier.name.as_str())
+                    .copied()
+                {
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::Function(name),
+                        ty,
+                    });
                 }
                 let Some(local) = self.locals.get(identifier.name.as_str()).copied() else {
                     return Err(SmeltError::unsupported(
@@ -1268,6 +1420,31 @@ impl ModuleBuilder<'_> {
                     ty: item_ty,
                 })
             }
+            Expression::ConditionalExpression(conditional) => {
+                let cond = self.callback_expression(&conditional.test, params, body)?;
+                if self.ctx.krate.types.get(cond.ty) != Some(&Type::Bool) {
+                    return Err(SmeltError::unsupported(
+                        self.span(conditional.test.span().start, conditional.test.span().end),
+                        "callback conditional expression condition must be boolean",
+                    ));
+                }
+                let then_expr = self.callback_expression(&conditional.consequent, params, body)?;
+                let else_expr = self.callback_expression(&conditional.alternate, params, body)?;
+                let ty = self.callback_conditional_type(
+                    then_expr.ty,
+                    else_expr.ty,
+                    conditional.span.start,
+                    conditional.span.end,
+                )?;
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Conditional {
+                        cond: Box::new(cond),
+                        then_expr: Box::new(then_expr),
+                        else_expr: Box::new(else_expr),
+                    },
+                    ty,
+                })
+            }
             Expression::AssignmentExpression(assign) => {
                 let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left else {
                     return Err(SmeltError::unsupported(
@@ -1384,6 +1561,22 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::BinaryExpression(binary) => {
+                if binary.operator == BinaryOperator::In {
+                    let Expression::StringLiteral(field) = &binary.left else {
+                        return Err(SmeltError::unsupported(
+                            self.span(binary.left.span().start, binary.left.span().end),
+                            "callback `in` checks require a static string key",
+                        ));
+                    };
+                    let receiver = self.callback_expression(&binary.right, params, body)?;
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::HasField {
+                            receiver: Box::new(receiver),
+                            field: self.ctx.krate.symbols.intern(field.value.as_str()),
+                        },
+                        ty: self.ctx.krate.types.intern(Type::Bool),
+                    });
+                }
                 let op =
                     self.callback_binary_op(binary.operator, binary.span.start, binary.span.end)?;
                 let lhs = self.callback_expression(&binary.left, params, body)?;
@@ -1432,6 +1625,29 @@ impl ModuleBuilder<'_> {
                 "callback expression kind is not supported yet",
             )),
         }
+    }
+
+    /// Compute the result type of a callback conditional expression.
+    fn callback_conditional_type(
+        &mut self,
+        then_ty: smelt_hir::TypeId,
+        else_ty: smelt_hir::TypeId,
+        start: u32,
+        end: u32,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if then_ty == else_ty {
+            return Ok(then_ty);
+        }
+        if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
+            return Ok(self.ctx.krate.types.intern(Type::Optional(then_ty)));
+        }
+        if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
+            return Ok(self.ctx.krate.types.intern(Type::Optional(else_ty)));
+        }
+        Err(SmeltError::unsupported(
+            self.span(start, end),
+            "callback conditional expression branches must have compatible lowered types",
+        ))
     }
 
     /// Maps supported TypeScript callback binary operators to HIR operators.

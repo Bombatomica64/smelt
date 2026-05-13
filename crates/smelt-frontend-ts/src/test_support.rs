@@ -17,9 +17,13 @@ const VITEST_BUILTIN_NAMES: &[&str] = &[
     "it",
     "test",
     "expect",
+    "expectTypeOf",
     "beforeEach",
     "afterEach",
 ];
+
+/// Public type-test API roots that are erased after static lowering.
+const TYPE_TEST_BUILTIN_NAMES: &[&str] = &["expectTypeOf", "expectType", "assertType"];
 
 /// Return whether `module` is a Vitest-compatible framework import source.
 pub(crate) fn is_vitest_compatible_module(module: &str) -> bool {
@@ -29,4 +33,9 @@ pub(crate) fn is_vitest_compatible_module(module: &str) -> bool {
 /// Return whether `name` is a supported Vitest public API builtin.
 pub(crate) fn is_vitest_builtin_name(name: &str) -> bool {
     VITEST_BUILTIN_NAMES.contains(&name)
+}
+
+/// Return whether `name` is a supported type-test-only assertion API.
+pub(crate) fn is_type_test_builtin_name(name: &str) -> bool {
+    TYPE_TEST_BUILTIN_NAMES.contains(&name)
 }

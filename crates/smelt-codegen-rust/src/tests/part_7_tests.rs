@@ -48,6 +48,19 @@ def read_write(path: str, text: str) -> str:
 }
 
 #[test]
+fn emits_unknown_record_literals_with_tagged_values() {
+    let source = source_for(
+        r#"
+const value: Record<string, unknown> = { done: false, name: "skip" };
+"#,
+    );
+
+    assert!(source.contains("::std::collections::HashMap<String, SmeltUnknown>"));
+    assert!(source.contains("SmeltUnknown::Bool(false)"));
+    assert!(source.contains("SmeltUnknown::String(\"skip\".to_owned())"));
+}
+
+#[test]
 fn emits_typescript_unknown_as_tagged_type() {
     let source = source_for(
         "function identity(value: unknown): unknown {

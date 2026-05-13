@@ -1244,6 +1244,28 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::OptionalCoalesce { optional, fallback } => {
+                let lowered_optional = self.lower_expr(*optional)?;
+                let lowered_fallback = self.lower_expr(*fallback)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::OptionalCoalesce {
+                        optional: lowered_optional,
+                        fallback: lowered_fallback,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::TypeAssert { value } => {
+                let lowered_value = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(lowered_value),
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::Len { operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -2944,6 +2966,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::OptionalField { .. }
             | ExprKind::OptionalIndex { .. }
             | ExprKind::OptionalMethod { .. }
+            | ExprKind::OptionalCoalesce { .. }
+            | ExprKind::TypeAssert { .. }
             | ExprKind::Len { .. }
             | ExprKind::NumericAbs { .. }
             | ExprKind::NumericRound { .. }

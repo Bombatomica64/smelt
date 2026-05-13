@@ -57,7 +57,7 @@ mod ident;
 mod lowering;
 mod test_support;
 
-pub use context::HirCtx;
+pub use context::{HirCtx, ObjectConst, ObjectConstEntry, OverloadSignature};
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
 pub use lowering::{to_hir, to_hir_with_path};

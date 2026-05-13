@@ -52,6 +52,13 @@ pub enum ExprKind {
         method: Symbol,
         args: Vec<ExprId>,
     },
+    OptionalCoalesce {
+        optional: ExprId,
+        fallback: ExprId,
+    },
+    TypeAssert {
+        value: ExprId,
+    },
     Len {
         operand: ExprId,
     },
