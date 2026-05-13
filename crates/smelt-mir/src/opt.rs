@@ -482,6 +482,13 @@ fn rewrite_rvalue(
             }
             changed
         }
+        Rvalue::CallableObjectAssign { callable, props } => {
+            let mut changed = rewrite_operand_except(callable, aliases, dest);
+            for (_, value) in props {
+                changed |= rewrite_operand_except(value, aliases, dest);
+            }
+            changed
+        }
         Rvalue::DictCopy { dict } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::DictProjection { dict, .. } => rewrite_operand_except(dict, aliases, dest),
         Rvalue::StringSplit {

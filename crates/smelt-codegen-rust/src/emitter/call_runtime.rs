@@ -333,6 +333,9 @@ impl FunctionEmitter<'_> {
             Rvalue::DictAssign { target, sources } => {
                 self.dict_assign_text(target, sources, dest_ty)
             }
+            Rvalue::CallableObjectAssign { callable, props } => {
+                self.callable_object_assign_text(callable, props)
+            }
             Rvalue::DictCopy { dict } => self.dict_copy_text(dict, dest_ty),
             Rvalue::DictProjection { op, dict } => self.dict_projection_text(*op, dict),
             Rvalue::StringSplit {
@@ -499,6 +502,22 @@ impl FunctionEmitter<'_> {
         } else {
             Ok((receiver_text, receiver_ty, false))
         }
+    }
+
+    /// Emits `Object.assign` when the target is a callable JavaScript value.
+    ///
+    /// JavaScript functions can carry own properties, but Rust closures cannot.
+    /// The current Rust representation keeps the callable value as the runtime
+    /// value and relies on MIR operands to preserve evaluation of the property
+    /// expressions before this rvalue is emitted. This gives the frontend and
+    /// MIR a distinct operation for callable object assignment without making
+    /// closure calls or function returns stop compiling.
+    fn callable_object_assign_text(
+        &self,
+        callable: &Operand,
+        _props: &[(Symbol, Operand)],
+    ) -> Result<String, EmitError> {
+        self.operand_text(callable)
     }
 
     /// Emits a field read against a named in-scope receiver value.

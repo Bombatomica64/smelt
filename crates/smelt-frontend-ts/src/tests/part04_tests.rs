@@ -302,6 +302,46 @@ const merged = Object.assign({}, source, { b: 2 });
 }
 
 #[test]
+fn lowers_object_assign_call_on_callable_target() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const fnValue = (value: number): number => value;
+const assigned = Object.assign(fnValue, { lazy: fnValue });
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::CallableObjectAssign { ref props, .. } if props.len() == 1)
+    ));
+    Ok(())
+}
+
+#[test]
+fn lowers_function_length_to_static_arity() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const fnValue = (left: number, right: number): number => left + right;
+const arity = fnValue.length;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 2.0)
+        )
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_object_has_own_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

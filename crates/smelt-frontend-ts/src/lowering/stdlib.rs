@@ -1,6 +1,6 @@
 //! Focused TypeScript standard-library lowering helpers.
 
-use oxc::ast::ast::{Argument, CallExpression, Expression};
+use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, RegexMatchOp, Type};
 use smelt_stdlib::RuleId;
@@ -34,6 +34,21 @@ impl ModuleBuilder<'_> {
                 self.span(call.span.start, call.span.end),
                 "Object.assign requires at least one source record",
             ));
+        }
+
+        if let Some(target_ty) = self.object_assign_callable_target_type(target_arg, body)
+            && matches!(self.ctx.krate.types.get(target_ty), Some(Type::Function(_)))
+        {
+            let target = self.argument(target_arg, body)?;
+            let props = self.object_assign_callable_props(source_args, body)?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::CallableObjectAssign {
+                    callable: target,
+                    props,
+                },
+                ty: target_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
         }
 
         let mut sources = Vec::with_capacity(source_args.len());
@@ -79,6 +94,69 @@ impl ModuleBuilder<'_> {
             ty: record_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return the existing callable target type for supported `Object.assign` targets.
+    fn object_assign_callable_target_type(
+        &self,
+        target_arg: &Argument<'_>,
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let Argument::Identifier(ident) = target_arg else {
+            return None;
+        };
+        if let Some(local) = self.locals.get(ident.name.as_str()).copied() {
+            return Some(Self::local_ty(body, local));
+        }
+        None
+    }
+
+    /// Lower static object-literal sources used to decorate callable values.
+    fn object_assign_callable_props(
+        &mut self,
+        source_args: &[Argument<'_>],
+        body: &mut Body,
+    ) -> Result<Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>, SmeltError> {
+        let mut props = Vec::new();
+        for source_arg in source_args {
+            let Argument::ObjectExpression(object) = source_arg else {
+                return Err(SmeltError::unsupported(
+                    self.span(source_arg.span().start, source_arg.span().end),
+                    "Object.assign callable sources must be static object literals",
+                ));
+            };
+            for property in &object.properties {
+                let ObjectPropertyKind::ObjectProperty(object_property) = property else {
+                    return Err(SmeltError::unsupported(
+                        self.span(property.span().start, property.span().end),
+                        "Object.assign callable sources do not support spread properties yet",
+                    ));
+                };
+                if object_property.computed || object_property.method {
+                    return Err(SmeltError::unsupported(
+                        self.span(object_property.span.start, object_property.span.end),
+                        "Object.assign callable sources require static data properties",
+                    ));
+                }
+                let key_text = match &object_property.key {
+                    PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
+                    PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+                    _ => {
+                        return Err(SmeltError::unsupported(
+                            self.span(
+                                object_property.key.span().start,
+                                object_property.key.span().end,
+                            ),
+                            "Object.assign callable property keys must be static string keys",
+                        ));
+                    }
+                };
+                let value = self.expression(&object_property.value, body)?;
+                let name = self.intern_source_name(&key_text);
+                props.push((name, value));
+            }
+        }
+        Ok(props)
     }
 
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.

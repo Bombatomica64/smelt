@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported string padding calls into HIR string runtime calls.
     fn string_pad_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

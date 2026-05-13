@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Return whether a type can be represented by Python JSON serialization helpers.
     fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,

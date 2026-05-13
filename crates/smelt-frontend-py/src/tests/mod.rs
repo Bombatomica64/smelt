@@ -129,15 +129,18 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_capture(lhs) || callback_has_capture(rhs)
         }
+        smelt_hir::CallbackExprKind::Call { callee, args } => {
+            callback_has_capture(callee) || args.iter().any(|arg| callback_has_capture(&arg.expr))
+        }
     }
 }
 
 /// Return whether a closure expression's callback body captures an enclosing local.
-fn closure_callback_has_capture(body: &smelt_hir::Body, callback: smelt_hir::ExprId) -> bool {
+fn closure_callback_has_capture(body: &Body, callback: smelt_hir::ExprId) -> bool {
     let Some(expr) = body.exprs.get(callback.0 as usize) else {
         return false;
     };
-    let smelt_hir::ExprKind::Closure(closure) = &expr.kind else {
+    let ExprKind::Closure(closure) = &expr.kind else {
         return false;
     };
     closure

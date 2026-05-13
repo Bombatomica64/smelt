@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Return the shared item type for a tuple that must be non-empty and homogeneous.
     fn homogeneous_tuple_item_ty(items: &[TypeId], span: Span) -> Result<TypeId, SmeltError> {
         let Some(first_ty) = items.first().copied() else {
             return Err(SmeltError::unsupported(

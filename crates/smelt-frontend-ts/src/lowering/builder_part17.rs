@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Convert a TypeScript property key into the interned HIR symbol it names.
     fn property_key_symbol(
         &mut self,
         key: &PropertyKey<'_>,

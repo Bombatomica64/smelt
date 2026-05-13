@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported string split calls into HIR string runtime calls.
     fn string_split_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

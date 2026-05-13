@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported class method calls into their HIR runtime operations.
     fn class_method_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,

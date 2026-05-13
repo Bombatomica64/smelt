@@ -141,8 +141,7 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                         {
                             errors.push(ValidationError {
                                 message: format!(
-                                    "body {body_idx} expr {expr_idx} closure capture targets unknown closure local {:?}",
-                                    body_local
+                                    "body {body_idx} expr {expr_idx} closure capture targets unknown closure local {body_local:?}"
                                 ),
                             });
                         }

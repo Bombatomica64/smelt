@@ -35,7 +35,11 @@ fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
             validate_type(mir, local.ty, errors);
         }
         for param in &closure.params {
-            if closure.locals.get(param.0 as usize).is_none() {
+            if usize::try_from(param.0)
+                .ok()
+                .and_then(|index| closure.locals.get(index))
+                .is_none()
+            {
                 errors.push(error(format!(
                     "closure {:?} parameter references unknown local {:?}",
                     closure.id, param
@@ -45,7 +49,10 @@ fn validate_closures(mir: &Mir, errors: &mut Vec<ValidationError>) {
         for capture in &closure.captures {
             validate_type(mir, capture.ty, errors);
             if let Some(target) = capture.target_local
-                && closure.locals.get(target.0 as usize).is_none()
+                && usize::try_from(target.0)
+                    .ok()
+                    .and_then(|index| closure.locals.get(index))
+                    .is_none()
             {
                 errors.push(error(format!(
                     "closure {:?} capture targets unknown local {:?}",
@@ -548,6 +555,12 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, target, errors);
             for source in sources {
                 validate_operand_exists(function, source, errors);
+            }
+        }
+        Rvalue::CallableObjectAssign { callable, props } => {
+            validate_operand_exists(function, callable, errors);
+            for (_, value) in props {
+                validate_operand_exists(function, value, errors);
             }
         }
         Rvalue::DictCopy { dict } => {
@@ -1216,6 +1229,12 @@ fn validate_rvalue(
             validate_operand(function, definitions, target, errors);
             for source in sources {
                 validate_operand(function, definitions, source, errors);
+            }
+        }
+        Rvalue::CallableObjectAssign { callable, props } => {
+            validate_operand(function, definitions, callable, errors);
+            for (_, value) in props {
+                validate_operand(function, definitions, value, errors);
             }
         }
         Rvalue::DictCopy { dict } => {

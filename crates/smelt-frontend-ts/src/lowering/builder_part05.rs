@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a `describe` test-suite declaration and its inherited hooks.
     fn describe_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a Python call expression while applying an optional expected type.
     fn call_expression_with_hint(
         &mut self,
         call: &ruff_python_ast::ExprCall,

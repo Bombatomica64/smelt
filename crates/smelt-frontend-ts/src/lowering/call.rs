@@ -399,17 +399,31 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let supplied_arg_count = call.arguments.len();
-        if function
-            .params
-            .iter()
-            .any(|param| self.type_contains_never(*param))
-        {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "calls through function types with never parameters are not lowered",
-            ));
-        }
         let callback_meta = self.local_callbacks.get(callee_ident.name.as_str()).cloned();
+        let variadic_item_ty = function.params.first().and_then(|param| {
+            if function.params.len() != 1 {
+                return None;
+            }
+            match self.ctx.krate.types.get(*param) {
+                Some(Type::List(item_ty)) => Some(*item_ty),
+                Some(Type::Never) => Some(self.ctx.krate.types.intern(Type::Unknown)),
+                _ => None,
+            }
+        });
+        if callback_meta.is_none()
+            && call.arguments.iter().any(Argument::is_spread)
+            && let Some(item_ty) = variadic_item_ty
+        {
+            let packed = self.packed_spread_call_arguments(item_ty, call, body)?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee,
+                    args: vec![packed],
+                },
+                ty: function.return_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let defaults = callback_meta
             .as_ref()
             .map_or_else(|| vec![None; function.params.len()], |callback| {
@@ -464,5 +478,75 @@ impl ModuleBuilder<'_> {
             ty: function.return_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Pack JavaScript spread call arguments into one variadic list argument.
+    fn packed_spread_call_arguments(
+        &mut self,
+        item_ty: smelt_hir::TypeId,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let mut current_items = Vec::new();
+        let mut packed = None;
+        for arg in &call.arguments {
+            match arg {
+                Argument::SpreadElement(spread) => {
+                    if !current_items.is_empty() {
+                        let left = body.push_expr(Expr {
+                            kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
+                            ty: list_ty,
+                            span: self.span(call.span.start, call.span.end),
+                        });
+                        packed = Some(packed.map_or(left, |existing| {
+                            body.push_expr(Expr {
+                                kind: ExprKind::ListConcat {
+                                    left: existing,
+                                    right: left,
+                                },
+                                ty: list_ty,
+                                span: self.span(call.span.start, call.span.end),
+                            })
+                        }));
+                    }
+                    let spread_expr = self.expression(&spread.argument, body)?;
+                    packed = Some(packed.map_or(spread_expr, |existing| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::ListConcat {
+                                left: existing,
+                                right: spread_expr,
+                            },
+                            ty: list_ty,
+                            span: self.span(call.span.start, call.span.end),
+                        })
+                    }));
+                }
+                other => current_items.push(self.argument(other, body)?),
+            }
+        }
+        if !current_items.is_empty() {
+            let right = body.push_expr(Expr {
+                kind: ExprKind::ListLit(current_items),
+                ty: list_ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+            packed = Some(packed.map_or(right, |existing| {
+                body.push_expr(Expr {
+                    kind: ExprKind::ListConcat {
+                        left: existing,
+                        right,
+                    },
+                    ty: list_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })
+            }));
+        }
+        packed.ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "spread call requires at least one argument",
+            )
+        })
     }
 }

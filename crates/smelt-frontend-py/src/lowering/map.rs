@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported Python dictionary projection calls into HIR map operations.
     fn dict_projection_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,

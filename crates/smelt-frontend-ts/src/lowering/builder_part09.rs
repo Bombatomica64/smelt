@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a TypeScript `instanceof` binary expression into a HIR predicate.
     fn instanceof_expression(
         &mut self,
         binary: &oxc::ast::ast::BinaryExpression<'_>,

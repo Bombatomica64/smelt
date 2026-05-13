@@ -253,7 +253,17 @@ impl FunctionEmitter<'_> {
                 blocks: closure.blocks.clone(),
                 entry: closure.entry,
             };
-            let emitter = FunctionEmitter::new(self.mir, &function)?;
+            let mut emitter = FunctionEmitter::new(self.mir, &function)?;
+            for (index, param) in closure.params.iter().enumerate() {
+                emitter.names.insert(*param, format!("closure_arg_{index}"));
+            }
+            for capture in &closure.captures {
+                if let Some(target) = capture.target_local {
+                    emitter
+                        .names
+                        .insert(target, self.local_name(capture.source_local)?.to_owned());
+                }
+            }
             let params = closure
                 .params
                 .iter()

@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported Python string trim calls into HIR string runtime calls.
     fn string_trim_call_expression(
         &mut self,
         call: &ruff_python_ast::ExprCall,

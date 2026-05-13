@@ -2401,6 +2401,22 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::CallableObjectAssign { callable, props } => {
+                let callable_operand = self.lower_expr(*callable)?;
+                let prop_operands = props
+                    .iter()
+                    .map(|(name, value)| Ok((*name, self.lower_expr(*value)?)))
+                    .collect::<Result<Vec<_>, LowerError>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::CallableObjectAssign {
+                        callable: callable_operand,
+                        props: prop_operands,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DictCopy { dict } => {
                 let dict_operand = self.lower_expr(*dict)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -2729,9 +2745,16 @@ impl<'hir> LoweringCtx<'hir> {
                         callback_body: closure.callback_body.clone(),
                     });
                 } else {
-                    let closure_body = self.krate.bodies.get(closure.body.0 as usize).ok_or_else(|| {
-                        self.error("closure references an unknown body", Some(closure.span))
-                    })?;
+                    let closure_body = self
+                        .krate
+                        .bodies
+                        .get(usize_from_u32(
+                            closure.body.0,
+                            "HIR closure body index does not fit in usize",
+                        )?)
+                        .ok_or_else(|| {
+                            self.error("closure references an unknown body", Some(closure.span))
+                        })?;
                     let closure_ctx = LoweringCtx::new_closure(
                         self.krate,
                         self.item_functions,
@@ -2741,9 +2764,9 @@ impl<'hir> LoweringCtx<'hir> {
                         closure.span,
                         self.loop_index_ty,
                         self.loop_bool_ty,
-                        closure_index
-                            .checked_add(1)
-                            .ok_or_else(|| self.error("MIR closure index overflowed usize", Some(expr.span)))?,
+                        closure_index.checked_add(1).ok_or_else(|| {
+                            self.error("MIR closure index overflowed usize", Some(expr.span))
+                        })?,
                     )?;
                     let (function, nested_closures) = closure_ctx.lower()?;
                     self.closures.push(MirClosure {
@@ -3008,6 +3031,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::DictPop { .. }
             | ExprKind::DictUpdate { .. }
             | ExprKind::DictAssign { .. }
+            | ExprKind::CallableObjectAssign { .. }
             | ExprKind::DictCopy { .. }
             | ExprKind::DictProjection { .. }
             | ExprKind::StringSplit { .. }

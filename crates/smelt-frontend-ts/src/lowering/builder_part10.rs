@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported JavaScript regular-expression replacement calls.
     fn regex_replace_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

@@ -85,6 +85,19 @@ const merged = Object.assign({}, source, { b: 2 });
 }
 
 #[test]
+fn emits_object_assign_call_on_callable_target() {
+    let source = source_for(
+        r#"
+const fnValue = (value: number): number => value;
+const assigned = Object.assign(fnValue, { lazy: fnValue });
+"#,
+    );
+
+    assert!(source.contains("let assigned ="), "{source}");
+    assert!(source.contains("_smelt_tmp_"));
+}
+
+#[test]
 fn emits_object_has_own_methods() {
     let source = source_for(
         r#"

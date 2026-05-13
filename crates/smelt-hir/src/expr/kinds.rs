@@ -384,6 +384,11 @@ pub enum ExprKind {
         target: ExprId,
         sources: Vec<ExprId>,
     },
+    /// Attach object-literal properties to a callable JavaScript value.
+    CallableObjectAssign {
+        callable: ExprId,
+        props: Vec<(Symbol, ExprId)>,
+    },
     DictCopy {
         dict: ExprId,
     },

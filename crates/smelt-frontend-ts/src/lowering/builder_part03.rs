@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a TypeScript function declaration into a HIR function item.
     fn function_declaration(
         &mut self,
         function: &oxc::ast::ast::Function<'_>,

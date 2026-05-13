@@ -561,6 +561,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        ExprKind::CallableObjectAssign { callable, props } => format!(
+            "callable_object_assign {}, {{{}}}",
+            expr_ref(*callable),
+            props
+                .iter()
+                .map(|(name, value)| {
+                    let name = krate.symbols.get(*name).unwrap_or("<unknown>");
+                    format!("{name}: {}", expr_ref(*value))
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         ExprKind::DictCopy { dict } => format!("dict_copy {}", expr_ref(*dict)),
         ExprKind::DictProjection { op, dict } => {
             let op_name = match op {

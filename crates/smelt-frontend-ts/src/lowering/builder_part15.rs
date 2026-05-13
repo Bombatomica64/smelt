@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported namespace member calls into the matching HIR operation.
     fn namespace_member_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -159,6 +160,23 @@ impl ModuleBuilder<'_> {
             }
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Len { operand: receiver },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
+        if member.property.name == "length"
+            && let Some(Type::Function(function)) = self.ctx.krate.types.get(access_receiver_ty)
+        {
+            let arity = f64::from(u32::try_from(function.params.len()).unwrap_or(u32::MAX));
+            if optional_access {
+                return Err(SmeltError::unsupported(
+                    self.span(member.span.start, member.span.end),
+                    "optional function length access is not lowered yet",
+                ));
+            }
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(arity)),
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));

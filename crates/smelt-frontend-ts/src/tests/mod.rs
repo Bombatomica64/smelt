@@ -166,7 +166,7 @@ fn closure_callback_body(
     callback: smelt_hir::ExprId,
 ) -> Option<&smelt_hir::CallbackExpr> {
     let expr = body.exprs.get(callback.0 as usize)?;
-    let smelt_hir::ExprKind::Closure(closure) = &expr.kind else {
+    let ExprKind::Closure(closure) = &expr.kind else {
         return None;
     };
     closure.callback_body.as_ref()

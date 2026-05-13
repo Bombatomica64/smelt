@@ -402,7 +402,10 @@ impl ModuleBuilder<'_> {
     ) {
         match &callback.kind {
             CallbackExprKind::Capture(local) => {
-                if let Some(local_decl) = body.locals.get(local.0 as usize) {
+                if let Some(local_decl) = usize::try_from(local.0)
+                    .ok()
+                    .and_then(|index| body.locals.get(index))
+                {
                     captures.entry(*local).or_insert_with(|| ClosureCapture {
                         source_local: *local,
                         body_local: None,
@@ -415,7 +418,10 @@ impl ModuleBuilder<'_> {
                 }
             }
             CallbackExprKind::AssignCapture { target, value } => {
-                if let Some(local_decl) = body.locals.get(target.0 as usize) {
+                if let Some(local_decl) = usize::try_from(target.0)
+                    .ok()
+                    .and_then(|index| body.locals.get(index))
+                {
                     captures.insert(
                         *target,
                         ClosureCapture {

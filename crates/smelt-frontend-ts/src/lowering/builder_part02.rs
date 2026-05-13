@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a `const name = (...) => ...` declaration into a HIR function item.
     fn arrow_function_const_declaration(
         &mut self,
         name_text: &str,

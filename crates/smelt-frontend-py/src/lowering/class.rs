@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a Python class definition into the current HIR module.
     fn class_def(
         &mut self,
         class: &StmtClassDef,

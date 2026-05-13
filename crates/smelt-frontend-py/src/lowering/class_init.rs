@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Return whether a Python function definition is decorated as a class method.
     fn is_classmethod(&self, func: &StmtFunctionDef) -> Result<bool, SmeltError> {
         let mut is_classmethod = false;
         for decorator in &func.decorator_list {

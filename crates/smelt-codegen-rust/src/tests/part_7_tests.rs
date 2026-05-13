@@ -94,6 +94,24 @@ function isArray(value: unknown): boolean {
 }
 
 #[test]
+fn emits_call_bodied_local_arrow_as_real_closure_body() {
+    let source = source_for(
+        r#"
+function makeDataLast(fn: (value: number, extra: number) => number, extra: number): (value: number) => number {
+  const dataLast = (data: number): number => fn(data, extra);
+  return dataLast;
+}
+"#,
+    );
+
+    assert!(source.contains("|closure_arg_0: f64| {"), "{source}");
+    assert!(
+        source.contains("arg_0(closure_arg_0.clone(), arg_1.clone())"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_caught_throw_without_result_signature() {
     let source = source_for(
         "try {

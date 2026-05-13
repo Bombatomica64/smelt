@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a supported `Math.pow` call into a HIR numeric runtime call.
     fn math_pow_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

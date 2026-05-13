@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Return whether an iterable type is a statically known empty protocol.
     fn is_empty_static_protocol_iterable(&self, iter_ty: TypeId) -> bool {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(iter_ty) else {
             return false;

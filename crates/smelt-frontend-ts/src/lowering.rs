@@ -25,8 +25,8 @@ use smelt_hir::{
     Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
     NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
     PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type,
-    TypeParamDef, UnaryOp, UnknownKind, UrlField, Visibility,
+    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, TypeParamDef,
+    UnaryOp, UnknownKind, UrlField, Visibility,
 };
 use smelt_stdlib::RuleId;
 

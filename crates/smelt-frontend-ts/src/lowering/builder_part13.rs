@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower supported `Map` projection calls into HIR collection operations.
     fn map_projection_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -376,7 +377,10 @@ impl ModuleBuilder<'_> {
     ) {
         match &callback.kind {
             CallbackExprKind::Capture(local) => {
-                if let Some(local_decl) = body.locals.get(local.0 as usize) {
+                if let Some(local_decl) = usize::try_from(local.0)
+                    .ok()
+                    .and_then(|index| body.locals.get(index))
+                {
                     captures.entry(*local).or_insert_with(|| ClosureCapture {
                         source_local: *local,
                         body_local: None,
@@ -389,7 +393,10 @@ impl ModuleBuilder<'_> {
                 }
             }
             CallbackExprKind::AssignCapture { target, value } => {
-                if let Some(local_decl) = body.locals.get(target.0 as usize) {
+                if let Some(local_decl) = usize::try_from(target.0)
+                    .ok()
+                    .and_then(|index| body.locals.get(index))
+                {
                     captures.insert(
                         *target,
                         ClosureCapture {
@@ -815,7 +822,10 @@ impl ModuleBuilder<'_> {
             else {
                 continue;
             };
-            let Some(source_decl) = outer_body.locals.get(source_local.0 as usize) else {
+            let Some(source_decl) = usize::try_from(source_local.0)
+                .ok()
+                .and_then(|index| outer_body.locals.get(index))
+            else {
                 continue;
             };
             let symbol = source_decl
@@ -921,9 +931,9 @@ impl ModuleBuilder<'_> {
                             captures,
                         ),
                         other => {
-                            if let Some(expression) = other.as_expression() {
+                            if let Some(arg_expression) = other.as_expression() {
                                 self.collect_expression_capture_names(
-                                    expression,
+                                    arg_expression,
                                     param_names,
                                     captures,
                                 );
@@ -1188,13 +1198,13 @@ impl ModuleBuilder<'_> {
                             (self.callback_expression(&spread.argument, params, body)?, true)
                         }
                         other => {
-                            let Some(expression) = other.as_expression() else {
+                            let Some(arg_expression) = other.as_expression() else {
                                 return Err(SmeltError::unsupported(
                                     self.span(other.span().start, other.span().end),
                                     "callback call argument kind is not supported yet",
                                 ));
                             };
-                            (self.callback_expression(expression, params, body)?, false)
+                            (self.callback_expression(arg_expression, params, body)?, false)
                         }
                     };
                     args.push(CallbackCallArg { expr, spread });

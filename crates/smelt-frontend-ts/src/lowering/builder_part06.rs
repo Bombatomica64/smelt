@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a Node `assert.deepStrictEqual` call statement when one is present.
     fn deep_strict_equal_statement(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,

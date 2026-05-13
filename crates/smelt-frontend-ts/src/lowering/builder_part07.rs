@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a C-style TypeScript `for` statement into HIR control-flow blocks.
     fn c_for_statement(
         &mut self,
         for_stmt: &oxc::ast::ast::ForStatement<'_>,

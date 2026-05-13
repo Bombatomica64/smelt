@@ -1114,6 +1114,13 @@ pub enum Rvalue {
         /// Dictionaries supplying entries to copy.
         sources: Vec<Operand>,
     },
+    /// Attach object-literal properties to a callable JavaScript value.
+    CallableObjectAssign {
+        /// Callable value receiving the properties.
+        callable: Operand,
+        /// Static property values to attach.
+        props: Vec<(Symbol, Operand)>,
+    },
     /// Return a shallow copy of a dictionary.
     DictCopy {
         /// Dictionary value to copy.

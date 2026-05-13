@@ -29,6 +29,7 @@ impl ModuleBuilder<'_> {
         Ok(message)
     }
 
+    /// Lower an expression while preserving a caller-supplied type hint when possible.
     fn expression_with_hint(
         &mut self,
         expression: &Expression<'_>,

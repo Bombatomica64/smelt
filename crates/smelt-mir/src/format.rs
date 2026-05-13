@@ -833,6 +833,15 @@ fn rvalue_text(value: &Rvalue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Rvalue::CallableObjectAssign { callable, props } => format!(
+            "callable_object_assign {}, {{{}}}",
+            operand_text(callable),
+            props
+                .iter()
+                .map(|(name, value)| format!("{name:?}: {}", operand_text(value)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         Rvalue::DictCopy { dict } => format!("dict_copy {}", operand_text(dict)),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {

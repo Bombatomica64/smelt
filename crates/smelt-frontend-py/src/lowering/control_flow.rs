@@ -1,4 +1,5 @@
 impl ModuleBuilder<'_> {
+    /// Lower a callable-form `pytest.raises` assertion statement when present.
     fn pytest_raises_callable_statement(
         &mut self,
         call: &ruff_python_ast::ExprCall,
