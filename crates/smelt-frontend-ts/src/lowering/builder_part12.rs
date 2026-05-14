@@ -32,10 +32,19 @@ impl ModuleBuilder<'_> {
         actual: smelt_hir::TypeId,
     ) -> bool {
         expected == actual
-            || matches!(
-                (self.ctx.krate.types.get(expected), self.ctx.krate.types.get(actual)),
-                (Some(Type::Float), Some(Type::Int)) | (Some(Type::Int), Some(Type::Float))
-            )
+            || (self.is_numeric_like_type(expected) && self.is_numeric_like_type(actual))
+    }
+
+    /// Return whether a type is represented by Smelt's numeric runtime value.
+    fn is_numeric_like_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Float | Type::Int) => true,
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .all(|item| self.is_numeric_like_type(item)),
+            _ => false,
+        }
     }
 
     /// Lower supported string padding calls into HIR string runtime calls.

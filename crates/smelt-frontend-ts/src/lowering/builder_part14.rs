@@ -386,6 +386,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             ArrayExpressionElement::CallExpression(call) => self.call_expression(call, body),
+            ArrayExpressionElement::NewExpression(new_expr) => self.new_date_expression(new_expr, body),
             ArrayExpressionElement::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
             }
@@ -540,6 +541,14 @@ impl ModuleBuilder<'_> {
             fallback_ty
         } else if self.numeric_type_compatible(ty, fallback_ty) {
             ty
+        } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
+            && self.numeric_type_compatible(ty, fallback_inner)
+        {
+            self.ctx.krate.types.intern(Type::Optional(ty))
+        } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
+            && fallback_inner == ty
+        {
+            self.ctx.krate.types.intern(Type::Optional(ty))
         } else if matches!(self.ctx.krate.types.get(ty), Some(Type::TypeParam { .. }))
             && matches!(
                 self.ctx.krate.types.get(fallback_ty),
@@ -606,6 +615,9 @@ impl ModuleBuilder<'_> {
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if unary.operator == UnaryOperator::Delete {
+            return self.delete_unary_expression(unary, body);
+        }
         let op = match unary.operator {
             UnaryOperator::LogicalNot => UnaryOp::Not,
             UnaryOperator::UnaryNegation => UnaryOp::Neg,
@@ -628,6 +640,28 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower JavaScript `delete object[key]` to a dictionary key removal.
+    fn delete_unary_expression(
+        &mut self,
+        unary: &oxc::ast::ast::UnaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Expression::ComputedMemberExpression(member) = &unary.argument else {
+            return Err(SmeltError::unsupported(
+                self.span(unary.argument.span().start, unary.argument.span().end),
+                "delete is only lowered for computed object keys",
+            ));
+        };
+        let dict = self.expression(&member.object, body)?;
+        let key = self.expression(&member.expression, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictRemoveKey { dict, key },
+            ty,
+            span: self.span(unary.span.start, unary.span.end),
+        }))
+    }
+
     /// Lower an array expression.
     fn array_expression(
         &mut self,
@@ -643,7 +677,11 @@ impl ModuleBuilder<'_> {
             return self.array_expression_with_spread(array, body, type_hint);
         }
         let mut items = Vec::new();
-        for element in &array.elements {
+        let tuple_hints = type_hint.and_then(|hint| match self.ctx.krate.types.get(hint) {
+            Some(Type::Tuple(items)) => Some(items.clone()),
+            _ => None,
+        });
+        for (index, element) in array.elements.iter().enumerate() {
             if matches!(
                 element,
                 ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_)
@@ -653,7 +691,10 @@ impl ModuleBuilder<'_> {
                     "array spread elements and elisions are not lowered",
                 ));
             }
-            items.push(self.array_element(element, body)?);
+            let element_hint = tuple_hints
+                .as_ref()
+                .and_then(|hints| hints.get(index).copied());
+            items.push(self.array_element_with_hint(element, body, element_hint)?);
         }
         let ty = if let Some(hint) = type_hint {
             hint
@@ -679,6 +720,24 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(array.span.start, array.span.end),
         }))
+    }
+
+    /// Lower an array literal element with contextual type information.
+    fn array_element_with_hint(
+        &mut self,
+        element: &ArrayExpressionElement<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match element {
+            ArrayExpressionElement::ArrayExpression(array) => {
+                self.array_expression(array, body, type_hint)
+            }
+            ArrayExpressionElement::ObjectExpression(object) => {
+                self.object_expression(object, body, type_hint)
+            }
+            _ => self.array_element(element, body),
+        }
     }
 
     /// Lower an array literal that contains one or more spread elements.
@@ -828,6 +887,9 @@ impl ModuleBuilder<'_> {
                     self.span(object_property.span.start, object_property.span.end),
                     "object methods are not lowered yet",
                 ));
+            }
+            if Self::is_computed_symbol_key(object_property) {
+                continue;
             }
             let key = self.object_property_key_expr(object_property, body)?;
             let value_hint = self.object_property_value_hint(object_property, type_hint);
@@ -1043,6 +1105,18 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Return true for computed symbol keys that `Object.entries` ignores.
+    fn is_computed_symbol_key(object_property: &oxc::ast::ast::ObjectProperty<'_>) -> bool {
+        if !object_property.computed {
+            return false;
+        }
+        matches!(
+            &object_property.key,
+            PropertyKey::CallExpression(call)
+                if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol")
+        )
+    }
+
     /// Flush pending explicit properties into an ordered object-spread source.
     fn flush_object_spread_entries(
         &mut self,
@@ -1076,6 +1150,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         match self.ctx.krate.types.get(source_ty) {
             Some(Type::Dict(_, _)) if record_ty.is_none() || record_ty == Some(source_ty) => Ok(()),
+            Some(Type::Optional(inner)) => {
+                self.accept_object_spread_source(*inner, record_ty, span)
+            }
             Some(Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => Ok(()),
             _ => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),

@@ -137,6 +137,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.number_static_constant(member, body) {
             return Ok(expr);
         }
+        if let Some(expr) = self.object_static_function_member(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.object_static_member(member, body) {
             return Ok(expr);
         }
@@ -205,6 +208,90 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
+    }
+
+    /// Lower supported `Object.<fn>` member references to first-class callables.
+    ///
+    /// Remeda commonly passes static object helpers into `purry`, e.g.
+    /// `purry(Object.fromEntries, args)`. Direct-call lowering handles
+    /// `Object.fromEntries(value)`, while this path gives bare member
+    /// references a callable shape and the correct `.length` arity.
+    fn object_static_function_member(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Object" {
+            return None;
+        }
+        let (arity, return_ty) = match member.property.name.as_str() {
+            "keys" | "values" | "entries" | "fromEntries" | "getPrototypeOf" | "create" => {
+                (1, self.ctx.krate.types.intern(Type::Unknown))
+            }
+            "assign" | "setPrototypeOf" => (2, self.ctx.krate.types.intern(Type::Unknown)),
+            "is" | "hasOwn" => (2, self.ctx.krate.types.intern(Type::Bool)),
+            _ => return None,
+        };
+        Some(self.object_static_closure(member, arity, return_ty, outer_body))
+    }
+
+    /// Build an opaque closure for a supported static `Object` member reference.
+    fn object_static_closure(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        arity: usize,
+        return_ty: smelt_hir::TypeId,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let span = self.span(member.span.start, member.span.end);
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let mut closure_body = Body::new(None, span);
+        let mut params = Vec::new();
+        let mut param_tys = Vec::new();
+        for index in 0..arity {
+            let name = self.intern_source_name(&format!("arg{index}"));
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(name),
+                ty: unknown,
+                mutable: false,
+                span,
+            });
+            closure_body.params.push(local);
+            params.push(Param {
+                name,
+                local,
+                ty: unknown,
+                span,
+            });
+            param_tys.push(unknown);
+        }
+        let result = closure_body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: return_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(result)));
+        let body = self.ctx.krate.push_body(closure_body);
+        let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: param_tys,
+            return_ty,
+            is_async: false,
+        }));
+        outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params,
+                return_ty,
+                captures: Vec::new(),
+                body,
+                callback_body: None,
+                span,
+            }),
+            ty,
+            span,
+        })
     }
 
     /// Lower opaque static Object metadata reads such as `Object.prototype`.

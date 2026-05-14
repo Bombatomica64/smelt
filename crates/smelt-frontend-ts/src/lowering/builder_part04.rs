@@ -38,12 +38,17 @@ impl ModuleBuilder<'_> {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
 
+        let mut heritage_refs = Vec::new();
         let result = (|| {
             for heritage in &interface.extends {
                 let (parent_name, parent_args) = self.interface_heritage(heritage)?;
                 if self.ctx.krate.symbols.get(parent_name) == Some("Date") {
                     continue;
                 }
+                heritage_refs.push(InterfaceHeritageRef {
+                    parent: parent_name,
+                    args: parent_args.clone(),
+                });
                 let Some(parent) = self.find_interface(parent_name).cloned() else {
                     let parent_name_text = self
                         .ctx
@@ -175,6 +180,9 @@ impl ModuleBuilder<'_> {
             fields,
             methods,
         }));
+        self.interface_extends
+            .insert(name, heritage_refs.clone());
+        self.ctx.interface_extends.insert(name, heritage_refs);
         self.interfaces.insert(name_text.to_owned(), item);
         Ok(item)
     }

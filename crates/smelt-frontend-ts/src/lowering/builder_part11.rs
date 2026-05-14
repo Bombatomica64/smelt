@@ -626,11 +626,12 @@ impl ModuleBuilder<'_> {
         let haystack = self.expression(&member.object, body)?;
         let pattern = self.argument(pattern_argument, body)?;
         let replacement = self.argument(replacement_argument, body)?;
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, haystack)),
-            Some(Type::String | Type::Unknown)
-        ) || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
+        let haystack_ty = Self::expr_ty(body, haystack);
+        let pattern_ty = Self::expr_ty(body, pattern);
+        let replacement_ty = Self::expr_ty(body, replacement);
+        if !(self.is_string_compatible_type(haystack_ty) || self.type_contains_unknown(haystack_ty))
+            || !self.is_string_compatible_type(pattern_ty)
+            || !self.is_string_compatible_type(replacement_ty)
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),

@@ -7,6 +7,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let object_namespaces = ctx.object_namespaces.clone();
         let function_overloads = ctx.overloads.clone();
         let type_alias_fields = ctx.type_alias_fields.clone();
+        let interface_extends = ctx.interface_extends.clone();
         let callable_fields = ctx.callable_fields.clone();
         let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
         Self {
@@ -21,6 +22,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             interfaces,
             class_fields: HashMap::new(),
             type_alias_fields,
+            interface_extends,
             callable_fields,
             current_class: None,
             current_async: false,
@@ -454,14 +456,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             self.span(param.span.start, param.span.end),
                             "overload parameters must have explicit type annotations",
                         )
-                    })?;
+                })?;
                 params.push(ty);
             }
-            if function.params.rest.is_some() {
-                return Err(SmeltError::unsupported(
-                    self.span(function.span.start, function.span.end),
-                    "overload rest parameters are not lowered yet",
-                ));
+            if let Some(rest) = &function.params.rest {
+                let annotation = rest.type_annotation.as_ref().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(rest.span.start, rest.span.end),
+                        "overload rest parameters must have explicit type annotations",
+                    )
+                })?;
+                params.push(self.ts_type_to_hir(&annotation.type_annotation)?);
             }
             let return_ty = function
                 .return_type
@@ -578,19 +583,35 @@ impl<'ctx> ModuleBuilder<'ctx> {
         } else {
             None
         };
-        let Some(return_type) = &function.return_type else {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "function declarations must have an explicit return type",
-            ));
-        };
-        let return_ty = self.ts_type_to_hir(&return_type.type_annotation)?;
+        let return_ty = self.function_return_type_or_overload(function, name_text)?;
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             return_ty,
             is_async: function.r#async,
         }));
         Ok((name, ty, rest))
+    }
+
+    /// Resolve a function return type from its annotation or implementation overloads.
+    fn function_return_type_or_overload(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        name_text: &str,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if let Some(return_type) = &function.return_type {
+            return self.ts_type_to_hir(&return_type.type_annotation);
+        }
+        if let Some(signature) = self
+            .function_overloads
+            .get(name_text)
+            .and_then(|signatures| signatures.last())
+        {
+            return Ok(signature.return_ty);
+        }
+        Err(SmeltError::unsupported(
+            self.span(function.span.start, function.span.end),
+            "function declarations must have an explicit return type",
+        ))
     }
 
     /// Reserve HIR item slots for hoisted top-level function declarations.
@@ -771,17 +792,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span: self.span(binding.span.start, binding.span.end),
             });
         }
-        let return_ty = function
-            .return_type
-            .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-            .transpose()?
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(function.span.start, function.span.end),
-                    "function declarations must have an explicit return type",
-                )
-            })?;
+        let return_ty = self.function_return_type_or_overload(function, name_text)?;
         Ok(Function {
             name,
             span: self.span(function.span.start, function.span.end),
@@ -1082,10 +1093,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(items)
     }
 
-    /// Find top-level arrow consts that earlier function bodies reference by name.
+    /// Find top-level arrow consts that function bodies may reference before declaration order.
     fn forward_arrow_const_names(&self, program: &Program<'_>) -> HashSet<String> {
         let mut arrow_consts = Vec::new();
-        let mut function_spans = Vec::new();
+        let mut referrer_spans = Vec::new();
         for statement in &program.body {
             match statement {
                 Statement::VariableDeclaration(variable) => {
@@ -1098,15 +1109,39 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         {
                             arrow_consts
                                 .push((binding.name.as_str().to_owned(), binding.span.start));
+                            referrer_spans.push((declarator.span.start, declarator.span.end));
                         }
                     }
                 }
                 Statement::FunctionDeclaration(function) => {
-                    function_spans.push((function.span.start, function.span.end));
+                    referrer_spans.push((function.span.start, function.span.end));
                 }
                 Statement::ExportNamedDeclaration(export) => {
-                    if let Some(Declaration::FunctionDeclaration(function)) = &export.declaration {
-                        function_spans.push((function.span.start, function.span.end));
+                    match &export.declaration {
+                        Some(Declaration::FunctionDeclaration(function)) => {
+                            referrer_spans.push((function.span.start, function.span.end));
+                        }
+                        Some(Declaration::VariableDeclaration(variable)) => {
+                            if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+                                continue;
+                            }
+                            for declarator in &variable.declarations {
+                                if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                                    && matches!(
+                                        declarator.init,
+                                        Some(Expression::ArrowFunctionExpression(_))
+                                    )
+                                {
+                                    arrow_consts.push((
+                                        binding.name.as_str().to_owned(),
+                                        binding.span.start,
+                                    ));
+                                    referrer_spans
+                                        .push((declarator.span.start, declarator.span.end));
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 _ => {}
@@ -1115,7 +1150,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
         arrow_consts
             .into_iter()
             .filter_map(|(name, const_start)| {
-                let referenced = function_spans
+                let referenced = self
+                    .source
+                    .get(..usize::try_from(const_start).unwrap_or(usize::MAX))
+                    .is_some_and(|text| text.contains(&name))
+                    || referrer_spans
                     .iter()
                     .filter(|(function_start, _)| *function_start < const_start)
                     .any(|(function_start, function_end)| {

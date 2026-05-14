@@ -35,6 +35,15 @@ impl FunctionEmitter<'_> {
         kind: smelt_hir::UnknownKind,
     ) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
+        self.unknown_is_text_raw(&text, kind)
+    }
+
+    /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
+    pub(super) fn unknown_is_text_raw(
+        &self,
+        text: &str,
+        kind: smelt_hir::UnknownKind,
+    ) -> Result<String, EmitError> {
         let pattern = match kind {
             smelt_hir::UnknownKind::Null => "SmeltUnknown::Null",
             smelt_hir::UnknownKind::Bool => "SmeltUnknown::Bool(_)",

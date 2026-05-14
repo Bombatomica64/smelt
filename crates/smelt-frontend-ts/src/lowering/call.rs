@@ -215,6 +215,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.namespace_member_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.function_bind_call(call, body)? {
+            return Ok(expr);
+        }
         if let Expression::ComputedMemberExpression(member) = &call.callee {
             let args = call
                 .arguments
@@ -393,12 +396,12 @@ impl ModuleBuilder<'_> {
             )?;
             if rest.is_none()
                 && selected_overload.is_some()
-                && params.len() == 1
-                && let Some(param_ty) = params.first()
+                && call.arguments.len() >= params.len()
+                && let Some(param_ty) = params.last()
                 && let Some(Type::List(item_ty)) = self.ctx.krate.types.get(*param_ty)
             {
                 rest = Some(RestParam {
-                    index: 0,
+                    index: params.len().saturating_sub(1),
                     item_ty: *item_ty,
                 });
             }
@@ -575,6 +578,191 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `callable.bind(this_arg, ...bound)` into a closure with captured arguments.
+    ///
+    /// JavaScript `Function.prototype.bind` produces a new callable value. Smelt
+    /// models the callable value directly: the generated closure captures the
+    /// original callee plus each bound argument, then forwards the remaining
+    /// parameters when the closure is called.
+    fn function_bind_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "bind" {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, outer_body)?;
+        let receiver_ty = Self::expr_ty(outer_body, receiver);
+        let Some(function_ty) = self.function_member_type(receiver_ty) else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned() else {
+            return Ok(None);
+        };
+        let bound_source_args = call.arguments.iter().skip(1).collect::<Vec<_>>();
+        if bound_source_args.len() > function.params.len() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Function.prototype.bind received more bound arguments than callable parameters",
+            ));
+        }
+
+        let span = self.span(call.span.start, call.span.end);
+        let callee_symbol = self.intern_source_name("__smelt_bind_callee");
+        let callee_local =
+            Self::capture_bind_value(receiver, function_ty, callee_symbol, span, outer_body);
+        let mut bound_captures = Vec::new();
+        for (index, argument) in bound_source_args.iter().enumerate() {
+            let param_ty = function.params.get(index).copied();
+            let value = self.argument_with_hint(argument, outer_body, param_ty)?;
+            let value_ty = Self::expr_ty(outer_body, value);
+            let symbol = self.intern_source_name(&format!("__smelt_bind_arg_{index}"));
+            let local = Self::capture_bind_value(value, value_ty, symbol, span, outer_body);
+            bound_captures.push((local, symbol, value_ty));
+        }
+
+        let remaining_params = function
+            .params
+            .iter()
+            .copied()
+            .skip(bound_captures.len())
+            .collect::<Vec<_>>();
+        let mut closure_body = Body::new(None, span);
+        let mut captures = Vec::new();
+        let callee_body_local = Self::push_bind_capture_local(
+            callee_local,
+            callee_symbol,
+            function_ty,
+            span,
+            &mut closure_body,
+            &mut captures,
+        );
+        let mut call_args = Vec::new();
+        for (source_local, symbol, ty) in bound_captures {
+            let body_local = Self::push_bind_capture_local(
+                source_local,
+                symbol,
+                ty,
+                span,
+                &mut closure_body,
+                &mut captures,
+            );
+            call_args.push(closure_body.push_expr(Expr {
+                kind: ExprKind::Local(body_local),
+                ty,
+                span,
+            }));
+        }
+
+        let mut closure_params = Vec::new();
+        for (index, ty) in remaining_params.iter().copied().enumerate() {
+            let symbol = self.synthetic_param_symbol(index);
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty,
+                mutable: false,
+                span,
+            });
+            closure_body.params.push(local);
+            closure_params.push(Param {
+                name: symbol,
+                local,
+                ty,
+                span,
+            });
+            call_args.push(closure_body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span,
+            }));
+        }
+
+        let callee = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(callee_body_local),
+            ty: function_ty,
+            span,
+        });
+        let call_expr = closure_body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee,
+                args: call_args,
+            },
+            ty: function.return_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(call_expr)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: remaining_params,
+            return_ty: function.return_ty,
+            is_async: function.is_async,
+        }));
+        Ok(Some(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: closure_params,
+                return_ty: function.return_ty,
+                captures,
+                body: body_id,
+                callback_body: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        })))
+    }
+
+    /// Store a bind component in an outer local so a generated closure can capture it.
+    fn capture_bind_value(
+        value: smelt_hir::ExprId,
+        ty: smelt_hir::TypeId,
+        symbol: smelt_hir::Symbol,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::LocalId {
+        let local = body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty,
+            mutable: false,
+            span,
+        });
+        let pat = body.push_pattern(Pattern::Binding(local));
+        body.push_stmt(Stmt::Let {
+            pat,
+            ty,
+            value: Some(value),
+        });
+        local
+    }
+
+    /// Add one captured bind component to a generated closure body.
+    fn push_bind_capture_local(
+        source_local: smelt_hir::LocalId,
+        symbol: smelt_hir::Symbol,
+        ty: smelt_hir::TypeId,
+        span: Span,
+        closure_body: &mut Body,
+        captures: &mut Vec<ClosureCapture>,
+    ) -> smelt_hir::LocalId {
+        let body_local = closure_body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty,
+            mutable: false,
+            span,
+        });
+        captures.push(ClosureCapture {
+            source_local,
+            body_local: Some(body_local),
+            symbol,
+            ty,
+            mode: CaptureMode::ByRef,
+        });
+        body_local
+    }
+
     /// Lower JavaScript `Symbol(description)` branding calls as opaque strings.
     ///
     /// Smelt does not model symbol identity yet. Type-level branding libraries
@@ -638,32 +826,126 @@ impl ModuleBuilder<'_> {
             let arg = self.argument(argument, body)?;
             lowered_arg_tys.push(Self::expr_ty(body, arg));
         }
-        for signature in signatures {
-            if signature.params.len() != lowered_arg_tys.len() {
-                continue;
-            }
+        for signature in &signatures {
             let mut substitutions = HashMap::new();
-            if signature
-                .params
-                .iter()
-                .zip(&lowered_arg_tys)
-                .all(|(expected, actual)| {
-                    self.infer_overload_type(*expected, *actual, &mut substitutions)
-                })
-            {
-                return Ok(Some(self.instantiate_overload_signature(signature, &substitutions)));
+            if self.overload_signature_matches_args(
+                signature,
+                &lowered_arg_tys,
+                &mut substitutions,
+            ) {
+                return Ok(Some(
+                    self.instantiate_overload_signature(signature.clone(), &substitutions),
+                ));
             }
         }
         if self.has_ts_expect_error_before(span.start, "ts2353") {
             return Ok(None);
         }
         if self.allow_unknown_index_access {
+            if let Some(signature) = signatures
+                .into_iter()
+                .find(|signature| Self::overload_signature_arity_matches(signature, arguments.len()))
+            {
+                return Ok(Some(
+                    self.instantiate_overload_signature(signature, &HashMap::new()),
+                ));
+            }
             return Ok(None);
         }
         Err(SmeltError::unsupported(
             self.span(span.start, span.end),
-            format!("no overload of `{name}` matches this call"),
+            format!(
+                "no overload of `{name}` matches this call (args: {:?}, overloads: {:?})",
+                lowered_arg_tys
+                    .iter()
+                    .map(|ty| self.ctx.krate.types.get(*ty))
+                    .collect::<Vec<_>>(),
+                signatures
+                    .iter()
+                    .map(|signature| signature
+                        .params
+                        .iter()
+                        .map(|ty| self.ctx.krate.types.get(*ty))
+                        .collect::<Vec<_>>())
+                    .collect::<Vec<_>>()
+            ),
         ))
+    }
+
+    /// Return whether an overload has the same source-level argument count as a call.
+    fn overload_signature_arity_matches(signature: &OverloadSignature, argument_count: usize) -> bool {
+        signature.params.len() == argument_count
+    }
+
+    /// Return whether an overload signature accepts the lowered call argument types.
+    ///
+    /// TypeScript overload declarations represent `...rest: [A, B]` as a
+    /// single tuple-typed parameter in HIR. Call sites still pass those tuple
+    /// elements as individual source arguments, so overload matching expands a
+    /// trailing tuple/list parameter when exact arity matching fails.
+    fn overload_signature_matches_args(
+        &mut self,
+        signature: &OverloadSignature,
+        arg_tys: &[smelt_hir::TypeId],
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        if signature.params.len() == arg_tys.len()
+            && signature
+                .params
+                .iter()
+                .zip(arg_tys)
+                .all(|(expected, actual)| {
+                    self.infer_overload_type(*expected, *actual, substitutions)
+                })
+        {
+            return true;
+        }
+        let Some((&rest_ty, fixed_params)) = signature.params.split_last() else {
+            return arg_tys.is_empty();
+        };
+        if arg_tys.len() < fixed_params.len() {
+            return false;
+        }
+        let mut rest_substitutions = substitutions.clone();
+        let Some(fixed_args) = arg_tys.get(..fixed_params.len()) else {
+            return false;
+        };
+        if !fixed_params
+            .iter()
+            .zip(fixed_args)
+            .all(|(expected, actual)| {
+                self.infer_overload_type(*expected, *actual, &mut rest_substitutions)
+            })
+        {
+            return false;
+        }
+        let Some(rest_args) = arg_tys.get(fixed_params.len()..) else {
+            return false;
+        };
+        let rest_matches = match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(rest_ty))
+            .cloned()
+        {
+            Some(Type::Tuple(items)) if items.len() == rest_args.len() => items
+                .iter()
+                .zip(rest_args)
+                .all(|(expected, actual)| {
+                    self.infer_overload_type(*expected, *actual, &mut rest_substitutions)
+                }),
+            Some(Type::List(item_ty)) if !rest_args.is_empty() => {
+                rest_args.iter().all(|actual| {
+                    self.infer_overload_type(item_ty, *actual, &mut rest_substitutions)
+                })
+            }
+            _ => false,
+        };
+        if rest_matches {
+            *substitutions = rest_substitutions;
+        }
+        rest_matches
     }
 
     /// Instantiate a selected overload signature with inferred generic types.
@@ -708,6 +990,17 @@ impl ModuleBuilder<'_> {
             | (_, Some(Type::Unknown | Type::TypeParam { .. }))
             | (Some(Type::Float), Some(Type::Int))
             | (Some(Type::Int), Some(Type::Float)) => true,
+            _ if self.is_date_constructor_arg_type(expected)
+                && self.is_date_constructor_arg_type(actual) =>
+            {
+                true
+            }
+            (Some(Type::Optional(expected_inner)), Some(Type::Optional(actual_inner))) => {
+                (self.function_member_type(expected_inner).is_some()
+                    && self.function_member_type(actual_inner).is_some())
+                    || self.infer_overload_type(expected_inner, actual_inner, substitutions)
+            }
+            (Some(Type::Optional(_)), Some(Type::None)) => true,
             (Some(Type::Optional(inner)), _) if inner == actual => true,
             (Some(Type::Optional(inner)), _) => self.infer_overload_type(inner, actual, substitutions),
             (Some(Type::List(expected_item)), Some(Type::List(actual_item)))

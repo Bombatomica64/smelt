@@ -450,6 +450,9 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::Unary { operand, .. } => {
                 self.collect_callback_captures(operand, body, captures);
             }
+            CallbackExprKind::UnknownIs { value, .. } => {
+                self.collect_callback_captures(value, body, captures);
+            }
             CallbackExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_callback_captures(lhs, body, captures);
                 self.collect_callback_captures(rhs, body, captures);
@@ -465,6 +468,12 @@ impl ModuleBuilder<'_> {
             }
             CallbackExprKind::Call { callee, args } => {
                 self.collect_callback_captures(callee, body, captures);
+                for arg in args {
+                    self.collect_callback_captures(&arg.expr, body, captures);
+                }
+            }
+            CallbackExprKind::MethodCall { receiver, args, .. } => {
+                self.collect_callback_captures(receiver, body, captures);
                 for arg in args {
                     self.collect_callback_captures(&arg.expr, body, captures);
                 }

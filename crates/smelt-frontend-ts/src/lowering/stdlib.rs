@@ -36,9 +36,7 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        if let Some(target_ty) = self.object_assign_callable_target_type(target_arg, body)
-            && matches!(self.ctx.krate.types.get(target_ty), Some(Type::Function(_)))
-        {
+        if let Some(target_ty) = self.object_assign_callable_target_type(target_arg, body) {
             let target = self.argument(target_arg, body)?;
             let props = self.object_assign_callable_props(source_args, body)?;
             return Ok(Some(body.push_expr(Expr {
@@ -106,7 +104,14 @@ impl ModuleBuilder<'_> {
             return None;
         };
         if let Some(local) = self.locals.get(ident.name.as_str()).copied() {
-            return Some(Self::local_ty(body, local));
+            let ty = Self::local_ty(body, local);
+            let resolved = self.type_param_constraint_or_self(ty);
+            if matches!(
+                self.ctx.krate.types.get(resolved),
+                Some(Type::Function(_) | Type::Class { .. })
+            ) {
+                return Some(ty);
+            }
         }
         None
     }
@@ -712,12 +717,6 @@ impl ModuleBuilder<'_> {
         if member.property.name != "push" {
             return Ok(None);
         }
-        let Expression::Identifier(_) = &member.object else {
-            return Err(SmeltError::unsupported(
-                self.span(member.object.span().start, member.object.span().end),
-                "array push currently requires a local array receiver",
-            ));
-        };
         let [item_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -732,7 +731,19 @@ impl ModuleBuilder<'_> {
         let element_ty = *list_element_ty;
         let item = self.argument(item_argument, body)?;
         let item_ty = Self::expr_ty(body, item);
-        if item_ty != element_ty && self.ctx.krate.types.get(element_ty) != Some(&Type::Unknown) {
+        let compatible = item_ty == element_ty
+            || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(item_ty)
+            || self.type_contains_unknown(element_ty)
+            || self.numeric_type_compatible(element_ty, item_ty)
+            || matches!(
+                (
+                    self.ctx.krate.types.get(element_ty),
+                    self.ctx.krate.types.get(item_ty)
+                ),
+                (Some(Type::TypeParam { .. }), _) | (_, Some(Type::TypeParam { .. }))
+            );
+        if !compatible {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array push argument must match the array element type",
@@ -920,10 +931,19 @@ impl ModuleBuilder<'_> {
                         "array flat supports depth 0 or 1",
                     ));
                 }
-                let Some(Type::List(flat_item_ty)) = self.ctx.krate.types.get(element_ty) else {
-                    return Ok(None);
+                let flat_item_ty = match self
+                    .ctx
+                    .krate
+                    .types
+                    .get(self.type_param_constraint_or_self(element_ty))
+                {
+                    Some(Type::List(flat_item_ty)) => *flat_item_ty,
+                    Some(Type::Unknown | Type::TypeParam { .. }) => {
+                        self.ctx.krate.types.intern(Type::Unknown)
+                    }
+                    _ => return Ok(None),
                 };
-                let ty = self.ctx.krate.types.intern(Type::List(*flat_item_ty));
+                let ty = self.ctx.krate.types.intern(Type::List(flat_item_ty));
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListFlat { list },
                     ty,
@@ -944,14 +964,15 @@ impl ModuleBuilder<'_> {
                     "array flatMap",
                     body,
                 )?;
-                let Some(Type::List(flat_item_ty)) = self.ctx.krate.types.get(callback.return_ty)
-                else {
-                    return Err(SmeltError::unsupported(
-                        self.span(callback_arg.span().start, callback_arg.span().end),
-                        "array flatMap callback must return an array",
-                    ));
-                };
-                let ty = self.ctx.krate.types.intern(Type::List(*flat_item_ty));
+                let flat_item_ty = self
+                    .flat_map_callback_item_type(callback.return_ty)
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(callback_arg.span().start, callback_arg.span().end),
+                            "array flatMap callback must return an array or flattened item",
+                        )
+                    })?;
+                let ty = self.ctx.krate.types.intern(Type::List(flat_item_ty));
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListCallback {
                         op: ListCallbackOp::FlatMap,
@@ -1089,6 +1110,49 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Infer the output item type for JavaScript `Array.prototype.flatMap`.
+    fn flat_map_callback_item_type(
+        &mut self,
+        return_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(return_ty))
+            .cloned()
+        {
+            Some(Type::List(item_ty)) => Some(item_ty),
+            Some(Type::Union(items)) => {
+                let mut item_tys = Vec::new();
+                for item in items {
+                    match self
+                        .ctx
+                        .krate
+                        .types
+                        .get(self.type_param_constraint_or_self(item))
+                    {
+                        Some(Type::List(list_item)) if !item_tys.contains(list_item) => {
+                            item_tys.push(*list_item);
+                        }
+                        Some(Type::List(_) | Type::Never) => {}
+                        _ if !item_tys.contains(&item) => item_tys.push(item),
+                        _ => {}
+                    }
+                }
+                match item_tys.as_slice() {
+                    [] => None,
+                    [single] => Some(*single),
+                    _ => Some(self.ctx.krate.types.intern(Type::Union(item_tys))),
+                }
+            }
+            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                Some(self.ctx.krate.types.intern(Type::Unknown))
+            }
+            Some(_) | None => None,
+        }
+    }
+
     /// Lower direct TypeScript `Array.prototype.unshift` calls.
     pub(super) fn list_unshift_call(
         &mut self,
@@ -1209,7 +1273,7 @@ impl ModuleBuilder<'_> {
         let index = self.argument(argument, body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, index)),
-            Some(Type::Int | Type::Float)
+            Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. })
         ) {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),

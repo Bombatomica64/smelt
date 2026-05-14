@@ -554,6 +554,156 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_orders_multiline_typescript_type_import_dependencies() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-multiline-type-import-order"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts", "src/types.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_multiline_type_import_order"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/types.ts"),
+        "export interface Options { value?: number; }\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        r#"import type {
+  Options,
+} from "./types";
+
+export function read(options?: Options): number {
+  return options?.value ?? 0;
+}
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "check"])?;
+
+    Ok(())
+}
+
+#[test]
+fn build_resolves_cyclic_type_import_inherited_option_fields() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/_lib/defaultOptions"))?;
+    fs::create_dir_all(project_path.join("src/locale"))?;
+    fs::create_dir_all(project_path.join("src/start"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-cyclic-type-option-fields"
+version = "0.1.0"
+
+[sources]
+entries = [
+  "src/_lib/defaultOptions/index.ts",
+  "src/start/index.ts",
+  "src/locale/types.ts",
+  "src/types.ts",
+]
+
+[output]
+target = "./dist"
+crate-name = "ts_cyclic_type_option_fields"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/types.ts"),
+        r#"import type { Locale } from "./locale/types.ts";
+export type * from "./locale/types.ts";
+
+export interface WeekOptions {
+  weekStartsOn?: 0 | 1;
+}
+
+export interface FirstWeekContainsDateOptions {
+  firstWeekContainsDate?: 1;
+}
+
+export interface LocalizedOptions<LocaleFields extends keyof Locale> {
+  locale?: Pick<Locale, LocaleFields>;
+}
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/locale/types.ts"),
+        r#"import type { LocalizedOptions, WeekOptions } from "../types.ts";
+
+export interface Locale {
+  options?: LocaleOptions;
+}
+
+export interface LocaleOptions
+  extends WeekOptions,
+    LocalizedOptions<"options"> {}
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/_lib/defaultOptions/index.ts"),
+        r#"import type {
+  FirstWeekContainsDateOptions,
+  Locale,
+  LocalizedOptions,
+  WeekOptions,
+} from "../../types.ts";
+
+export type DefaultOptions = LocalizedOptions<keyof Locale> &
+  WeekOptions &
+  FirstWeekContainsDateOptions;
+
+let defaultOptions: DefaultOptions = {};
+
+export function getDefaultOptions(): DefaultOptions {
+  return defaultOptions;
+}
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/start/index.ts"),
+        r#"import { getDefaultOptions } from "../_lib/defaultOptions/index.ts";
+import type { LocalizedOptions, WeekOptions } from "../types.ts";
+
+export interface StartOptions extends LocalizedOptions<"options">, WeekOptions {}
+
+export function read(options?: StartOptions): number {
+  const defaultOptions = getDefaultOptions();
+  return options?.weekStartsOn ??
+    options?.locale?.options?.weekStartsOn ??
+    defaultOptions.weekStartsOn ??
+    defaultOptions.locale?.options?.weekStartsOn ??
+    0;
+}
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "check"])?;
+
+    Ok(())
+}
+
+#[test]
 fn build_dependency_closure_allows_typescript_import_cycles() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

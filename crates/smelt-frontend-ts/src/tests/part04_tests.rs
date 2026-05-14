@@ -347,6 +347,118 @@ const arity = fnValue.length;
 }
 
 #[test]
+fn lowers_function_bind_result_as_array_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function add(left: number, right: number): number {
+  return left + right;
+}
+
+function shift(values: number[]): number[] {
+  const addOne = add.bind(null, 1);
+  return values.map(addOne);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(
+                expr.kind,
+                ExprKind::Closure(smelt_hir::ClosureExpr {
+                    callback_body: None,
+                    ..
+                })
+            )),
+        "expected bind to lower to a first-class closure body"
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ListCallback { .. })),
+        "expected bound function local to be accepted as an array callback"
+    );
+    Ok(())
+}
+
+#[test]
+fn selects_tuple_rest_overload_from_source_arguments() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pair(...values: [number, number]): [number, number];
+function pair(...values: number[]): number[] {
+  return values;
+}
+
+const selected = pair(1, 2);
+
+function pairWithSeed(seed: number, ...values: [number, number]): [number, number];
+function pairWithSeed(seed: number, ...values: number[]): number[] {
+  return values;
+}
+
+const selectedWithSeed = pairWithSeed(0, 1, 2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.locals
+            .iter()
+            .any(|local| matches!(ctx.krate.types.get(local.ty), Some(Type::Tuple(items)) if items.len() == 2)),
+        "expected tuple rest overload return type to be selected"
+    );
+    Ok(())
+}
+
+#[test]
+fn extracts_structural_fields_from_referenced_generic_interfaces_and_pick() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface LocaleOptions {
+  weekStartsOn?: number;
+}
+
+interface Locale {
+  options?: LocaleOptions;
+  code: string;
+}
+
+interface LocalizedOptions<LocaleFields extends keyof Locale> {
+  locale?: Pick<Locale, LocaleFields>;
+}
+
+interface WeekOptions {
+  weekStartsOn?: number;
+}
+
+type DefaultOptions = LocalizedOptions<"options"> & WeekOptions;
+
+function read(options?: DefaultOptions): number {
+  const direct = options?.weekStartsOn;
+  const locale = options?.locale?.options?.weekStartsOn;
+  return 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    Ok(())
+}
+
+#[test]
 fn lowers_never_rest_strict_function_spread_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -472,6 +584,114 @@ type UpsertProp<T, K extends PropertyKey, V> = T & Record<K, V>;
 }
 
 #[test]
+fn normalizes_record_property_key_surfaces() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type NumberRecord = Record<number, string>;
+type LiteralRecord = Record<123 | "name", boolean>;
+type PropertyKeyRecord = Record<PropertyKey, unknown>;
+type ConditionalRecord<T extends boolean> = Record<T extends true ? number : string, string>;
+type UnionRecord = Record<number, string> | Record<string, number>;
+"#),
+        &mut ctx,
+    )?;
+
+    let has_string_keyed_record = ctx.krate.types.all().iter().any(|ty| {
+        matches!(
+            ty,
+            Type::Dict(key, _) if matches!(ctx.krate.types.get(*key), Some(Type::String))
+        )
+    });
+    ensure!(
+        has_string_keyed_record,
+        "expected concrete Record key surfaces to normalize to string-key dictionaries",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_template_literal_tuple_element_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Entry = readonly [`testing_${string}`, boolean];
+type Entries = readonly Entry[];
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Tuple(items) if items.iter().any(|item| matches!(ctx.krate.types.get(*item), Some(Type::String))))),
+        "expected template literal tuple keys to lower as strings",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_object_static_function_references() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function useUnary(fn: (value: unknown) => unknown): unknown {
+  return fn([]);
+}
+
+function useBinary(fn: (left: unknown, right: unknown) => boolean): boolean {
+  return fn(1, 1);
+}
+
+const entries = useUnary(Object.entries);
+const values = useUnary(Object.values);
+const keys = useUnary(Object.keys);
+const rebuilt = useUnary(Object.fromEntries);
+const same = useBinary(Object.is);
+const owned = useBinary(Object.hasOwn);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let closure_count = body
+        .exprs
+        .iter()
+        .filter(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+        .count();
+    ensure!(
+        closure_count >= 6,
+        "expected Object static member references to lower as callables",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_typeof_expression_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values = ["a", "b"].map((item) => typeof item);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListCallback {
+                op: ListCallbackOp::Map,
+                ..
+            }
+        )),
+        "expected callback typeof expression to lower inside array map",
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_object_spread_literals_as_ordered_assignments() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -523,6 +743,26 @@ export const addPropImplementation = <T, K extends PropertyKey, V>(
             .any(|expr| matches!(expr.kind, ExprKind::DictAssign { .. })),
         "expected generic spread and computed key to lower through DictAssign",
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_object_spread_for_option_bags() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Options {
+  value?: number;
+}
+
+function merge(options?: Options): Record<string, number> {
+  return { ...options, value: 1 };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 

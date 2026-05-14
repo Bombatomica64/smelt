@@ -429,6 +429,9 @@ impl ModuleBuilder<'_> {
                 self.collect_callback_captures(lhs, body, captures);
                 self.collect_callback_captures(rhs, body, captures);
             }
+            CallbackExprKind::UnknownIs { value, .. } => {
+                self.collect_callback_captures(value, body, captures);
+            }
             CallbackExprKind::Conditional {
                 cond,
                 then_expr,
@@ -440,6 +443,12 @@ impl ModuleBuilder<'_> {
             }
             CallbackExprKind::Call { callee, args } => {
                 self.collect_callback_captures(callee, body, captures);
+                for arg in args {
+                    self.collect_callback_captures(&arg.expr, body, captures);
+                }
+            }
+            CallbackExprKind::MethodCall { receiver, args, .. } => {
+                self.collect_callback_captures(receiver, body, captures);
                 for arg in args {
                     self.collect_callback_captures(&arg.expr, body, captures);
                 }
@@ -703,12 +712,7 @@ impl ModuleBuilder<'_> {
                 (BindingPattern::BindingIdentifier(_), None) => {
                     self.infer_unannotated_arrow_param_type(arrow, index)
                 }
-                (_, None) => {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "destructured closure parameters require type context",
-                    ));
-                }
+                (_, None) => self.ctx.krate.types.intern(Type::Unknown),
             };
             params.push(ty);
         }
@@ -1576,6 +1580,41 @@ impl ModuleBuilder<'_> {
                 self.callback_expression(&parenthesized.expression, params, body)
             }
             Expression::CallExpression(call) => {
+                if let Expression::StaticMemberExpression(member) = &call.callee {
+                    let receiver = self.callback_expression(&member.object, params, body)?;
+                    let method = self.intern_source_name(member.property.name.as_str());
+                    let return_ty = if member.property.name == "toString" {
+                        self.ctx.krate.types.intern(Type::String)
+                    } else {
+                        self.ctx.krate.types.intern(Type::Unknown)
+                    };
+                    let mut args = Vec::new();
+                    for arg in &call.arguments {
+                        let (expr, spread) = match arg {
+                            Argument::SpreadElement(spread) => {
+                                (self.callback_expression(&spread.argument, params, body)?, true)
+                            }
+                            other => {
+                                let Some(arg_expression) = other.as_expression() else {
+                                    return Err(SmeltError::unsupported(
+                                        self.span(other.span().start, other.span().end),
+                                        "callback method argument kind is not supported yet",
+                                    ));
+                                };
+                                (self.callback_expression(arg_expression, params, body)?, false)
+                            }
+                        };
+                        args.push(CallbackCallArg { expr, spread });
+                    }
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::MethodCall {
+                            receiver: Box::new(receiver),
+                            method,
+                            args,
+                        },
+                        ty: return_ty,
+                    });
+                }
                 let callee = self.callback_expression(&call.callee, params, body)?;
                 let return_ty = match self.ctx.krate.types.get(callee.ty) {
                     Some(Type::Function(function)) => function.return_ty,
@@ -1774,6 +1813,9 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::UnaryExpression(unary) => {
+                if unary.operator == UnaryOperator::Typeof {
+                    return self.callback_typeof_unary(unary, params, body);
+                }
                 let op = match unary.operator {
                     UnaryOperator::LogicalNot => UnaryOp::Not,
                     UnaryOperator::UnaryNegation => UnaryOp::Neg,
@@ -1802,6 +1844,9 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::BinaryExpression(binary) => {
+                if let Some(expr) = self.callback_typeof_binary(binary, params, body)? {
+                    return Ok(expr);
+                }
                 if binary.operator == BinaryOperator::In {
                     let Expression::StringLiteral(field) = &binary.left else {
                         return Err(SmeltError::unsupported(
@@ -1868,6 +1913,21 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower callback `typeof value` expressions to string literals.
+    fn callback_typeof_unary(
+        &mut self,
+        unary: &oxc::ast::ast::UnaryExpression<'_>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let operand = self.callback_expression(&unary.argument, params, body)?;
+        let kind = self.typeof_type_name(operand.ty).unwrap_or("object");
+        Ok(CallbackExpr {
+            kind: CallbackExprKind::Literal(Literal::String(kind.to_owned())),
+            ty: self.ctx.krate.types.intern(Type::String),
+        })
+    }
+
     /// Compute the result type of a callback conditional expression.
     fn callback_conditional_type(
         &mut self,
@@ -1894,6 +1954,67 @@ impl ModuleBuilder<'_> {
             self.span(start, end),
             "callback conditional expression branches must have compatible lowered types",
         ))
+    }
+
+    /// Lower `typeof value === "kind"` checks inside callback expressions.
+    fn callback_typeof_binary(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<Option<CallbackExpr>, SmeltError> {
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality
+                | BinaryOperator::Equality
+                | BinaryOperator::StrictInequality
+                | BinaryOperator::Inequality
+        ) {
+            return Ok(None);
+        }
+        let Expression::UnaryExpression(unary) = &binary.left else {
+            return Ok(None);
+        };
+        if unary.operator != UnaryOperator::Typeof {
+            return Ok(None);
+        }
+        let Expression::StringLiteral(kind_literal) = &binary.right else {
+            return Ok(None);
+        };
+        let Some(kind) = unknown_kind_from_typeof(kind_literal.value.as_str()) else {
+            return Ok(None);
+        };
+        let value = self.callback_expression(&unary.argument, params, body)?;
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let mut expr = if self.ctx.krate.types.get(value.ty) == Some(&Type::Unknown) {
+            CallbackExpr {
+                kind: CallbackExprKind::UnknownIs {
+                    value: Box::new(value),
+                    kind,
+                },
+                ty: bool_ty,
+            }
+        } else {
+            CallbackExpr {
+                kind: CallbackExprKind::Literal(Literal::Bool(
+                    self.type_matches_typeof(value.ty, kind_literal.value.as_str()),
+                )),
+                ty: bool_ty,
+            }
+        };
+        if matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ) {
+            expr = CallbackExpr {
+                kind: CallbackExprKind::Unary {
+                    op: UnaryOp::Not,
+                    operand: Box::new(expr),
+                },
+                ty: bool_ty,
+            };
+        }
+        Ok(Some(expr))
     }
 
     /// Maps supported TypeScript callback binary operators to HIR operators.

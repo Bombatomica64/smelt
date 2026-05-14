@@ -17,6 +17,7 @@ impl ModuleBuilder<'_> {
             TSType::TSBooleanKeyword(_) | TSType::TSTypePredicate(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Bool))
             }
+            TSType::TSSymbolKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSType::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
             TSType::TSVoidKeyword(_) | TSType::TSNullKeyword(_) | TSType::TSUndefinedKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::None))
@@ -164,6 +165,11 @@ impl ModuleBuilder<'_> {
                 self.ts_type_to_hir(&operator.type_annotation)
             }
             TSType::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Unique =>
+            {
+                self.ts_type_to_hir(&operator.type_annotation)
+            }
+            TSType::TSTypeOperatorType(operator)
                 if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof =>
             {
                 Ok(self.ctx.krate.types.intern(Type::String))
@@ -288,14 +294,96 @@ impl ModuleBuilder<'_> {
                 let TSTypeName::IdentifierReference(name) = &reference.type_name else {
                     return Ok(Vec::new());
                 };
-                let symbol = self.intern_type_name(name.name.as_str());
-                Ok(self
-                    .type_alias_fields
-                    .get(&symbol)
-                    .cloned()
-                    .unwrap_or_default())
+                self.type_reference_fields(reference, name.name.as_str())
             }
             _ => Ok(Vec::new()),
+        }
+    }
+
+    /// Extract structural fields from a named type reference.
+    ///
+    /// This mirrors `type_reference_to_hir` for field metadata: aliases and
+    /// interfaces carry structural fields independently from their erased HIR
+    /// representation, so references need generic substitutions applied before
+    /// callers use the fields for member access.
+    fn type_reference_fields(
+        &mut self,
+        reference: &oxc::ast::ast::TSTypeReference<'_>,
+        name_text: &str,
+    ) -> Result<Vec<Field>, SmeltError> {
+        let args = reference
+            .type_arguments
+            .as_ref()
+            .map(|args| args.params.iter().collect::<Vec<_>>())
+            .unwrap_or_default();
+        if name_text == "Pick" {
+            let [base, keys] = args.as_slice() else {
+                return Ok(Vec::new());
+            };
+            let mut fields = self.type_fields_from_ts(base)?;
+            if let Some(selected) = Self::static_pick_keys(keys) {
+                fields.retain(|field| {
+                    self.ctx
+                        .krate
+                        .symbols
+                        .get(field.name)
+                        .is_some_and(|name| selected.iter().any(|key| key == name))
+                });
+            }
+            return Ok(fields);
+        }
+
+        let symbol = self.intern_type_name(name_text);
+        if let Some(interface) = self.find_interface(symbol).cloned() {
+            let lowered_args = args
+                .iter()
+                .map(|arg| self.ts_type_to_hir(arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            let substitutions = self.type_argument_substitution(
+                &interface.type_params,
+                &lowered_args,
+                self.span(reference.span.start, reference.span.end),
+            )?;
+            return Ok(self.substituted_fields(&interface.fields, &substitutions));
+        }
+        if let Some(alias) = self.find_type_alias(symbol).cloned() {
+            let lowered_args = args
+                .iter()
+                .map(|arg| self.ts_type_to_hir(arg))
+                .collect::<Result<Vec<_>, _>>()?;
+            let substitutions = self.type_argument_substitution(
+                &alias.type_params,
+                &lowered_args,
+                self.span(reference.span.start, reference.span.end),
+            )?;
+            if let Some(fields) = self.type_alias_fields.get(&symbol).cloned() {
+                return Ok(self.substituted_fields(&fields, &substitutions));
+            }
+        }
+        Ok(self
+            .type_alias_fields
+            .get(&symbol)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    /// Return static string keys from the key side of `Pick<T, K>`.
+    fn static_pick_keys(ty: &TSType<'_>) -> Option<Vec<String>> {
+        match ty {
+            TSType::TSLiteralType(literal) => match &literal.literal {
+                oxc::ast::ast::TSLiteral::StringLiteral(value) => {
+                    Some(vec![value.value.to_string()])
+                }
+                _ => None,
+            },
+            TSType::TSUnionType(union) => {
+                let mut keys = Vec::new();
+                for item in &union.types {
+                    keys.extend(Self::static_pick_keys(item)?);
+                }
+                Some(keys)
+            }
+            _ => None,
         }
     }
 
@@ -532,7 +620,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         match item {
             TSTupleElement::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
-            TSTupleElement::TSStringKeyword(_) => Ok(self.ctx.krate.types.intern(Type::String)),
+            TSTupleElement::TSStringKeyword(_) | TSTupleElement::TSTemplateLiteralType(_) => {
+                Ok(self.ctx.krate.types.intern(Type::String))
+            }
             TSTupleElement::TSBooleanKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Bool)),
             TSTupleElement::TSUnknownKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSTupleElement::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
@@ -560,6 +650,21 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
             }
             TSTupleElement::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSTupleElement::TSLiteralType(literal) => match &literal.literal {
+                oxc::ast::ast::TSLiteral::StringLiteral(_) => {
+                    Ok(self.ctx.krate.types.intern(Type::String))
+                }
+                oxc::ast::ast::TSLiteral::NumericLiteral(_) => {
+                    Ok(self.ctx.krate.types.intern(Type::Float))
+                }
+                oxc::ast::ast::TSLiteral::BooleanLiteral(_) => {
+                    Ok(self.ctx.krate.types.intern(Type::Bool))
+                }
+                _ => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            },
+            TSTupleElement::TSIndexedAccessType(_) => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
             TSTupleElement::TSTypeOperatorType(operator)
                 if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Readonly =>
             {
@@ -802,7 +907,12 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
             (
-                "Array" | "Iterable" | "ReadonlyArray" | "NonEmptyArray" | "IterableContainer",
+                "Array"
+                | "ArrayLike"
+                | "Iterable"
+                | "ReadonlyArray"
+                | "NonEmptyArray"
+                | "IterableContainer",
                 [item],
             ) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
@@ -813,13 +923,23 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::List(item)))
             }
             ("Readonly", [item]) => self.ts_type_to_hir(item),
+            ("Pick", [base, _keys]) => self.ts_type_to_hir(base),
             ("Set" | "ReadonlySet", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Set(lowered_item)))
             }
             ("Record", [key, value]) => {
-                let lowered_key = self.record_key_type_to_hir(key, reference.span)?;
                 let lowered_value = self.ts_type_to_hir(value)?;
+                let lowered_key = match self.record_key_type_to_hir(key, reference.span) {
+                    Ok(key) => key,
+                    Err(error)
+                        if matches!(self.ctx.krate.types.get(lowered_value), Some(Type::Never)) =>
+                    {
+                        drop(error);
+                        self.ctx.krate.types.intern(Type::String)
+                    }
+                    Err(error) => return Err(error),
+                };
                 Ok(self
                     .ctx
                     .krate
@@ -901,6 +1021,32 @@ impl ModuleBuilder<'_> {
                         &lowered_args,
                         self.span(reference.span.start, reference.span.end),
                     )?;
+                    let alias_is_union = matches!(
+                        self.ctx.krate.types.get(alias.ty),
+                        Some(Type::Union(_))
+                    );
+                    if !alias_is_union
+                        && self
+                        .type_alias_fields
+                        .get(&symbol)
+                        .is_some_and(|fields| !fields.is_empty())
+                    {
+                        let instantiated_args = alias
+                            .type_params
+                            .iter()
+                            .map(|param| {
+                                substitutions.get(&param.name).copied().unwrap_or_else(|| {
+                                    self.ctx.krate.types.intern(Type::TypeParam {
+                                        name: param.name,
+                                    })
+                                })
+                            })
+                            .collect();
+                        return Ok(self.ctx.krate.types.intern(Type::Class {
+                            name: symbol,
+                            args: instantiated_args,
+                        }));
+                    }
                     return Ok(self.substitute_type_params(alias.ty, &substitutions));
                 }
                 let lowered_args = args
@@ -915,40 +1061,151 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Lower a TypeScript `Record<K, V>` key type.
+    /// Lower a TypeScript `Record<K, V>` key type for Smelt's object model.
     ///
-    /// Concrete `Record<string, T>` still takes the normal precise path. Generic
-    /// `Record<K, T>` keys are preserved as type parameters so aliases such as
-    /// Remeda's `K extends PropertyKey` helpers can be instantiated later instead
-    /// of forcing the frontend to eagerly evaluate TypeScript's type-level
-    /// utility graph.
+    /// JavaScript object records expose stringified own keys for normal object
+    /// operations, so concrete `string`, `number`, literal, `keyof`, and
+    /// `PropertyKey`-like key surfaces normalize to `string`. A direct generic
+    /// key such as `Record<K, V>` is preserved because later alias substitution
+    /// still needs to thread that type parameter through generic helper returns.
     fn record_key_type_to_hir(
         &mut self,
         key: &TSType<'_>,
         span: oxc::span::Span,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        let lowered_key = self.ts_type_to_hir(key)?;
-        match self.ctx.krate.types.get(lowered_key) {
-            Some(Type::String | Type::TypeParam { .. }) => Ok(lowered_key),
-            Some(Type::Class { name, .. })
-                if self.ctx.krate.symbols.get(*name) == Some("PropertyKey") =>
-            {
-                Ok(self.ctx.krate.types.intern(Type::String))
+        if let Some(param_ty) = self.direct_record_key_type_param(key)? {
+            return Ok(param_ty);
+        }
+        if self.record_key_surface_is_lowerable(key)? {
+            return Ok(self.ctx.krate.types.intern(Type::String));
+        }
+        Err(SmeltError::unsupported(
+            self.span(span.start, span.end),
+            "Record keys must lower to TypeScript object property keys",
+        ))
+    }
+
+    /// Return a direct generic key for `Record<K, V>` without normalizing it.
+    ///
+    /// Preserving the exact type parameter keeps generic object helpers
+    /// instantiable after type aliases are substituted. Composite keys such as
+    /// `K | string` use Smelt's string-key object representation instead.
+    fn direct_record_key_type_param(
+        &mut self,
+        key: &TSType<'_>,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        match key {
+            TSType::TSParenthesizedType(parenthesized) => {
+                self.direct_record_key_type_param(&parenthesized.type_annotation)
             }
-            Some(Type::Union(items))
-                if items.iter().copied().all(|item| {
-                    matches!(
-                        self.ctx.krate.types.get(item),
-                        Some(Type::String | Type::Int | Type::Float)
-                    )
-                }) =>
+            TSType::TSTypeOperatorType(operator)
+                if matches!(
+                    operator.operator,
+                    oxc::ast::ast::TSTypeOperatorOperator::Readonly
+                        | oxc::ast::ast::TSTypeOperatorOperator::Unique
+                ) =>
             {
-                Ok(self.ctx.krate.types.intern(Type::String))
+                self.direct_record_key_type_param(&operator.type_annotation)
             }
-            _ => Err(SmeltError::unsupported(
-                self.span(span.start, span.end),
-                "only Record<string, T> or generic Record<K, T> keys are lowered for now",
+            TSType::TSTypeReference(reference) => {
+                let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+                    return Ok(None);
+                };
+                if reference.type_arguments.is_some() {
+                    return Ok(None);
+                }
+                Ok(self.type_parameter_type(name.name.as_str()))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// Return whether a `Record` key surface is valid for string-key object lowering.
+    ///
+    /// TypeScript's checker already enforces that `Record<K, V>` keys are
+    /// assignable to `PropertyKey`. This helper keeps Smelt from rejecting
+    /// common type-level spellings whose concrete runtime representation is a
+    /// JavaScript object with stringified ordinary keys.
+    fn record_key_surface_is_lowerable(&mut self, key: &TSType<'_>) -> Result<bool, SmeltError> {
+        match key {
+            TSType::TSStringKeyword(_)
+            | TSType::TSNumberKeyword(_)
+            | TSType::TSBigIntKeyword(_)
+            | TSType::TSSymbolKeyword(_)
+            | TSType::TSAnyKeyword(_)
+            | TSType::TSUnknownKeyword(_)
+            | TSType::TSObjectKeyword(_)
+            | TSType::TSTemplateLiteralType(_)
+            | TSType::TSNeverKeyword(_) => Ok(true),
+            TSType::TSLiteralType(literal) => Ok(matches!(
+                literal.literal,
+                oxc::ast::ast::TSLiteral::StringLiteral(_)
+                    | oxc::ast::ast::TSLiteral::NumericLiteral(_)
+                    | oxc::ast::ast::TSLiteral::UnaryExpression(_)
+                    | oxc::ast::ast::TSLiteral::BooleanLiteral(_)
             )),
+            TSType::TSParenthesizedType(parenthesized) => {
+                self.record_key_surface_is_lowerable(&parenthesized.type_annotation)
+            }
+            TSType::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof =>
+            {
+                Ok(true)
+            }
+            TSType::TSTypeOperatorType(operator)
+                if matches!(
+                    operator.operator,
+                    oxc::ast::ast::TSTypeOperatorOperator::Readonly
+                        | oxc::ast::ast::TSTypeOperatorOperator::Unique
+                ) =>
+            {
+                self.record_key_surface_is_lowerable(&operator.type_annotation)
+            }
+            TSType::TSUnionType(union) => union
+                .types
+                .iter()
+                .map(|member| self.record_key_surface_is_lowerable(member))
+                .try_fold(true, |all_lowerable, member| {
+                    member.map(|member_lowerable| all_lowerable && member_lowerable)
+                }),
+            TSType::TSIntersectionType(intersection) => intersection
+                .types
+                .iter()
+                .map(|member| self.record_key_surface_is_lowerable(member))
+                .try_fold(true, |any_lowerable, member| {
+                    member.map(|member_lowerable| any_lowerable || member_lowerable)
+                }),
+            TSType::TSConditionalType(conditional) => {
+                Ok(self.record_key_surface_is_lowerable(&conditional.true_type)?
+                    && self.record_key_surface_is_lowerable(&conditional.false_type)?)
+            }
+            TSType::TSIndexedAccessType(_)
+            | TSType::TSMappedType(_)
+            | TSType::TSTypeReference(_) => {
+                let lowered_key = self.ts_type_to_hir(key)?;
+                Ok(self.lowered_record_key_is_string_representable(lowered_key))
+            }
+            _ => Ok(false),
+        }
+    }
+
+    /// Return whether an already-lowered key can be represented as object keys.
+    fn lowered_record_key_is_string_representable(&self, key: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(key)) {
+            Some(
+                Type::String
+                | Type::Int
+                | Type::Float
+                | Type::Unknown
+                | Type::Never
+                | Type::TypeParam { .. },
+            ) => true,
+            Some(Type::Class { name, .. }) => self.ctx.krate.symbols.get(*name).is_some(),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .all(|item| self.lowered_record_key_is_string_representable(item)),
+            _ => false,
         }
     }
 
@@ -1011,7 +1268,7 @@ impl ModuleBuilder<'_> {
                     }
                 }
             }
-            Type::Class { name, .. } => {
+            Type::Class { name, args } => {
                 let class_field = self.class_by_symbol(name).and_then(|class| {
                     class
                         .fields
@@ -1024,8 +1281,9 @@ impl ModuleBuilder<'_> {
                     .krate
                     .names
                     .get(name)
-                    .or_else(|| self.ctx.krate.symbols.get(name));
-                let sidecar_field = class_name.and_then(|class_name| {
+                    .or_else(|| self.ctx.krate.symbols.get(name))
+                    .map(str::to_owned);
+                let sidecar_field = class_name.as_deref().and_then(|class_name| {
                     self.class_fields.get(class_name).and_then(|fields| {
                         fields
                             .iter()
@@ -1033,27 +1291,50 @@ impl ModuleBuilder<'_> {
                             .map(|item| item.ty)
                     })
                 });
-                let interface = self.find_interface(name);
+                let interface = self.find_interface(name).cloned();
                 let interface_exists = interface.is_some();
-                let interface_field = interface.and_then(|interface| {
-                    interface
+                let interface_field = if let Some(interface) = interface {
+                    let substitutions = self.type_argument_substitution(
+                        &interface.type_params,
+                        &args,
+                        self.span(0, 0),
+                    )?;
+                    let field_data = interface
                         .fields
                         .iter()
                         .find(|item| item.name == field)
-                        .map(|item| item.ty)
-                });
-                let alias_field = self
+                        .map(|item| (item.ty, item.optional));
+                    field_data.map(|(ty, optional)| {
+                        self.instantiate_field_type(ty, optional, &substitutions)
+                    })
+                } else {
+                    None
+                };
+                let alias_fields = self
                     .type_alias_fields
                     .get(&name)
-                    .and_then(|fields| fields.iter().find(|item| item.name == field))
-                    .map(|item| (item.ty, item.optional));
-                let alias_field = alias_field.map(|(ty, optional)| {
-                    if optional {
-                        self.ctx.krate.types.intern(Type::Optional(ty))
-                    } else {
-                        ty
-                    }
-                });
+                    .cloned()
+                    .unwrap_or_default();
+                let alias_field = if let Some(alias) = self.find_type_alias(name).cloned() {
+                    let substitutions = self.type_argument_substitution(
+                        &alias.type_params,
+                        &args,
+                        self.span(0, 0),
+                    )?;
+                    let field_data = alias_fields
+                        .iter()
+                        .find(|item| item.name == field)
+                        .map(|item| (item.ty, item.optional));
+                    field_data.map(|(ty, optional)| {
+                        self.instantiate_field_type(ty, optional, &substitutions)
+                    })
+                } else {
+                    let field_data = alias_fields
+                        .iter()
+                        .find(|item| item.name == field)
+                        .map(|item| (item.ty, item.optional));
+                    field_data.map(|(ty, optional)| self.field_type_with_optional(ty, optional))
+                };
                 if let Some(ty) = class_field
                     .or(sidecar_field)
                     .or(interface_field)
@@ -1061,9 +1342,16 @@ impl ModuleBuilder<'_> {
                 {
                     return Ok(ty);
                 }
+                let mut visited = HashSet::new();
+                if let Some(ty) =
+                    self.inherited_interface_field_type(name, &args, field, &mut visited)?
+                {
+                    return Ok(ty);
+                }
                 if self.class_by_symbol(name).is_none()
-                    && class_name
-                        .is_none_or(|sidecar_name| !self.class_fields.contains_key(sidecar_name))
+                    && class_name.as_deref().is_none_or(|sidecar_name| {
+                        !self.class_fields.contains_key(sidecar_name)
+                    })
                     && !interface_exists
                 {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
@@ -1080,6 +1368,95 @@ impl ModuleBuilder<'_> {
                     "field access is only lowered for Record<string, T>, class, and interface values for now (receiver: {receiver_type:?})"
                 ),
             )),
+        }
+    }
+
+    /// Resolve a field through stored interface heritage edges.
+    ///
+    /// Cyclic type-only imports can lower an interface before its parents are
+    /// available. Keeping heritage edges lets member access retry inheritance
+    /// against the latest declarations after the cycle has been loaded.
+    fn inherited_interface_field_type(
+        &mut self,
+        name: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+        field: smelt_hir::Symbol,
+        visited: &mut HashSet<smelt_hir::Symbol>,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        if !visited.insert(name) {
+            return Ok(None);
+        }
+        let Some(parents) = self.interface_extends.get(&name).cloned() else {
+            return Ok(None);
+        };
+        let child_params = self
+            .find_interface(name)
+            .map(|interface| interface.type_params.clone())
+            .unwrap_or_default();
+        let child_substitutions =
+            self.type_argument_substitution(&child_params, args, self.span(0, 0))?;
+        for parent in parents {
+            let parent_args = parent
+                .args
+                .into_iter()
+                .map(|arg| self.substitute_type_params(arg, &child_substitutions))
+                .collect::<Vec<_>>();
+            if let Some(ty) = self.interface_declared_field_type(parent.parent, &parent_args, field)?
+            {
+                return Ok(Some(ty));
+            }
+            if let Some(ty) =
+                self.inherited_interface_field_type(parent.parent, &parent_args, field, visited)?
+            {
+                return Ok(Some(ty));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Resolve a directly declared interface field with generic arguments applied.
+    fn interface_declared_field_type(
+        &mut self,
+        name: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+        field: smelt_hir::Symbol,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        let Some(interface) = self.find_interface(name).cloned() else {
+            return Ok(None);
+        };
+        let substitutions =
+            self.type_argument_substitution(&interface.type_params, args, self.span(0, 0))?;
+        let field_data = interface
+            .fields
+            .iter()
+            .find(|item| item.name == field)
+            .map(|item| (item.ty, item.optional));
+        Ok(field_data.map(|(ty, optional)| {
+            self.instantiate_field_type(ty, optional, &substitutions)
+        }))
+    }
+
+    /// Apply generic substitutions and optional wrapping for a structural field.
+    fn instantiate_field_type(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        optional: bool,
+        substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
+        let ty = self.substitute_type_params(ty, substitutions);
+        self.field_type_with_optional(ty, optional)
+    }
+
+    /// Wrap optional fields without producing nested `Optional` types.
+    fn field_type_with_optional(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        optional: bool,
+    ) -> smelt_hir::TypeId {
+        if optional && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+            self.ctx.krate.types.intern(Type::Optional(ty))
+        } else {
+            ty
         }
     }
 
@@ -1263,12 +1640,12 @@ impl ModuleBuilder<'_> {
     /// Return whether a type can be represented as a string at runtime.
     fn is_string_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
-            Some(Type::String) => true,
+            Some(Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
             Some(Type::Optional(item)) => self.is_string_compatible_type(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
-                .all(|item| self.is_string_compatible_type(item)),
+                .any(|item| self.is_string_compatible_type(item)),
             _ => false,
         }
     }

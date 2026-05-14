@@ -52,6 +52,8 @@ pub struct HirCtx {
     pub overloads: HashMap<String, Vec<OverloadSignature>>,
     /// Structural fields attached to type aliases visible to later modules.
     pub type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
+    /// Interface heritage clauses visible to later modules for lazy field lookup.
+    pub interface_extends: HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>,
     /// Structural fields attached to callable intersection types.
     pub callable_fields: HashMap<TypeId, Vec<Field>>,
 }
@@ -67,6 +69,7 @@ impl HirCtx {
             object_consts: HashMap::new(),
             overloads: HashMap::new(),
             type_alias_fields: HashMap::new(),
+            interface_extends: HashMap::new(),
             callable_fields: HashMap::new(),
         }
     }

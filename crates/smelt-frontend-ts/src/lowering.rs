@@ -92,6 +92,15 @@ struct RestParam {
     item_ty: smelt_hir::TypeId,
 }
 
+/// A lowered `extends Parent<Args...>` edge kept for lazy interface field lookup.
+#[derive(Debug, Clone)]
+pub struct InterfaceHeritageRef {
+    /// Parent interface symbol.
+    parent: smelt_hir::Symbol,
+    /// Lowered type arguments supplied to the parent interface.
+    args: Vec<smelt_hir::TypeId>,
+}
+
 /// A closure expression prepared for a callback-consuming API.
 #[derive(Debug, Clone, Copy)]
 struct ClosureCallback {
@@ -219,6 +228,8 @@ struct ModuleBuilder<'ctx> {
     class_fields: HashMap<String, Vec<Field>>,
     /// Fields carried by structural type aliases.
     type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
+    /// Interface heritage clauses for resolving fields after cyclic type imports settle.
+    interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
     /// Fields attached to callable intersection types.
     callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
     /// Currently processing class name, if any.

@@ -302,6 +302,9 @@ impl ModuleBuilder<'_> {
                 body,
             ),
             Argument::BinaryExpression(binary) => self.binary_expression(binary, body),
+            Argument::ConditionalExpression(conditional) => {
+                self.conditional_expression(conditional, body, None)
+            }
             Argument::LogicalExpression(logical) => self.logical_expression(logical, body),
             Argument::UnaryExpression(unary) => self.unary_expression(unary, body),
             Argument::ArrayExpression(array) => self.array_expression(array, body, None),
@@ -345,6 +348,9 @@ impl ModuleBuilder<'_> {
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
+            Argument::TSInstantiationExpression(instantiation) => {
+                self.expression(&instantiation.expression, body)
+            }
             Argument::SpreadElement(spread) => self.expression(&spread.argument, body),
             _ => Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
@@ -863,10 +869,12 @@ impl ModuleBuilder<'_> {
             }));
         }
         let [timestamp_arg] = new_expr.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new Date() currently supports exactly one numeric timestamp argument",
-            ));
+            let ty = self.ctx.krate.types.intern(Type::Int);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Int(0)),
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
         };
         let timestamp_ms = self.argument(timestamp_arg, body)?;
         let timestamp_ty = Self::expr_ty(body, timestamp_ms);
@@ -931,14 +939,14 @@ impl ModuleBuilder<'_> {
             return Ok(Some(self.expression(&member.object, body)?));
         }
         let getter_part = match method {
-            "getFullYear" => Some(DatePart::FullYear),
-            "getMonth" => Some(DatePart::Month),
-            "getDate" => Some(DatePart::Date),
-            "getDay" => Some(DatePart::Day),
-            "getHours" => Some(DatePart::Hour),
-            "getMinutes" => Some(DatePart::Minute),
-            "getSeconds" => Some(DatePart::Second),
-            "getMilliseconds" => Some(DatePart::Millisecond),
+            "getFullYear" | "getUTCFullYear" => Some(DatePart::FullYear),
+            "getMonth" | "getUTCMonth" => Some(DatePart::Month),
+            "getDate" | "getUTCDate" => Some(DatePart::Date),
+            "getDay" | "getUTCDay" => Some(DatePart::Day),
+            "getHours" | "getUTCHours" => Some(DatePart::Hour),
+            "getMinutes" | "getUTCMinutes" => Some(DatePart::Minute),
+            "getSeconds" | "getUTCSeconds" => Some(DatePart::Second),
+            "getMilliseconds" | "getUTCMilliseconds" => Some(DatePart::Millisecond),
             _ => None,
         };
         if let Some(part) = getter_part {
@@ -958,13 +966,13 @@ impl ModuleBuilder<'_> {
             })));
         }
         let setter_part = match method {
-            "setFullYear" => Some(DatePart::FullYear),
-            "setMonth" => Some(DatePart::Month),
-            "setDate" => Some(DatePart::Date),
-            "setHours" => Some(DatePart::Hour),
-            "setMinutes" => Some(DatePart::Minute),
-            "setSeconds" => Some(DatePart::Second),
-            "setMilliseconds" => Some(DatePart::Millisecond),
+            "setFullYear" | "setUTCFullYear" => Some(DatePart::FullYear),
+            "setMonth" | "setUTCMonth" => Some(DatePart::Month),
+            "setDate" | "setUTCDate" => Some(DatePart::Date),
+            "setHours" | "setUTCHours" => Some(DatePart::Hour),
+            "setMinutes" | "setUTCMinutes" => Some(DatePart::Minute),
+            "setSeconds" | "setUTCSeconds" => Some(DatePart::Second),
+            "setMilliseconds" | "setUTCMilliseconds" => Some(DatePart::Millisecond),
             _ => None,
         };
         let Some(part) = setter_part else {

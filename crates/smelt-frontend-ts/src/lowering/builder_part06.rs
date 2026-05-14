@@ -1207,10 +1207,14 @@ impl ModuleBuilder<'_> {
                 Some(Type::Future(inner)) if arrow.r#async => *inner,
                 _ => return_ty,
             };
-            if callback.ty != expected_callback_ty {
+            if !self.local_callback_return_type_compatible(callback.ty, expected_callback_ty) {
                 return Err(SmeltError::unsupported(
                     self.span(arrow.span.start, arrow.span.end),
-                    "local closure return type does not match its annotation",
+                    format!(
+                        "local closure return type does not match its annotation: actual {:?}, expected {:?}",
+                        self.ctx.krate.types.get(callback.ty),
+                        self.ctx.krate.types.get(expected_callback_ty)
+                    ),
                 ));
             }
             let local = body.push_local(LocalDecl {
@@ -1250,6 +1254,26 @@ impl ModuleBuilder<'_> {
         })();
         self.pop_type_parameter_scope();
         result
+    }
+
+    /// Return whether a lowered local callback body satisfies its declared return type.
+    fn local_callback_return_type_compatible(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+    ) -> bool {
+        actual == expected
+            || matches!(self.ctx.krate.types.get(expected), Some(Type::Class { .. }))
+            || matches!(self.ctx.krate.types.get(expected), Some(Type::TypeParam { .. }))
+            || matches!(
+                self.ctx.krate.types.get(expected),
+                Some(Type::Optional(inner)) if *inner == actual
+            )
+            || matches!(self.ctx.krate.types.get(actual), Some(Type::Unknown))
+            || matches!(
+                (self.ctx.krate.types.get(actual), self.ctx.krate.types.get(expected)),
+                (Some(Type::Function(_)), Some(Type::Function(_)))
+            )
     }
 
     /// Lower a binding pattern in a variable declaration.
@@ -1297,14 +1321,9 @@ impl ModuleBuilder<'_> {
                         "object destructuring requires an initializer",
                     ));
                 };
-                if object.rest.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(object.span.start, object.span.end),
-                        "object destructuring rest bindings are not lowered yet",
-                    ));
-                }
+                let mut omitted_keys = Vec::new();
                 for property in &object.properties {
-                    let (ty, extracted) = if property.computed {
+                    let (ty, extracted, omitted_key) = if property.computed {
                         let index = self.property_key_index_expression(&property.key, body)?;
                         let ty = self.dynamic_field_type(Self::expr_ty(body, receiver));
                         (
@@ -1314,9 +1333,12 @@ impl ModuleBuilder<'_> {
                                 ty,
                                 span: self.span(property.span.start, property.span.end),
                             }),
+                            index,
                         )
                     } else {
                         let field = self.property_key_symbol(&property.key)?;
+                        let omitted_key =
+                            self.object_destructuring_static_key_expr(&property.key, body)?;
                         let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
                         (
                             ty,
@@ -1325,13 +1347,24 @@ impl ModuleBuilder<'_> {
                                 ty,
                                 span: self.span(property.span.start, property.span.end),
                             }),
+                            omitted_key,
                         )
                     };
+                    omitted_keys.push(omitted_key);
                     self.binding_declaration(
                         &property.value,
                         Some(extracted),
                         Some(ty),
                         mutable,
+                        body,
+                        block,
+                    )?;
+                }
+                if let Some(rest) = &object.rest {
+                    self.object_rest_binding_declaration(
+                        &rest.argument,
+                        receiver,
+                        &omitted_keys,
                         body,
                         block,
                     )?;
@@ -1465,6 +1498,95 @@ impl ModuleBuilder<'_> {
                 block,
             ),
         }
+    }
+
+    /// Create a string key expression for a static object destructuring property.
+    fn object_destructuring_static_key_expr(
+        &mut self,
+        key: &PropertyKey<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let (text, start, end) = match key {
+            PropertyKey::StaticIdentifier(identifier) => (
+                identifier.name.as_str().to_owned(),
+                identifier.span.start,
+                identifier.span.end,
+            ),
+            PropertyKey::PrivateIdentifier(identifier) => (
+                identifier.name.as_str().to_owned(),
+                identifier.span.start,
+                identifier.span.end,
+            ),
+            PropertyKey::StringLiteral(literal) => (
+                literal.value.to_string(),
+                literal.span.start,
+                literal.span.end,
+            ),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(key.span().start, key.span().end),
+                    "object destructuring rest keys must be static identifiers or string literals",
+                ));
+            }
+        };
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(text)),
+            ty,
+            span: self.span(start, end),
+        }))
+    }
+
+    /// Bind an object rest pattern by copying the receiver and deleting extracted keys.
+    fn object_rest_binding_declaration(
+        &mut self,
+        pattern: &BindingPattern<'_>,
+        receiver: smelt_hir::ExprId,
+        omitted_keys: &[smelt_hir::ExprId],
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let rest_ty = if let Some(Type::Dict(_, _)) =
+            self.ctx.krate.types.get(Self::expr_ty(body, receiver))
+        {
+            Self::expr_ty(body, receiver)
+        } else {
+            let key_ty = self.ctx.krate.types.intern(Type::String);
+            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+            self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+        };
+        let receiver_span = Self::body_expr_span(body, receiver);
+        let rest_value = body.push_expr(Expr {
+            kind: ExprKind::DictCopy { dict: receiver },
+            ty: rest_ty,
+            span: receiver_span,
+        });
+        for key in omitted_keys {
+            let key_span = Self::body_expr_span(body, *key);
+            let removed = body.push_expr(Expr {
+                kind: ExprKind::DictRemoveKey {
+                    dict: rest_value,
+                    key: *key,
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+                span: key_span,
+            });
+            body.push_stmt_to_block(block, Stmt::Expr(removed));
+        }
+        self.binding_declaration(pattern, Some(rest_value), Some(rest_ty), false, body, block)
+    }
+
+    /// Return the span for an expression already inserted into a body.
+    fn body_expr_span(body: &Body, expr: smelt_hir::ExprId) -> Span {
+        let root_span = usize::try_from(body.root.0)
+            .ok()
+            .and_then(|index| body.blocks.get(index))
+            .or_else(|| body.blocks.first())
+            .map_or(Span::new(FileId(0), 0, 0), |block| block.span);
+        usize::try_from(expr.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+            .map_or(root_span, |expr| expr.span)
     }
 
     /// Collect source names introduced by a binding pattern.

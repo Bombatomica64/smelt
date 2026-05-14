@@ -362,6 +362,27 @@ fn lowers_unary_plus_expression() -> Result<(), String> {
 }
 
 #[test]
+fn lowers_typeof_expression_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const kind = typeof "value";
+const numeric = typeof 1;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "string")
+    ));
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "number")
+    ));
+    Ok(())
+}
+
+#[test]
 fn lowers_destructuring_declarations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

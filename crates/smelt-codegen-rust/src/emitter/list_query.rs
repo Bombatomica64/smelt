@@ -486,6 +486,10 @@ impl FunctionEmitter<'_> {
                 smelt_hir::bin_op_text(*op),
                 self.callback_expr_text(rhs, params)?
             )),
+            smelt_hir::CallbackExprKind::UnknownIs { value, kind } => {
+                let value_text = self.callback_expr_text(value, params)?;
+                self.unknown_is_text_raw(&value_text, *kind)
+            }
             smelt_hir::CallbackExprKind::Conditional {
                 cond,
                 then_expr,
@@ -511,6 +515,27 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
                 Ok(format!("{callee_text}({args_text})"))
+            }
+            smelt_hir::CallbackExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                let receiver_text = self.callback_expr_text(receiver, params)?;
+                let method_text = self.symbol_name(*method)?;
+                let args_text = args
+                    .iter()
+                    .map(|arg| self.callback_expr_text(&arg.expr, params))
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                if method_text == "toString" {
+                    Ok(format!("{receiver_text}.to_string()"))
+                } else {
+                    Ok(format!(
+                        "{receiver_text}.{}({args_text})",
+                        sanitize_ident(method_text)
+                    ))
+                }
             }
         }
     }

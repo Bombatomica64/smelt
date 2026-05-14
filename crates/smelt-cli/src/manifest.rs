@@ -407,10 +407,10 @@ fn scan_imports(source: &str, lang: SourceLang) -> Result<Vec<ManifestImport>, S
 
 /// Scans TypeScript import and re-export module specifiers.
 fn scan_typescript_imports(source: &str) -> Vec<ManifestImport> {
-    source
-        .lines()
+    typescript_import_statements(source)
+        .into_iter()
         .filter_map(|line| {
-            let trimmed = line.trim();
+            let trimmed = line.as_str();
             if trimmed.starts_with("import ") {
                 let specifier = trimmed
                     .split_once(" from ")
@@ -438,6 +438,38 @@ fn scan_typescript_imports(source: &str) -> Vec<ManifestImport> {
             None
         })
         .collect()
+}
+
+/// Return complete TypeScript import/export declarations, including multiline forms.
+fn typescript_import_statements(source: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current: Option<String> = None;
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if let Some(buffer) = &mut current {
+            buffer.push(' ');
+            buffer.push_str(trimmed);
+            if trimmed.ends_with(';') {
+                statements.push(buffer.trim_end_matches(';').trim().to_owned());
+                current = None;
+            }
+            continue;
+        }
+        if trimmed.starts_with("import ")
+            || ((trimmed.starts_with("export ") || trimmed.starts_with("export type "))
+                && trimmed.contains(" from "))
+        {
+            if trimmed.ends_with(';') || trimmed.contains(" from ") {
+                statements.push(trimmed.trim_end_matches(';').trim().to_owned());
+            } else {
+                current = Some(trimmed.to_owned());
+            }
+        }
+    }
+    if let Some(buffer) = current {
+        statements.push(buffer.trim_end_matches(';').trim().to_owned());
+    }
+    statements
 }
 
 /// Scans Python `import module` and `from module import name` specifiers with Ruff AST.

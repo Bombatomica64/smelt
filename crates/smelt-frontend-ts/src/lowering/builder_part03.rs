@@ -46,20 +46,7 @@ impl ModuleBuilder<'_> {
         let return_ty = if assertion_return.is_some() {
             self.ctx.krate.types.intern(Type::None)
         } else {
-            match function
-                .return_type
-                .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()
-                .and_then(|value| {
-                    value.ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(function.span.start, function.span.end),
-                            "function declarations must have an explicit return type",
-                        )
-                    })
-                })
-            {
+            match self.function_return_type_or_overload(function, name_text) {
                 Ok(value) => value,
                 Err(error) => {
                     self.pop_type_parameter_scope();
@@ -67,13 +54,6 @@ impl ModuleBuilder<'_> {
                 }
             }
         };
-        if function.return_type.is_none() {
-            self.pop_type_parameter_scope();
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "function declarations must have an explicit return type",
-            ));
-        }
         if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
             self.pop_type_parameter_scope();

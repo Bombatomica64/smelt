@@ -240,6 +240,9 @@ fn validate_callback_expr(
         CallbackExprKind::Unary { operand, .. } => {
             validate_callback_expr(body_idx, body, operand, errors);
         }
+        CallbackExprKind::UnknownIs { value, .. } => {
+            validate_callback_expr(body_idx, body, value, errors);
+        }
         CallbackExprKind::Binary { lhs, rhs, .. } => {
             validate_callback_expr(body_idx, body, lhs, errors);
             validate_callback_expr(body_idx, body, rhs, errors);
@@ -255,6 +258,12 @@ fn validate_callback_expr(
         }
         CallbackExprKind::Call { callee, args } => {
             validate_callback_expr(body_idx, body, callee, errors);
+            for arg in args {
+                validate_callback_expr(body_idx, body, &arg.expr, errors);
+            }
+        }
+        CallbackExprKind::MethodCall { receiver, args, .. } => {
+            validate_callback_expr(body_idx, body, receiver, errors);
             for arg in args {
                 validate_callback_expr(body_idx, body, &arg.expr, errors);
             }

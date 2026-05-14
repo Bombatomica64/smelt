@@ -185,6 +185,9 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
         smelt_hir::CallbackExprKind::Unary { operand, .. } => {
             assigned_callback_locals(operand, locals);
         }
+        smelt_hir::CallbackExprKind::UnknownIs { value, .. } => {
+            assigned_callback_locals(value, locals);
+        }
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             assigned_callback_locals(lhs, locals);
             assigned_callback_locals(rhs, locals);
@@ -200,6 +203,12 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
         }
         smelt_hir::CallbackExprKind::Call { callee, args } => {
             assigned_callback_locals(callee, locals);
+            for arg in args {
+                assigned_callback_locals(&arg.expr, locals);
+            }
+        }
+        smelt_hir::CallbackExprKind::MethodCall { receiver, args, .. } => {
+            assigned_callback_locals(receiver, locals);
             for arg in args {
                 assigned_callback_locals(&arg.expr, locals);
             }

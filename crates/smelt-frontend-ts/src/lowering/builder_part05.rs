@@ -481,13 +481,14 @@ impl ModuleBuilder<'_> {
 
     /// Extract a string title from a test-framework name argument.
     fn test_title(&self, argument: &Argument<'_>) -> Result<String, SmeltError> {
-        let Argument::StringLiteral(name) = argument else {
-            return Err(SmeltError::unsupported(
+        match argument {
+            Argument::StringLiteral(name) => Ok(name.value.to_string()),
+            Argument::Identifier(identifier) => Ok(identifier.name.to_string()),
+            _ => Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
-                "test case names must be string literals",
-            ));
-        };
-        Ok(name.value.to_string())
+                "test case names must be string literals or identifiers",
+            )),
+        }
     }
 
     /// Extract and validate an arrow callback for supported test-framework calls.

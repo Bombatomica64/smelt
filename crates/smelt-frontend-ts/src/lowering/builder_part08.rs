@@ -87,58 +87,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(literal.span.start, literal.span.end),
                 }))
             }
-            Expression::ArrayExpression(array) => {
-                if array
-                    .elements
-                    .iter()
-                    .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
-                {
-                    return self.array_expression_with_spread(array, body, type_hint);
-                }
-                let mut items = Vec::new();
-                for element in &array.elements {
-                    let expr = match element {
-                        ArrayExpressionElement::SpreadElement(_) => {
-                            return Err(SmeltError::unsupported(
-                                self.span(element.span().start, element.span().end),
-                                "array spread elements are not lowered yet",
-                            ));
-                        }
-                        ArrayExpressionElement::Elision(_) => {
-                            return Err(SmeltError::unsupported(
-                                self.span(element.span().start, element.span().end),
-                                "array elisions are not lowered",
-                            ));
-                        }
-                        _ => self.array_element(element, body)?,
-                    };
-                    items.push(expr);
-                }
-                let ty = if let Some(hint) = type_hint {
-                    hint
-                } else if let Some(first) = items.first() {
-                    let item_ty = Self::expr_ty(body, *first);
-                    self.ctx.krate.types.intern(Type::List(item_ty))
-                } else {
-                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
-                    self.ctx.krate.types.intern(Type::List(item_ty))
-                };
-                if self.array_literal_needs_never_value(ty, items.len()) {
-                    return Err(SmeltError::unsupported(
-                        self.span(array.span.start, array.span.end),
-                        "array or tuple literal cannot construct a never value",
-                    ));
-                }
-                Ok(body.push_expr(Expr {
-                    kind: if matches!(self.ctx.krate.types.get(ty), Some(Type::Tuple(_))) {
-                        ExprKind::TupleLit(items)
-                    } else {
-                        ExprKind::ListLit(items)
-                    },
-                    ty,
-                    span: self.span(array.span.start, array.span.end),
-                }))
-            }
+            Expression::ArrayExpression(array) => self.array_expression(array, body, type_hint),
             Expression::ObjectExpression(object) => {
                 self.object_expression(object, body, type_hint)
             }
@@ -266,6 +215,16 @@ impl ModuleBuilder<'_> {
                 let else_ty = Self::expr_ty(body, else_expr);
                 let ty = if then_ty == else_ty {
                     then_ty
+                } else if self.numeric_type_compatible(then_ty, else_ty) {
+                    self.ctx.krate.types.intern(Type::Float)
+                } else if matches!(
+                    (
+                        self.ctx.krate.types.get(then_ty),
+                        self.ctx.krate.types.get(else_ty)
+                    ),
+                    (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
+                ) {
+                    then_ty
                 } else if Self::is_empty_list_expr(body, then_expr) {
                     else_ty
                 } else if Self::is_empty_list_expr(body, else_expr) {
@@ -307,7 +266,11 @@ impl ModuleBuilder<'_> {
                 } else {
                     return Err(SmeltError::unsupported(
                         self.span(conditional.span.start, conditional.span.end),
-                        "conditional expression branches must have the same lowered type",
+                        format!(
+                            "conditional expression branches must have the same lowered type (then: {:?}, else: {:?})",
+                            self.ctx.krate.types.get(then_ty),
+                            self.ctx.krate.types.get(else_ty)
+                        ),
                     ));
                 };
                 Ok(body.push_expr(Expr {
@@ -321,6 +284,12 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::UnaryExpression(unary) => {
+                if unary.operator == UnaryOperator::Typeof {
+                    return self.typeof_expression(unary, body);
+                }
+                if unary.operator == UnaryOperator::Delete {
+                    return self.unary_expression(unary, body);
+                }
                 let op = match unary.operator {
                     UnaryOperator::LogicalNot => UnaryOp::Not,
                     UnaryOperator::UnaryNegation => UnaryOp::Neg,
@@ -505,6 +474,107 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower JavaScript `typeof value` to a string result when used as a value.
+    fn typeof_expression(
+        &mut self,
+        unary: &oxc::ast::ast::UnaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let operand = self.expression(&unary.argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        let kind = self.typeof_type_name(operand_ty).unwrap_or("object");
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(kind.to_owned())),
+            ty,
+            span: self.span(unary.span.start, unary.span.end),
+        }))
+    }
+
+    /// Lower a TypeScript conditional expression when it appears outside normal expression nodes.
+    fn conditional_expression(
+        &mut self,
+        conditional: &oxc::ast::ast::ConditionalExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let cond = self.condition_expression(&conditional.test, body)?;
+        let then_expr = self.expression_with_hint(&conditional.consequent, body, type_hint)?;
+        let branch_hint = Some(Self::expr_ty(body, then_expr));
+        let else_expr = self.expression_with_hint(&conditional.alternate, body, branch_hint)?;
+        let then_ty = Self::expr_ty(body, then_expr);
+        let else_ty = Self::expr_ty(body, else_expr);
+        let ty = self.conditional_branch_type(
+            then_ty,
+            else_ty,
+            type_hint,
+            conditional.span.start,
+            conditional.span.end,
+        )?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            },
+            ty,
+            span: self.span(conditional.span.start, conditional.span.end),
+        }))
+    }
+
+    /// Compute the result type for a conditional expression's branches.
+    fn conditional_branch_type(
+        &mut self,
+        then_ty: smelt_hir::TypeId,
+        else_ty: smelt_hir::TypeId,
+        type_hint: Option<smelt_hir::TypeId>,
+        start: u32,
+        end: u32,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if then_ty == else_ty {
+            Ok(then_ty)
+        } else if self.numeric_type_compatible(then_ty, else_ty) {
+            Ok(self.ctx.krate.types.intern(Type::Float))
+        } else if matches!(
+            (
+                self.ctx.krate.types.get(then_ty),
+                self.ctx.krate.types.get(else_ty)
+            ),
+            (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
+        ) {
+            Ok(then_ty)
+        } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
+            Ok(self.ctx.krate.types.intern(Type::Optional(else_ty)))
+        } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
+            Ok(self.ctx.krate.types.intern(Type::Optional(then_ty)))
+        } else if self.compatible_function_branch_types(then_ty, else_ty) {
+            Ok(then_ty)
+        } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
+            Ok(function_ty)
+        } else if type_hint
+            .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
+            || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
+            || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(then_ty)
+            || self.type_contains_unknown(else_ty)
+        {
+            Ok(self.ctx.krate.types.intern(Type::Unknown))
+        } else if let Some(hint) = type_hint
+            && !self.concrete_type_requires_never_value(hint)
+        {
+            Ok(hint)
+        } else {
+            Err(SmeltError::unsupported(
+                self.span(start, end),
+                format!(
+                    "conditional expression branches must have the same lowered type (then: {:?}, else: {:?})",
+                    self.ctx.krate.types.get(then_ty),
+                    self.ctx.krate.types.get(else_ty)
+                ),
+            ))
+        }
+    }
+
     /// Return true when an expression is an uninhabited empty array literal.
     fn is_empty_list_expr(body: &Body, expr: smelt_hir::ExprId) -> bool {
         matches!(
@@ -531,6 +601,17 @@ impl ModuleBuilder<'_> {
         let cond_ty = Self::expr_ty(body, cond);
         if self.ctx.krate.types.get(cond_ty) == Some(&Type::Bool) {
             return Ok(cond);
+        }
+        if matches!(
+            self.ctx.krate.types.get(cond_ty),
+            Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. })
+        ) {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty,
+                span: self.expression_span(expression),
+            }));
         }
         if self.is_nullishable_type(cond_ty) {
             let none_ty = self.ctx.krate.types.intern(Type::None);
@@ -619,6 +700,7 @@ impl ModuleBuilder<'_> {
         }
         Ok(acc)
     }
+
 
     // Continued in the next split builder file.
 }

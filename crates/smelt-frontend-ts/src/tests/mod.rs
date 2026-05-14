@@ -113,6 +113,7 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_param(lhs, target) || callback_has_param(rhs, target)
         }
+        smelt_hir::CallbackExprKind::UnknownIs { value, .. } => callback_has_param(value, target),
         smelt_hir::CallbackExprKind::Conditional {
             cond,
             then_expr,
@@ -124,6 +125,10 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
         }
         smelt_hir::CallbackExprKind::Call { callee, args } => {
             callback_has_param(callee, target)
+                || args.iter().any(|arg| callback_has_param(&arg.expr, target))
+        }
+        smelt_hir::CallbackExprKind::MethodCall { receiver, args, .. } => {
+            callback_has_param(receiver, target)
                 || args.iter().any(|arg| callback_has_param(&arg.expr, target))
         }
     }
@@ -155,6 +160,7 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_capture(lhs) || callback_has_capture(rhs)
         }
+        smelt_hir::CallbackExprKind::UnknownIs { value, .. } => callback_has_capture(value),
         smelt_hir::CallbackExprKind::Conditional {
             cond,
             then_expr,
@@ -166,6 +172,9 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
         }
         smelt_hir::CallbackExprKind::Call { callee, args } => {
             callback_has_capture(callee) || args.iter().any(|arg| callback_has_capture(&arg.expr))
+        }
+        smelt_hir::CallbackExprKind::MethodCall { receiver, args, .. } => {
+            callback_has_capture(receiver) || args.iter().any(|arg| callback_has_capture(&arg.expr))
         }
     }
 }

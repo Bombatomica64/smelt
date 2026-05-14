@@ -55,9 +55,10 @@ impl ModuleBuilder<'_> {
                     span: self.span(literal.span.start, literal.span.end),
                 }))
             }
+            PropertyKey::ComputedMemberExpression(member) => self.computed_member(member, body),
             _ => Err(SmeltError::unsupported(
                 self.span(key.span().start, key.span().end),
-                "computed property keys must be identifier, string, or numeric expressions",
+                "computed property keys must be identifier, member, string, or numeric expressions",
             )),
         }
     }
@@ -107,9 +108,14 @@ impl ModuleBuilder<'_> {
         Ok((self.intern_type_name(name.name.as_str()), args))
     }
 
-    /// Find a previously lowered interface by symbol.
+    /// Find the latest previously lowered interface by symbol.
+    ///
+    /// Manifests may include generated `.d.ts` files before their source `.ts`
+    /// counterparts. Looking from the end keeps source declarations from being
+    /// shadowed by earlier, weaker declarations while preserving ordinary
+    /// dependency-first lookup.
     fn find_interface(&self, name: smelt_hir::Symbol) -> Option<&Interface> {
-        self.ctx.krate.items.iter().find_map(|item| {
+        self.ctx.krate.items.iter().rev().find_map(|item| {
             if let Item::Interface(interface) = item {
                 if interface.name == name {
                     return Some(interface);
@@ -119,9 +125,12 @@ impl ModuleBuilder<'_> {
         })
     }
 
-    /// Find a previously lowered type alias by symbol.
+    /// Find the latest previously lowered type alias by symbol.
+    ///
+    /// This mirrors interface lookup so `.ts` aliases can refine generated
+    /// declaration-file aliases when both appear in one manifest.
     fn find_type_alias(&self, name: smelt_hir::Symbol) -> Option<&smelt_hir::TypeAlias> {
-        self.ctx.krate.items.iter().find_map(|item| {
+        self.ctx.krate.items.iter().rev().find_map(|item| {
             if let Item::TypeAlias(alias) = item
                 && alias.name == name
             {

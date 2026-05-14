@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::expr::UnknownKind;
 use crate::ids::{BodyId, LocalId, Span, Symbol, TypeId};
 use crate::item::Param;
 
@@ -82,6 +83,13 @@ pub enum CallbackExprKind {
         /// Right operand.
         rhs: Box<CallbackExpr>,
     },
+    /// Runtime `typeof`-style check against an unknown callback value.
+    UnknownIs {
+        /// Value being checked.
+        value: Box<CallbackExpr>,
+        /// Unknown tag to test.
+        kind: UnknownKind,
+    },
     /// A conditional expression.
     Conditional {
         /// Boolean condition.
@@ -96,6 +104,15 @@ pub enum CallbackExprKind {
         /// Callable expression.
         callee: Box<CallbackExpr>,
         /// Arguments passed to the callable.
+        args: Vec<CallbackCallArg>,
+    },
+    /// A method call performed on a callback expression receiver.
+    MethodCall {
+        /// Receiver expression.
+        receiver: Box<CallbackExpr>,
+        /// Source method name.
+        method: Symbol,
+        /// Arguments passed to the method.
         args: Vec<CallbackCallArg>,
     },
 }

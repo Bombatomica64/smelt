@@ -275,6 +275,12 @@ impl ModuleBuilder<'_> {
         if args
             .iter()
             .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
+            && args.iter().any(|arg| {
+                !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
+                    Some(Type::Float | Type::Int | Type::Unknown | Type::TypeParam { .. })
+                )
+            })
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),

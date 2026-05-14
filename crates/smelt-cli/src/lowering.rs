@@ -48,6 +48,9 @@ struct FrontendLoweringState {
     ts_overloads: HashMap<String, Vec<smelt_frontend_ts::OverloadSignature>>,
     /// TypeScript structural type-alias fields visible across manifest entries.
     ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
+    /// TypeScript interface heritage edges visible across manifest entries.
+    ts_interface_extends:
+        HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
     /// TypeScript callable intersection fields visible across manifest entries.
     ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
     /// Python module/package namespaces visible through `import package`.
@@ -193,6 +196,7 @@ fn lower_manifest_source(
                 object_consts: state.ts_object_consts,
                 overloads: state.ts_overloads,
                 type_alias_fields: state.ts_type_alias_fields,
+                interface_extends: state.ts_interface_extends,
                 callable_fields: state.ts_callable_fields,
             };
             let module = smelt_frontend_ts::to_hir_with_path(
@@ -216,6 +220,7 @@ fn lower_manifest_source(
                     ts_object_consts: ctx.object_consts,
                     ts_overloads: ctx.overloads,
                     ts_type_alias_fields: ctx.type_alias_fields,
+                    ts_interface_extends: ctx.interface_extends,
                     ts_callable_fields: ctx.callable_fields,
                     py_module_namespaces: state.py_module_namespaces,
                     py_enum_members: state.py_enum_members,
@@ -249,6 +254,7 @@ fn lower_manifest_source(
                     ts_object_consts: state.ts_object_consts,
                     ts_overloads: state.ts_overloads,
                     ts_type_alias_fields: state.ts_type_alias_fields,
+                    ts_interface_extends: state.ts_interface_extends,
                     ts_callable_fields: state.ts_callable_fields,
                     py_module_namespaces: ctx.module_namespaces,
                     py_enum_members: ctx.enum_members,
