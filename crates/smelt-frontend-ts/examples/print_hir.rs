@@ -3,14 +3,6 @@
 //! Used for local debugging of frontend lowering behavior.
 
 #![expect(
-    clippy::cast_possible_truncation,
-    reason = "example file IDs are small indexes from command-line arguments"
-)]
-#![expect(
-    clippy::as_conversions,
-    reason = "example file IDs are small indexes from command-line arguments"
-)]
-#![expect(
     clippy::use_debug,
     reason = "debug mode intentionally prints the raw HIR crate"
 )]
@@ -57,7 +49,10 @@ fn main() -> Result<(), String> {
     for (idx, path) in paths.iter().enumerate() {
         let source =
             fs::read_to_string(path).map_err(|err| format!("failed to read {path}: {err}"))?;
-        let module = to_hir(&source, FileId(idx as u32), &mut ctx)
+        let file_id = u32::try_from(idx)
+            .map(FileId)
+            .map_err(|error| format!("file index does not fit in u32: {error}"))?;
+        let module = to_hir(&source, file_id, &mut ctx)
             .map_err(|errors| format!("{}:\n{errors:#?}", Path::new(path).display()))?;
         loaded.push((path.clone(), module));
     }

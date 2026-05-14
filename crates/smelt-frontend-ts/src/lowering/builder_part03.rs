@@ -85,7 +85,9 @@ impl ModuleBuilder<'_> {
 
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_async = self.current_async;
+        let saved_return_ty = self.current_return_ty;
         self.current_async = function.r#async;
+        self.current_return_ty = Some(return_ty);
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
@@ -96,6 +98,7 @@ impl ModuleBuilder<'_> {
             let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                 self.locals = saved_locals;
                 self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
@@ -120,6 +123,7 @@ impl ModuleBuilder<'_> {
                 Err(error) => {
                     self.locals = saved_locals;
                     self.current_async = saved_async;
+                    self.current_return_ty = saved_return_ty;
                     self.pop_type_parameter_scope();
                     return Err(error);
                 }
@@ -144,6 +148,7 @@ impl ModuleBuilder<'_> {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.locals = saved_locals;
                 self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -167,6 +172,7 @@ impl ModuleBuilder<'_> {
                 Err(error) => {
                     self.locals = saved_locals;
                     self.current_async = saved_async;
+                    self.current_return_ty = saved_return_ty;
                     self.pop_type_parameter_scope();
                     return Err(error);
                 }
@@ -176,6 +182,7 @@ impl ModuleBuilder<'_> {
             } else {
                 self.locals = saved_locals;
                 self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -214,6 +221,7 @@ impl ModuleBuilder<'_> {
         }
         self.locals = saved_locals;
         self.current_async = saved_async;
+        self.current_return_ty = saved_return_ty;
         self.pop_type_parameter_scope();
 
         if let Some(error) = errors.into_iter().next() {
@@ -529,7 +537,9 @@ impl ModuleBuilder<'_> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_class = self.current_class.replace(class_text.to_owned());
         let saved_async = self.current_async;
+        let saved_return_ty = self.current_return_ty;
         self.current_async = method.value.r#async;
+        self.current_return_ty = Some(return_ty);
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
@@ -558,6 +568,7 @@ impl ModuleBuilder<'_> {
                 self.locals = saved_locals;
                 self.current_class = saved_class;
                 self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
                     "destructured parameters are not lowered yet",
@@ -603,6 +614,7 @@ impl ModuleBuilder<'_> {
         self.locals = saved_locals;
         self.current_class = saved_class;
         self.current_async = saved_async;
+        self.current_return_ty = saved_return_ty;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }

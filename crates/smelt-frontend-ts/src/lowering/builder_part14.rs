@@ -1,4 +1,40 @@
 impl ModuleBuilder<'_> {
+    /// Lower `new Array<T>(length)` to an empty list with item metadata.
+    ///
+    /// JavaScript creates a sparse array here; Smelt models the later indexed
+    /// writes and only needs the list container type at construction time.
+    fn array_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Array(...) supports at most one length argument",
+            ));
+        }
+        if let Some(length) = new_expr.arguments.first() {
+            let length = self.argument(length, body)?;
+            if !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, length)),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Array(...) length must be numeric",
+                ));
+            }
+        }
+        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
     /// Lower supported string split calls into HIR string runtime calls.
     fn string_split_call(
         &mut self,
@@ -293,6 +329,9 @@ impl ModuleBuilder<'_> {
             }
             ArrayExpressionElement::UnaryExpression(unary) => self.unary_expression(unary, body),
             ArrayExpressionElement::ArrayExpression(array) => {
+                if let [ArrayExpressionElement::SpreadElement(spread)] = array.elements.as_slice() {
+                    return self.expression(&spread.argument, body);
+                }
                 let mut items = Vec::new();
                 for nested_element in &array.elements {
                     let item = match nested_element {

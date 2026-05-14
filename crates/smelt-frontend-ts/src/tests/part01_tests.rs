@@ -197,6 +197,8 @@ fn lowers_never_type_surface_without_runtime_values() -> Result<(), String> {
 export type StrictFunction = (...args: never) => unknown;
 export type Value = string | never;
 export type ImpossibleTuple = [never, ...never[]];
+export type NTuple<T, Result extends unknown[] = []> = [...Result, T];
+export type NonEmptyArray<T> = [T, ...T[]];
 "#),
         &mut ctx,
     )?;
@@ -254,6 +256,38 @@ export type ImpossibleTuple = [never, ...never[]];
         ctx.krate.types.get(tuple.ty),
         Some(Type::Tuple(items))
             if matches!(items.as_slice(), [item] if matches!(ctx.krate.types.get(*item), Some(Type::Never)))
+    ));
+
+    let generic_tuple = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::TypeAlias(alias) if ctx.krate.symbols.get(alias.name) == Some("NTuple") => {
+                Some(alias)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing NTuple alias".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(generic_tuple.ty),
+        Some(Type::Tuple(items)) if items.len() == 1
+    ));
+
+    let non_empty_array = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::TypeAlias(alias)
+                if ctx.krate.symbols.get(alias.name) == Some("NonEmptyArray") =>
+            {
+                Some(alias)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing NonEmptyArray alias".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(non_empty_array.ty),
+        Some(Type::List(_))
     ));
     Ok(())
 }
@@ -1117,5 +1151,166 @@ test.each([[1, 2, 3], [2, 3, 5]])("adds", (a, b, expected) => {
         let function = function_item(&ctx, module, index)?;
         ensure!(function.is_test);
     }
+    Ok(())
+}
+
+#[test]
+fn vitest_test_each_accepts_scalar_rows() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+test.each([Number.NaN, Number.POSITIVE_INFINITY])("value", (value) => {
+  expect(value).toBe(value);
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/scalar-table.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn vitest_to_throw_lowers_arrow_callback_assertion() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+function fail(): void {
+  throw "boom";
+}
+
+test("throws", () => {
+  expect(() => fail()).toThrow("boom");
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/to-throw.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body_id = function
+        .body
+        .ok_or_else(|| "missing test body id".to_owned())?;
+    let body = ctx
+        .krate
+        .bodies
+        .get(body_id.0 as usize)
+        .ok_or_else(|| "missing test body".to_owned())?;
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::TryCatch { .. })),
+        "expected toThrow to lower through try/catch",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn vitest_expect_matchers_lower_inside_nested_test_blocks() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+test("loop", () => {
+  for (const value of [1, 2]) {
+    expect(value).toBe(value);
+  }
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/nested-expect.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body_id = function
+        .body
+        .ok_or_else(|| "missing test body id".to_owned())?;
+    let body = ctx
+        .krate
+        .bodies
+        .get(body_id.0 as usize)
+        .ok_or_else(|| "missing test body".to_owned())?;
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::If { .. })),
+        "expected nested matcher to lower into an assertion branch",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_symbol_brand_and_type_query_metadata() -> Result<(), String> {
+    let source = ts!(r#"
+const Brand = Symbol("Brand");
+export type Branded = typeof Brand;
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(source, &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::Literal(Literal::String(ref value)) if value == "symbol"
+        )),
+        "expected Symbol(...) to lower to an opaque symbol literal",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unhinted_empty_array_as_unknown_list() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const values = [];"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            ctx.krate.types.get(expr.ty),
+            Some(Type::List(item)) if matches!(ctx.krate.types.get(*item), Some(Type::Unknown))
+        )),
+        "expected unhinted empty array to lower as unknown[]",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_single_spread_array_literal_as_list_clone() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const data: number[] = [1, 2]; const cloned = [...data];"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(ctx.krate.types.get(expr.ty), Some(Type::List(_))))
+            .count()
+            >= 2,
+        "expected spread clone to lower as a list expression",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_length_constructor_as_list_container() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const result = new Array<number[]>(3);"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::ListLit(ref items) if items.is_empty()
+        )),
+        "expected Array constructor to lower as an empty list container",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

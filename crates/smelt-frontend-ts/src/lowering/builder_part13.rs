@@ -686,8 +686,17 @@ impl ModuleBuilder<'_> {
         &mut self,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
     ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
+        self.arrow_callback_param_types_with_hint(arrow, None)
+    }
+
+    /// Read arrow parameter types, using contextual function types for omitted annotations.
+    fn arrow_callback_param_types_with_hint(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        contextual_function: Option<&FunctionType>,
+    ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
         let mut params = Vec::new();
-        for param in &arrow.params.items {
+        for (index, param) in arrow.params.items.iter().enumerate() {
             let BindingPattern::BindingIdentifier(_) = &param.pattern else {
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
@@ -699,6 +708,10 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
+                .or_else(|| {
+                    contextual_function
+                        .and_then(|function| function.params.get(index).copied())
+                })
                 .ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(param.span.start, param.span.end),
@@ -918,6 +931,16 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        self.arrow_function_expression_with_hint(arrow, body, None)
+    }
+
+    /// Lower an arrow function expression using an optional contextual function type.
+    fn arrow_function_expression_with_hint(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let result = (|| {
         if arrow.r#async {
@@ -926,7 +949,14 @@ impl ModuleBuilder<'_> {
                 "async arrow expressions need async closure lowering",
             ));
         }
-        let params = self.arrow_callback_param_types(arrow)?;
+        let contextual_function = type_hint.and_then(|hint| {
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(hint) {
+                Some(function.clone())
+            } else {
+                None
+            }
+        });
+        let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
         let explicit_return_ty = arrow
             .return_type
             .as_ref()
@@ -943,8 +973,9 @@ impl ModuleBuilder<'_> {
             let span = self.span(arrow.span.start, arrow.span.end);
             return Ok(self.callback_expr_to_closure(callback, &params, span, body));
         }
-        let return_ty =
-            explicit_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        let return_ty = explicit_return_ty
+            .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
         self.arrow_closure_body_expr(arrow, &params, return_ty, body)
         })();
         self.pop_type_parameter_scope();

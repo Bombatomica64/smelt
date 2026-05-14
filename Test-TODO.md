@@ -38,7 +38,7 @@ Primary target results:
 | Repo | Manifest | `smelt check` | Generated `cargo test` | Current first blocker |
 |---|---|---:|---:|---|
 | `date-fns/date-fns` | narrow `quartersToMonths` slice | pass | not rerun today; previously pass, 4/4 tests | Green slice remains check-clean. |
-| `date-fns/date-fns` | full sorted `src/**/*.ts(x)` manifest at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml` | fail | n/a | Now reaches `src/locale/en-US/_lib/formatDistance/index.ts`; `.replace(...)` rejects because receiver/pattern/replacement are not all recognized as string-compatible. |
+| `date-fns/date-fns` | full sorted `src/**/*.ts(x)` manifest at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml` | fail | n/a | Now gets past locale `.replace(...)` and reaches `src/locale/_lib/buildFormatLongFn/index.ts`; returned local closure has an unannotated defaulted `options = {}` parameter. |
 | `Textualize/rich` | `NullFile` slice | fail | n/a | `rich/_null_file.py`: member/method call still rejected with “only calls to top-level functions, class constructors, and print() are supported”. |
 | `remeda/remeda` | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | n/a | Now reaches `packages/remeda/src/ceil.ts`: unresolved global `Math` in a function body. This is stdlib/global-resolution work, not test lowering. |
 | `remeda/remeda` | focused `toUpperCase` slice | pass | not built today | The previous focused purry/type-test blockers are cleared for this slice. |
@@ -60,8 +60,8 @@ Current read:
 
 - Test-framework lowering is not the front wall for these probes.
 - The next useful TypeScript walls are global/std-lib resolution (`Math` as a namespace/global in
-  function bodies), string receiver type compatibility, exported non-primitive const values, and
-  generic classes/advanced tuple type surfaces.
+  function bodies), contextual typing for returned/defaulted closure parameters, exported
+  non-primitive const values, and generic classes/advanced tuple type surfaces.
 - The next useful Python walls are general member/method calls, enum/class conversions,
   context/protocol method calls, and broader import/builtin handling.
 - Ky exposed a correctness issue: unsupported input must not panic. Add a regression once the
@@ -551,7 +551,7 @@ Compatibility numbers:
 |---|---:|---|
 | TS/TSX files under `src` | `1536` | Raw source corpus size in the latest checkout. |
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
-| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Latest 2026-05-14 rerun gets past the returned-inline-arrow wall and now fails in `src/locale/en-US/_lib/formatDistance/index.ts` on string `.replace(...)` receiver/pattern/replacement compatibility. |
+| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Latest 2026-05-14 rerun gets past locale string `.replace(...)` and now fails in `src/locale/_lib/buildFormatLongFn/index.ts` on an unannotated defaulted parameter in a returned local closure. |
 | Full manifest with shared type files forced first `smelt check` | fail | Superseded by the sorted full-manifest rerun above; the locale type-surface blockers are now cleared. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
@@ -566,10 +566,11 @@ Compatibility numbers:
 
 Latest rerun status: the full sorted manifest now gets past the previous `isSaturday` chain,
 `ContextOptions.in`, Date receiver blockers, `src/locale/types.ts`, the `addBusinessDays/basic.ts`
-Node environment probe, ambient `.d.ts` declaration files, returned inline arrow functions in
-`buildFormatLongFn`, and reaches the locale `formatDistance` formatter. The first failing file is
-now `src/locale/en-US/_lib/formatDistance/index.ts`, where a string `.replace(...)` call is rejected
-because the receiver, pattern, or replacement is not recognized as string-compatible.
+Node environment probe, ambient `.d.ts` declaration files, and the locale `formatDistance`
+formatter including `tokenValue.other.replace("{{count}}", count.toString())`. The first failing
+file is now `src/locale/_lib/buildFormatLongFn/index.ts`, where the returned closure has a defaulted
+unannotated `options = {}` parameter that should be contextually typed from the `FormatLongFn`
+return annotation.
 
 `src/types.ts`, `src/locale/types.ts`, `src/fp/types.ts`, `src/addBusinessDays/index.ts`,
 `src/_lib/addBusinessDays/basic.ts`, and `src/locale/en-US/_lib/formatDistance/index.ts` pass
@@ -597,15 +598,15 @@ Shared type-file status:
 - [x] Full date-fns gets past `ContextOptions` / `options?.in` / `toDate(...).getDay()`.
 - [x] Full date-fns gets past locale type-surface lowering/rejection strategy for
   `src/locale/types.ts`.
-- [x] Full date-fns gets past closure-as-value lowering for returned inline arrow functions such as
+- [ ] Full date-fns needs contextual parameter typing for returned inline arrow functions such as
   `buildFormatLongFn(...): FormatLongFn { return (options = {}) => { ... }; }`.
-- [ ] Full date-fns needs string `.replace(...)` compatibility through localized formatter values.
+- [x] Full date-fns gets past string `.replace(...)` compatibility through localized formatter values.
 
 Full manifest first blocker:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
-| `src/locale/en-US/_lib/formatDistance/index.ts` | String `.replace(...)` receiver/pattern/replacement compatibility | `string replace requires string-compatible receiver, pattern, and replacement`. |
+| `src/locale/_lib/buildFormatLongFn/index.ts` | Contextual typing for returned closure parameter defaults | `local closure parameters must have explicit type annotations`. |
 
 Optional chaining surface in date-fns:
 

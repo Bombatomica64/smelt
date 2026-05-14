@@ -373,6 +373,9 @@ impl ModuleBuilder<'_> {
     }
 
     /// Parse the table literal from an `.each([...])` call.
+    ///
+    /// Nested array elements represent multi-argument rows. Scalar elements
+    /// use Vitest's shorthand for a one-argument row.
     fn table_rows<'a>(
         &self,
         each_call: &'a oxc::ast::ast::CallExpression<'a>,
@@ -385,13 +388,18 @@ impl ModuleBuilder<'_> {
         };
         let mut rows = Vec::new();
         for element in &table.elements {
-            let ArrayExpressionElement::ArrayExpression(row) = element else {
-                return Err(SmeltError::unsupported(
-                    self.span(element.span().start, element.span().end),
-                    "table test rows must be array literals",
-                ));
-            };
-            rows.push(row.elements.iter().collect());
+            match element {
+                ArrayExpressionElement::ArrayExpression(row) => {
+                    rows.push(row.elements.iter().collect());
+                }
+                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => {
+                    return Err(SmeltError::unsupported(
+                        self.span(element.span().start, element.span().end),
+                        "table test rows do not support spreads or elisions",
+                    ));
+                }
+                _ => rows.push(vec![element]),
+            }
         }
         Ok(rows)
     }

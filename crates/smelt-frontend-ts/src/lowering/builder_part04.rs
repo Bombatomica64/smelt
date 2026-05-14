@@ -193,6 +193,11 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 if let Expression::CallExpression(call) = &expr_stmt.expression
+                    && self.expect_matcher_statement(call, body)?
+                {
+                    return Ok(());
+                }
+                if let Expression::CallExpression(call) = &expr_stmt.expression
                     && self.node_assert_statement(call, body)?
                 {
                     return Ok(());
@@ -222,13 +227,13 @@ impl ModuleBuilder<'_> {
                 let value = return_stmt
                     .argument
                     .as_ref()
-                    .map(|argument| self.expression(argument, body))
+                    .map(|argument| self.expression_with_hint(argument, body, self.current_return_ty))
                     .transpose()?;
                 body.push_stmt_to_block(block, Stmt::Return(value));
                 Ok(())
             }
             Statement::IfStatement(if_stmt) => {
-                let cond = self.expression(&if_stmt.test, body)?;
+                let cond = self.condition_expression(&if_stmt.test, body)?;
                 let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
                 if let Some(narrowing) = then_narrowing.clone() {
                     self.narrowed_locals.push(narrowing);
@@ -261,7 +266,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::WhileStatement(while_stmt) => {
-                let cond = self.expression(&while_stmt.test, body)?;
+                let cond = self.condition_expression(&while_stmt.test, body)?;
                 let loop_body = self.block_from_statement(&while_stmt.body, body)?;
                 body.push_stmt_to_block(
                     block,

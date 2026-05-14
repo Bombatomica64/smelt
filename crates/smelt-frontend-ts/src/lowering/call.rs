@@ -32,6 +32,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.primitive_cast_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.symbol_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.math_abs_call(call, body)? {
             return Ok(expr);
         }
@@ -427,6 +430,48 @@ impl ModuleBuilder<'_> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Lower JavaScript `Symbol(description)` branding calls as opaque strings.
+    ///
+    /// Smelt does not model symbol identity yet. Type-level branding libraries
+    /// only need a stable opaque value here so the containing module can lower.
+    fn symbol_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "Symbol" {
+            return Ok(None);
+        }
+        if call.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Symbol(...) supports at most one description argument",
+            ));
+        }
+        let description = call
+            .arguments
+            .first()
+            .map(|argument| self.argument(argument, body))
+            .transpose()?;
+        let ty = self.ctx.krate.types.intern(Type::String);
+        if let Some(description) = description
+            && !matches!(self.ctx.krate.types.get(Self::expr_ty(body, description)), Some(Type::String))
+        {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Symbol(...) description must be a string",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("symbol".to_owned())),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Select the TypeScript overload signature that matches a call site.

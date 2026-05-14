@@ -79,6 +79,9 @@ impl ModuleBuilder<'_> {
                 self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
             }
             Expression::ArrayExpression(array) => {
+                if let [ArrayExpressionElement::SpreadElement(spread)] = array.elements.as_slice() {
+                    return self.expression(&spread.argument, body);
+                }
                 let mut items = Vec::new();
                 for element in &array.elements {
                     let expr = match element {
@@ -104,10 +107,8 @@ impl ModuleBuilder<'_> {
                     let item_ty = Self::expr_ty(body, *first);
                     self.ctx.krate.types.intern(Type::List(item_ty))
                 } else {
-                    return Err(SmeltError::unsupported(
-                        self.span(array.span.start, array.span.end),
-                        "empty arrays require an explicit type annotation",
-                    ));
+                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::List(item_ty))
                 };
                 if self.array_literal_needs_never_value(ty, items.len()) {
                     return Err(SmeltError::unsupported(
@@ -219,13 +220,7 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::ConditionalExpression(conditional) => {
-                let cond = self.expression(&conditional.test, body)?;
-                if self.ctx.krate.types.get(Self::expr_ty(body, cond)) != Some(&Type::Bool) {
-                    return Err(SmeltError::unsupported(
-                        self.span(conditional.test.span().start, conditional.test.span().end),
-                        "conditional expression condition must be boolean",
-                    ));
-                }
+                let cond = self.condition_expression(&conditional.test, body)?;
                 let then_expr =
                     self.expression_with_hint(&conditional.consequent, body, type_hint)?;
                 let branch_hint = Some(Self::expr_ty(body, then_expr));
@@ -235,6 +230,10 @@ impl ModuleBuilder<'_> {
                 let else_ty = Self::expr_ty(body, else_expr);
                 let ty = if then_ty == else_ty {
                     then_ty
+                } else if self.is_string_compatible_type(then_ty)
+                    && self.is_string_compatible_type(else_ty)
+                {
+                    self.ctx.krate.types.intern(Type::String)
                 } else if type_hint
                     .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
                     || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
@@ -327,7 +326,9 @@ impl ModuleBuilder<'_> {
             Expression::StaticMemberExpression(member) => self.static_member(member, body),
             Expression::ComputedMemberExpression(member) => self.computed_member(member, body),
             Expression::CallExpression(call) => self.call_expression(call, body),
-            Expression::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
+            Expression::ArrowFunctionExpression(arrow) => {
+                self.arrow_function_expression_with_hint(arrow, body, type_hint)
+            }
             Expression::ChainExpression(chain) => self.chain_expression(chain, body),
             Expression::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
@@ -368,6 +369,9 @@ impl ModuleBuilder<'_> {
                 };
                 if callee.name == "Date" {
                     return self.new_date_expression(new_expr, body);
+                }
+                if callee.name == "Array" {
+                    return self.array_constructor_expression(new_expr, body);
                 }
                 if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
                     return self.error_constructor_expression(new_expr, body);
@@ -419,6 +423,46 @@ impl ModuleBuilder<'_> {
                 format!("expression kind is not lowered yet: {expression:?}"),
             )),
         }
+    }
+
+    /// Lower a JavaScript condition to a boolean expression.
+    ///
+    /// TypeScript permits optional values in truthiness positions. Smelt models
+    /// the common `value ? a : b` and `if (value)` optional-object/string cases
+    /// as a `value != None` check once the expression has lowered to
+    /// `Optional<T>`.
+    fn condition_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let cond = self.expression(expression, body)?;
+        let cond_ty = Self::expr_ty(body, cond);
+        if self.ctx.krate.types.get(cond_ty) == Some(&Type::Bool) {
+            return Ok(cond);
+        }
+        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Optional(_))) {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            let none = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: none_ty,
+                span: self.expression_span(expression),
+            });
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    lhs: cond,
+                    rhs: none,
+                },
+                ty: bool_ty,
+                span: self.expression_span(expression),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.expression_span(expression),
+            "condition expression must be boolean or optional",
+        ))
     }
 
     /// Lower a template literal as string concatenation.

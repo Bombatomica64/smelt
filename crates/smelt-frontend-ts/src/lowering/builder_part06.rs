@@ -76,6 +76,9 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(false);
         };
+        if member.property.name == "toThrow" {
+            return self.expect_to_throw_statement(call, member, body);
+        }
         let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {
             return Ok(false);
         };
@@ -149,6 +152,105 @@ impl ModuleBuilder<'_> {
             ));
         };
         Ok((expect_call, true))
+    }
+
+    /// Lower `expect(() => ...).toThrow(...)` to native HIR exception flow.
+    ///
+    /// The initial lowering only needs to prove that the callback throws. The
+    /// optional expected message argument is intentionally ignored until HIR has
+    /// a first-class panic payload comparison path for TypeScript exceptions.
+    fn expect_to_throw_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<bool, SmeltError> {
+        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
+        let Expression::Identifier(expect_ident) = &expect_call.callee else {
+            return Ok(false);
+        };
+        if !self.test_builtins.contains(expect_ident.name.as_str())
+            || expect_ident.name.as_str() != "expect"
+        {
+            return Ok(false);
+        }
+        if inverted {
+            return Err(SmeltError::unsupported(
+                self.span(member.span.start, member.span.end),
+                "expect(...).not.toThrow(...) is not lowered yet",
+            ));
+        }
+        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(expect_call.span.start, expect_call.span.end),
+                "expect(...).toThrow(...) requires a callback",
+            )
+        })?;
+        let Argument::ArrowFunctionExpression(arrow) = actual_arg else {
+            return Err(SmeltError::unsupported(
+                self.span(actual_arg.span().start, actual_arg.span().end),
+                "expect(...).toThrow(...) supports arrow callbacks",
+            ));
+        };
+
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let span = self.span(call.span.start, call.span.end);
+        let did_throw_name = self.intern_source_name("did_throw");
+        let did_throw = body.push_local(LocalDecl {
+            name: Some(did_throw_name),
+            ty: bool_ty,
+            mutable: true,
+            span,
+        });
+        let did_throw_pat = body.push_pattern(Pattern::Binding(did_throw));
+        let false_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt(Stmt::Let {
+            pat: did_throw_pat,
+            ty: bool_ty,
+            value: Some(false_expr),
+        });
+
+        let try_block = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+        for statement in &arrow.body.statements {
+            self.statement_in_block(statement, body, try_block)?;
+        }
+        let catch_block = body.push_block(span);
+        let did_throw_target = body.push_expr(Expr {
+            kind: ExprKind::Local(did_throw),
+            ty: bool_ty,
+            span,
+        });
+        let true_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            catch_block,
+            Stmt::Assign {
+                target: did_throw_target,
+                value: true_expr,
+            },
+        );
+        body.push_stmt(Stmt::TryCatch {
+            body: try_block,
+            catch_binding: None,
+            catch_body: Some(catch_block),
+            finally_body: None,
+        });
+
+        let did_throw_check = body.push_expr(Expr {
+            kind: ExprKind::Local(did_throw),
+            ty: bool_ty,
+            span,
+        });
+        let failed = self.unary_bool_expr(UnaryOp::Not, did_throw_check, call.span, body);
+        self.push_test_failure_if(failed, "expect(...).toThrow(...) failed", call.span, body);
+        Ok(true)
     }
 
     /// Build the boolean expression that means a supported matcher has failed.

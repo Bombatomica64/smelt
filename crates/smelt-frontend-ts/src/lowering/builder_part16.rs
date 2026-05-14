@@ -135,6 +135,9 @@ impl ModuleBuilder<'_> {
                 self.ts_type_to_hir(&parenthesized.type_annotation)
             }
             TSType::TSTupleType(tuple) => {
+                if let Some(rest_ty) = self.homogeneous_tuple_rest_type(tuple)? {
+                    return Ok(rest_ty);
+                }
                 let mut items = Vec::new();
                 for item in &tuple.element_types {
                     if self.tuple_rest_type_erases_to_empty(item)? {
@@ -155,6 +158,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
             TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSType::TSTypeQuery(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSType::TSIndexedAccessType(indexed) => self.indexed_access_type_to_hir(indexed),
             TSType::TSTypeLiteral(literal) => self.type_literal_to_hir(literal),
             TSType::TSMappedType(mapped) => {
@@ -489,6 +493,39 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// Lower `[T, ...T[]]`-style tuple aliases to homogeneous list metadata.
+    ///
+    /// TypeScript uses this spelling to model non-empty arrays. HIR does not
+    /// currently track non-empty length refinements, so the useful runtime
+    /// shape is the list element type.
+    fn homogeneous_tuple_rest_type(
+        &mut self,
+        tuple: &oxc::ast::ast::TSTupleType<'_>,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        let Some(TSTupleElement::TSRestType(rest)) = tuple.element_types.last() else {
+            return Ok(None);
+        };
+        let rest_ty = self.ts_type_to_hir(&rest.type_annotation)?;
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(rest_ty).cloned() else {
+            return Ok(None);
+        };
+        if matches!(self.ctx.krate.types.get(element_ty), Some(Type::Never)) {
+            return Ok(None);
+        }
+        if tuple.element_types.len() <= 1 {
+            return Ok(Some(self.ctx.krate.types.intern(Type::List(element_ty))));
+        }
+        let Some(fixed_items) = tuple.element_types.get(..tuple.element_types.len() - 1) else {
+            return Ok(None);
+        };
+        for item in fixed_items {
+            if self.tuple_element_type_to_hir(item)? != element_ty {
+                return Ok(None);
+            }
+        }
+        Ok(Some(self.ctx.krate.types.intern(Type::List(element_ty))))
+    }
+
     /// Convert tuple element type to HIR type.
     fn tuple_element_type_to_hir(
         &mut self,
@@ -508,8 +545,14 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::List(element_ty)))
             }
             TSTupleElement::TSTupleType(tuple) => {
+                if let Some(ty) = self.homogeneous_tuple_rest_type(tuple)? {
+                    return Ok(ty);
+                }
                 let mut items = Vec::new();
                 for tuple_item in &tuple.element_types {
+                    if self.tuple_rest_type_erases_to_empty(tuple_item)? {
+                        continue;
+                    }
                     items.push(self.tuple_element_type_to_hir(tuple_item)?);
                 }
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
@@ -533,11 +576,14 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Return whether a tuple rest element is an impossible `never` tail.
+    /// Return whether a tuple rest element can be erased from HIR tuple metadata.
     ///
     /// TypeScript libraries use `[...never[]]` and occasionally `...never` as
     /// type-level variadic filters. Those tails cannot contribute runtime tuple
-    /// elements, so Smelt erases them to an empty metadata tail.
+    /// elements, so Smelt erases them to an empty metadata tail. Generic tuple
+    /// accumulators constrained to arrays are also erased because HIR has no
+    /// open tuple-tail type and frontend type checking has already validated
+    /// the source-level spread shape.
     fn tuple_rest_type_erases_to_empty(
         &mut self,
         item: &TSTupleElement<'_>,
@@ -545,19 +591,8 @@ impl ModuleBuilder<'_> {
         let TSTupleElement::TSRestType(rest) = item else {
             return Ok(false);
         };
-        let ty = self.ts_type_to_hir(&rest.type_annotation)?;
-        match self.ctx.krate.types.get(ty) {
-            Some(Type::Never) => Ok(true),
-            Some(Type::List(element_ty))
-                if matches!(self.ctx.krate.types.get(*element_ty), Some(Type::Never)) =>
-            {
-                Ok(true)
-            }
-            _ => Err(SmeltError::unsupported(
-                self.span(rest.span.start, rest.span.end),
-                "tuple rest types are only lowered for never tails",
-            )),
-        }
+        let _ = self.ts_type_to_hir(&rest.type_annotation)?;
+        Ok(true)
     }
 
     /// Return whether a concrete value of this type would contain a `never` value.
@@ -981,6 +1016,18 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { name }) => self.type_parameter_constraint(*name).unwrap_or(ty),
             _ => ty,
+        }
+    }
+
+    /// Return whether a type can be represented as a string at runtime.
+    fn is_string_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::String) => true,
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .all(|item| self.is_string_compatible_type(item)),
+            _ => false,
         }
     }
 

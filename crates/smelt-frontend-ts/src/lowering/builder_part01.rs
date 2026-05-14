@@ -23,6 +23,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             callable_fields,
             current_class: None,
             current_async: false,
+            current_return_ty: None,
             test_builtins: HashSet::new(),
             namespace_imports: HashSet::new(),
             type_only_imports: HashSet::new(),
@@ -133,9 +134,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
         let implemented_functions = implemented_function_names(program);
+        self.predeclare_type_alias_items(program);
         self.collect_module_globals(program);
         self.collect_overload_signatures(program, &implemented_functions);
-        self.predeclare_type_alias_items(program);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
         let forward_arrow_consts = self.forward_arrow_const_names(program);

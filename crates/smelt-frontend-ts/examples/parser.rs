@@ -2,14 +2,6 @@
     clippy::too_many_lines,
     reason = "example CLI keeps all parsing modes in one small main function"
 )]
-#![expect(
-    clippy::str_to_string,
-    reason = "example code keeps simple string conversion close to existing style"
-)]
-#![expect(
-    clippy::map_err_ignore,
-    reason = "example maps parser diagnostics to a compact CLI error"
-)]
 //! Spike: parse a TypeScript file with oxc and inspect the AST.
 //!
 //! Usage:
@@ -37,10 +29,11 @@ fn main() -> Result<(), String> {
     let show_comments = args.contains("--comments");
     let name = args
         .free_from_str()
-        .unwrap_or_else(|_| "test.ts".to_string());
+        .unwrap_or_else(|_| "test.ts".to_owned());
 
     let path = Path::new(&name);
-    let source_text = fs::read_to_string(path).map_err(|_| format!("Missing '{name}'"))?;
+    let source_text =
+        fs::read_to_string(path).map_err(|error| format!("Missing '{name}': {error}"))?;
     let source_type = SourceType::from_path(path).map_err(|error| error.to_string())?;
 
     let allocator = Allocator::default();

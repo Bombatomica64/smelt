@@ -1032,6 +1032,113 @@ function format(value: ExternalTokenValue): string {
 }
 
 #[test]
+fn lowers_date_fns_locale_string_replace_on_union_object_branch() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type FormatDistanceTokenValue =
+  | string
+  | {
+      one: string;
+      other: string;
+    };
+
+function format(tokenValue: FormatDistanceTokenValue, count: number): string {
+  let result;
+
+  if (typeof tokenValue === "string") {
+    result = tokenValue;
+  } else if (count === 1) {
+    result = tokenValue.one;
+  } else {
+    result = tokenValue.other.replace("{{count}}", count.toString());
+  }
+
+  return result;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_locale_mapped_lookup_string_replace() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type FormatDistanceToken = "xSeconds" | "xMinutes";
+type FormatDistanceLocale<Template> = {
+  [Token in FormatDistanceToken]: Template;
+};
+type FormatDistanceTokenValue =
+  | string
+  | {
+      one: string;
+      other: string;
+    };
+
+const formatDistanceLocale: FormatDistanceLocale<FormatDistanceTokenValue> = {
+  xSeconds: {
+    one: "1 second",
+    other: "{{count}} seconds",
+  },
+  xMinutes: {
+    one: "1 minute",
+    other: "{{count}} minutes",
+  },
+};
+
+function format(token: FormatDistanceToken, count: number): string {
+  let result;
+
+  const tokenValue = formatDistanceLocale[token];
+  if (typeof tokenValue === "string") {
+    result = tokenValue;
+  } else if (count === 1) {
+    result = tokenValue.one;
+  } else {
+    result = tokenValue.other.replace("{{count}}", count.toString());
+  }
+
+  return result;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_returned_arrow_with_contextual_default_parameter_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type FormatLongWidth = "full" | "long" | "medium" | "short" | "any";
+interface FormatLongFnOptions {
+  width?: FormatLongWidth;
+}
+type FormatLongFn = (options: FormatLongFnOptions) => string;
+
+function buildFormatLongFn(defaultWidth: FormatLongWidth): FormatLongFn {
+  return (options = {}) => {
+    const width = options.width ? String(options.width) as FormatLongWidth : defaultWidth;
+    return width;
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_global_numeric_parse_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

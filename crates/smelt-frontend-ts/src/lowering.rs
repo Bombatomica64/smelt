@@ -225,6 +225,8 @@ struct ModuleBuilder<'ctx> {
     current_class: Option<String>,
     /// Whether the current lowered function body is async.
     current_async: bool,
+    /// Declared return type for the current lowered function body.
+    current_return_ty: Option<smelt_hir::TypeId>,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
     /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.

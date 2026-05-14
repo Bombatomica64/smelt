@@ -134,6 +134,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.math_member_expression(member, body) {
             return Ok(expr);
         }
+        if let Some(expr) = self.number_static_constant(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.node_process_static_member(member, body) {
             return Ok(expr);
         }
@@ -196,6 +199,41 @@ impl ModuleBuilder<'_> {
         let ty = field_ty;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    /// Lower supported TypeScript `Number.<constant>` reads.
+    ///
+    /// Test tables commonly use these global numeric constants as literal
+    /// values, so they can be represented directly in HIR without resolving
+    /// `Number` as a user-defined namespace.
+    fn number_static_constant(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Number" {
+            return None;
+        }
+        let value = match member.property.name.as_str() {
+            "NaN" => f64::NAN,
+            "POSITIVE_INFINITY" => f64::INFINITY,
+            "NEGATIVE_INFINITY" => f64::NEG_INFINITY,
+            "MAX_VALUE" => f64::MAX,
+            "MIN_VALUE" => f64::MIN_POSITIVE,
+            "MAX_SAFE_INTEGER" => 9_007_199_254_740_991.0_f64,
+            "MIN_SAFE_INTEGER" => -9_007_199_254_740_991.0_f64,
+            "EPSILON" => f64::EPSILON,
+            _ => return None,
+        };
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(value)),
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
@@ -470,10 +508,7 @@ impl ModuleBuilder<'_> {
         };
         let operand = self.argument(arg, body)?;
         let operand_type = self.ctx.krate.types.get(Self::expr_ty(body, operand));
-        if !matches!(
-            operand_type,
-            Some(Type::Bool | Type::Int | Type::Float | Type::String)
-        ) {
+        if !self.primitive_cast_accepts_operand(op, operand_type) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!("{} requires a primitive argument", callee.name),
@@ -499,6 +534,23 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether a global primitive conversion accepts a lowered operand type.
+    fn primitive_cast_accepts_operand(
+        &self,
+        op: PrimitiveCastOp,
+        operand_type: Option<&Type>,
+    ) -> bool {
+        match operand_type {
+            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            Some(Type::Unknown) if op == PrimitiveCastOp::ToString => true,
+            Some(Type::Optional(item)) if op == PrimitiveCastOp::ToString => matches!(
+                self.ctx.krate.types.get(*item),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
+            ),
+            _ => false,
+        }
     }
 
     /// Extract target and value from assignment expression.
