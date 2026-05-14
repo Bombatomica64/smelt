@@ -73,11 +73,6 @@
     clippy::indexing_slicing,
     reason = "range conversion indexes validated source offsets from Ruff spans"
 )]
-#![expect(
-    clippy::panic,
-    reason = "panic_any is currently used to bridge parser panic payloads into diagnostics"
-)]
-
 pub use ruff_python_ast as ast;
 
 use helpers::range_to_span;

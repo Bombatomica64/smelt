@@ -57,10 +57,6 @@
     reason = "MIR structs are constructed across workspace crates during lowering and tests"
 )]
 #![expect(
-    clippy::panic,
-    reason = "debug formatters and test-only conversion helpers still use panic for impossible states"
-)]
-#![expect(
     clippy::shadow_unrelated,
     reason = "optimizer match arms reuse domain variable names in independent scopes"
 )]

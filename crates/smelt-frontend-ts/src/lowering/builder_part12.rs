@@ -1,4 +1,43 @@
 impl ModuleBuilder<'_> {
+    /// Return whether a key argument can be used with a lowered map key type.
+    fn map_key_type_compatible(
+        &self,
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+    ) -> bool {
+        if expected == actual {
+            return true;
+        }
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(actual) {
+            return self.map_key_type_compatible(expected, *inner);
+        }
+        if self.ctx.krate.types.get(expected) == Some(&Type::String)
+            && let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(actual)
+            && self.ctx.krate.symbols.get(*name) == Some("PropertyKey")
+        {
+            return true;
+        }
+        if let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(expected)
+            && self.ctx.krate.symbols.get(*name) == Some("PropertyKey")
+        {
+            return !matches!(self.ctx.krate.types.get(actual), Some(Type::None));
+        }
+        false
+    }
+
+    /// Return whether numeric literal widening makes two map value types compatible.
+    fn numeric_type_compatible(
+        &self,
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+    ) -> bool {
+        expected == actual
+            || matches!(
+                (self.ctx.krate.types.get(expected), self.ctx.krate.types.get(actual)),
+                (Some(Type::Float), Some(Type::Int)) | (Some(Type::Int), Some(Type::Float))
+            )
+    }
+
     /// Lower supported string padding calls into HIR string runtime calls.
     fn string_pad_call(
         &mut self,
@@ -387,7 +426,7 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = *dict_key_ty;
         let key = self.argument(key_argument, body)?;
-        if Self::expr_ty(body, key) != key_ty {
+        if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "Map.has key must match the map key type",
@@ -427,7 +466,7 @@ impl ModuleBuilder<'_> {
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
         let key = self.argument(key_argument, body)?;
-        if Self::expr_ty(body, key) != key_ty {
+        if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "Map.get key must match the map key type",
@@ -475,7 +514,9 @@ impl ModuleBuilder<'_> {
                 };
                 let key = self.argument(key_argument, body)?;
                 let value = self.argument(value_argument, body)?;
-                if Self::expr_ty(body, key) != key_ty || Self::expr_ty(body, value) != value_ty {
+                if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key))
+                    || !self.numeric_type_compatible(value_ty, Self::expr_ty(body, value))
+                {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
                         "Map.set key and value must match the map type",
@@ -495,7 +536,7 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let key = self.argument(key_argument, body)?;
-                if Self::expr_ty(body, key) != key_ty {
+                    if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
                         "Map.delete key must match the map key type",

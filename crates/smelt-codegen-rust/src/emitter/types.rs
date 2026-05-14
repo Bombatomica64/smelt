@@ -65,14 +65,11 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Int | Type::Float) => {
                 Ok(format!("{operand_text}.to_string()"))
             }
-            (
-                smelt_hir::PrimitiveCastOp::ToString,
-                Type::String,
-                Type::Optional(inner),
-            ) if matches!(
-                self.mir.types.get(*inner),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String)
-            ) =>
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                ) =>
             {
                 Ok(format!("{operand_text}.unwrap_or_default().to_string()"))
             }

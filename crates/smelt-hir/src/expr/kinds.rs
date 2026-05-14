@@ -159,6 +159,10 @@ pub enum ExprKind {
         pattern: ExprId,
         haystack: ExprId,
     },
+    RegexFind {
+        pattern: ExprId,
+        haystack: ExprId,
+    },
     StringCharAt {
         operand: ExprId,
         index: ExprId,

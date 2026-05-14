@@ -242,11 +242,18 @@ impl ModuleBuilder<'_> {
                 if then_narrowing.is_some() {
                     self.narrowed_locals.pop();
                 }
+                let else_narrowing = self.inverse_guard_narrowing(&if_stmt.test, body);
+                if let Some(narrowing) = else_narrowing.clone() {
+                    self.narrowed_locals.push(narrowing);
+                }
                 let else_block = if_stmt
                     .alternate
                     .as_ref()
                     .map(|alternate| self.block_from_statement(alternate, body))
                     .transpose()?;
+                if else_narrowing.is_some() {
+                    self.narrowed_locals.pop();
+                }
                 body.push_stmt_to_block(
                     block,
                     Stmt::If {
@@ -286,6 +293,49 @@ impl ModuleBuilder<'_> {
                 }
                 let iter = self.expression(&for_stmt.right, body)?;
                 let iter = self.for_of_iterable(iter, &for_stmt.right, body);
+                let destructured =
+                    self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
+                let (pat, loop_body) =
+                    if let Some((pat, value, binding, annotated_ty, mutable)) = destructured {
+                        let loop_body = body.push_block(self.statement_span(&for_stmt.body));
+                        self.binding_declaration(
+                            binding,
+                            Some(value),
+                            annotated_ty,
+                            mutable,
+                            body,
+                            loop_body,
+                        )?;
+                        if let Statement::BlockStatement(block_stmt) = &for_stmt.body {
+                            for nested_statement in &block_stmt.body {
+                                self.statement_in_block(nested_statement, body, loop_body)?;
+                            }
+                        } else {
+                            self.statement_in_block(&for_stmt.body, body, loop_body)?;
+                        }
+                        (pat, loop_body)
+                    } else {
+                        (
+                            self.for_left_pattern(
+                                &for_stmt.left,
+                                Self::expr_ty(body, iter),
+                                body,
+                            )?,
+                            self.block_from_statement(&for_stmt.body, body)?,
+                        )
+                    };
+                body.push_stmt_to_block(
+                    block,
+                    Stmt::For {
+                        pat,
+                        iter,
+                        body: loop_body,
+                    },
+                );
+                Ok(())
+            }
+            Statement::ForInStatement(for_stmt) => {
+                let iter = self.for_in_iterable(&for_stmt.right, body)?;
                 let destructured =
                     self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
                 let (pat, loop_body) =
@@ -574,10 +624,12 @@ impl ModuleBuilder<'_> {
     fn is_test_framework_callee(&self, callee: &Expression<'_>) -> bool {
         match callee {
             Expression::Identifier(ident) => self.test_builtins.contains(ident.name.as_str()),
+            Expression::CallExpression(call) => self.is_test_framework_callee(&call.callee),
             Expression::StaticMemberExpression(member)
                 if member.property.name == "concurrent"
                     || member.property.name == "each"
                     || member.property.name == "skip"
+                    || member.property.name == "skipIf"
                     || member.property.name == "only" =>
             {
                 matches!(

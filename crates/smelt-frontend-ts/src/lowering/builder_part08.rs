@@ -78,9 +78,22 @@ impl ModuleBuilder<'_> {
             Expression::ThisExpression(this_expr) => {
                 self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
             }
+            Expression::RegExpLiteral(literal) => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                let value = Self::regex_literal_pattern_text(literal);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(value)),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }))
+            }
             Expression::ArrayExpression(array) => {
-                if let [ArrayExpressionElement::SpreadElement(spread)] = array.elements.as_slice() {
-                    return self.expression(&spread.argument, body);
+                if array
+                    .elements
+                    .iter()
+                    .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+                {
+                    return self.array_expression_with_spread(array, body, type_hint);
                 }
                 let mut items = Vec::new();
                 for element in &array.elements {
@@ -197,13 +210,11 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::LogicalExpression(logical) => {
-                if logical.operator == LogicalOperator::Or
-                    && matches!(logical.left, Expression::ChainExpression(_))
-                {
-                    return self.expression(&logical.right, body);
+                if let Some(expr) = self.logical_or_fallback_expression(logical, body)? {
+                    return Ok(expr);
                 }
                 if logical.operator == LogicalOperator::Coalesce {
-                    return self.nullish_coalesce_expression(logical, body);
+                    return self.nullish_coalesce_expression(logical, body, type_hint);
                 }
                 let op = if logical.operator == LogicalOperator::And {
                     BinOp::And
@@ -211,7 +222,18 @@ impl ModuleBuilder<'_> {
                     BinOp::Or
                 };
                 let lhs = self.expression(&logical.left, body)?;
+                let rhs_narrowing = if logical.operator == LogicalOperator::And {
+                    self.guard_narrowing(&logical.left, body)
+                } else {
+                    None
+                };
+                if let Some(narrowing) = rhs_narrowing.clone() {
+                    self.narrowed_locals.push(narrowing);
+                }
                 let rhs = self.expression(&logical.right, body)?;
+                if rhs_narrowing.is_some() {
+                    self.narrowed_locals.pop();
+                }
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::BinOp { op, lhs, rhs },
@@ -221,25 +243,67 @@ impl ModuleBuilder<'_> {
             }
             Expression::ConditionalExpression(conditional) => {
                 let cond = self.condition_expression(&conditional.test, body)?;
+                let then_narrowing = self.guard_narrowing(&conditional.test, body);
+                if let Some(narrowing) = then_narrowing.clone() {
+                    self.narrowed_locals.push(narrowing);
+                }
                 let then_expr =
                     self.expression_with_hint(&conditional.consequent, body, type_hint)?;
+                if then_narrowing.is_some() {
+                    self.narrowed_locals.pop();
+                }
                 let branch_hint = Some(Self::expr_ty(body, then_expr));
+                let else_narrowing = self.inverse_guard_narrowing(&conditional.test, body);
+                if let Some(narrowing) = else_narrowing.clone() {
+                    self.narrowed_locals.push(narrowing);
+                }
                 let else_expr =
                     self.expression_with_hint(&conditional.alternate, body, branch_hint)?;
+                if else_narrowing.is_some() {
+                    self.narrowed_locals.pop();
+                }
                 let then_ty = Self::expr_ty(body, then_expr);
                 let else_ty = Self::expr_ty(body, else_expr);
                 let ty = if then_ty == else_ty {
                     then_ty
+                } else if Self::is_empty_list_expr(body, then_expr) {
+                    else_ty
+                } else if Self::is_empty_list_expr(body, else_expr) {
+                    then_ty
+                } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
+                    self.ctx.krate.types.intern(Type::Optional(else_ty))
+                } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
+                    self.ctx.krate.types.intern(Type::Optional(then_ty))
+                } else if self.compatible_function_branch_types(then_ty, else_ty) {
+                    then_ty
+                } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
+                    function_ty
                 } else if self.is_string_compatible_type(then_ty)
-                    && self.is_string_compatible_type(else_ty)
+                    && (self.is_string_compatible_type(else_ty)
+                        || self.union_has_string_compatible_member(else_ty))
+                    || self.is_string_compatible_type(else_ty)
+                        && self.union_has_string_compatible_member(then_ty)
                 {
                     self.ctx.krate.types.intern(Type::String)
+                } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Dict(_, _)))
+                    && matches!(self.ctx.krate.types.get(else_ty), Some(Type::Dict(_, _)))
+                {
+                    self.ctx
+                        .krate
+                        .types
+                        .intern(Type::Union(vec![then_ty, else_ty]))
                 } else if type_hint
                     .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
                     || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
                     || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
+                    || self.type_contains_unknown(then_ty)
+                    || self.type_contains_unknown(else_ty)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
+                } else if let Some(hint) = type_hint
+                    && !self.concrete_type_requires_never_value(hint)
+                {
+                    hint
                 } else {
                     return Err(SmeltError::unsupported(
                         self.span(conditional.span.start, conditional.span.end),
@@ -324,7 +388,19 @@ impl ModuleBuilder<'_> {
                 }))
             }
             Expression::StaticMemberExpression(member) => self.static_member(member, body),
-            Expression::ComputedMemberExpression(member) => self.computed_member(member, body),
+            Expression::ComputedMemberExpression(member) => {
+                if type_hint.is_some_and(|hint| {
+                    matches!(
+                        self.ctx.krate.types.get(hint),
+                        Some(Type::Unknown | Type::TypeParam { .. })
+                    )
+                })
+                    && let Some(expr) = self.unknown_computed_member_with_hint(member, body)?
+                {
+                    return Ok(expr);
+                }
+                self.computed_member(member, body)
+            }
             Expression::CallExpression(call) => self.call_expression(call, body),
             Expression::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)
@@ -356,6 +432,10 @@ impl ModuleBuilder<'_> {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.map_constructor_expression(new_expr, body, type_hint)? {
+                    return Ok(expr);
+                }
+                if let Some(expr) = self.promise_constructor_expression(new_expr, body, type_hint)?
+                {
                     return Ok(expr);
                 }
                 let Expression::Identifier(callee) = &new_expr.callee else {
@@ -425,6 +505,17 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return true when an expression is an uninhabited empty array literal.
+    fn is_empty_list_expr(body: &Body, expr: smelt_hir::ExprId) -> bool {
+        matches!(
+            body.exprs.get(usize::try_from(expr.0).unwrap_or(usize::MAX)),
+            Some(Expr {
+                kind: ExprKind::ListLit(items),
+                ..
+            }) if items.is_empty()
+        )
+    }
+
     /// Lower a JavaScript condition to a boolean expression.
     ///
     /// TypeScript permits optional values in truthiness positions. Smelt models
@@ -441,7 +532,7 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(cond_ty) == Some(&Type::Bool) {
             return Ok(cond);
         }
-        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Optional(_))) {
+        if self.is_nullishable_type(cond_ty) {
             let none_ty = self.ctx.krate.types.intern(Type::None);
             let none = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),

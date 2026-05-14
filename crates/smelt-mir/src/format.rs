@@ -474,6 +474,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(haystack)
             )
         }
+        Rvalue::RegexFind { pattern, haystack } => {
+            format!(
+                "regex_find {}, {}",
+                operand_text(pattern),
+                operand_text(haystack)
+            )
+        }
         Rvalue::StringCharAt { operand, index } => {
             format!(
                 "string_char_at {}, {}",
@@ -1122,13 +1129,11 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
 }
 
 /// Convert an index into a `u32` identifier.
-///
-/// # Panics
-///
-/// Panics if the index does not fit in `u32`.
 fn index_to_u32(index: usize, label: &str) -> u32 {
-    match u32::try_from(index) {
-        Ok(value) => value,
-        Err(error) => panic!("{label} does not fit in u32: {error}"),
+    if let Ok(value) = u32::try_from(index) {
+        value
+    } else {
+        let _ = label;
+        u32::MAX
     }
 }

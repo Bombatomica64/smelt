@@ -119,6 +119,11 @@ impl ModuleBuilder<'_> {
     ) -> Result<Vec<(smelt_hir::Symbol, smelt_hir::ExprId)>, SmeltError> {
         let mut props = Vec::new();
         for source_arg in source_args {
+            if let Argument::Identifier(ident) = source_arg
+                && self.locals.contains_key(ident.name.as_str())
+            {
+                continue;
+            }
             let Argument::ObjectExpression(object) = source_arg else {
                 return Err(SmeltError::unsupported(
                     self.span(source_arg.span().start, source_arg.span().end),
@@ -157,6 +162,54 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(props)
+    }
+
+    /// Lower Vitest `vi.fn<T>()` mock factories as callable placeholders.
+    pub(super) fn vitest_mock_function_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "vi" || member.property.name != "fn" {
+            return Ok(None);
+        }
+        let function_ty = if let Some(type_args) = &call.type_arguments {
+            let [target] = type_args.params.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "vi.fn<T>() supports exactly one function type argument",
+                ));
+            };
+            let ty = self.ts_type_to_hir(target)?;
+            if !matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_))) {
+                return Err(SmeltError::unsupported(
+                    self.span(target.span().start, target.span().end),
+                    "vi.fn<T>() type argument must be a function type",
+                ));
+            }
+            ty
+        } else {
+            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Function(smelt_hir::FunctionType {
+                    params: Vec::new(),
+                    return_ty: unknown,
+                    is_async: false,
+                }))
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            ty: function_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower TypeScript `JSON.stringify(value)` calls for JSON-compatible values.
@@ -261,31 +314,31 @@ impl ModuleBuilder<'_> {
         call: &CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsRegExpTest) {
-            return Ok(None);
-        }
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
         if member.property.name != "test" {
             return Ok(None);
         }
+        let is_known_regexp_test = stdlib_dispatch::call_rule(call) == Some(RuleId::TsRegExpTest);
         let [haystack_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "RegExp.test() requires exactly one string argument",
             ));
         };
-        let pattern = self.regexp_pattern_expression(&member.object, body)?;
+        let Some(pattern) =
+            self.regexp_pattern_expression(&member.object, body, is_known_regexp_test)?
+        else {
+            return Ok(None);
+        };
         let haystack = self.argument(haystack_argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
-            || self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
-        {
+        let Some(haystack) = self.regexp_text_operand(haystack, body) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "RegExp.test() requires string pattern and haystack",
+                "RegExp.test() requires a string haystack",
             ));
-        }
+        };
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RegexIsMatch {
@@ -298,12 +351,69 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower TypeScript `text.match(pattern)` to an optional match array.
+    pub(super) fn string_match_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "match" {
+            return Ok(None);
+        }
+        let [pattern_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "String.match() requires exactly one RegExp argument",
+            ));
+        };
+        let haystack = self.expression(&member.object, body)?;
+        if !self.is_string_compatible_type(Self::expr_ty(body, haystack)) {
+            return Ok(None);
+        }
+        let pattern = self.argument(pattern_argument, body)?;
+        let pattern_ty = Self::expr_ty(body, pattern);
+        let pattern = if self.is_string_compatible_type(pattern_ty) {
+            pattern
+        } else if self.ctx.krate.types.get(pattern_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(pattern_ty)
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: pattern,
+                    target: string_ty,
+                },
+                ty: string_ty,
+                span: self.span(pattern_argument.span().start, pattern_argument.span().end),
+            })
+        } else {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: pattern },
+                ty: string_ty,
+                span: self.span(pattern_argument.span().start, pattern_argument.span().end),
+            })
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+        let ty = self.ctx.krate.types.intern(Type::Optional(list_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::RegexFind { pattern, haystack },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Extract a pattern string from a supported TypeScript RegExp-producing expression.
     fn regexp_pattern_expression(
         &mut self,
         expression: &Expression<'_>,
         body: &mut Body,
-    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        require_regexp_receiver: bool,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         match expression {
             Expression::NewExpression(new_expr) => {
                 let Expression::Identifier(callee) = &new_expr.callee else {
@@ -324,7 +434,8 @@ impl ModuleBuilder<'_> {
                         "RegExp construction currently requires exactly one string pattern argument",
                     ));
                 };
-                self.argument(pattern_argument, body)
+                let pattern = self.argument(pattern_argument, body)?;
+                self.regexp_pattern_operand(pattern, body)
             }
             Expression::CallExpression(call_expr) => {
                 let Expression::Identifier(callee) = &call_expr.callee else {
@@ -345,29 +456,78 @@ impl ModuleBuilder<'_> {
                         "RegExp construction currently requires exactly one string pattern argument",
                     ));
                 };
-                self.argument(pattern_argument, body)
+                let pattern = self.argument(pattern_argument, body)?;
+                self.regexp_pattern_operand(pattern, body)
             }
             Expression::RegExpLiteral(literal) => {
-                if !literal.regex.flags.is_empty() {
-                    return Err(SmeltError::unsupported(
-                        self.span(literal.span.start, literal.span.end),
-                        "RegExp literals with flags are not lowered yet",
-                    ));
-                }
                 let ty = self.ctx.krate.types.intern(Type::String);
-                Ok(body.push_expr(Expr {
+                Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::Literal(smelt_hir::Literal::String(
-                        literal.regex.pattern.text.to_string(),
+                        Self::regex_literal_pattern_text(literal),
                     )),
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
-                }))
+                })))
             }
-            _ => Err(SmeltError::unsupported(
+            Expression::Identifier(_)
+            | Expression::StaticMemberExpression(_)
+            | Expression::ComputedMemberExpression(_) => {
+                let pattern = self.expression(expression, body)?;
+                Ok(self.regexp_text_operand(pattern, body))
+            }
+            _ if require_regexp_receiver => Err(SmeltError::unsupported(
                 self.expression_span(expression),
                 "RegExp.test() requires a RegExp receiver",
             )),
+            _ => Ok(None),
         }
+    }
+
+    /// Coerce a regex text expression to the string representation used by Rust regex APIs.
+    fn regexp_pattern_operand(
+        &mut self,
+        pattern: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        self.regexp_text_operand(pattern, body)
+            .map(Some)
+            .ok_or_else(|| {
+                let index = usize::try_from(pattern.0).expect("expr id should fit into usize");
+                let span = body
+                    .exprs
+                    .get(index)
+                    .expect("expr id should point to an existing expression")
+                    .span;
+                SmeltError::unsupported(span, "RegExp.test() requires a string pattern")
+            })
+    }
+
+    /// Coerce a regex text expression to the string representation used by Rust regex APIs.
+    fn regexp_text_operand(
+        &mut self,
+        pattern: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let pattern_ty = Self::expr_ty(body, pattern);
+        if self.is_string_compatible_type(pattern_ty) {
+            return Some(pattern);
+        }
+        if self.ctx.krate.types.get(pattern_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(pattern_ty)
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let index = usize::try_from(pattern.0).ok()?;
+            let span = body.exprs.get(index)?.span;
+            return Some(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: pattern,
+                    target: string_ty,
+                },
+                ty: string_ty,
+                span,
+            }));
+        }
+        None
     }
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
@@ -572,7 +732,7 @@ impl ModuleBuilder<'_> {
         let element_ty = *list_element_ty;
         let item = self.argument(item_argument, body)?;
         let item_ty = Self::expr_ty(body, item);
-        if item_ty != element_ty {
+        if item_ty != element_ty && self.ctx.krate.types.get(element_ty) != Some(&Type::Unknown) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array push argument must match the array element type",

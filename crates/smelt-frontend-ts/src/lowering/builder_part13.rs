@@ -165,7 +165,7 @@ impl ModuleBuilder<'_> {
             ));
         };
         let element_ty = *list_element_ty;
-        let index_ty = self.ctx.krate.types.intern(Type::Float);
+        let index_ty = self.ctx.krate.types.intern(Type::Int);
         let callback = self.callback_argument(
             callback_argument,
             &[element_ty, index_ty, list_ty],
@@ -258,7 +258,7 @@ impl ModuleBuilder<'_> {
             None
         };
         let accumulator_ty = initial.map_or(element_ty, |initial| Self::expr_ty(body, initial));
-        let index_ty = self.ctx.krate.types.intern(Type::Float);
+        let index_ty = self.ctx.krate.types.intern(Type::Int);
         let callback = self.callback_argument(
             callback_argument,
             &[accumulator_ty, element_ty, index_ty, list_ty],
@@ -681,14 +681,6 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Read explicit parameter types from a local arrow function callback.
-    fn arrow_callback_param_types(
-        &mut self,
-        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
-    ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
-        self.arrow_callback_param_types_with_hint(arrow, None)
-    }
-
     /// Read arrow parameter types, using contextual function types for omitted annotations.
     fn arrow_callback_param_types_with_hint(
         &mut self,
@@ -697,12 +689,6 @@ impl ModuleBuilder<'_> {
     ) -> Result<Vec<smelt_hir::TypeId>, SmeltError> {
         let mut params = Vec::new();
         for (index, param) in arrow.params.items.iter().enumerate() {
-            let BindingPattern::BindingIdentifier(_) = &param.pattern else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured closure parameters are not supported yet",
-                ));
-            };
             let ty = param
                 .type_annotation
                 .as_ref()
@@ -711,13 +697,19 @@ impl ModuleBuilder<'_> {
                 .or_else(|| {
                     contextual_function
                         .and_then(|function| function.params.get(index).copied())
-                })
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
+                });
+            let ty = match (&param.pattern, ty) {
+                (_, Some(ty)) => ty,
+                (BindingPattern::BindingIdentifier(_), None) => {
+                    self.infer_unannotated_arrow_param_type(arrow, index)
+                }
+                (_, None) => {
+                    return Err(SmeltError::unsupported(
                         self.span(param.span.start, param.span.end),
-                        "local closure parameters must have explicit type annotations",
-                    )
-                })?;
+                        "destructured closure parameters require type context",
+                    ));
+                }
+            };
             params.push(ty);
         }
         if let Some(rest) = &arrow.params.rest {
@@ -732,12 +724,30 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
+                .or_else(|| {
+                    contextual_function.map(|function| {
+                        let rest_index = arrow.params.items.len();
+                        let mut item_tys = Vec::new();
+                        for param_ty in function.params.iter().skip(rest_index).copied() {
+                            if !item_tys.contains(&param_ty) {
+                                item_tys.push(param_ty);
+                            }
+                        }
+                        let item_ty = match item_tys.as_slice() {
+                            [single] => *single,
+                            [] => self.ctx.krate.types.intern(Type::Unknown),
+                            _ => self.ctx.krate.types.intern(Type::Union(item_tys)),
+                        };
+                        self.ctx.krate.types.intern(Type::List(item_ty))
+                    })
+                })
                 .ok_or_else(|| {
                     SmeltError::unsupported(
                         self.span(rest.span.start, rest.span.end),
                         "rest closure parameters must have explicit array type annotations",
                     )
                 })?;
+            let ty = self.type_param_constraint_or_self(ty);
             if !matches!(self.ctx.krate.types.get(ty), Some(Type::List(_))) {
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -747,6 +757,92 @@ impl ModuleBuilder<'_> {
             params.push(ty);
         }
         Ok(params)
+    }
+
+    /// Infer a conservative type for an unannotated arrow parameter.
+    ///
+    /// TypeScript normally gets these from contextual typing. When Smelt loses
+    /// that context through imported generic helpers, arithmetic use inside the
+    /// callback is still enough to recover a numeric parameter; other cases use
+    /// `unknown` so typed library code can keep lowering.
+    fn infer_unannotated_arrow_param_type(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        index: usize,
+    ) -> smelt_hir::TypeId {
+        let Some(param_name) = arrow.params.items.get(index).and_then(|param| {
+            if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                Some(binding.name.as_str())
+            } else {
+                None
+            }
+        }) else {
+            return self.ctx.krate.types.intern(Type::Unknown);
+        };
+        if self.arrow_param_used_as_number(arrow, param_name) {
+            self.ctx.krate.types.intern(Type::Float)
+        } else {
+            self.ctx.krate.types.intern(Type::Unknown)
+        }
+    }
+
+    /// Return true when an arrow parameter participates in arithmetic.
+    fn arrow_param_used_as_number(
+        &self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        param_name: &str,
+    ) -> bool {
+        self.arrow_return_expression(arrow)
+            .ok()
+            .is_some_and(|expr| Self::expression_uses_identifier_in_arithmetic(expr, param_name))
+    }
+
+    /// Scan an expression for arithmetic involving a named identifier.
+    fn expression_uses_identifier_in_arithmetic(expression: &Expression<'_>, name: &str) -> bool {
+        match expression {
+            Expression::BinaryExpression(binary)
+                if matches!(
+                    binary.operator,
+                    BinaryOperator::Subtraction
+                        | BinaryOperator::Multiplication
+                        | BinaryOperator::Division
+                        | BinaryOperator::Remainder
+                        | BinaryOperator::Exponential
+                ) =>
+            {
+                Self::expression_contains_identifier(&binary.left, name)
+                    || Self::expression_contains_identifier(&binary.right, name)
+            }
+            Expression::BinaryExpression(binary) => {
+                Self::expression_uses_identifier_in_arithmetic(&binary.left, name)
+                    || Self::expression_uses_identifier_in_arithmetic(&binary.right, name)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::expression_uses_identifier_in_arithmetic(&parenthesized.expression, name)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::expression_uses_identifier_in_arithmetic(&as_expr.expression, name)
+            }
+            _ => false,
+        }
+    }
+
+    /// Return true when an expression contains a named identifier.
+    fn expression_contains_identifier(expression: &Expression<'_>, name: &str) -> bool {
+        match expression {
+            Expression::Identifier(identifier) => identifier.name == name,
+            Expression::BinaryExpression(binary) => {
+                Self::expression_contains_identifier(&binary.left, name)
+                    || Self::expression_contains_identifier(&binary.right, name)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::expression_contains_identifier(&parenthesized.expression, name)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::expression_contains_identifier(&as_expr.expression, name)
+            }
+            _ => false,
+        }
     }
 
     /// Lower a local arrow function through a real HIR closure body.
@@ -764,37 +860,66 @@ impl ModuleBuilder<'_> {
         let mut saved_locals = Vec::new();
 
         for (index, param) in arrow.params.items.iter().enumerate() {
-            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured closure parameters are not supported yet",
-                ));
-            };
             let ty = param_tys.get(index).copied().ok_or_else(|| {
                 SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
                     "closure parameter count does not match its type",
                 )
             })?;
-            let symbol = self.intern_source_name(binding.name.as_str());
+            let (symbol, param_span) = match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => (
+                    self.intern_source_name(binding.name.as_str()),
+                    self.span(binding.span.start, binding.span.end),
+                ),
+                _ => (
+                    self.synthetic_param_symbol(index),
+                    self.span(param.span.start, param.span.end),
+                ),
+            };
             let local = closure_body.push_local(LocalDecl {
                 name: Some(symbol),
                 ty,
                 mutable: false,
-                span: self.span(binding.span.start, binding.span.end),
+                span: param_span,
             });
             closure_body.params.push(local);
             closure_params.push(Param {
                 name: symbol,
                 local,
                 ty,
-                span: self.span(binding.span.start, binding.span.end),
+                span: param_span,
             });
-            param_names.insert(binding.name.as_str().to_owned());
-            saved_locals.push((
-                binding.name.as_str().to_owned(),
-                self.locals.insert(binding.name.as_str().to_owned(), local),
-            ));
+            match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => {
+                    param_names.insert(binding.name.as_str().to_owned());
+                    saved_locals.push((
+                        binding.name.as_str().to_owned(),
+                        self.locals.insert(binding.name.as_str().to_owned(), local),
+                    ));
+                }
+                pattern => {
+                    let mut names = Vec::new();
+                    Self::binding_pattern_names(pattern, &mut names);
+                    for name in &names {
+                        param_names.insert(name.clone());
+                        saved_locals.push((name.clone(), self.locals.get(name.as_str()).copied()));
+                    }
+                    let value = closure_body.push_expr(Expr {
+                        kind: ExprKind::Local(local),
+                        ty,
+                        span: param_span,
+                    });
+                    let root = closure_body.root;
+                    self.binding_declaration(
+                        pattern,
+                        Some(value),
+                        Some(ty),
+                        false,
+                        &mut closure_body,
+                        root,
+                    )?;
+                }
+            }
         }
 
         if let Some(rest) = &arrow.params.rest {
@@ -950,7 +1075,8 @@ impl ModuleBuilder<'_> {
             ));
         }
         let contextual_function = type_hint.and_then(|hint| {
-            if let Some(Type::Function(function)) = self.ctx.krate.types.get(hint) {
+            let function_hint = self.function_member_type(hint).unwrap_or(hint);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
                 Some(function.clone())
             } else {
                 None
@@ -1060,6 +1186,14 @@ impl ModuleBuilder<'_> {
             Expression::UnaryExpression(unary) => {
                 self.collect_expression_capture_names(&unary.argument, param_names, captures);
             }
+            Expression::AssignmentExpression(assignment) => {
+                self.collect_assignment_target_capture_names(
+                    &assignment.left,
+                    param_names,
+                    captures,
+                );
+                self.collect_expression_capture_names(&assignment.right, param_names, captures);
+            }
             Expression::ConditionalExpression(conditional) => {
                 self.collect_expression_capture_names(&conditional.test, param_names, captures);
                 self.collect_expression_capture_names(&conditional.consequent, param_names, captures);
@@ -1071,6 +1205,69 @@ impl ModuleBuilder<'_> {
             Expression::ComputedMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
+            }
+            Expression::ChainExpression(chain) => match &chain.expression {
+                ChainElement::CallExpression(call) => {
+                    self.collect_expression_capture_names(&call.callee, param_names, captures);
+                    for arg in &call.arguments {
+                        match arg {
+                            Argument::SpreadElement(spread) => self.collect_expression_capture_names(
+                                &spread.argument,
+                                param_names,
+                                captures,
+                            ),
+                            other => {
+                                if let Some(arg_expression) = other.as_expression() {
+                                    self.collect_expression_capture_names(
+                                        arg_expression,
+                                        param_names,
+                                        captures,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                ChainElement::StaticMemberExpression(member) => {
+                    self.collect_expression_capture_names(&member.object, param_names, captures);
+                }
+                ChainElement::ComputedMemberExpression(member) => {
+                    self.collect_expression_capture_names(&member.object, param_names, captures);
+                    self.collect_expression_capture_names(&member.expression, param_names, captures);
+                }
+                ChainElement::TSNonNullExpression(non_null) => {
+                    self.collect_expression_capture_names(
+                        &non_null.expression,
+                        param_names,
+                        captures,
+                    );
+                }
+                ChainElement::PrivateFieldExpression(_) => {}
+            },
+            _ => {}
+        }
+    }
+
+    /// Collect captured locals referenced by an assignment target.
+    fn collect_assignment_target_capture_names(
+        &self,
+        target: &AssignmentTarget<'_>,
+        param_names: &HashSet<String>,
+        captures: &mut Vec<String>,
+    ) {
+        match target {
+            AssignmentTarget::AssignmentTargetIdentifier(identifier) => {
+                let name = identifier.name.as_str();
+                if !param_names.contains(name) && self.locals.contains_key(name) {
+                    captures.push(name.to_owned());
+                }
+            }
+            AssignmentTarget::ComputedMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
+                self.collect_expression_capture_names(&member.expression, param_names, captures);
+            }
+            AssignmentTarget::StaticMemberExpression(member) => {
+                self.collect_expression_capture_names(&member.object, param_names, captures);
             }
             _ => {}
         }
@@ -1133,6 +1330,21 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<ClosureCallback, SmeltError> {
         if let Argument::Identifier(identifier) = argument {
+            if let Some(local) = self.locals.get(identifier.name.as_str()).copied() {
+                let local_ty = Self::local_ty(body, local);
+                if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
+                    let expr = self.identifier_expression(
+                        identifier.name.as_str(),
+                        identifier.span.start,
+                        identifier.span.end,
+                        body,
+                    )?;
+                    return Ok(ClosureCallback {
+                        expr,
+                        return_ty: function.return_ty,
+                    });
+                }
+            }
             let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned() else {
                 return Err(SmeltError::unsupported(
                     self.span(identifier.span.start, identifier.span.end),
@@ -1367,12 +1579,10 @@ impl ModuleBuilder<'_> {
                 let callee = self.callback_expression(&call.callee, params, body)?;
                 let return_ty = match self.ctx.krate.types.get(callee.ty) {
                     Some(Type::Function(function)) => function.return_ty,
-                    _ => {
-                        return Err(SmeltError::unsupported(
-                            self.span(call.callee.span().start, call.callee.span().end),
-                            "callback call callee must have a function type",
-                        ));
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
+                        self.ctx.krate.types.intern(Type::Unknown)
                     }
+                    _ => self.ctx.krate.types.intern(Type::Unknown),
                 };
                 let mut args = Vec::new();
                 for arg in &call.arguments {
@@ -1669,6 +1879,11 @@ impl ModuleBuilder<'_> {
         if then_ty == else_ty {
             return Ok(then_ty);
         }
+        if self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
+            || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
+        {
+            return Ok(self.ctx.krate.types.intern(Type::Unknown));
+        }
         if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
             return Ok(self.ctx.krate.types.intern(Type::Optional(then_ty)));
         }
@@ -1734,7 +1949,9 @@ impl ModuleBuilder<'_> {
         };
         let item_ty = *element_ty;
         let item = self.argument(item_argument, body)?;
-        if Self::expr_ty(body, item) != item_ty {
+        if Self::expr_ty(body, item) != item_ty
+            && self.ctx.krate.types.get(item_ty) != Some(&Type::Unknown)
+        {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array indexOf/lastIndexOf argument must match the array element type",
@@ -1743,6 +1960,48 @@ impl ModuleBuilder<'_> {
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::ListSearch { op, list, item },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower direct TypeScript `Array.prototype.entries` calls.
+    fn list_entries_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "entries" {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array entries requires no arguments",
+            ));
+        }
+        let list = self.expression(&member.object, body)?;
+        let source_ty = Self::expr_ty(body, list);
+        if !matches!(self.ctx.krate.types.get(source_ty), Some(Type::TypeParam { .. })) {
+            return Ok(None);
+        }
+        let list_ty = self.type_param_constraint_or_self(source_ty);
+        let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
+        let item_ty = *list_item_ty;
+        let index_ty = self.ctx.krate.types.intern(Type::Int);
+        let entry_ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Tuple(vec![index_ty, item_ty]));
+        let ty = self.ctx.krate.types.intern(Type::List(entry_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListEnumerate { list },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

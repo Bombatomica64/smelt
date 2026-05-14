@@ -115,8 +115,8 @@ pub(crate) fn lower_python_files(
 /// Dispatches one source file to the matching frontend.
 pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     match SourceLang::from_path(file)? {
-        SourceLang::TypeScript => lower_typescript_files(&[file.to_string()]),
-        SourceLang::Python => lower_python_files(&[file.to_string()]),
+        SourceLang::TypeScript => lower_typescript_files(&[file.to_owned()]),
+        SourceLang::Python => lower_python_files(&[file.to_owned()]),
     }
 }
 

@@ -19,6 +19,49 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower a computed property key to a HIR index expression.
+    fn property_key_index_expression(
+        &mut self,
+        key: &PropertyKey<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match key {
+            PropertyKey::Identifier(identifier) => self.identifier_expression(
+                identifier.name.as_str(),
+                identifier.span.start,
+                identifier.span.end,
+                body,
+            ),
+            PropertyKey::StaticIdentifier(identifier) => self
+                .identifier_expression(
+                    identifier.name.as_str(),
+                    identifier.span.start,
+                    identifier.span.end,
+                    body,
+                ),
+            PropertyKey::StringLiteral(literal) => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(literal.value.to_string())),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }))
+            }
+            PropertyKey::NumericLiteral(literal) => {
+                let ty = self.ctx.krate.types.intern(Type::Float);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Float(literal.value)),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }))
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(key.span().start, key.span().end),
+                "computed property keys must be identifier, string, or numeric expressions",
+            )),
+        }
+    }
+
     /// Resolve a class `implements` clause entry to an interface symbol.
     fn implements_symbol(
         &mut self,

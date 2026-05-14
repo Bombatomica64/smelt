@@ -14,7 +14,7 @@ use oxc::ast::ast::{
     Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
     ImportOrExportKind, MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program,
     PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement,
-    TSType, TSTypeName,
+    TSType, TSTypeName, TSTypeQueryExprName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -227,12 +227,16 @@ struct ModuleBuilder<'ctx> {
     current_async: bool,
     /// Declared return type for the current lowered function body.
     current_return_ty: Option<smelt_hir::TypeId>,
+    /// Whether type-test-only lowering may index erased unknown metadata.
+    allow_unknown_index_access: bool,
     /// Test-framework API names imported from Vitest-compatible modules.
     test_builtins: HashSet<String>,
     /// Local names bound by namespace imports such as `import * as MathApi from "./math"`.
     namespace_imports: HashSet<String>,
     /// Local names imported only for TypeScript type positions.
     type_only_imports: HashSet<String>,
+    /// Local names imported as runtime values.
+    value_imports: HashSet<String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Literal constant items visible from already-lowered modules.

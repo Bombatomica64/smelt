@@ -200,7 +200,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_async = self.current_async;
-        self.current_async = false;
+        self.current_async = arrow.r#async;
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
         let mut errors = Vec::new();
         for (name, value) in table_bindings {
@@ -232,6 +232,9 @@ impl ModuleBuilder<'_> {
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
+        if arrow.r#async {
+            body.build_async_state_machine();
+        }
 
         let name = self.intern_source_name(test_name);
         let body_id = self.ctx.krate.push_body(body);
@@ -241,7 +244,7 @@ impl ModuleBuilder<'_> {
             span,
             params: Vec::new(),
             return_ty: none,
-            is_async: false,
+            is_async: arrow.r#async,
             is_test: true,
             body: Some(body_id),
             owner: FunctionOwner::Module,
@@ -509,12 +512,6 @@ impl ModuleBuilder<'_> {
                 format!("{context} must be arrow functions"),
             ));
         };
-        if arrow.r#async {
-            return Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                format!("async {context} are not lowered yet"),
-            ));
-        }
         if !allow_params && !arrow.params.items.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(arrow.params.span.start, arrow.params.span.end),

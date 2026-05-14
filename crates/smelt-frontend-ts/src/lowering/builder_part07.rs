@@ -204,6 +204,49 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower a TypeScript `for...in` object into an iterable list of keys.
+    ///
+    /// JavaScript iterates enumerable property names. Smelt models record-like
+    /// objects with dictionaries, so `for (const key in object)` becomes a
+    /// dictionary key projection and then reuses the ordinary HIR `For` loop.
+    fn for_in_iterable(
+        &mut self,
+        source: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let object = self.expression(source, body)?;
+        let object_ty = self.type_param_constraint_or_self(Self::expr_ty(body, object));
+        match self.ctx.krate.types.get(object_ty).cloned() {
+            Some(Type::Dict(key_ty, _)) => {
+                let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Keys,
+                        dict: object,
+                    },
+                    ty: list_ty,
+                    span: self.expression_span(source),
+                }))
+            }
+            Some(Type::Unknown) if self.allow_unknown_index_access => {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Keys,
+                        dict: object,
+                    },
+                    ty: list_ty,
+                    span: self.expression_span(source),
+                }))
+            }
+            _ => Err(SmeltError::unsupported(
+                self.expression_span(source),
+                "for...in is only lowered for record-like objects",
+            )),
+        }
+    }
+
     /// Convert a switch case label expression to a literal.
     fn literal_case_label(&self, expression: &Expression<'_>) -> Result<Literal, SmeltError> {
         match expression {

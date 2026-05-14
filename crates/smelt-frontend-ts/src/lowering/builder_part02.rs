@@ -41,16 +41,7 @@ impl ModuleBuilder<'_> {
         self.current_async = arrow.r#async;
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
         let mut params = Vec::new();
-        for param in &arrow.params.items {
-            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                self.locals = saved_locals;
-                self.current_async = saved_async;
-                self.pop_type_parameter_scope();
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured arrow function parameters are not lowered yet",
-                ));
-            };
+        for (param_index, param) in arrow.params.items.iter().enumerate() {
             let param_annotation_ty = match param
                 .type_annotation
                 .as_ref()
@@ -78,22 +69,111 @@ impl ModuleBuilder<'_> {
                     "arrow function parameters must have explicit type annotations",
                 ));
             };
-            let param_name = self.intern_source_name(binding.name.as_str());
+            let (param_name, param_span) = match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => (
+                    self.intern_source_name(binding.name.as_str()),
+                    self.span(binding.span.start, binding.span.end),
+                ),
+                _ => (
+                    self.synthetic_param_symbol(param_index),
+                    self.span(param.span.start, param.span.end),
+                ),
+            };
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
                 ty,
                 mutable: false,
-                span: self.span(binding.span.start, binding.span.end),
+                span: param_span,
             });
             body.params.push(local);
-            self.locals.insert(binding.name.to_string(), local);
             params.push(Param {
                 name: param_name,
                 local,
                 ty,
-                span: self.span(binding.span.start, binding.span.end),
+                span: param_span,
             });
+            match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => {
+                    self.locals.insert(binding.name.to_string(), local);
+                }
+                pattern => {
+                    let value = body.push_expr(Expr {
+                        kind: ExprKind::Local(local),
+                        ty,
+                        span: param_span,
+                    });
+                    let root = body.root;
+                    self.binding_declaration(
+                        pattern,
+                        Some(value),
+                        Some(ty),
+                        false,
+                        &mut body,
+                        root,
+                    )?;
+                }
+            }
         }
+        let rest = if let Some(rest) = &arrow.params.rest {
+            let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
+                self.locals = saved_locals;
+                self.current_async = saved_async;
+                self.pop_type_parameter_scope();
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "destructured rest arrow function parameters need rest binding lowering",
+                ));
+            };
+            let Some(annotation) = &rest.type_annotation else {
+                self.locals = saved_locals;
+                self.current_async = saved_async;
+                self.pop_type_parameter_scope();
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest arrow function parameters must have explicit array type annotations",
+                ));
+            };
+            let ty = match self.ts_type_to_hir(&annotation.type_annotation) {
+                Ok(ty) => self.type_param_constraint_or_self(ty),
+                Err(error) => {
+                    self.locals = saved_locals;
+                    self.current_async = saved_async;
+                    self.pop_type_parameter_scope();
+                    return Err(error);
+                }
+            };
+            let item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(ty) {
+                *item_ty
+            } else {
+                self.locals = saved_locals;
+                self.current_async = saved_async;
+                self.pop_type_parameter_scope();
+                return Err(SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest arrow function parameter type must be an array type",
+                ));
+            };
+            let param_name = self.intern_source_name(binding.name.as_str());
+            let span = self.span(binding.span.start, binding.span.end);
+            let local = body.push_local(LocalDecl {
+                name: Some(param_name),
+                ty,
+                mutable: false,
+                span,
+            });
+            body.params.push(local);
+            self.locals.insert(binding.name.to_string(), local);
+            let index = params.len();
+            params.push(Param {
+                name: param_name,
+                local,
+                ty,
+                span,
+            });
+            Some(RestParam { index, item_ty })
+        } else {
+            None
+        };
 
         let mut errors = Vec::new();
         let mut inferred_return_ty = None;
@@ -123,6 +203,7 @@ impl ModuleBuilder<'_> {
                     errors.push(error);
                 }
             }
+            inferred_return_ty = Self::last_return_type(&body);
         }
         if arrow.r#async {
             body.build_async_state_machine();
@@ -157,7 +238,28 @@ impl ModuleBuilder<'_> {
             owner: FunctionOwner::Module,
         }));
         self.items.insert(name_text.to_owned(), item);
+        if let Some(rest) = rest {
+            self.function_rests.insert(name_text.to_owned(), rest);
+        }
         Ok(item)
+    }
+
+    /// Create a stable internal symbol for a destructured parameter slot.
+    fn synthetic_param_symbol(&mut self, index: usize) -> smelt_hir::Symbol {
+        self.ctx
+            .krate
+            .symbols
+            .intern(format!("__param{index}").as_str())
+    }
+
+    /// Infer a block-bodied arrow return type from its final direct return.
+    fn last_return_type(body: &Body) -> Option<smelt_hir::TypeId> {
+        let root = body.blocks.get(usize::try_from(body.root.0).ok()?)?;
+        let last_stmt = root.stmts.last()?;
+        match body.stmts.get(usize::try_from(last_stmt.0).ok()?) {
+            Some(Stmt::Return(Some(expr))) => Some(Self::expr_ty(body, *expr)),
+            _ => None,
+        }
     }
 
     /// Convert a supported TypeScript literal expression into an importable const value.
@@ -181,6 +283,10 @@ impl ModuleBuilder<'_> {
             Expression::NullLiteral(_) => Ok(ConstLiteral {
                 literal: Literal::None,
                 ty: self.ctx.krate.types.intern(Type::None),
+            }),
+            Expression::RegExpLiteral(lit) => Ok(ConstLiteral {
+                literal: Literal::String(Self::regex_literal_pattern_text(lit)),
+                ty: self.ctx.krate.types.intern(Type::String),
             }),
             Expression::Identifier(ident) => self
                 .const_literals
@@ -214,6 +320,24 @@ impl ModuleBuilder<'_> {
                 self.span(expression.span().start, expression.span().end),
                 "exported const values currently support primitive literals and foldable primitive expressions",
             )),
+        }
+    }
+
+    /// Convert a JavaScript regex literal into a Rust `regex` pattern string.
+    fn regex_literal_pattern_text(literal: &oxc::ast::ast::RegExpLiteral<'_>) -> String {
+        let flags = literal.regex.flags.to_string();
+        let mut inline_flags = String::new();
+        for flag in flags.chars() {
+            match flag {
+                'i' | 'm' | 's' => inline_flags.push(flag),
+                _ => {}
+            }
+        }
+        let pattern = literal.regex.pattern.text.to_string();
+        if inline_flags.is_empty() {
+            pattern
+        } else {
+            format!("(?{inline_flags}){pattern}")
         }
     }
 

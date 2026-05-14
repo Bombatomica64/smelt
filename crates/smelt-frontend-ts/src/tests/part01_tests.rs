@@ -303,6 +303,25 @@ fn rejects_runtime_never_values() -> Result<(), String> {
 }
 
 #[test]
+fn allows_never_inside_uninhabited_union_assertion_branch() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LocaleWidth = "narrow" | "wide";
+type LocaleValues<Value extends string> = Value extends "known" ? string[] : never;
+
+function values<Value extends string>(input: string[]): string[] {
+  return input as LocaleValues<Value>;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn exported_literal_constants_are_visible_to_later_modules() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -1313,4 +1332,307 @@ fn lowers_array_length_constructor_as_list_container() -> Result<(), String> {
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
+}
+
+#[test]
+fn lowers_index_access_on_union_collections() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function read(value: number[] | [string]): number | string {
+  return value[0];
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    ensure!(matches!(
+        ctx.krate.types.get(function.return_ty),
+        Some(Type::Union(items)) if items.len() == 2
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_destructuring_rest_binding() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const values: number[] = [1, 2, 3]; const [head, ...tail] = values;"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListSlice { .. })),
+        "expected array rest destructuring to lower as a list slice",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nested_array_destructuring_rest_binding() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(
+            "const chunks: (string | number)[][] = [[\"abc\", 1, 2]]; const [[first, second, ...otherItems]] = chunks;"
+        ),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListSlice { .. })),
+        "expected nested array rest destructuring to lower as a list slice",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unhinted_empty_array_call_argument_as_unknown_list() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function passthrough(values: unknown[]): unknown[] {
+  return values;
+}
+
+const result = passthrough([]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::ListLit(ref items) if items.is_empty())
+                && matches!(
+                    ctx.krate.types.get(expr.ty),
+                    Some(Type::List(item)) if ctx.krate.types.get(*item) == Some(&Type::Unknown)
+                )
+        }),
+        "expected unhinted [] to lower as unknown[]",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_destructured_arrow_function_parameters() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Limits = { min?: number; max?: number };
+const clampImplementation = (value: number, { min, max }: Limits): number =>
+  min !== undefined && value < min ? min : max !== undefined && value > max ? max : value;
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_constraint_and_structured_clone() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function cloneObject<T extends object>(value: T): T {
+  return structuredClone(value);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_push_into_unknown_array() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: unknown[] = [];
+const copied: Record<PropertyKey, unknown> = {};
+values.push(copied);
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_prototype_and_entries_on_generic_object() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function inspect<T extends object>(value: T): unknown {
+  const prototype = Object.getPrototypeOf(value);
+  const same = prototype === Object.prototype;
+  const entries = Object.entries(value);
+  return entries[0];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_array_cycle_lookup() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function lookup<T>(value: T, refFrom: unknown[] = [], refTo: unknown[] = []): T {
+  const idx = refFrom.indexOf(value);
+  return refTo[idx] as T;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_array_index_assignment() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function copy(index: number, item: unknown): unknown[] {
+  const copiedValue: unknown[] = [];
+  copiedValue[index] = item;
+  return copiedValue;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_entries_for_destructured_for_of() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function copy(value: readonly unknown[]): unknown[] {
+  const copiedValue: unknown[] = [];
+  for (const [index, item] of value.entries()) {
+    copiedValue[index] = item;
+  }
+  return copiedValue;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_any_like_unknown_access_in_test_modules() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+const value: any = { a: [{ b: 1 }] };
+const first = value.a[0].b;
+"#),
+        "src/clone.test.ts",
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_and_regexp_array_elements() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values = [{ a: (x: number): number => x + x }, /x/u];
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nullish_expect_matchers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { expect, test } from "vitest";
+
+test("nullish", () => {
+  expect(undefined).toBeUndefined();
+  expect(null).toBeNull();
+});
+"#),
+        "src/nullish.test.ts",
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_type_test_index_access_on_unknown_metadata() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expectTypeOf, test } from "vitest";
+
+test("metadata", () => {
+  const value = 1 as unknown;
+  expectTypeOf(value[0]).toEqualTypeOf<unknown>();
+});
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_declaration_type_test_index_access_on_unknown_metadata() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        "const value = 1 as unknown; const item = value[0];",
+        "src/value.test-d.ts",
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn rejects_runtime_index_access_on_unknown_metadata() -> Result<(), String> {
+    let errors = lowering_errors(
+        ts!("function read(value: unknown): unknown { return value[0]; }"),
+        &mut HirCtx::new(),
+    )?;
+    assert_unsupported_ts(&errors, "index access is only lowered")
 }

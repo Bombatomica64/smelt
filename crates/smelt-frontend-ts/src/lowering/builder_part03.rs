@@ -94,17 +94,8 @@ impl ModuleBuilder<'_> {
         );
         let mut params = Vec::new();
 
-        for param in &function.params.items {
-            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                self.locals = saved_locals;
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                self.pop_type_parameter_scope();
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured parameters are not lowered yet",
-                ));
-            };
+        let mut destructured_params = Vec::new();
+        for (index, param) in function.params.items.iter().enumerate() {
             let ty = match param
                 .type_annotation
                 .as_ref()
@@ -128,20 +119,38 @@ impl ModuleBuilder<'_> {
                     return Err(error);
                 }
             };
-            let param_name = self.intern_source_name(binding.name.as_str());
+            let (param_name, span, source_name) =
+                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                    (
+                        self.intern_source_name(binding.name.as_str()),
+                        self.span(binding.span.start, binding.span.end),
+                        Some(binding.name.to_string()),
+                    )
+                } else {
+                    let synthetic_name = format!("__param{index}");
+                    (
+                        self.intern_source_name(&synthetic_name),
+                        self.span(param.span.start, param.span.end),
+                        None,
+                    )
+                };
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
                 ty,
                 mutable: false,
-                span: self.span(binding.span.start, binding.span.end),
+                span,
             });
             body.params.push(local);
-            self.locals.insert(binding.name.to_string(), local);
+            if let Some(source_name) = source_name {
+                self.locals.insert(source_name, local);
+            } else {
+                destructured_params.push((&param.pattern, local, ty));
+            }
             params.push(Param {
                 name: param_name,
                 local,
                 ty,
-                span: self.span(binding.span.start, binding.span.end),
+                span,
             });
         }
         let rest = if let Some(rest) = &function.params.rest {
@@ -168,7 +177,7 @@ impl ModuleBuilder<'_> {
                         )
                     })
                 }) {
-                Ok(value) => value,
+                Ok(value) => self.type_param_constraint_or_self(value),
                 Err(error) => {
                     self.locals = saved_locals;
                     self.current_async = saved_async;
@@ -211,6 +220,24 @@ impl ModuleBuilder<'_> {
         };
 
         let mut errors = Vec::new();
+        for (pattern, local, ty) in destructured_params {
+            let root = body.root;
+            let value = body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span: self.span(function.span.start, function.span.end),
+            });
+            if let Err(error) = self.binding_declaration(
+                pattern,
+                Some(value),
+                Some(ty),
+                false,
+                &mut body,
+                root,
+            ) {
+                errors.push(error);
+            }
+        }
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);

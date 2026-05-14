@@ -76,8 +76,17 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(false);
         };
-        if member.property.name == "toThrow" {
+        if matches!(
+            member.property.name.as_str(),
+            "toThrow" | "toThrowErrorMatchingInlineSnapshot"
+        ) {
             return self.expect_to_throw_statement(call, member, body);
+        }
+        if member.property.name == "toBeUndefined" {
+            return self.expect_to_be_none_statement(call, member, body, "toBeUndefined");
+        }
+        if member.property.name == "toBeNull" {
+            return self.expect_to_be_none_statement(call, member, body, "toBeNull");
         }
         let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {
             return Ok(false);
@@ -119,6 +128,55 @@ impl ModuleBuilder<'_> {
         self.push_test_failure_if(
             failed,
             &format!("expect(...).{}(...) failed", matcher.source_name()),
+            call.span,
+            body,
+        );
+        Ok(true)
+    }
+
+    /// Lower nullish zero-argument matchers to a `None` equality check.
+    fn expect_to_be_none_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+        matcher_name: &str,
+    ) -> Result<bool, SmeltError> {
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("expect(...).{matcher_name}() does not take arguments"),
+            ));
+        }
+        let (expect_call, inverted) = self.expect_call_from_matcher_object(&member.object)?;
+        let Expression::Identifier(expect_ident) = &expect_call.callee else {
+            return Ok(false);
+        };
+        if !self.test_builtins.contains(expect_ident.name.as_str())
+            || expect_ident.name.as_str() != "expect"
+        {
+            return Ok(false);
+        }
+        let actual_arg = expect_call.arguments.first().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(expect_call.span.start, expect_call.span.end),
+                format!("expect(...).{matcher_name}() requires an actual value"),
+            )
+        })?;
+        let actual = self.argument(actual_arg, body)?;
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let expected = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: none_ty,
+            span: self.span(call.span.start, call.span.end),
+        });
+        let mut failed = self.comparison_expr(BinOp::NotEq, actual, expected, call.span, body);
+        if inverted {
+            failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
+        }
+        self.push_test_failure_if(
+            failed,
+            &format!("expect(...).{matcher_name}() failed"),
             call.span,
             body,
         );
@@ -173,12 +231,6 @@ impl ModuleBuilder<'_> {
             || expect_ident.name.as_str() != "expect"
         {
             return Ok(false);
-        }
-        if inverted {
-            return Err(SmeltError::unsupported(
-                self.span(member.span.start, member.span.end),
-                "expect(...).not.toThrow(...) is not lowered yet",
-            ));
         }
         let actual_arg = expect_call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -248,8 +300,17 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span,
         });
-        let failed = self.unary_bool_expr(UnaryOp::Not, did_throw_check, call.span, body);
-        self.push_test_failure_if(failed, "expect(...).toThrow(...) failed", call.span, body);
+        let failed = if inverted {
+            did_throw_check
+        } else {
+            self.unary_bool_expr(UnaryOp::Not, did_throw_check, call.span, body)
+        };
+        let message = if inverted {
+            "expect(...).not.toThrow(...) failed"
+        } else {
+            "expect(...).toThrow(...) failed"
+        };
+        self.push_test_failure_if(failed, message, call.span, body);
         Ok(true)
     }
 
@@ -339,10 +400,27 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
-            Some(
-                Type::String | Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Tuple(_),
-            ) => {
+        let operand_ty = Self::expr_ty(body, operand);
+        match self.ctx.krate.types.get(operand_ty) {
+            Some(Type::String | Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Tuple(_)) => {
+                let int_ty = self.ctx.krate.types.intern(Type::Int);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Len { operand },
+                    ty: int_ty,
+                    span: self.span(span.start, span.end),
+                }))
+            }
+            Some(Type::Unknown)
+                if self.allow_unknown_index_access || self.type_contains_unknown(operand_ty) =>
+            {
+                let int_ty = self.ctx.krate.types.intern(Type::Int);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Len { operand },
+                    ty: int_ty,
+                    span: self.span(span.start, span.end),
+                }))
+            }
+            _ if self.allow_unknown_index_access => {
                 let int_ty = self.ctx.krate.types.intern(Type::Int);
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Len { operand },
@@ -531,11 +609,24 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Option<HashMap<String, smelt_hir::TypeId>> {
         let mut out = HashMap::new();
-        if let Some((name, target)) = self.typeof_guard(expression, body) {
+        if let Expression::LogicalExpression(logical) = expression
+            && logical.operator == LogicalOperator::And
+        {
+            if let Some(left) = self.guard_narrowing(&logical.left, body) {
+                out.extend(left);
+            }
+            if let Some(right) = self.guard_narrowing(&logical.right, body) {
+                out.extend(right);
+            }
+        } else if let Some((name, target)) = self.typeof_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.array_is_array_guard(expression) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.null_guard(expression) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.optional_some_guard(expression, body) {
+            out.insert(name, target);
+        } else if let Some((name, target)) = self.truthy_guard(expression, body) {
             out.insert(name, target);
         } else if let Some((name, target)) = self.predicate_call_guard(expression) {
             out.insert(name, target);
@@ -561,6 +652,8 @@ impl ModuleBuilder<'_> {
             }
         } else if let Some((name, target)) = self.optional_none_inverse_guard(expression, body) {
             out.insert(name, target);
+        } else if let Some((name, target)) = self.typeof_inverse_guard(expression, body) {
+            out.insert(name, target);
         } else if let Expression::UnaryExpression(unary) = expression
             && unary.operator == UnaryOperator::LogicalNot
             && let Some(narrowing) = self.guard_narrowing(&unary.argument, body)
@@ -568,6 +661,165 @@ impl ModuleBuilder<'_> {
             out.extend(narrowing);
         }
         (!out.is_empty()).then_some(out)
+    }
+
+    /// Recognize `value !== undefined/null` guards.
+    fn optional_some_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ) {
+            return None;
+        }
+        let name = match (&binary.left, &binary.right) {
+            (Expression::Identifier(identifier), Expression::Identifier(undefined))
+                if undefined.name == "undefined" =>
+            {
+                identifier.name.as_str()
+            }
+            (Expression::Identifier(identifier), Expression::NullLiteral(_)) => {
+                identifier.name.as_str()
+            }
+            _ => return None,
+        };
+        let local = self.locals.get(name).copied()?;
+        let local_ty = self.narrowed_type(name).unwrap_or_else(|| Self::local_ty(body, local));
+        match self.ctx.krate.types.get(local_ty).cloned() {
+            Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
+            Some(Type::Union(items)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let remaining = items
+                    .into_iter()
+                    .filter(|item| *item != none_ty)
+                    .collect::<Vec<_>>();
+                match remaining.as_slice() {
+                    [single] => Some((name.to_owned(), *single)),
+                    [] => None,
+                    _ => Some((
+                        name.to_owned(),
+                        self.ctx.krate.types.intern(Type::Union(remaining)),
+                    )),
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Recognize `typeof value === "kind"` guards whose true branch exits.
+    fn typeof_inverse_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::BinaryExpression(binary) = expression else {
+            return None;
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality
+        ) {
+            return None;
+        }
+        let Expression::UnaryExpression(unary) = &binary.left else {
+            return None;
+        };
+        if unary.operator != UnaryOperator::Typeof {
+            return None;
+        }
+        let Expression::Identifier(identifier) = &unary.argument else {
+            return None;
+        };
+        let Expression::StringLiteral(kind) = &binary.right else {
+            return None;
+        };
+        let local = self.locals.get(identifier.name.as_str()).copied()?;
+        let local_ty = self
+            .narrowed_type(identifier.name.as_str())
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let remaining = self.remove_typeof_member(local_ty, kind.value.as_str())?;
+        Some((identifier.name.to_string(), remaining))
+    }
+
+    /// Return a type with members matching a `typeof` kind removed.
+    fn remove_typeof_member(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        kind: &str,
+    ) -> Option<smelt_hir::TypeId> {
+        let resolved_ty = self.type_param_constraint_or_self(ty);
+        match self.ctx.krate.types.get(resolved_ty).cloned() {
+            Some(Type::Union(items)) => {
+                let remaining = items
+                    .into_iter()
+                    .filter(|item| !self.type_matches_typeof(*item, kind))
+                    .collect::<Vec<_>>();
+                match remaining.as_slice() {
+                    [] => None,
+                    [single] => Some(*single),
+                    _ => Some(self.ctx.krate.types.intern(Type::Union(remaining))),
+                }
+            }
+            Some(Type::Optional(item)) if kind == "undefined" => Some(item),
+            Some(_) if self.type_matches_typeof(resolved_ty, kind) => None,
+            Some(_) => Some(resolved_ty),
+            None => None,
+        }
+    }
+
+    /// Return whether a HIR type corresponds to a JavaScript `typeof` result.
+    fn type_matches_typeof(&self, ty: smelt_hir::TypeId, kind: &str) -> bool {
+        let resolved_ty = self.type_param_constraint_or_self(ty);
+        match (self.ctx.krate.types.get(resolved_ty), kind) {
+            (Some(Type::Bool), "boolean")
+            | (Some(Type::Float | Type::Int), "number")
+            | (Some(Type::String), "string")
+            | (Some(Type::Function(_)), "function")
+            | (Some(Type::Optional(_)), "undefined")
+            | (Some(Type::None), "undefined" | "object") => true,
+            (Some(Type::Union(items)), _) => items
+                .iter()
+                .copied()
+                .any(|item| self.type_matches_typeof(item, kind)),
+            _ => false,
+        }
+    }
+
+    /// Return whether two branch types can be represented by one callable shape.
+    fn compatible_function_branch_types(
+        &self,
+        left: smelt_hir::TypeId,
+        right: smelt_hir::TypeId,
+    ) -> bool {
+        let left = self.type_param_constraint_or_self(left);
+        let right = self.type_param_constraint_or_self(right);
+        let (Some(Type::Function(left_fn)), Some(Type::Function(right_fn))) =
+            (self.ctx.krate.types.get(left), self.ctx.krate.types.get(right))
+        else {
+            return false;
+        };
+        left_fn.params.len() == right_fn.params.len() && left_fn.is_async == right_fn.is_async
+    }
+
+    /// Return the callable branch when the other branch is imprecise metadata.
+    fn single_function_branch_type(
+        &self,
+        left: smelt_hir::TypeId,
+        right: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        let left = self.type_param_constraint_or_self(left);
+        let right = self.type_param_constraint_or_self(right);
+        match (self.ctx.krate.types.get(left), self.ctx.krate.types.get(right)) {
+            (Some(Type::Function(_)), Some(Type::Unknown | Type::Class { .. })) => Some(left),
+            (Some(Type::Unknown | Type::Class { .. }), Some(Type::Function(_))) => Some(right),
+            _ => None,
+        }
     }
 
     /// Recognize `value === undefined/null` guards whose true branch exits.
@@ -693,12 +945,14 @@ impl ModuleBuilder<'_> {
 
     /// Extract a callable member from a union or function type.
     fn function_member_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
-        match self.ctx.krate.types.get(ty) {
-            Some(Type::Function(_)) => Some(ty),
+        let resolved_ty = self.type_param_constraint_or_self(ty);
+        match self.ctx.krate.types.get(resolved_ty) {
+            Some(Type::Function(_)) => Some(resolved_ty),
+            Some(Type::Optional(item)) => self.function_member_type(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
-                .find(|item| matches!(self.ctx.krate.types.get(*item), Some(Type::Function(_)))),
+                .find_map(|item| self.function_member_type(item)),
             _ => None,
         }
     }
@@ -766,6 +1020,39 @@ impl ModuleBuilder<'_> {
         ))
     }
 
+    /// Recognize bare truthiness guards that remove `undefined`/`None` from locals.
+    fn truthy_guard(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let Expression::Identifier(identifier) = expression else {
+            return None;
+        };
+        let name = identifier.name.as_str();
+        let local = self.locals.get(name).copied()?;
+        let local_ty = self.narrowed_type(name).unwrap_or_else(|| Self::local_ty(body, local));
+        match self.ctx.krate.types.get(local_ty).cloned() {
+            Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
+            Some(Type::Union(items)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let remaining = items
+                    .into_iter()
+                    .filter(|item| *item != none_ty)
+                    .collect::<Vec<_>>();
+                match remaining.as_slice() {
+                    [single] => Some((name.to_owned(), *single)),
+                    [] => None,
+                    _ => Some((
+                        name.to_owned(),
+                        self.ctx.krate.types.intern(Type::Union(remaining)),
+                    )),
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Lower a catch parameter to an optional HIR local binding.
     fn catch_binding(
         &mut self,
@@ -807,11 +1094,17 @@ impl ModuleBuilder<'_> {
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init
             {
+                let annotated_ty = declarator
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?;
                 self.local_arrow_callback_declaration(
                     binding.name.as_str(),
                     binding.span.start,
                     binding.span.end,
                     arrow,
+                    annotated_ty,
                     body,
                 )?;
                 continue;
@@ -845,11 +1138,20 @@ impl ModuleBuilder<'_> {
         start: u32,
         end: u32,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
         body: &mut Body,
     ) -> Result<(), SmeltError> {
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let result = (|| {
-        let params = self.arrow_callback_param_types(arrow)?;
+        let contextual_function = type_hint.and_then(|hint| {
+            let function_hint = self.function_member_type(hint).unwrap_or(hint);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
+                Some(function.clone())
+            } else {
+                None
+            }
+        });
+        let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
         let defaults = arrow
             .params
             .items
@@ -886,7 +1188,9 @@ impl ModuleBuilder<'_> {
             )),
             _ => self.arrow_callback_from_params(arrow, &params, body),
         };
-        let return_ty = return_ty.unwrap_or_else(|| {
+        let return_ty = return_ty
+            .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
+            .unwrap_or_else(|| {
             callback_result.as_ref().map_or_else(
                 |_| self.ctx.krate.types.intern(Type::Unknown),
                 |callback| callback.ty,
@@ -1000,19 +1304,29 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 for property in &object.properties {
-                    if property.computed {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "computed object destructuring keys are not lowered yet",
-                        ));
-                    }
-                    let field = self.property_key_symbol(&property.key)?;
-                    let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
-                    let extracted = body.push_expr(Expr {
-                        kind: ExprKind::Field { receiver, field },
-                        ty,
-                        span: self.span(property.span.start, property.span.end),
-                    });
+                    let (ty, extracted) = if property.computed {
+                        let index = self.property_key_index_expression(&property.key, body)?;
+                        let ty = self.dynamic_field_type(Self::expr_ty(body, receiver));
+                        (
+                            ty,
+                            body.push_expr(Expr {
+                                kind: ExprKind::Index { receiver, index },
+                                ty,
+                                span: self.span(property.span.start, property.span.end),
+                            }),
+                        )
+                    } else {
+                        let field = self.property_key_symbol(&property.key)?;
+                        let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
+                        (
+                            ty,
+                            body.push_expr(Expr {
+                                kind: ExprKind::Field { receiver, field },
+                                ty,
+                                span: self.span(property.span.start, property.span.end),
+                            }),
+                        )
+                    };
                     self.binding_declaration(
                         &property.value,
                         Some(extracted),
@@ -1031,12 +1345,6 @@ impl ModuleBuilder<'_> {
                         "array destructuring requires an initializer",
                     ));
                 };
-                if array.rest.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(array.span.start, array.span.end),
-                        "array destructuring rest bindings are not lowered yet",
-                    ));
-                }
                 let receiver_ty = Self::expr_ty(body, receiver);
                 let tuple_items = match self.ctx.krate.types.get(receiver_ty).cloned() {
                     Some(Type::Tuple(items)) => Some(items),
@@ -1087,6 +1395,65 @@ impl ModuleBuilder<'_> {
                         block,
                     )?;
                 }
+                if let Some(rest) = &array.rest {
+                    let start = array.elements.len();
+                    let (rest_ty, extracted) = if let Some(items) = &tuple_items {
+                        let end = items.len();
+                        let selected = if start <= end {
+                            items.get(start..).unwrap_or_default().to_vec()
+                        } else {
+                            Vec::new()
+                        };
+                        let ty = self.ctx.krate.types.intern(Type::Tuple(selected));
+                        (
+                            ty,
+                            body.push_expr(Expr {
+                                kind: ExprKind::TupleSlice {
+                                    tuple: receiver,
+                                    start,
+                                    end,
+                                },
+                                ty,
+                                span: self.span(rest.span.start, rest.span.end),
+                            }),
+                        )
+                    } else {
+                        let item_ty = self.index_type(receiver_ty)?;
+                        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                        let start_index = u32::try_from(start).map_err(|err| {
+                            SmeltError::unsupported(
+                                self.span(array.span.start, array.span.end),
+                                format!("array destructuring rest index is too large: {err}"),
+                            )
+                        })?;
+                        let index_ty = self.ctx.krate.types.intern(Type::Float);
+                        let start_expr = body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::Float(f64::from(start_index))),
+                            ty: index_ty,
+                            span: self.span(rest.span.start, rest.span.end),
+                        });
+                        (
+                            ty,
+                            body.push_expr(Expr {
+                                kind: ExprKind::ListSlice {
+                                    list: receiver,
+                                    start: Some(start_expr),
+                                    end: None,
+                                },
+                                ty,
+                                span: self.span(rest.span.start, rest.span.end),
+                            }),
+                        )
+                    };
+                    self.binding_declaration(
+                        &rest.argument,
+                        Some(extracted),
+                        Some(rest_ty),
+                        mutable,
+                        body,
+                        block,
+                    )?;
+                }
                 Ok(())
             }
             BindingPattern::AssignmentPattern(assign) => self.binding_declaration(
@@ -1097,6 +1464,34 @@ impl ModuleBuilder<'_> {
                 body,
                 block,
             ),
+        }
+    }
+
+    /// Collect source names introduced by a binding pattern.
+    fn binding_pattern_names(pattern: &BindingPattern<'_>, names: &mut Vec<String>) {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                names.push(binding.name.as_str().to_owned());
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    Self::binding_pattern_names(&property.value, names);
+                }
+                if let Some(rest) = &object.rest {
+                    Self::binding_pattern_names(&rest.argument, names);
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    Self::binding_pattern_names(element, names);
+                }
+                if let Some(rest) = &array.rest {
+                    Self::binding_pattern_names(&rest.argument, names);
+                }
+            }
+            BindingPattern::AssignmentPattern(assign) => {
+                Self::binding_pattern_names(&assign.left, names);
+            }
         }
     }
 

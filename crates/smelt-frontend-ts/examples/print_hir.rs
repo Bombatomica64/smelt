@@ -2,13 +2,10 @@
 //!
 //! Used for local debugging of frontend lowering behavior.
 
-#![expect(
-    clippy::use_debug,
-    reason = "debug mode intentionally prints the raw HIR crate"
-)]
-
 use std::{
-    env, fs,
+    env,
+    fmt::{self, Debug, Display},
+    fs,
     io::{self, Write},
     path::Path,
 };
@@ -58,11 +55,20 @@ fn main() -> Result<(), String> {
     }
 
     if debug {
-        writeln!(stdout, "{:#?}", ctx.krate).map_err(|error| error.to_string())?;
+        writeln!(stdout, "{}", DebugOutput(&ctx.krate)).map_err(|error| error.to_string())?;
     } else {
         write!(stdout, "{}", format_compact(&ctx.krate, &loaded))
             .map_err(|error| error.to_string())?;
     }
 
     Ok(())
+}
+
+/// Displays a value through its debug formatter without using debug format strings.
+struct DebugOutput<'a, T>(&'a T);
+
+impl<T: Debug> Display for DebugOutput<'_, T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self.0, formatter)
+    }
 }

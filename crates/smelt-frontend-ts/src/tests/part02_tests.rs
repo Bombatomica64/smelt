@@ -1139,6 +1139,412 @@ function buildFormatLongFn(defaultWidth: FormatLongWidth): FormatLongFn {
 }
 
 #[test]
+fn lowers_date_fns_exported_object_const_with_helper_call_fields() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type FormatLongWidth = "full" | "long" | "medium" | "short";
+interface FormatLongFnOptions {
+  width?: FormatLongWidth;
+}
+type FormatLongFn = (options: FormatLongFnOptions) => string;
+interface FormatLong {
+  date: FormatLongFn;
+  time: FormatLongFn;
+  dateTime: FormatLongFn;
+}
+
+const dateFormats = {
+  full: "EEEE, MMMM do, y",
+  long: "MMMM do, y",
+  medium: "MMM d, y",
+  short: "MM/dd/yyyy",
+};
+
+function buildFormatLongFn(defaultWidth: FormatLongWidth): FormatLongFn {
+  return (options = {}) => {
+    const width = options.width ? String(options.width) as FormatLongWidth : defaultWidth;
+    return width;
+  };
+}
+
+export const formatLong: FormatLong = {
+  date: buildFormatLongFn("full"),
+  time: buildFormatLongFn("full"),
+  dateTime: buildFormatLongFn("full"),
+};
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(
+        module.items.iter().any(|item| {
+            matches!(
+                ctx.krate.items.get(item.0 as usize),
+                Some(Item::Const(const_item))
+                    if ctx.krate.names.get(const_item.name) == Some("formatLong")
+            )
+        }),
+        "expected exported object const with helper call fields to lower"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_string_logical_or_as_value_fallback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LocaleWidth = "full" | "long" | "medium" | "short";
+interface Args {
+  defaultWidth: LocaleWidth;
+  defaultFormattingWidth?: LocaleWidth;
+}
+
+function width(args: Args): string {
+  const defaultWidth = args.defaultFormattingWidth || args.defaultWidth;
+  return defaultWidth;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_build_localize_width_fallback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LocaleWidth = "narrow" | "abbreviated" | "wide";
+type LocaleUnitValue = string;
+type LocalizeFn<Value extends LocaleUnitValue> = (
+  value: Value,
+  options?: { context?: string; width?: LocaleWidth },
+) => string;
+type LocalizeFnArgCallback<Value extends LocaleUnitValue | number> = (
+  value: Value,
+) => number;
+type LocalizePeriodValuesMap<Value extends LocaleUnitValue> = {
+  [Pattern in LocaleWidth]?: string[];
+};
+type BuildLocalizeFnArgs<
+  Value extends LocaleUnitValue,
+  ArgCallback extends LocalizeFnArgCallback<Value> | undefined,
+> = {
+  values: LocalizePeriodValuesMap<Value>;
+  defaultWidth: LocaleWidth;
+  formattingValues?: LocalizePeriodValuesMap<Value>;
+  defaultFormattingWidth?: LocaleWidth;
+} & (ArgCallback extends undefined
+  ? { argumentCallback?: undefined }
+  : { argumentCallback: LocalizeFnArgCallback<Value> });
+
+function buildLocalizeFn<
+  Value extends LocaleUnitValue,
+  ArgCallback extends LocalizeFnArgCallback<Value> | undefined,
+>(args: BuildLocalizeFnArgs<Value, ArgCallback>): LocalizeFn<Value> {
+  return (value, options) => {
+    if (options?.context && args.formattingValues) {
+      const defaultWidth = args.defaultFormattingWidth || args.defaultWidth;
+      const width = options?.width ? String(options.width) : defaultWidth;
+      return width;
+    }
+    return args.defaultWidth;
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nullishable_callback_union_in_condition() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Callback = (value: string) => string;
+type Args<ArgCallback extends Callback | undefined> =
+  ArgCallback extends undefined
+    ? { argumentCallback?: undefined }
+    : { argumentCallback: Callback };
+
+function call<ArgCallback extends Callback | undefined>(
+  args: Args<ArgCallback>,
+  value: string,
+): string {
+  return args.argumentCallback ? args.argumentCallback(value) : value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_build_localize_argument_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LocaleWidth = "narrow" | "wide";
+type Era = 0 | 1;
+type Quarter = 1 | 2 | 3 | 4;
+type Month = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
+type Day = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type LocaleDayPeriod =
+  | "am"
+  | "pm"
+  | "midnight"
+  | "noon"
+  | "morning"
+  | "afternoon"
+  | "evening"
+  | "night";
+type LocaleUnitValue = Era | Quarter | Month | Day | LocaleDayPeriod;
+type LocalizeValues<Value extends LocaleUnitValue> =
+  Value extends LocaleDayPeriod
+    ? Record<LocaleDayPeriod, string>
+    : Value extends Era
+      ? readonly [string, string]
+      : Value extends Quarter
+        ? readonly [string, string, string, string]
+        : Value extends Day
+          ? readonly [string, string, string, string, string, string, string]
+          : Value extends Month
+            ? readonly [
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+                string,
+              ]
+            : never;
+type LocalizeUnitIndex<Value extends LocaleUnitValue | number> =
+  Value extends LocaleUnitValue ? keyof LocalizeValues<Value> : number;
+type LocalizeFnArgCallback<Value extends LocaleUnitValue | number> = (
+  value: Value,
+) => LocalizeUnitIndex<Value>;
+type BuildLocalizeFnArgs<
+  Value extends LocaleUnitValue,
+  ArgCallback extends LocalizeFnArgCallback<Value> | undefined,
+> = {
+  values: { [Pattern in LocaleWidth]?: LocalizeValues<Value> };
+  defaultWidth: LocaleWidth;
+} & (ArgCallback extends undefined
+  ? { argumentCallback?: undefined }
+  : { argumentCallback: LocalizeFnArgCallback<Value> });
+
+function buildLocalizeFn<
+  Value extends LocaleUnitValue,
+  ArgCallback extends LocalizeFnArgCallback<Value> | undefined,
+>(args: BuildLocalizeFnArgs<Value, ArgCallback>, value: Value): LocalizeUnitIndex<Value> {
+  return (
+    args.argumentCallback ? args.argumentCallback(value as Value) : value
+  ) as LocalizeUnitIndex<Value>;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_module_arrow_const_used_in_exported_object() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LocalizeFn<Value> = (value: Value, options?: { width?: string }) => string;
+type Localize = {
+  ordinalNumber: LocalizeFn<number>;
+  era: string;
+};
+
+function buildLocalizeFn(args: {
+  values: Record<string, readonly string[]>;
+  defaultWidth: string;
+  argumentCallback?: (value: number) => number;
+}): string {
+  return args.defaultWidth;
+}
+
+const eraValues = {
+  narrow: ["B", "A"] as const,
+  wide: ["Before Christ", "Anno Domini"] as const,
+};
+
+const ordinalNumber: LocalizeFn<number> = (dirtyNumber, _options) => {
+  const number = Number(dirtyNumber);
+  return String(number);
+};
+
+export const localize: Localize = {
+  ordinalNumber,
+  era: buildLocalizeFn({
+    values: eraValues,
+    defaultWidth: "wide",
+    argumentCallback: (quarter) => quarter - 1,
+  }),
+};
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_find_key_for_in_loop() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function findKey<Value, Obj extends { [key in string | number]: Value }>(
+  object: Obj,
+  predicate: (value: Value) => boolean,
+): string | undefined {
+  for (const key in object) {
+    if (
+      Object.prototype.hasOwnProperty.call(object, key) &&
+      predicate(object[key])
+    ) {
+      return key;
+    }
+  }
+  return undefined;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::DictProjection {
+                    op: DictProjectionOp::Keys,
+                    ..
+                }
+            )))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_match_as_optional_match_array() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function firstMatch(text: string, pattern: string): string | undefined {
+  const matchResult = text.match(pattern);
+  if (!matchResult) {
+    return undefined;
+  }
+  return matchResult[0];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::RegexFind { .. }))
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_arrow_function_call_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function accepts(predicate: (pattern: string) => boolean): boolean {
+  return predicate("abc");
+}
+
+function check(matchedString: string): boolean {
+  return accepts((pattern) => pattern.test(matchedString));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_)))
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_assignment_conditional_with_target_type_hint() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function select<Value>(value: Value, callback: ((value: Value) => Value) | undefined): Value {
+  value = callback ? ("fallback" as any) : value;
+  return value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. }))
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn narrows_optional_after_negated_truthy_guard_exits() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function rest(matchResult: string[] | undefined, text: string): string | undefined {
+  if (!matchResult) {
+    return undefined;
+  }
+  const matchedString = matchResult[0];
+  if (!matchedString) {
+    return undefined;
+  }
+  return text.slice(matchedString.length);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_global_numeric_parse_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

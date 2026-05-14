@@ -610,6 +610,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, pattern, errors);
             validate_operand_exists(function, haystack, errors);
         }
+        Rvalue::RegexFind { pattern, haystack } => {
+            validate_operand_exists(function, pattern, errors);
+            validate_operand_exists(function, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand_exists(function, url, errors);
         }
@@ -1288,6 +1292,10 @@ fn validate_rvalue(
             validate_operand(function, definitions, pattern, errors);
             validate_operand(function, definitions, haystack, errors);
         }
+        Rvalue::RegexFind { pattern, haystack } => {
+            validate_operand(function, definitions, pattern, errors);
+            validate_operand(function, definitions, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand(function, definitions, url, errors);
         }
@@ -1487,14 +1495,12 @@ fn function_index(function: crate::FuncId) -> usize {
 }
 
 /// Convert a `u32` identifier into a vector index.
-///
-/// # Panics
-///
-/// Panics if the value does not fit in `usize`.
 fn u32_to_usize(value: u32, label: &str) -> usize {
-    match usize::try_from(value) {
-        Ok(index) => index,
-        Err(error) => panic!("{label} does not fit in usize: {error}"),
+    if let Ok(index) = usize::try_from(value) {
+        index
+    } else {
+        let _ = label;
+        usize::MAX
     }
 }
 

@@ -353,6 +353,23 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts JavaScript `String.prototype.match(RegExp)` to an optional match array.
+    pub(super) fn regex_find_text(
+        &self,
+        pattern: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
+        self.require_string_operands(&[pattern, haystack], "regex find")?;
+        let regex_text = format!(
+            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
+            self.operand_text(pattern)?
+        );
+        let haystack_text = self.operand_text(haystack)?;
+        Ok(format!(
+            "{regex_text}.find(&{haystack_text}).map(|m| vec![m.as_str().to_owned()])"
+        ))
+    }
+
     /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     /// Checks that every operand has string type.
     pub(super) fn require_string_operands(

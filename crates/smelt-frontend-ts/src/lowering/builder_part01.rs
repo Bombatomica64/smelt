@@ -8,6 +8,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let function_overloads = ctx.overloads.clone();
         let type_alias_fields = ctx.type_alias_fields.clone();
         let callable_fields = ctx.callable_fields.clone();
+        let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
         Self {
             file_id,
             path,
@@ -24,9 +25,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_class: None,
             current_async: false,
             current_return_ty: None,
+            allow_unknown_index_access,
             test_builtins: HashSet::new(),
             namespace_imports: HashSet::new(),
             type_only_imports: HashSet::new(),
+            value_imports: HashSet::new(),
             object_namespaces,
             const_literals,
             const_objects,
@@ -41,6 +44,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             local_function_items: HashMap::new(),
             function_overloads,
         }
+    }
+
+    /// Return whether a source path is a declaration-only type-test module.
+    fn is_declaration_type_test_path(path: &str) -> bool {
+        path.ends_with(".test-d.ts") || path.ends_with(".test.ts")
     }
 
     /// Collect items already present in the shared crate for cross-module references.
@@ -337,7 +345,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(annotation) = &declarator.type_annotation else {
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                     && let Some(init) = &declarator.init
-                    && Self::is_arrow_array_initializer(init)
+                    && (Self::is_arrow_array_initializer(init)
+                        || Self::object_const_initializer(init).is_some())
                     && let Ok(ty) = self.infer_module_global_initializer_type(init)
                 {
                     self.module_globals
@@ -553,6 +562,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
             };
             let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            let ty = self.type_param_constraint_or_self(ty);
             let Some(Type::List(item_ty)) = self.ctx.krate.types.get(ty) else {
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -696,12 +706,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {
-            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured parameters are not lowered yet",
-                ));
-            };
             let Some(annotation) = &param.type_annotation else {
                 return Err(SmeltError::unsupported(
                     self.span(param.span.start, param.span.end),
@@ -709,11 +713,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
             };
             let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            let (param_name, span) =
+                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                    (
+                        self.intern_source_name(binding.name.as_str()),
+                        self.span(binding.span.start, binding.span.end),
+                    )
+                } else {
+                    (
+                        self.intern_source_name(&format!("__param{index}")),
+                        self.span(param.span.start, param.span.end),
+                    )
+                };
             params.push(Param {
-                name: self.intern_source_name(binding.name.as_str()),
+                name: param_name,
                 local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
                 ty,
-                span: self.span(binding.span.start, binding.span.end),
+                span,
             });
         }
         if let Some(rest) = &function.params.rest {
@@ -730,6 +746,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
             };
             let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            let ty = self.type_param_constraint_or_self(ty);
             let item_ty = match self.ctx.krate.types.get(ty) {
                 Some(Type::List(item_ty)) => *item_ty,
                 _ => {
@@ -874,6 +891,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             };
             if import.import_kind == ImportOrExportKind::Type {
                 self.type_only_imports.insert(local.clone());
+            } else {
+                self.value_imports.insert(local.clone());
             }
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
@@ -889,8 +908,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.test_builtins.insert(local.clone());
             } else if imported != "*" {
                 self.alias_imported_item(&imported, &local);
+                if !self.type_only_imports.contains(&local) && !self.import_alias_resolved(&local) {
+                    let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    self.module_globals.insert(local.clone(), unknown_ty);
+                }
             }
         }
+    }
+
+    /// Return whether an imported local already resolves to concrete frontend metadata.
+    fn import_alias_resolved(&self, local: &str) -> bool {
+        self.items.contains_key(local)
+            || self.classes.contains_key(local)
+            || self.interfaces.contains_key(local)
+            || self.const_literals.contains_key(local)
+            || self.const_objects.contains_key(local)
+            || self.object_namespaces.contains_key(local)
+            || self.function_overloads.contains_key(local)
     }
 
     /// Add a local alias for an imported item when it is already known.
@@ -956,7 +990,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?;
-                let item = self.object_const_declaration(binding.name.as_str(), object, type_hint)?;
+                let item = match self.object_const_declaration(
+                    binding.name.as_str(),
+                    object,
+                    type_hint,
+                ) {
+                    Ok(item) => item,
+                    Err(_) => {
+                        self.dynamic_object_const_declaration(binding.name.as_str(), object, type_hint)?
+                    }
+                };
                 items.push(item);
                 continue;
             }
@@ -997,6 +1040,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span,
             }));
             self.items.insert(name_text.to_owned(), item);
+            self.ctx.export_aliases.insert(name_text.to_owned(), item);
             self.const_literals.insert(name_text.to_owned(), value);
             items.push(item);
         }
@@ -1191,9 +1235,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
             span,
         }));
         self.items.insert(name_text.to_owned(), item);
+        self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.const_objects
             .insert(name_text.to_owned(), value.clone());
         self.ctx.object_consts.insert(name_text.to_owned(), value);
+        Ok(item)
+    }
+
+    /// Lower an exported object constant whose fields are runtime expressions.
+    ///
+    /// Static object constants are kept as reusable metadata. Date-fns locale
+    /// tables also export object constants whose fields call local helpers such
+    /// as `buildFormatLongFn(...)`; those need a real HIR const body instead of
+    /// primitive literal folding.
+    fn dynamic_object_const_declaration(
+        &mut self,
+        name_text: &str,
+        object: &oxc::ast::ast::ObjectExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let span = self.span(object.span.start, object.span.end);
+        let mut body = Body::new(None, span);
+        let expr = self.object_expression(object, &mut body, type_hint)?;
+        let ty = Self::expr_ty(&body, expr);
+        let body_id = self.ctx.krate.push_body(body);
+        let name = self.intern_source_name(name_text);
+        let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+            name,
+            ty,
+            value: expr,
+            body: body_id,
+            span,
+        }));
+        self.items.insert(name_text.to_owned(), item);
+        self.ctx.export_aliases.insert(name_text.to_owned(), item);
         Ok(item)
     }
 

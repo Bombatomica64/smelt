@@ -137,6 +137,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.number_static_constant(member, body) {
             return Ok(expr);
         }
+        if let Some(expr) = self.object_static_member(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.node_process_static_member(member, body) {
             return Ok(expr);
         }
@@ -199,6 +202,26 @@ impl ModuleBuilder<'_> {
         let ty = field_ty;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Field { receiver, field },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    /// Lower opaque static Object metadata reads such as `Object.prototype`.
+    fn object_static_member(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Object" || member.property.name != "prototype" {
+            return None;
+        }
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
@@ -448,8 +471,21 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(access_receiver_ty).cloned() {
-            let index = self.static_tuple_index(index, body, items.len(), member.span)?;
-            let Some(ty) = items.get(index).copied() else {
+            let tuple_len = if self.allow_unknown_index_access {
+                usize::MAX
+            } else {
+                items.len()
+            };
+            let tuple_index = self.static_tuple_index(index, body, tuple_len, member.span)?;
+            let Some(ty) = items.get(tuple_index).copied() else {
+                if self.allow_unknown_index_access {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Index { receiver, index },
+                        ty,
+                        span: self.span(member.span.start, member.span.end),
+                    }));
+                }
                 return Err(SmeltError::unsupported(
                     self.span(member.span.start, member.span.end),
                     "tuple index is out of bounds",
@@ -458,19 +494,113 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::TupleIndex {
                     tuple: receiver,
-                    index,
+                    index: tuple_index,
                 },
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
         }
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(access_receiver_ty).cloned()
+            && let Some(max_tuple_len) = items
+                .iter()
+                .filter_map(|item| match self.ctx.krate.types.get(*item) {
+                    Some(Type::Tuple(tuple_items)) => Some(tuple_items.len()),
+                    _ => None,
+                })
+                .max()
+        {
+            let tuple_len = if self.allow_unknown_index_access {
+                usize::MAX
+            } else {
+                max_tuple_len
+            };
+            let tuple_index = self.static_tuple_index(index, body, tuple_len, member.span)?;
+            let mut indexed_tys = Vec::new();
+            for item in items {
+                if let Some(Type::Tuple(tuple_items)) = self.ctx.krate.types.get(item)
+                    && let Some(ty) = tuple_items.get(tuple_index).copied()
+                    && !indexed_tys.contains(&ty)
+                {
+                    indexed_tys.push(ty);
+                }
+            }
+            if !indexed_tys.is_empty() {
+                let ty = match indexed_tys.as_slice() {
+                    [single] => *single,
+                    _ => self.ctx.krate.types.intern(Type::Union(indexed_tys)),
+                };
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Index { receiver, index },
+                    ty,
+                    span: self.span(member.span.start, member.span.end),
+                }));
+            }
+        }
         self.reject_negative_bracket_index(access_receiver_ty, index, body, member.span)?;
+        if self.can_lower_acknowledged_unknown_index(access_receiver_ty, member.span.start) {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Index { receiver, index },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         let ty = self.index_type(access_receiver_ty)?;
         Ok(body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty,
             span: self.span(member.span.start, member.span.end),
         }))
+    }
+
+    /// Lower explicitly acknowledged `unknown[key]` reads in unknown contexts.
+    ///
+    /// Runtime indexing into `unknown` is intentionally rejected by the normal
+    /// index path. This fallback only covers source that already carries a
+    /// nearby `@ts-expect-error [ts7053]`, which Remeda uses for dynamic
+    /// accumulator reads that TypeScript itself cannot prove.
+    fn unknown_computed_member_with_hint(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !self.has_ts_expect_error_before(member.span.start, "ts7053") {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, receiver)),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+        ) {
+            return Ok(None);
+        }
+        let index = self.expression(&member.expression, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Index { receiver, index },
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        })))
+    }
+
+    /// Return whether source explicitly acknowledges a dynamic unknown index read.
+    fn can_lower_acknowledged_unknown_index(&self, receiver_ty: smelt_hir::TypeId, start: u32) -> bool {
+        matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+        ) && self.has_ts_expect_error_before(start, "ts7053")
+    }
+
+    /// Return whether a nearby preceding comment expects the given TS error code.
+    fn has_ts_expect_error_before(&self, start: u32, code: &str) -> bool {
+        let Ok(start) = usize::try_from(start) else {
+            return false;
+        };
+        let prefix_start = start.saturating_sub(256);
+        let Some(prefix) = self.source.get(prefix_start..start) else {
+            return false;
+        };
+        prefix.contains("@ts-expect-error") && prefix.contains(code)
     }
 
     /// Lower TypeScript global primitive conversion and numeric parse calls.
@@ -560,7 +690,9 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
         let target = self.assignment_target_expr(&assign.left, body)?;
-        let right = self.expression(&assign.right, body)?;
+        let right_ty_hint = (assign.operator == AssignmentOperator::Assign)
+            .then(|| Self::expr_ty(body, target));
+        let right = self.expression_with_hint(&assign.right, body, right_ty_hint)?;
         let value = match assign.operator {
             AssignmentOperator::Assign => right,
             AssignmentOperator::Addition
@@ -646,10 +778,33 @@ impl ModuleBuilder<'_> {
             AssignmentTarget::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
             }
+            AssignmentTarget::ArrayAssignmentTarget(array) => {
+                let Some(Some(first)) = array.elements.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(array.span.start, array.span.end),
+                        "array assignment targets require at least one element",
+                    ));
+                };
+                self.assignment_maybe_default_target_expr(first, body)
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(target.span().start, target.span().end),
                 "assignment target must be a local, field, or index expression",
             )),
+        }
+    }
+
+    /// Convert an array destructuring assignment element to its target expression.
+    fn assignment_maybe_default_target_expr(
+        &mut self,
+        target: &oxc::ast::ast::AssignmentTargetMaybeDefault<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        match target {
+            oxc::ast::ast::AssignmentTargetMaybeDefault::AssignmentTargetWithDefault(default) => {
+                self.assignment_target_expr(&default.binding, body)
+            }
+            _ => self.assignment_target_expr(target.to_assignment_target(), body),
         }
     }
 

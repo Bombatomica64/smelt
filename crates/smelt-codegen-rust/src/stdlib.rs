@@ -63,7 +63,10 @@ fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
 fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
     matches!(
         rvalue,
-        Rvalue::RegexIsMatch { .. } | Rvalue::RegexReplace { .. } | Rvalue::RegexSplit { .. }
+        Rvalue::RegexIsMatch { .. }
+            | Rvalue::RegexReplace { .. }
+            | Rvalue::RegexSplit { .. }
+            | Rvalue::RegexFind { .. }
     )
 }
 

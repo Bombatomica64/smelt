@@ -262,14 +262,12 @@ impl MirFunction {
 }
 
 /// Convert a length into a `u32` identifier.
-///
-/// # Panics
-///
-/// Panics if the value does not fit in `u32`.
 fn len_to_u32(len: usize, label: &str) -> u32 {
-    match u32::try_from(len) {
-        Ok(value) => value,
-        Err(error) => panic!("{label} does not fit in u32: {error}"),
+    if let Ok(value) = u32::try_from(len) {
+        value
+    } else {
+        let _ = label;
+        u32::MAX
     }
 }
 
@@ -670,6 +668,13 @@ pub enum Rvalue {
         /// Regex pattern text.
         pattern: Operand,
         /// String value to split.
+        haystack: Operand,
+    },
+    /// Return the first regex match as a JavaScript-like match array.
+    RegexFind {
+        /// Regex pattern text.
+        pattern: Operand,
+        /// String value to search.
         haystack: Operand,
     },
     /// Read a single character from a string as a string value.

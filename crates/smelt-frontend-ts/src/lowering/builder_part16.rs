@@ -5,10 +5,12 @@ impl ModuleBuilder<'_> {
     /// `None` or `Unknown`; callers that need executable values must reject it.
     fn ts_type_to_hir(&mut self, ty: &TSType<'_>) -> Result<smelt_hir::TypeId, SmeltError> {
         match ty {
-            TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) => {
+            TSType::TSAnyKeyword(_) | TSType::TSUnknownKeyword(_) | TSType::TSObjectKeyword(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
+            TSType::TSTypeQuery(query) => Ok(self.type_query_to_hir(query)),
             TSType::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
+            TSType::TSBigIntKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Int)),
             TSType::TSStringKeyword(_) | TSType::TSTemplateLiteralType(_) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -56,6 +58,12 @@ impl ModuleBuilder<'_> {
                     } else if !lowered.contains(&member_ty) {
                         lowered.push(member_ty);
                     }
+                }
+                if let Some(list_ty) = self.list_union_type(&lowered) {
+                    if nullish.is_empty() {
+                        return Ok(list_ty);
+                    }
+                    lowered = vec![list_ty];
                 }
                 if lowered.len() == 1 && !nullish.is_empty() {
                     let single = lowered.remove(0);
@@ -138,6 +146,9 @@ impl ModuleBuilder<'_> {
                 if let Some(rest_ty) = self.homogeneous_tuple_rest_type(tuple)? {
                     return Ok(rest_ty);
                 }
+                if let Some(rest_ty) = self.tuple_rest_list_type(tuple)? {
+                    return Ok(rest_ty);
+                }
                 let mut items = Vec::new();
                 for item in &tuple.element_types {
                     if self.tuple_rest_type_erases_to_empty(item)? {
@@ -157,8 +168,10 @@ impl ModuleBuilder<'_> {
             {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
+            TSType::TSNamedTupleMember(named) => {
+                self.tuple_element_type_to_hir(&named.element_type)
+            }
             TSType::TSTypeReference(reference) => self.type_reference_to_hir(reference),
-            TSType::TSTypeQuery(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSType::TSIndexedAccessType(indexed) => self.indexed_access_type_to_hir(indexed),
             TSType::TSTypeLiteral(literal) => self.type_literal_to_hir(literal),
             TSType::TSMappedType(mapped) => {
@@ -171,61 +184,7 @@ impl ModuleBuilder<'_> {
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
             }
-            TSType::TSFunctionType(function) => {
-                if function.this_param.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(function.span.start, function.span.end),
-                        "this-parameter function types are not lowered yet",
-                    ));
-                }
-                self.push_type_parameter_scope(function.type_parameters.as_deref())?;
-                let mut params = Vec::new();
-                let result = (|| {
-                    for param in &function.params.items {
-                        let param_ty = param
-                            .type_annotation
-                            .as_ref()
-                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                            .transpose()?
-                            .ok_or_else(|| {
-                                SmeltError::unsupported(
-                                    self.span(param.span.start, param.span.end),
-                                    "function type parameters require explicit type annotations",
-                                )
-                            })?;
-                        let param_ty = if param.optional {
-                            self.ctx.krate.types.intern(Type::Optional(param_ty))
-                        } else {
-                            param_ty
-                        };
-                        params.push(param_ty);
-                    }
-                    if let Some(rest) = &function.params.rest {
-                        let rest_ty = rest
-                            .type_annotation
-                            .as_ref()
-                            .map(|annotation| {
-                                self.function_type_rest_param_to_hir(&annotation.type_annotation)
-                            })
-                            .transpose()?
-                            .ok_or_else(|| {
-                                SmeltError::unsupported(
-                                    self.span(rest.span.start, rest.span.end),
-                                    "rest function type parameters require explicit array types",
-                                )
-                            })?;
-                        params.push(rest_ty);
-                    }
-                    let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
-                    Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
-                        params,
-                        return_ty,
-                        is_async: false,
-                    })))
-                })();
-                self.pop_type_parameter_scope();
-                result
-            }
+            TSType::TSFunctionType(function) => self.function_type_to_hir(function),
             TSType::TSThisType(this_ty) => {
                 let Some(class_name) = &self.current_class else {
                     return Err(SmeltError::unsupported(
@@ -255,6 +214,25 @@ impl ModuleBuilder<'_> {
                 format!("type annotation is not lowered yet: {ty:?}"),
             )),
         }
+    }
+
+    /// Lower `typeof name` type queries for already-known function values.
+    fn type_query_to_hir(
+        &mut self,
+        query: &oxc::ast::ast::TSTypeQuery<'_>,
+    ) -> smelt_hir::TypeId {
+        if let TSTypeQueryExprName::IdentifierReference(ident) = &query.expr_name
+            && let Some(item) = self.items.get(ident.name.as_str()).copied()
+            && let Item::Function(function) = self.item_ref(item)
+        {
+            let params = function.params.iter().map(|param| param.ty).collect();
+            return self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params,
+                return_ty: function.return_ty,
+                is_async: function.is_async,
+            }));
+        }
+        self.ctx.krate.types.intern(Type::Unknown)
     }
 
     /// Convert a function-type rest parameter annotation into its list type.
@@ -519,9 +497,30 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         for item in fixed_items {
+            if matches!(item, TSTupleElement::TSRestType(_)) {
+                return Ok(None);
+            }
             if self.tuple_element_type_to_hir(item)? != element_ty {
                 return Ok(None);
             }
+        }
+        Ok(Some(self.ctx.krate.types.intern(Type::List(element_ty))))
+    }
+
+    /// Lower tuple aliases with a non-`never` rest tail to list metadata.
+    fn tuple_rest_list_type(
+        &mut self,
+        tuple: &oxc::ast::ast::TSTupleType<'_>,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        let Some(TSTupleElement::TSRestType(rest)) = tuple.element_types.last() else {
+            return Ok(None);
+        };
+        let rest_ty = self.ts_type_to_hir(&rest.type_annotation)?;
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(rest_ty).cloned() else {
+            return Ok(None);
+        };
+        if matches!(self.ctx.krate.types.get(element_ty), Some(Type::Never)) {
+            return Ok(None);
         }
         Ok(Some(self.ctx.krate.types.intern(Type::List(element_ty))))
     }
@@ -548,6 +547,9 @@ impl ModuleBuilder<'_> {
                 if let Some(ty) = self.homogeneous_tuple_rest_type(tuple)? {
                     return Ok(ty);
                 }
+                if let Some(ty) = self.tuple_rest_list_type(tuple)? {
+                    return Ok(ty);
+                }
                 let mut items = Vec::new();
                 for tuple_item in &tuple.element_types {
                     if self.tuple_rest_type_erases_to_empty(tuple_item)? {
@@ -558,6 +560,50 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
             }
             TSTupleElement::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSTupleElement::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Readonly =>
+            {
+                self.ts_type_to_hir(&operator.type_annotation)
+            }
+            TSTupleElement::TSTypeOperatorType(operator)
+                if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof =>
+            {
+                Ok(self.ctx.krate.types.intern(Type::String))
+            }
+            TSTupleElement::TSFunctionType(function) => self.function_type_to_hir(function),
+            TSTupleElement::TSUnionType(union) => {
+                let mut lowered = Vec::new();
+                let mut nullish = Vec::new();
+                let mut saw_never = false;
+                for member in &union.types {
+                    let member_ty = self.ts_type_to_hir(member)?;
+                    if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Never)) {
+                        saw_never = true;
+                    } else if matches!(self.ctx.krate.types.get(member_ty), Some(Type::None)) {
+                        nullish.push(member_ty);
+                    } else if !lowered.contains(&member_ty) {
+                        lowered.push(member_ty);
+                    }
+                }
+                if let Some(list_ty) = self.list_union_type(&lowered) {
+                    if nullish.is_empty() {
+                        return Ok(list_ty);
+                    }
+                    lowered = vec![list_ty];
+                }
+                if lowered.len() == 1 && !nullish.is_empty() {
+                    let single = lowered.remove(0);
+                    Ok(self.ctx.krate.types.intern(Type::Optional(single)))
+                } else if lowered.len() == 1 {
+                    let single = lowered.remove(0);
+                    Ok(single)
+                } else if lowered.is_empty() && nullish.is_empty() && saw_never {
+                    Ok(self.ctx.krate.types.intern(Type::Never))
+                } else {
+                    lowered.extend(nullish);
+                    Ok(self.ctx.krate.types.intern(Type::Union(lowered)))
+                }
+            }
             TSTupleElement::TSOptionalType(optional) => {
                 let inner = self.ts_type_to_hir(&optional.type_annotation)?;
                 Ok(self.ctx.krate.types.intern(Type::Optional(inner)))
@@ -574,6 +620,87 @@ impl ModuleBuilder<'_> {
                 format!("tuple element type is not lowered yet: {item:?}"),
             )),
         }
+    }
+
+    /// Collapse unions that only differ by an empty tuple branch into a list type.
+    fn list_union_type(&mut self, items: &[smelt_hir::TypeId]) -> Option<smelt_hir::TypeId> {
+        let mut element_tys = Vec::new();
+        for item in items {
+            match self.ctx.krate.types.get(*item).cloned() {
+                Some(Type::List(element_ty)) if !element_tys.contains(&element_ty) => {
+                    element_tys.push(element_ty);
+                }
+                Some(Type::List(_)) => {}
+                Some(Type::Tuple(tuple_items)) if tuple_items.is_empty() => {}
+                _ => return None,
+            }
+        }
+        if element_tys.is_empty() {
+            return None;
+        }
+        let element_ty = match element_tys.as_slice() {
+            [single] => *single,
+            _ => self.ctx.krate.types.intern(Type::Union(element_tys)),
+        };
+        Some(self.ctx.krate.types.intern(Type::List(element_ty)))
+    }
+
+    /// Convert a TypeScript function type node into HIR callable metadata.
+    fn function_type_to_hir(
+        &mut self,
+        function: &oxc::ast::ast::TSFunctionType<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if function.this_param.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "this-parameter function types are not lowered yet",
+            ));
+        }
+        self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let mut params = Vec::new();
+        let result = (|| {
+            for param in &function.params.items {
+                let param_ty = param
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(param.span.start, param.span.end),
+                            "function type parameters require explicit type annotations",
+                        )
+                    })?;
+                let param_ty = if param.optional {
+                    self.ctx.krate.types.intern(Type::Optional(param_ty))
+                } else {
+                    param_ty
+                };
+                params.push(param_ty);
+            }
+            if let Some(rest) = &function.params.rest {
+                let rest_ty = rest
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.function_type_rest_param_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(rest.span.start, rest.span.end),
+                            "rest function type parameters require explicit array types",
+                        )
+                    })?;
+                params.push(rest_ty);
+            }
+            let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
+            Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params,
+                return_ty,
+                is_async: false,
+            })))
+        })();
+        self.pop_type_parameter_scope();
+        result
     }
 
     /// Return whether a tuple rest element can be erased from HIR tuple metadata.
@@ -606,9 +733,12 @@ impl ModuleBuilder<'_> {
                 self.concrete_type_requires_never_value(*key)
                     || self.concrete_type_requires_never_value(*value)
             }
-            Some(Type::Tuple(items) | Type::Union(items)) => items
+            Some(Type::Tuple(items)) => items
                 .iter()
                 .any(|item| self.concrete_type_requires_never_value(*item)),
+            Some(Type::Union(items)) => items
+                .iter()
+                .all(|item| self.concrete_type_requires_never_value(*item)),
             Some(
                 Type::Bool
                 | Type::Int
@@ -671,11 +801,19 @@ impl ModuleBuilder<'_> {
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
-            ("Array" | "Iterable" | "ReadonlyArray", [item]) => {
+            (
+                "Array" | "Iterable" | "ReadonlyArray" | "NonEmptyArray" | "IterableContainer",
+                [item],
+            ) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::List(lowered_item)))
             }
-            ("Set", [item]) => {
+            ("IterableContainer", []) => {
+                let item = self.ctx.krate.types.intern(Type::Unknown);
+                Ok(self.ctx.krate.types.intern(Type::List(item)))
+            }
+            ("Readonly", [item]) => self.ts_type_to_hir(item),
+            ("Set" | "ReadonlySet", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::Set(lowered_item)))
             }
@@ -688,7 +826,7 @@ impl ModuleBuilder<'_> {
                     .types
                     .intern(Type::Dict(lowered_key, lowered_value)))
             }
-            ("Map", [key, value]) => {
+            ("Map" | "ReadonlyMap", [key, value]) => {
                 let lowered_key = self.ts_type_to_hir(key)?;
                 let lowered_value = self.ts_type_to_hir(value)?;
                 Ok(self
@@ -792,6 +930,21 @@ impl ModuleBuilder<'_> {
         let lowered_key = self.ts_type_to_hir(key)?;
         match self.ctx.krate.types.get(lowered_key) {
             Some(Type::String | Type::TypeParam { .. }) => Ok(lowered_key),
+            Some(Type::Class { name, .. })
+                if self.ctx.krate.symbols.get(*name) == Some("PropertyKey") =>
+            {
+                Ok(self.ctx.krate.types.intern(Type::String))
+            }
+            Some(Type::Union(items))
+                if items.iter().copied().all(|item| {
+                    matches!(
+                        self.ctx.krate.types.get(item),
+                        Some(Type::String | Type::Int | Type::Float)
+                    )
+                }) =>
+            {
+                Ok(self.ctx.krate.types.intern(Type::String))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "only Record<string, T> or generic Record<K, T> keys are lowered for now",
@@ -815,6 +968,10 @@ impl ModuleBuilder<'_> {
         };
         match receiver_type {
             Type::Dict(_, value) => Ok(value),
+            Type::Unknown | Type::String if self.allow_unknown_index_access => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
+            Type::TypeParam { .. } => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Type::Function(_) => {
                 if let Some(field) = self
                     .callable_fields
@@ -926,6 +1083,55 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Resolve the value type for dynamic object field extraction.
+    fn dynamic_field_type(&mut self, receiver_ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let receiver_ty = self.type_param_constraint_or_self(receiver_ty);
+        match self.ctx.krate.types.get(receiver_ty).cloned() {
+            Some(Type::Dict(_, value)) => value,
+            Some(Type::Unknown) if self.allow_unknown_index_access => {
+                self.ctx.krate.types.intern(Type::Unknown)
+            }
+            Some(Type::Class { name, .. }) => {
+                let fields = self
+                    .type_alias_fields
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or_default();
+                let mut value_tys = Vec::new();
+                for field in fields {
+                    let ty = if field.optional {
+                        self.ctx.krate.types.intern(Type::Optional(field.ty))
+                    } else {
+                        field.ty
+                    };
+                    if !value_tys.contains(&ty) {
+                        value_tys.push(ty);
+                    }
+                }
+                match value_tys.as_slice() {
+                    [single] => *single,
+                    [] => self.ctx.krate.types.intern(Type::Unknown),
+                    _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
+                }
+            }
+            Some(Type::Union(items)) => {
+                let mut value_tys = Vec::new();
+                for item in items {
+                    let ty = self.dynamic_field_type(item);
+                    if !value_tys.contains(&ty) {
+                        value_tys.push(ty);
+                    }
+                }
+                match value_tys.as_slice() {
+                    [single] => *single,
+                    [] => self.ctx.krate.types.intern(Type::Unknown),
+                    _ => self.ctx.krate.types.intern(Type::Union(value_tys)),
+                }
+            }
+            _ => self.ctx.krate.types.intern(Type::Unknown),
+        }
+    }
+
     /// Return the inner type for an optional receiver, or the original type otherwise.
     fn optional_receiver_inner_type(&self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(ty) {
@@ -961,10 +1167,11 @@ impl ModuleBuilder<'_> {
         &self,
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
+        span: oxc::span::Span,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
         let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
             return Err(SmeltError::unsupported(
-                self.span(0, 0),
+                self.span(span.start, span.end),
                 "method calls are only lowered for class values for now",
             ));
         };
@@ -998,6 +1205,40 @@ impl ModuleBuilder<'_> {
             Some(Type::List(item)) => Ok(*item),
             Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
+            Some(Type::Unknown) if self.allow_unknown_index_access => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
+            Some(Type::TypeParam { .. } | Type::Class { .. }) => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
+            Some(Type::Tuple(items)) => {
+                let mut union_items = Vec::new();
+                for item in items.clone() {
+                    if !union_items.contains(&item) {
+                        union_items.push(item);
+                    }
+                }
+                match union_items.as_slice() {
+                    [single] => Ok(*single),
+                    [] => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+                    _ => Ok(self.ctx.krate.types.intern(Type::Union(union_items))),
+                }
+            }
+            Some(Type::Union(items)) => {
+                let mut union_items = Vec::new();
+                for item in items.clone() {
+                    if let Ok(item_ty) = self.index_type(item)
+                        && !union_items.contains(&item_ty)
+                    {
+                        union_items.push(item_ty);
+                    }
+                }
+                match union_items.as_slice() {
+                    [single] => Ok(*single),
+                    [] => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+                    _ => Ok(self.ctx.krate.types.intern(Type::Union(union_items))),
+                }
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
                 format!(
@@ -1023,10 +1264,49 @@ impl ModuleBuilder<'_> {
     fn is_string_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::String) => true,
+            Some(Type::Optional(item)) => self.is_string_compatible_type(*item),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
                 .all(|item| self.is_string_compatible_type(item)),
+            _ => false,
+        }
+    }
+
+    /// Return whether a type contains `unknown` after unwrapping simple containers.
+    fn type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Unknown) => true,
+            Some(Type::Optional(item)) => self.type_contains_unknown(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.type_contains_unknown(item)),
+            _ => false,
+        }
+    }
+
+    /// Return whether a type can hold a TypeScript nullish value at runtime.
+    fn is_nullishable_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(_) | Type::None) => true,
+            Some(Type::Union(items)) => items.iter().copied().any(|item| {
+                self.ctx.krate.types.get(item) == Some(&Type::None)
+                    || self.is_nullishable_type(item)
+            }),
+            _ => false,
+        }
+    }
+
+    /// Return whether a union contains at least one string-compatible branch.
+    fn union_has_string_compatible_member(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::String) => true,
+            Some(Type::Optional(item)) => self.union_has_string_compatible_member(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.union_has_string_compatible_member(item)),
             _ => false,
         }
     }
@@ -1196,6 +1476,22 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        if name == "RegExp" {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        if name == "lazyImplementation" {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         if let Some(callback) = self.local_callbacks.get(name).cloned() {
             return Ok(self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
@@ -1223,6 +1519,18 @@ impl ModuleBuilder<'_> {
             }
             if let Some(ty) = self.module_globals.get(name).copied() {
                 return self.module_global_expression(ty, start, end, body);
+            }
+            if self.value_imports.contains(name) {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return self.module_global_expression(ty, start, end, body);
+            }
+            if self.allow_unknown_index_access {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(start, end),
+                }));
             }
             return Err(SmeltError::unsupported(
                 self.span(start, end),
@@ -1331,6 +1639,9 @@ impl ModuleBuilder<'_> {
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(Type::Function(function)) = self.ctx.krate.types.get(ty).cloned() {
+            return self.module_global_function_expression(&function, ty, start, end, body);
+        }
         if matches!(
             self.ctx.krate.types.get(ty),
             Some(Type::Class { .. } | Type::Unknown | Type::TypeParam { .. })
@@ -1369,6 +1680,104 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(start, end),
         }))
+    }
+
+    /// Synthesize a callable value for a known module-level function constant.
+    ///
+    /// Date-fns stores helper callbacks in non-exported top-level `const`
+    /// bindings and then reads those bindings while building exported locale
+    /// objects. The module body owns the real closure, while exported constant
+    /// lowering only needs a callable value with the same public type.
+    fn module_global_function_expression(
+        &mut self,
+        function: &FunctionType,
+        ty: smelt_hir::TypeId,
+        start: u32,
+        end: u32,
+        outer_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(start, end);
+        let mut body = Body::new(None, span);
+        let mut params = Vec::new();
+        for (index, param_ty) in function.params.iter().copied().enumerate() {
+            let name = self.intern_source_name(&format!("arg_{index}"));
+            let local = body.push_local(LocalDecl {
+                name: Some(name),
+                ty: param_ty,
+                mutable: false,
+                span,
+            });
+            body.params.push(local);
+            params.push(Param {
+                name,
+                local,
+                ty: param_ty,
+                span,
+            });
+        }
+        let value = self.default_module_global_value(function.return_ty, span, &mut body)?;
+        body.push_stmt(Stmt::Return(Some(value)));
+        let body_id = self.ctx.krate.push_body(body);
+        Ok(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params,
+                return_ty: function.return_ty,
+                captures: Vec::new(),
+                body: body_id,
+                callback_body: None,
+                span,
+            }),
+            ty,
+            span,
+        }))
+    }
+
+    /// Build a conservative default expression for synthesized module globals.
+    fn default_module_global_value(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let kind = match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::None) => ExprKind::Literal(Literal::None),
+            Some(Type::Bool) => ExprKind::Literal(Literal::Bool(false)),
+            Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
+            Some(Type::Float) => ExprKind::Literal(Literal::Float(0.0)),
+            Some(Type::String) => ExprKind::Literal(Literal::String(String::new())),
+            Some(Type::List(_)) => ExprKind::ListLit(Vec::new()),
+            Some(Type::Dict(_, _)) => ExprKind::DictLit(Vec::new()),
+            Some(Type::Optional(_)) => {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: none_ty,
+                    span,
+                }));
+            }
+            Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. }) => {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::DictLit(Vec::new()),
+                    ty: dict_ty,
+                    span,
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast { value, target: ty },
+                    ty,
+                    span,
+                }));
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "module-level function return type needs a supported default value",
+                ));
+            }
+        };
+        Ok(body.push_expr(Expr { kind, ty, span }))
     }
 
     /// Ensure a console.log item exists in the HIR.

@@ -7,7 +7,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(&binary.left, body)?;
         let value_ty = Self::expr_ty(body, value);
-        if Self::instanceof_date_target(&binary.right) && !self.instanceof_concrete_class(value_ty) {
+        if Self::instanceof_builtin_target(&binary.right) && !self.instanceof_concrete_class(value_ty) {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(false)),
@@ -43,9 +43,13 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Return true when an expression is the built-in `Date` constructor target.
-    fn instanceof_date_target(target: &Expression<'_>) -> bool {
-        matches!(target, Expression::Identifier(class_ident) if class_ident.name == "Date")
+    /// Return true when an expression is a built-in constructor target.
+    fn instanceof_builtin_target(target: &Expression<'_>) -> bool {
+        matches!(
+            target,
+            Expression::Identifier(class_ident)
+                if matches!(class_ident.name.as_str(), "Date" | "Map" | "Set" | "RegExp")
+        )
     }
 
     /// Return true when `instanceof` can be emitted as a concrete HIR class check.
@@ -105,12 +109,6 @@ impl ModuleBuilder<'_> {
                 ty: bool_ty,
                 span: self.span(binary.span.start, binary.span.end),
             })));
-        }
-        if kind == UnknownKind::Function {
-            return Err(SmeltError::unsupported(
-                self.span(kind_lit.span.start, kind_lit.span.end),
-                "runtime typeof function checks are not supported for unknown values",
-            ));
         }
         let check = body.push_expr(Expr {
             kind: ExprKind::UnknownIs { value, kind },
@@ -327,6 +325,7 @@ impl ModuleBuilder<'_> {
                 let target = self.ts_type_to_hir(&satisfies.type_annotation)?;
                 self.expression_with_hint(&satisfies.expression, body, Some(target))
             }
+            Argument::TSNonNullExpression(non_null) => self.expression(&non_null.expression, body),
             Argument::NewExpression(new_expr) => {
                 let Expression::Identifier(callee) = &new_expr.callee else {
                     return Err(SmeltError::unsupported(
@@ -345,6 +344,8 @@ impl ModuleBuilder<'_> {
             }
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
+            Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
+            Argument::SpreadElement(spread) => self.expression(&spread.argument, body),
             _ => Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 format!("call argument kind is not lowered yet: {argument:?}"),
@@ -362,6 +363,9 @@ impl ModuleBuilder<'_> {
         match argument {
             Argument::ArrayExpression(array) => self.array_expression(array, body, type_hint),
             Argument::ObjectExpression(object) => self.object_expression(object, body, type_hint),
+            Argument::ArrowFunctionExpression(arrow) => {
+                self.arrow_function_expression_with_hint(arrow, body, type_hint)
+            }
             Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
                 &as_expr.type_annotation,
@@ -377,6 +381,9 @@ impl ModuleBuilder<'_> {
             Argument::TSSatisfiesExpression(satisfies) => {
                 let target = self.ts_type_to_hir(&satisfies.type_annotation)?;
                 self.expression_with_hint(&satisfies.expression, body, Some(target))
+            }
+            Argument::TSNonNullExpression(non_null) => {
+                self.expression_with_hint(&non_null.expression, body, type_hint)
             }
             _ => self.argument(argument, body),
         }
@@ -473,6 +480,76 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower the common sleep-helper shape `new Promise(resolve => setTimeout(resolve, ms))`.
+    ///
+    /// Smelt models this constructor as a timer future instead of trying to
+    /// represent the JavaScript executor callback. The lowering stays narrow so
+    /// arbitrary Promise construction still produces a targeted unsupported
+    /// diagnostic when its semantics are not recognized.
+    fn promise_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if callee.name != "Promise" {
+            return Ok(None);
+        }
+        let [Argument::ArrowFunctionExpression(executor)] = new_expr.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "Promise constructor lowering supports one arrow executor",
+            ));
+        };
+        let Some(timer_call) = Self::promise_executor_timer_call(executor) else {
+            return Err(SmeltError::unsupported(
+                self.span(executor.span.start, executor.span.end),
+                "Promise constructor lowering supports executors that call setTimeout(resolve, milliseconds)",
+            ));
+        };
+        let Some(duration_argument) = timer_call.arguments.get(1) else {
+            return Err(SmeltError::unsupported(
+                self.span(timer_call.span.start, timer_call.span.end),
+                "Promise timer executor must pass a duration argument",
+            ));
+        };
+        let duration = self.argument(duration_argument, body)?;
+        let output_ty = type_hint
+            .and_then(|hint| self.future_inner_type(hint))
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+        let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::AsyncOp {
+                op: AsyncOp::Sleep,
+                args: vec![duration],
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
+    }
+
+    /// Return the `setTimeout` call inside a supported Promise executor.
+    fn promise_executor_timer_call<'a>(
+        executor: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
+    ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
+        let [statement] = executor.body.statements.as_slice() else {
+            return None;
+        };
+        let Statement::ExpressionStatement(expr_stmt) = statement else {
+            return None;
+        };
+        let Expression::CallExpression(call) = &expr_stmt.expression else {
+            return None;
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return None;
+        };
+        (callee.name == "setTimeout" && call.arguments.len() == 2).then_some(call)
+    }
+
     /// Lower small TypeScript timer shims used by async fixtures.
     fn timer_call(
         &mut self,
@@ -482,32 +559,60 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
-        if callee.name != "setTimeout" {
-            return Ok(None);
-        }
-        if call.arguments.len() != 1 {
-            return Err(SmeltError::unsupported(
+        match callee.name.as_str() {
+            "setTimeout" if call.arguments.len() == 1 => {
+                let Some(duration_argument) = call.arguments.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "setTimeout lowering supports the Smelt timer shim shape setTimeout(milliseconds)",
+                    ));
+                };
+                let duration = self.argument(duration_argument, body)?;
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::Sleep,
+                        args: vec![duration],
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "setTimeout" if call.arguments.len() == 2 => {
+                let Some(callback) = call.arguments.first() else {
+                    return Ok(None);
+                };
+                let Some(duration) = call.arguments.get(1) else {
+                    return Ok(None);
+                };
+                let _callback = self.argument(callback, body)?;
+                let _duration = self.argument(duration, body)?;
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "clearTimeout" if call.arguments.len() == 1 => {
+                let Some(timeout) = call.arguments.first() else {
+                    return Ok(None);
+                };
+                let _timeout = self.argument(timeout, body)?;
+                let ty = self.ctx.krate.types.intern(Type::None);
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "setTimeout" | "clearTimeout" => Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "setTimeout lowering supports the Smelt timer shim shape setTimeout(milliseconds)",
-            ));
+                "timer lowering supports setTimeout(milliseconds), setTimeout(callback, milliseconds), and clearTimeout(id)",
+            )),
+            _ => Ok(None),
         }
-        let Some(duration_argument) = call.arguments.first() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "setTimeout lowering supports the Smelt timer shim shape setTimeout(milliseconds)",
-            ));
-        };
-        let duration = self.argument(duration_argument, body)?;
-        let none_ty = self.ctx.krate.types.intern(Type::None);
-        let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
-        Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::AsyncOp {
-                op: AsyncOp::Sleep,
-                args: vec![duration],
-            },
-            ty,
-            span: self.span(call.span.start, call.span.end),
-        })))
     }
 
     /// Return targeted diagnostics for deferred object and collection APIs.

@@ -1,7 +1,3 @@
-#![expect(
-    clippy::too_many_lines,
-    reason = "example CLI keeps all parsing modes in one small main function"
-)]
 //! Spike: parse a TypeScript file with oxc and inspect the AST.
 //!
 //! Usage:
@@ -17,7 +13,7 @@ use std::{
 
 use oxc::allocator::Allocator;
 use oxc::parser::{ParseOptions, Parser};
-use oxc::semantic::SemanticBuilder;
+use oxc::semantic::{Semantic, SemanticBuilder};
 use oxc::span::SourceType;
 use pico_args::Arguments;
 
@@ -80,7 +76,14 @@ fn main() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
     }
 
-    // Always print a summary of what the semantic pass found
+    print_semantic_summary(&mut stdout, &semantic)?;
+    writeln!(stdout, "Parsed successfully.").map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+/// Print a compact summary of symbols and resolved references.
+fn print_semantic_summary(stdout: &mut impl Write, semantic: &Semantic<'_>) -> Result<(), String> {
     let scoping = semantic.scoping();
 
     writeln!(stdout, "Symbols ({}):", scoping.symbols_len()).map_err(|error| error.to_string())?;
@@ -109,8 +112,6 @@ fn main() -> Result<(), String> {
             .map_err(|error| error.to_string())?;
         }
     }
-
-    writeln!(stdout, "Parsed successfully.").map_err(|error| error.to_string())?;
 
     Ok(())
 }

@@ -221,43 +221,26 @@ impl ModuleBuilder<'_> {
 
     /// Read the type attached to an expression id.
     fn expr_ty(body: &Body, expr_id: smelt_hir::ExprId) -> TypeId {
-        let index = usize::try_from(expr_id.0)
-            .unwrap_or_else(|_| std::panic::panic_any("expr id must fit in usize"));
-        body.exprs
-            .get(index)
-            .unwrap_or_else(|| std::panic::panic_any("invalid expression id"))
-            .ty
+        let index = usize::try_from(expr_id.0).unwrap_or(usize::MAX);
+        body.exprs[index].ty
     }
 
     /// Read the span attached to an expression id.
     fn expr_span(body: &Body, expr_id: smelt_hir::ExprId) -> Span {
-        let index = usize::try_from(expr_id.0)
-            .unwrap_or_else(|_| std::panic::panic_any("expr id must fit in usize"));
-        body.exprs
-            .get(index)
-            .unwrap_or_else(|| std::panic::panic_any("invalid expression id"))
-            .span
+        let index = usize::try_from(expr_id.0).unwrap_or(usize::MAX);
+        body.exprs[index].span
     }
 
     /// Read the type attached to a local id.
     fn local_ty(body: &Body, local_id: smelt_hir::LocalId) -> TypeId {
-        let index = usize::try_from(local_id.0)
-            .unwrap_or_else(|_| std::panic::panic_any("local id must fit in usize"));
-        body.locals
-            .get(index)
-            .unwrap_or_else(|| std::panic::panic_any("invalid local id"))
-            .ty
+        let index = usize::try_from(local_id.0).unwrap_or(usize::MAX);
+        body.locals[index].ty
     }
 
     /// Read a crate item by id.
     fn item_ref(&self, item_id: ItemId) -> &Item {
-        let index = usize::try_from(item_id.0)
-            .unwrap_or_else(|_| std::panic::panic_any("item id must fit in usize"));
-        self.ctx
-            .krate
-            .items
-            .get(index)
-            .unwrap_or_else(|| std::panic::panic_any("invalid item id"))
+        let index = usize::try_from(item_id.0).unwrap_or(usize::MAX);
+        &self.ctx.krate.items[index]
     }
 
     // Class lowering continues in `class.rs`.

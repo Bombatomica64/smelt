@@ -1,4 +1,39 @@
 impl ModuleBuilder<'_> {
+    /// Lower `Object.is(a, b)` as a strict equality expression.
+    fn object_is_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object" || member.property.name != "is" {
+            return Ok(None);
+        }
+        let [left_arg, right_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.is requires exactly two arguments",
+            ));
+        };
+        let lhs = self.argument(left_arg, body)?;
+        let rhs = self.argument_with_hint(right_arg, body, Some(Self::expr_ty(body, lhs)))?;
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::Eq,
+                lhs,
+                rhs,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower a supported `Math.pow` call into a HIR numeric runtime call.
     fn math_pow_call(
         &mut self,
@@ -124,16 +159,30 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         };
-        let dict = self.argument(dict_argument, body)?;
+        let mut dict = self.argument(dict_argument, body)?;
         let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(key_type, value_type)) = self.ctx.krate.types.get(dict_ty) else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("Object.{} requires a record argument", member.property.name),
-            ));
+        let (key_type, value_type) = match self.ctx.krate.types.get(dict_ty) {
+            Some(Type::Dict(key_type, value_type)) => (*key_type, *value_type),
+            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                dict = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast { value: dict, target },
+                    ty: target,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                (key_ty, value_ty)
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("Object.{} requires a record argument", member.property.name),
+                ));
+            }
         };
-        let key_ty = *key_type;
-        let value_ty = *value_type;
+        let key_ty = key_type;
+        let value_ty = value_type;
         let ty = match op {
             DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
@@ -153,6 +202,36 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower `Object.getPrototypeOf(value)` to opaque prototype metadata.
+    fn object_get_prototype_of_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object" || member.property.name != "getPrototypeOf" {
+            return Ok(None);
+        }
+        let [value] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.getPrototypeOf requires exactly one value",
+            ));
+        };
+        let _ = self.argument(value, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower TypeScript `Object.fromEntries([[key, value], ...])` to a dictionary literal.
     fn object_from_entries_call(
         &mut self,
@@ -167,6 +246,12 @@ impl ModuleBuilder<'_> {
         };
         if object.name != "Object" || member.property.name != "fromEntries" {
             return Ok(None);
+        }
+        if let [argument] = call.arguments.as_slice() {
+            let value = self.argument(argument, body)?;
+            if matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Dict(_, _))) {
+                return Ok(Some(value));
+            }
         }
         let [Argument::ArrayExpression(entries_array)] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
@@ -210,6 +295,19 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
+        if member.property.name == "call"
+            && Self::is_object_prototype_has_own_property(&member.object)
+        {
+            let [dict_argument, key_argument] = call.arguments.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Object.prototype.hasOwnProperty.call requires record and key arguments",
+                ));
+            };
+            let dict = self.argument(dict_argument, body)?;
+            let key = self.argument(key_argument, body)?;
+            return self.object_has_own_expr(call, body, dict, key);
+        }
         if let Expression::Identifier(object) = &member.object
             && object.name == "Object"
             && member.property.name == "hasOwn"
@@ -238,6 +336,26 @@ impl ModuleBuilder<'_> {
         Ok(None)
     }
 
+    /// Return true for the canonical unbound ownership helper.
+    fn is_object_prototype_has_own_property(expression: &Expression<'_>) -> bool {
+        let Expression::StaticMemberExpression(has_own_member) = expression else {
+            return false;
+        };
+        if has_own_member.property.name != "hasOwnProperty" {
+            return false;
+        }
+        let Expression::StaticMemberExpression(prototype_member) = &has_own_member.object else {
+            return false;
+        };
+        if prototype_member.property.name != "prototype" {
+            return false;
+        }
+        matches!(
+            &prototype_member.object,
+            Expression::Identifier(object) if object.name == "Object"
+        )
+    }
+
     /// Build a HIR expression for a TypeScript record key ownership check.
     fn object_has_own_expr(
         &mut self,
@@ -247,7 +365,8 @@ impl ModuleBuilder<'_> {
         key: smelt_hir::ExprId,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(dict_ty) else {
+        let dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
+        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(dict_shape_ty) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "object key ownership checks require a record receiver",
@@ -331,6 +450,14 @@ impl ModuleBuilder<'_> {
             let operand_ty = Self::expr_ty(body, operand);
             let effective_operand_ty = self.type_param_constraint_or_self(operand_ty);
             if self.ctx.krate.types.get(effective_operand_ty) == Some(&Type::String) {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::StringCase { op, operand },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
+            if self.allow_unknown_index_access {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::StringCase { op, operand },

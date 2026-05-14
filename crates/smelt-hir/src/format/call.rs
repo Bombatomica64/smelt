@@ -263,6 +263,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*haystack)
             )
         }
+        ExprKind::RegexFind { pattern, haystack } => {
+            format!("regex_find {}, {}", expr_ref(*pattern), expr_ref(*haystack))
+        }
         ExprKind::StringCharAt { operand, index } => {
             format!(
                 "string_char_at {}, {}",

@@ -216,6 +216,7 @@ impl FunctionEmitter<'_> {
                 replacement,
             } => self.regex_replace_text(*op, pattern, haystack, replacement),
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
+            Rvalue::RegexFind { pattern, haystack } => self.regex_find_text(pattern, haystack),
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
             Rvalue::StringCharCodeAt { operand, index } => {
                 self.string_char_code_at_text(operand, index)

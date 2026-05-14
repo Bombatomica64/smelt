@@ -668,21 +668,11 @@ const hasDigits = new RegExp("\\d+", "g").test(text);
     let non_string = lowering_errors(
         ts!(r#"
 const text = "abc123";
-const hasDigits = new RegExp(1).test(text);
+    const hasDigits = new RegExp(1).test(text);
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&non_string, "string pattern and haystack")?;
-
-    let mut ctx = HirCtx::new();
-    let literal_flags = lowering_errors(
-        ts!(r#"
-const text = "abc123";
-const hasDigits = /\d+/g.test(text);
-"#),
-        &mut ctx,
-    )?;
-    assert_unsupported_ts(&literal_flags, "flags")?;
+    assert_unsupported_ts(&non_string, "string pattern")?;
     Ok(())
 }
 

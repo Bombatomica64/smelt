@@ -38,7 +38,7 @@ Primary target results:
 | Repo | Manifest | `smelt check` | Generated `cargo test` | Current first blocker |
 |---|---|---:|---:|---|
 | `date-fns/date-fns` | narrow `quartersToMonths` slice | pass | not rerun today; previously pass, 4/4 tests | Green slice remains check-clean. |
-| `date-fns/date-fns` | full sorted `src/**/*.ts(x)` manifest at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml` | fail | n/a | Now gets past locale `.replace(...)` and reaches `src/locale/_lib/buildFormatLongFn/index.ts`; returned local closure has an unannotated defaulted `options = {}` parameter. |
+| `date-fns/date-fns` | full sorted `src/**/*.ts(x)` manifest at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml` | fail | n/a | Now gets past `formatLong`, `buildLocalizeFn`, and `localize/index.ts`; reaches `src/locale/_lib/buildMatchFn/index.ts` on `for (const key in object)` plus `Object.prototype.hasOwnProperty.call(...)`. |
 | `Textualize/rich` | `NullFile` slice | fail | n/a | `rich/_null_file.py`: member/method call still rejected with “only calls to top-level functions, class constructors, and print() are supported”. |
 | `remeda/remeda` | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | n/a | Now reaches `packages/remeda/src/ceil.ts`: unresolved global `Math` in a function body. This is stdlib/global-resolution work, not test lowering. |
 | `remeda/remeda` | focused `toUpperCase` slice | pass | not built today | The previous focused purry/type-test blockers are cleared for this slice. |
@@ -415,10 +415,8 @@ TypeScript:
       have mappings.
 - [x] String `.toUpperCase`
 - [x] String `.toLowerCase`
-- [ ] String receiver compatibility through aliases/unions/narrowing for methods such as
-      `.replace(...)`; full date-fns currently fails in
-      `src/locale/en-US/_lib/formatDistance/index.ts` because `.replace(...)` does not see all
-      arguments as string-compatible.
+- [x] String receiver compatibility through aliases/unions/narrowing for methods such as
+      `.replace(...)`; full date-fns gets past localized formatter `.replace(...)` calls.
 - [x] `Date` should be rejected clearly unless implemented.
 - [x] `instanceof` for concrete class values.
 - [x] `Infinity`
@@ -427,7 +425,13 @@ TypeScript:
   - [x] Exported primitive literal constants.
   - [x] Exported and local literal object constants, including `{ ... } as const`, lower as
         importable/reusable record literals.
+  - [x] Exported object constants whose fields are helper calls, such as
+        `formatLong.date = buildFormatLongFn(...)`.
 - [x] Arrow functions assigned to `const`
+  - [x] Contextual parameter typing for annotated module-level arrow consts.
+  - [x] Object-property arrow callbacks with optional contextual function fields.
+  - [x] Arithmetic fallback inference for unannotated inline arrow parameters when generic import
+        context is lost, such as `(quarter) => quarter - 1`.
 - [x] Function overload declarations should be ignored/merged with implementation when safe.
 - [ ] `Iterable<T>` type references.
 - [ ] Type queries such as `typeof TypeId` in exported type aliases.
@@ -551,7 +555,7 @@ Compatibility numbers:
 |---|---:|---|
 | TS/TSX files under `src` | `1536` | Raw source corpus size in the latest checkout. |
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
-| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Latest 2026-05-14 rerun gets past locale string `.replace(...)` and now fails in `src/locale/_lib/buildFormatLongFn/index.ts` on an unannotated defaulted parameter in a returned local closure. |
+| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Latest 2026-05-14 rerun gets past locale string `.replace(...)` and returned closure contextual typing, then fails in `src/locale/en-US/_lib/formatLong/index.ts` on exported object const fields initialized by `buildFormatLongFn(...)` helper calls. |
 | Full manifest with shared type files forced first `smelt check` | fail | Superseded by the sorted full-manifest rerun above; the locale type-surface blockers are now cleared. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
@@ -566,11 +570,11 @@ Compatibility numbers:
 
 Latest rerun status: the full sorted manifest now gets past the previous `isSaturday` chain,
 `ContextOptions.in`, Date receiver blockers, `src/locale/types.ts`, the `addBusinessDays/basic.ts`
-Node environment probe, ambient `.d.ts` declaration files, and the locale `formatDistance`
-formatter including `tokenValue.other.replace("{{count}}", count.toString())`. The first failing
-file is now `src/locale/_lib/buildFormatLongFn/index.ts`, where the returned closure has a defaulted
-unannotated `options = {}` parameter that should be contextually typed from the `FormatLongFn`
-return annotation.
+Node environment probe, ambient `.d.ts` declaration files, the locale `formatDistance` formatter
+including `tokenValue.other.replace("{{count}}", count.toString())`, and returned closure
+contextual typing in `buildFormatLongFn`. The first failing file is now
+`src/locale/en-US/_lib/formatLong/index.ts`, where exported object fields call
+`buildFormatLongFn(...)`.
 
 `src/types.ts`, `src/locale/types.ts`, `src/fp/types.ts`, `src/addBusinessDays/index.ts`,
 `src/_lib/addBusinessDays/basic.ts`, and `src/locale/en-US/_lib/formatDistance/index.ts` pass
@@ -598,15 +602,26 @@ Shared type-file status:
 - [x] Full date-fns gets past `ContextOptions` / `options?.in` / `toDate(...).getDay()`.
 - [x] Full date-fns gets past locale type-surface lowering/rejection strategy for
   `src/locale/types.ts`.
-- [ ] Full date-fns needs contextual parameter typing for returned inline arrow functions such as
+- [x] Full date-fns gets past contextual parameter typing for returned inline arrow functions such as
   `buildFormatLongFn(...): FormatLongFn { return (options = {}) => { ... }; }`.
 - [x] Full date-fns gets past string `.replace(...)` compatibility through localized formatter values.
+- [x] Full date-fns gets past exported object constants whose fields are initialized by helper
+  calls, such as `formatLong.date = buildFormatLongFn(...)`.
+- [x] Full date-fns gets past `src/locale/_lib/buildLocalizeFn/index.ts`, including optional
+  width fallback expressions, conditional `never` assertion branches, nullishable callback
+  truthiness, and callable object-property callbacks.
+- [x] Full date-fns gets past `src/locale/en-US/_lib/localize/index.ts`, including annotated
+  module-level arrow const callbacks, module-level object constants such as `eraValues`, and
+  inline object-property callbacks such as `(quarter) => quarter - 1`.
+- [ ] Full date-fns needs `for ... in` lowering and `Object.prototype.hasOwnProperty.call(...)`
+  compatibility in `src/locale/_lib/buildMatchFn/index.ts`.
 
 Full manifest first blocker:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
-| `src/locale/_lib/buildFormatLongFn/index.ts` | Contextual typing for returned closure parameter defaults | `local closure parameters must have explicit type annotations`. |
+| `src/locale/_lib/buildMatchFn/index.ts:115` | `for (const key in object)` over record-like objects | `statement kind is not lowered yet: ForInStatement(...)`. |
+| `src/locale/_lib/buildMatchFn/index.ts:117` | `Object.prototype.hasOwnProperty.call(object, key)` | static member chain falls into normal field access and reports `field access ... (receiver: String)` before the `for-in` statement diagnostic. |
 
 Optional chaining surface in date-fns:
 

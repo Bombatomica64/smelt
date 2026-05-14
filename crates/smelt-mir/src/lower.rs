@@ -1603,6 +1603,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::RegexFind { pattern, haystack } => {
+                let pattern_operand = self.lower_expr(*pattern)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::RegexFind {
+                        pattern: pattern_operand,
+                        haystack: haystack_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringCharAt { operand, index } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let index_operand = self.lower_expr(*index)?;
@@ -2992,6 +3005,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::RegexIsMatch { .. }
             | ExprKind::RegexReplace { .. }
             | ExprKind::RegexSplit { .. }
+            | ExprKind::RegexFind { .. }
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringCharCodeAt { .. }
             | ExprKind::StringContains { .. }

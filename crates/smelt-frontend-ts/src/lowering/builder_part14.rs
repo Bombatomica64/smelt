@@ -187,11 +187,19 @@ impl ModuleBuilder<'_> {
         }
         let (entries, ty) = match new_expr.arguments.as_slice() {
             [] => {
-                let Some(ty) = type_hint else {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "empty Map constructors require a Map<K, V> type annotation",
-                    ));
+                let ty = if let Some(type_args) = &new_expr.type_arguments
+                    && let [key, value] = type_args.params.as_slice()
+                {
+                    let key_ty = self.ts_type_to_hir(key)?;
+                    let value_ty = self.ts_type_to_hir(value)?;
+                    self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+                } else {
+                    type_hint.ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(new_expr.span.start, new_expr.span.end),
+                            "empty Map constructors require a Map<K, V> type annotation",
+                        )
+                    })?
                 };
                 if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
                     return Err(SmeltError::unsupported(
@@ -365,6 +373,18 @@ impl ModuleBuilder<'_> {
                     span: self.span(array.span.start, array.span.end),
                 }))
             }
+            ArrayExpressionElement::ObjectExpression(object) => {
+                self.object_expression(object, body, None)
+            }
+            ArrayExpressionElement::RegExpLiteral(literal) => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                let value = Self::regex_literal_pattern_text(literal);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(value)),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }))
+            }
             ArrayExpressionElement::CallExpression(call) => self.call_expression(call, body),
             ArrayExpressionElement::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
@@ -434,13 +454,11 @@ impl ModuleBuilder<'_> {
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        if logical.operator == LogicalOperator::Or
-            && matches!(logical.left, Expression::ChainExpression(_))
-        {
-            return self.expression(&logical.right, body);
+        if let Some(expr) = self.logical_or_fallback_expression(logical, body)? {
+            return Ok(expr);
         }
         if logical.operator == LogicalOperator::Coalesce {
-            return self.nullish_coalesce_expression(logical, body);
+            return self.nullish_coalesce_expression(logical, body, None);
         }
         let op = if logical.operator == LogicalOperator::And {
             BinOp::And
@@ -457,11 +475,53 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower JavaScript `left || right` fallback expressions for optional values.
+    ///
+    /// Date-fns uses this for locale-width defaults. For optional left operands
+    /// Smelt preserves the runtime value fallback with the same optional
+    /// coalescing HIR shape used by `??`.
+    fn logical_or_fallback_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if logical.operator != LogicalOperator::Or {
+            return Ok(None);
+        }
+        let optional = self.expression(&logical.left, body)?;
+        let optional_ty = Self::expr_ty(body, optional);
+        if !self.is_nullishable_type(optional_ty) {
+            return Ok(None);
+        }
+        let Some(ty) = self.non_nullish_type(optional_ty) else {
+            if matches!(logical.left, Expression::ChainExpression(_)) {
+                return self.expression(&logical.right, body).map(Some);
+            }
+            return Ok(None);
+        };
+        let fallback = self.expression_with_hint(&logical.right, body, Some(ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        let ty = if fallback_ty == ty {
+            ty
+        } else if self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty)
+        {
+            self.ctx.krate.types.intern(Type::String)
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::OptionalCoalesce { optional, fallback },
+            ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
     /// Lower TypeScript nullish coalescing while preserving falsey values.
     fn nullish_coalesce_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
         body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let optional = self.expression(&logical.left, body)?;
         let optional_ty = Self::expr_ty(body, optional);
@@ -476,11 +536,27 @@ impl ModuleBuilder<'_> {
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty {
             ty
+        } else if self.ctx.krate.types.get(ty) == Some(&Type::Unknown) {
+            fallback_ty
+        } else if self.numeric_type_compatible(ty, fallback_ty) {
+            ty
+        } else if matches!(self.ctx.krate.types.get(ty), Some(Type::TypeParam { .. }))
+            && matches!(
+                self.ctx.krate.types.get(fallback_ty),
+                Some(Type::TypeParam { .. })
+            )
+        {
+            type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Union(vec![ty, fallback_ty])))
         } else if matches!(
             self.ctx.krate.types.get(ty),
             Some(Type::Union(items)) if items.contains(&fallback_ty)
-        ) {
+        ) || self.allow_unknown_index_access
+        {
             fallback_ty
+        } else if let Some(hint) = type_hint
+            && !self.concrete_type_requires_never_value(hint)
+        {
+            hint
         } else {
             return Err(SmeltError::unsupported(
                 self.span(logical.span.start, logical.span.end),
@@ -559,6 +635,13 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if array
+            .elements
+            .iter()
+            .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+        {
+            return self.array_expression_with_spread(array, body, type_hint);
+        }
         let mut items = Vec::new();
         for element in &array.elements {
             if matches!(
@@ -578,10 +661,8 @@ impl ModuleBuilder<'_> {
             let item_ty = Self::expr_ty(body, *first);
             self.ctx.krate.types.intern(Type::List(item_ty))
         } else {
-            return Err(SmeltError::unsupported(
-                self.span(array.span.start, array.span.end),
-                "empty arrays require an explicit type annotation",
-            ));
+            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            self.ctx.krate.types.intern(Type::List(item_ty))
         };
         if self.array_literal_needs_never_value(ty, items.len()) {
             return Err(SmeltError::unsupported(
@@ -598,6 +679,125 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(array.span.start, array.span.end),
         }))
+    }
+
+    /// Lower an array literal that contains one or more spread elements.
+    fn array_expression_with_spread(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let item_ty = self.array_spread_item_type(array, type_hint);
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let mut packed = None;
+        let mut current_items = Vec::new();
+        for element in &array.elements {
+            match element {
+                ArrayExpressionElement::SpreadElement(spread) => {
+                    if !current_items.is_empty() {
+                        let right = body.push_expr(Expr {
+                            kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
+                            ty: list_ty,
+                            span: self.span(array.span.start, array.span.end),
+                        });
+                        packed = Some(packed.map_or(right, |left| {
+                            body.push_expr(Expr {
+                                kind: ExprKind::ListConcat { left, right },
+                                ty: list_ty,
+                                span: self.span(array.span.start, array.span.end),
+                            })
+                        }));
+                    }
+                    let spread_value =
+                        self.expression_with_hint(&spread.argument, body, Some(list_ty))?;
+                    let right =
+                        self.list_expr_from_spread_value(spread_value, list_ty, spread.span, body)?;
+                    packed = Some(packed.map_or(right, |left| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::ListConcat { left, right },
+                            ty: list_ty,
+                            span: self.span(array.span.start, array.span.end),
+                        })
+                    }));
+                }
+                ArrayExpressionElement::Elision(_) => {
+                    return Err(SmeltError::unsupported(
+                        self.span(element.span().start, element.span().end),
+                        "array elisions are not lowered",
+                    ));
+                }
+                _ => current_items.push(self.array_element(element, body)?),
+            }
+        }
+        if !current_items.is_empty() {
+            let right = body.push_expr(Expr {
+                kind: ExprKind::ListLit(current_items),
+                ty: list_ty,
+                span: self.span(array.span.start, array.span.end),
+            });
+            packed = Some(packed.map_or(right, |left| {
+                body.push_expr(Expr {
+                    kind: ExprKind::ListConcat { left, right },
+                    ty: list_ty,
+                    span: self.span(array.span.start, array.span.end),
+                })
+            }));
+        }
+        packed.ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(array.span.start, array.span.end),
+                "array spread literal requires at least one element",
+            )
+        })
+    }
+
+    /// Infer the list item type for an array spread literal.
+    fn array_spread_item_type(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
+        if let Some(hint) = type_hint
+            && let Some(Type::List(item_ty)) = self.ctx.krate.types.get(hint)
+        {
+            return *item_ty;
+        }
+        for element in &array.elements {
+            match element {
+                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => {}
+                _ => {
+                    return self.ctx.krate.types.intern(Type::Unknown);
+                }
+            }
+        }
+        self.ctx.krate.types.intern(Type::Unknown)
+    }
+
+    /// Convert an iterable spread operand into the list value required by list concatenation.
+    fn list_expr_from_spread_value(
+        &self,
+        value: smelt_hir::ExprId,
+        list_ty: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, value));
+        match self.ctx.krate.types.get(value_ty).cloned() {
+            Some(Type::List(_)) => Ok(value),
+            Some(Type::Set(_)) => Ok(body.push_expr(Expr {
+                kind: ExprKind::SetProjection {
+                    op: SetProjectionOp::Values,
+                    set: value,
+                },
+                ty: list_ty,
+                span: self.span(span.start, span.end),
+            })),
+            _ => Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "array spread operands must be arrays or sets",
+            )),
+        }
     }
 
     /// Lower an object expression.
@@ -630,7 +830,8 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let key = self.object_property_key_expr(object_property, body)?;
-            let value = self.expression(&object_property.value, body)?;
+            let value_hint = self.object_property_value_hint(object_property, type_hint);
+            let value = self.object_property_value_expr(object_property, body, value_hint)?;
             entries.push((key, value));
         }
         let ty = self.object_literal_type(&entries, type_hint, body);
@@ -666,7 +867,8 @@ impl ModuleBuilder<'_> {
                         ));
                     }
                     let key = self.object_property_key_expr(object_property, body)?;
-                    let value = self.expression(&object_property.value, body)?;
+                    let value_hint = self.object_property_value_hint(object_property, record_ty);
+                    let value = self.object_property_value_expr(object_property, body, value_hint)?;
                     pending_entries.push((key, value));
                 }
                 ObjectPropertyKind::SpreadProperty(spread) => {
@@ -713,6 +915,60 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Resolve a contextual field type for an object-literal property value.
+    fn object_property_value_hint(
+        &mut self,
+        property: &oxc::ast::ast::ObjectProperty<'_>,
+        object_hint: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        let hint = object_hint?;
+        let field_name = match &property.key {
+            PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
+            PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+            _ => return None,
+        };
+        let field = self.intern_source_name(field_name);
+        self.class_field_type(hint, field).ok()
+    }
+
+    /// Lower an object property value, treating zero-argument getters as field values.
+    fn object_property_value_expr(
+        &mut self,
+        property: &oxc::ast::ast::ObjectProperty<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Expression::FunctionExpression(function) = &property.value {
+            if !function.params.items.is_empty() || function.params.rest.is_some() {
+                return Err(SmeltError::unsupported(
+                    self.span(function.span.start, function.span.end),
+                    "object getter functions must not take parameters",
+                ));
+            }
+            let Some(function_body) = &function.body else {
+                return Err(SmeltError::unsupported(
+                    self.span(function.span.start, function.span.end),
+                    "object getter functions must have a body",
+                ));
+            };
+            let [Statement::ReturnStatement(statement)] = function_body.statements.as_slice()
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(function_body.span.start, function_body.span.end),
+                    "object getter functions must contain one return statement",
+                ));
+            };
+            let Some(argument) = &statement.argument else {
+                return Err(SmeltError::unsupported(
+                    self.span(statement.span.start, statement.span.end),
+                    "object getter functions must return a value",
+                ));
+            };
+            return self.expression_with_hint(argument, body, type_hint);
+        }
+        self.expression_with_hint(&property.value, body, type_hint)
+    }
+
     /// Lower an object property key to a dictionary key expression.
     fn object_property_key_expr(
         &mut self,
@@ -756,6 +1012,16 @@ impl ModuleBuilder<'_> {
         let key_text = match &object_property.key {
             PropertyKey::StaticIdentifier(ident) => ident.name.as_str().to_owned(),
             PropertyKey::StringLiteral(lit) => lit.value.to_string(),
+            PropertyKey::NumericLiteral(lit) => lit.raw.as_ref().map_or_else(
+                || {
+                    if lit.value.fract() == 0.0_f64 {
+                        format!("{:.0}", lit.value)
+                    } else {
+                        lit.value.to_string()
+                    }
+                },
+                ToString::to_string,
+            ),
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(

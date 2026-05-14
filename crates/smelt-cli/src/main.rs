@@ -8,10 +8,6 @@
     reason = "CLI command helpers currently use boxed dynamic errors directly"
 )]
 #![expect(
-    clippy::str_to_string,
-    reason = "CLI string conversion style will be normalized separately"
-)]
-#![expect(
     clippy::or_fun_call,
     reason = "manifest default construction is not performance-sensitive"
 )]
@@ -66,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let manifest_path_string = args.manifest_path.unwrap_or("Smelt.toml".to_string());
+    let manifest_path_string = args.manifest_path.unwrap_or("Smelt.toml".to_owned());
     let manifest_path = PathBuf::from(manifest_path_string);
     let config = config_parser::parse(
         manifest_path

@@ -1,11 +1,3 @@
-#![expect(
-    clippy::str_to_string,
-    reason = "example code keeps simple string conversion close to existing style"
-)]
-#![expect(
-    clippy::use_debug,
-    reason = "example intentionally prints the raw Ruff AST without summary mode"
-)]
 //! Parse a Python file with ruff and inspect the raw AST.
 //!
 //! Usage:
@@ -16,6 +8,7 @@
 //! Pass `--summary` to print only the top-level statement count.
 
 use std::{
+    fmt::{self, Debug, Display},
     fs,
     io::{self, Write},
     path::Path,
@@ -32,7 +25,7 @@ fn main() -> Result<(), String> {
     let summary_only = args.contains("--summary");
     let name: String = args
         .free_from_str()
-        .unwrap_or_else(|_| "test.py".to_string());
+        .unwrap_or_else(|_| "test.py".to_owned());
 
     let path = Path::new(&name);
     let source = fs::read_to_string(path)
@@ -50,8 +43,17 @@ fn main() -> Result<(), String> {
         )
         .map_err(|error| error.to_string())?;
     } else {
-        writeln!(stdout, "{module:#?}").map_err(|error| error.to_string())?;
+        writeln!(stdout, "{}", DebugOutput(&module)).map_err(|error| error.to_string())?;
     }
 
     Ok(())
+}
+
+/// Displays a value through its debug formatter without using debug format strings.
+struct DebugOutput<'a, T>(&'a T);
+
+impl<T: Debug> Display for DebugOutput<'_, T> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self.0, formatter)
+    }
 }
