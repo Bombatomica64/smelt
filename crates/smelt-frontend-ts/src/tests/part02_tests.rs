@@ -147,6 +147,26 @@ const positive = Math.abs(value);
 }
 
 #[test]
+fn lowers_math_member_reference_as_callback_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const roundingFn: (value: number) => number = Math.ceil;"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_))),
+        "expected Math.ceil member reference to lower as a closure"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_primitive_conversion_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -131,6 +131,9 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.math_member_expression(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.node_process_static_member(member, body) {
             return Ok(expr);
         }
@@ -195,6 +198,144 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::Field { receiver, field },
             ty,
             span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
+    /// Lower a supported `Math.<fn>` member reference to a first-class closure.
+    ///
+    /// Utility libraries such as Remeda pass `Math.ceil` or `Math.floor` as
+    /// callbacks. The direct-call lowering handles `Math.ceil(value)`, but a
+    /// bare member reference must become a callable value instead of resolving
+    /// `Math` as a normal identifier.
+    fn math_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Math" {
+            return None;
+        }
+        let span = self.span(member.span.start, member.span.end);
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let value_name = self.intern_source_name("value");
+        let mut closure_body = Body::new(None, span);
+        let value_local = closure_body.push_local(LocalDecl {
+            name: Some(value_name),
+            ty: number_ty,
+            mutable: false,
+            span,
+        });
+        closure_body.params.push(value_local);
+        let value_expr = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(value_local),
+            ty: number_ty,
+            span,
+        });
+        let result_kind = match member.property.name.as_str() {
+            "abs" => ExprKind::NumericAbs {
+                operand: value_expr,
+            },
+            "floor" => ExprKind::NumericRound {
+                op: NumericRoundOp::Floor,
+                operand: value_expr,
+            },
+            "ceil" => ExprKind::NumericRound {
+                op: NumericRoundOp::Ceil,
+                operand: value_expr,
+            },
+            "round" => ExprKind::NumericRound {
+                op: NumericRoundOp::Round,
+                operand: value_expr,
+            },
+            "trunc" => ExprKind::NumericRound {
+                op: NumericRoundOp::Trunc,
+                operand: value_expr,
+            },
+            "sqrt" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Sqrt,
+                operand: value_expr,
+            },
+            "cbrt" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Cbrt,
+                operand: value_expr,
+            },
+            "sign" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Sign,
+                operand: value_expr,
+            },
+            "sin" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Sin,
+                operand: value_expr,
+            },
+            "cos" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Cos,
+                operand: value_expr,
+            },
+            "tan" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Tan,
+                operand: value_expr,
+            },
+            "asin" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Asin,
+                operand: value_expr,
+            },
+            "acos" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Acos,
+                operand: value_expr,
+            },
+            "atan" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Atan,
+                operand: value_expr,
+            },
+            "log" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Log,
+                operand: value_expr,
+            },
+            "log10" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Log10,
+                operand: value_expr,
+            },
+            "log2" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Log2,
+                operand: value_expr,
+            },
+            "exp" => ExprKind::NumericUnaryFunc {
+                op: NumericUnaryFuncOp::Exp,
+                operand: value_expr,
+            },
+            _ => return None,
+        };
+        let result = closure_body.push_expr(Expr {
+            kind: result_kind,
+            ty: number_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(result)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![number_ty],
+            return_ty: number_ty,
+            is_async: false,
+        }));
+        Some(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: vec![Param {
+                    name: value_name,
+                    local: value_local,
+                    ty: number_ty,
+                    span,
+                }],
+                return_ty: number_ty,
+                captures: Vec::new(),
+                body: body_id,
+                callback_body: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
         }))
     }
 

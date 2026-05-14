@@ -25,8 +25,47 @@ Deferred TS stress target:
 - Workspace health from the latest required check:
   - `cargo test`: passed.
   - `cargo check`: passed.
-  - `cargo clippy`: passed with warnings only.
+  - `cargo clippy`: passed.
 - External repo checks can be used as signal again.
+
+### External Probe: 2026-05-14 Current Rerun
+
+Re-ran the locally cloned target manifests after block-bodied arrow expression lowering,
+`Number.parseInt(..., radix)`, template-literal argument lowering, and related Remeda fixes.
+
+Primary target results:
+
+| Repo | Manifest | `smelt check` | Generated `cargo test` | Current first blocker |
+|---|---|---:|---:|---|
+| `date-fns/date-fns` | narrow `quartersToMonths` slice | pass | not rerun today; previously pass, 4/4 tests | Green slice remains check-clean. |
+| `date-fns/date-fns` | full sorted `src/**/*.ts(x)` manifest at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml` | fail | n/a | Now reaches `src/locale/en-US/_lib/formatDistance/index.ts`; `.replace(...)` rejects because receiver/pattern/replacement are not all recognized as string-compatible. |
+| `Textualize/rich` | `NullFile` slice | fail | n/a | `rich/_null_file.py`: member/method call still rejected with “only calls to top-level functions, class constructors, and print() are supported”. |
+| `remeda/remeda` | full `packages/remeda/src/**/*.ts`, excluding `.d.ts` | fail | n/a | Now reaches `packages/remeda/src/ceil.ts`: unresolved global `Math` in a function body. This is stdlib/global-resolution work, not test lowering. |
+| `remeda/remeda` | focused `toUpperCase` slice | pass | not built today | The previous focused purry/type-test blockers are cleared for this slice. |
+| `encode/httpx` | status code slice | fail | n/a | `httpx/_status_codes.py`: primitive conversion over enum/class-like value plus class/member call support. |
+
+Additional repo results:
+
+| Repo | Manifest | `smelt check` | Current first blocker |
+|---|---|---:|---|
+| `Effect-TS/effect` | focused numeric slice | fail | `packages/effect/src/Number.ts`: exported `dual(...)` and other non-Math helper constants, unresolved helpers such as `multiply`/`sum`/`subtract`, `Order`, array `reduce` arity, and one unannotated arrow parameter. |
+| `sindresorhus/ky` | full `source` + `test` manifest | panic | Internal panic in `builder_part17.rs`: “local id should point to an existing local”. This must become a normal diagnostic before Ky can be used as signal. |
+| `sindresorhus/ky` | focused `source/index.ts` slice | fail | `source/core/constants.ts`: exported non-primitive const calls/values still only support selected foldable expressions. |
+| `supermacro/neverthrow` | full/focused `result.ts` slice | fail | Forward class references to `Ok`/`Err`, callable local function types, generic interface methods, generic classes, tuple literal/rest/conditional tuple types. |
+| `pallets/click` | `_utils.py` slice | fail | Complex generic base-class expression for `Sentinel`, unresolved `Sentinel`, and runtime-adjacent type alias/name `t`. |
+| `TanStack/query` | focused Angular query slice | fail | `TSSymbolKeyword` type annotations. This supersedes the older missing-return-type note for this manifest. |
+| `psf/requests` | compatibility/hooks slice | fail | Python `try` statements in `compat.py`, member calls, unresolved imported/module names, and built-in type names in runtime-adjacent values. |
+
+Current read:
+
+- Test-framework lowering is not the front wall for these probes.
+- The next useful TypeScript walls are global/std-lib resolution (`Math` as a namespace/global in
+  function bodies), string receiver type compatibility, exported non-primitive const values, and
+  generic classes/advanced tuple type surfaces.
+- The next useful Python walls are general member/method calls, enum/class conversions,
+  context/protocol method calls, and broader import/builtin handling.
+- Ky exposed a correctness issue: unsupported input must not panic. Add a regression once the
+  failing local-id path is isolated.
 
 ### External Probe: 2026-05-12 Alternative TS Targets
 
@@ -371,8 +410,15 @@ TypeScript:
 - [x] Checked `unknown -> T` extraction for TypeScript `as T` / `<T>value`.
 - [x] `Math.trunc`
 - [x] `Math.pow`
+- [ ] Global/namespace `Math` resolution inside all function-body contexts. Remeda now fails in
+      `packages/remeda/src/ceil.ts` on unresolved `Math` even though individual Math operations
+      have mappings.
 - [x] String `.toUpperCase`
 - [x] String `.toLowerCase`
+- [ ] String receiver compatibility through aliases/unions/narrowing for methods such as
+      `.replace(...)`; full date-fns currently fails in
+      `src/locale/en-US/_lib/formatDistance/index.ts` because `.replace(...)` does not see all
+      arguments as string-compatible.
 - [x] `Date` should be rejected clearly unless implemented.
 - [x] `instanceof` for concrete class values.
 - [x] `Infinity`
@@ -412,8 +458,11 @@ TypeScript:
 - [ ] Object spread properties in object literals, required by Ky.
 - [ ] Optional class fields, required by Ky.
 - [ ] `Symbol` and `Object` global constants/helpers, required by Ky.
+- [ ] `symbol` type annotations (`TSSymbolKeyword`), required by the TanStack Query Angular slice.
 - [ ] Callback binary operators and multi-statement callbacks in array/object helper calls, required
       by Ky.
+- [ ] Replace the Ky full-manifest internal panic in `builder_part17.rs` (“local id should point to
+      an existing local”) with a normal diagnostic and regression test.
 - [x] Manifest import cycles should not be rejected by the dependency sorter. Unsupported cycle
       semantics should surface as normal lowering/codegen diagnostics.
 - [ ] Forward class references inside one module, required by Neverthrow's `ok(...)` and `err(...)`
@@ -423,7 +472,9 @@ TypeScript:
 - [ ] Fluent exported helper chains such as `Schema.Struct(...).annotations(...)`.
 - [ ] Class inheritance and mixin/factory extends expressions such as
       `class X extends Schema.TaggedError<X>(...)(...)`.
-- [ ] Block-bodied callbacks with normal statement flow, not only a single `return` statement.
+- [ ] Block-bodied callbacks with normal statement flow in callback-lowering contexts, not only a
+      single `return` statement. Block-bodied arrow expressions used as values now lower, but Ky and
+      Effect still exercise callback-specific statement-flow paths.
 - [ ] Namespace import member resolution against external package stubs, for example
       `Predicate.hasProperty`.
 
@@ -444,6 +495,7 @@ Python:
   - `__enter__`
   - `__exit__`
 - [ ] General member/method calls beyond top-level functions, class constructors, and `print()`.
+- [ ] Enum/class-like primitive conversions, including HTTPX `IntEnum` status code construction.
 - [ ] Complex generic base class expressions such as Click's `Sentinel(...)`.
 - [ ] Type variable names and aliases used at runtime-adjacent positions, such as Click's `t`.
 - [ ] `TYPE_CHECKING` as a recognized type-only constant.
@@ -499,7 +551,7 @@ Compatibility numbers:
 |---|---:|---|
 | TS/TSX files under `src` | `1536` | Raw source corpus size in the latest checkout. |
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
-| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Gets past `src/locale/types.ts`, Node probe files, `.d.ts` ambient declarations, and `en-US/_lib/formatDistance`; current wall is returned inline arrow functions in `src/locale/_lib/buildFormatLongFn/index.ts`. |
+| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Latest 2026-05-14 rerun gets past the returned-inline-arrow wall and now fails in `src/locale/en-US/_lib/formatDistance/index.ts` on string `.replace(...)` receiver/pattern/replacement compatibility. |
 | Full manifest with shared type files forced first `smelt check` | fail | Superseded by the sorted full-manifest rerun above; the locale type-surface blockers are now cleared. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
@@ -514,10 +566,10 @@ Compatibility numbers:
 
 Latest rerun status: the full sorted manifest now gets past the previous `isSaturday` chain,
 `ContextOptions.in`, Date receiver blockers, `src/locale/types.ts`, the `addBusinessDays/basic.ts`
-Node environment probe, ambient `.d.ts` declaration files, and the first locale
-`formatDistance` formatter. The first failing file is now
-`src/locale/_lib/buildFormatLongFn/index.ts`, where `buildFormatLongFn` returns an inline arrow
-function expression typed by the declared `FormatLongFn` return type.
+Node environment probe, ambient `.d.ts` declaration files, returned inline arrow functions in
+`buildFormatLongFn`, and reaches the locale `formatDistance` formatter. The first failing file is
+now `src/locale/en-US/_lib/formatDistance/index.ts`, where a string `.replace(...)` call is rejected
+because the receiver, pattern, or replacement is not recognized as string-compatible.
 
 `src/types.ts`, `src/locale/types.ts`, `src/fp/types.ts`, `src/addBusinessDays/index.ts`,
 `src/_lib/addBusinessDays/basic.ts`, and `src/locale/en-US/_lib/formatDistance/index.ts` pass
@@ -545,14 +597,15 @@ Shared type-file status:
 - [x] Full date-fns gets past `ContextOptions` / `options?.in` / `toDate(...).getDay()`.
 - [x] Full date-fns gets past locale type-surface lowering/rejection strategy for
   `src/locale/types.ts`.
-- [ ] Full date-fns needs closure-as-value lowering for returned inline arrow functions such as
+- [x] Full date-fns gets past closure-as-value lowering for returned inline arrow functions such as
   `buildFormatLongFn(...): FormatLongFn { return (options = {}) => { ... }; }`.
+- [ ] Full date-fns needs string `.replace(...)` compatibility through localized formatter values.
 
 Full manifest first blocker:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
-| `src/locale/_lib/buildFormatLongFn/index.ts` | Returned inline arrow function expression | `expression kind is not lowered yet: ArrowFunctionExpression(...)`. |
+| `src/locale/en-US/_lib/formatDistance/index.ts` | String `.replace(...)` receiver/pattern/replacement compatibility | `string replace requires string-compatible receiver, pattern, and replacement`. |
 
 Optional chaining surface in date-fns:
 
