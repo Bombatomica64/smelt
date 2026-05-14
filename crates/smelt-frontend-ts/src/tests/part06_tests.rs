@@ -230,6 +230,68 @@ console.log(result);
 }
 
 #[test]
+fn lowers_grouped_empty_switch_cases_to_same_arm_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("function label(status: \"a\" | \"aa\" | \"aaa\"): string {
+  switch (status) {
+    case \"a\":
+    case \"aa\":
+      return \"short\";
+    case \"aaa\":
+      return \"long\";
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    let Some(Stmt::Match { arms, .. }) = body
+        .stmts
+        .iter()
+        .find(|stmt| matches!(stmt, Stmt::Match { .. }))
+    else {
+        return Err("expected grouped switch to lower to HIR match".to_owned());
+    };
+    ensure_eq!(arms.len(), 3);
+    ensure_eq!(arms[0].body, arms[1].body);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_empty_case_grouped_with_default_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("function label(status: \"a\" | \"aa\"): string {
+  switch (status) {
+    case \"a\":
+    default:
+      return \"fallback\";
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    let Some(Stmt::Match { arms, default, .. }) = body
+        .stmts
+        .iter()
+        .find(|stmt| matches!(stmt, Stmt::Match { .. }))
+    else {
+        return Err("expected default-grouped switch to lower to HIR match".to_owned());
+    };
+    ensure_eq!(arms.len(), 1);
+    ensure_eq!(Some(arms[0].body), *default);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn rejects_coercive_equality() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(

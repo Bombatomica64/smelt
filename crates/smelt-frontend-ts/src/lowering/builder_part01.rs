@@ -551,13 +551,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
         for param in &function.params.items {
-            let Some(annotation) = &param.type_annotation else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "function parameters must have explicit type annotations",
-                ));
-            };
-            params.push(self.ts_type_to_hir(&annotation.type_annotation)?);
+            params.push(self.function_parameter_type(param)?);
         }
         let rest = if let Some(rest) = &function.params.rest {
             let Some(annotation) = &rest.type_annotation else {
@@ -583,7 +577,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         } else {
             None
         };
-        let return_ty = self.function_return_type_or_overload(function, name_text)?;
+        let return_ty = self
+            .function_return_type_or_overload(function, name_text)
+            .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             return_ty,
@@ -598,20 +594,34 @@ impl<'ctx> ModuleBuilder<'ctx> {
         function: &oxc::ast::ast::Function<'_>,
         name_text: &str,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if let Some(return_ty) =
+            self.function_return_type_annotation_or_overload(function, name_text)?
+        {
+            return Ok(return_ty);
+        }
+        Err(SmeltError::unsupported(
+            self.span(function.span.start, function.span.end),
+            "function declarations must have an explicit return type",
+        ))
+    }
+
+    /// Resolve an optional function return annotation or implementation overload.
+    fn function_return_type_annotation_or_overload(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        name_text: &str,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
         if let Some(return_type) = &function.return_type {
-            return self.ts_type_to_hir(&return_type.type_annotation);
+            return self.ts_type_to_hir(&return_type.type_annotation).map(Some);
         }
         if let Some(signature) = self
             .function_overloads
             .get(name_text)
             .and_then(|signatures| signatures.last())
         {
-            return Ok(signature.return_ty);
+            return Ok(Some(signature.return_ty));
         }
-        Err(SmeltError::unsupported(
-            self.span(function.span.start, function.span.end),
-            "function declarations must have an explicit return type",
-        ))
+        Ok(None)
     }
 
     /// Reserve HIR item slots for hoisted top-level function declarations.
@@ -727,13 +737,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let name = self.intern_source_name(name_text);
         let mut params = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {
-            let Some(annotation) = &param.type_annotation else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "function parameters must have explicit type annotations",
-                ));
-            };
-            let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+            let ty = self.function_parameter_type(param)?;
             let (param_name, span) =
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                     (
@@ -792,7 +796,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span: self.span(binding.span.start, binding.span.end),
             });
         }
-        let return_ty = self.function_return_type_or_overload(function, name_text)?;
+        let return_ty = self
+            .function_return_type_or_overload(function, name_text)
+            .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
         Ok(Function {
             name,
             span: self.span(function.span.start, function.span.end),
@@ -1217,7 +1223,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "exported object namespace constants do not support spread properties yet",
                 ));
             };
-            if object_property.computed || object_property.method {
+            if object_property.computed {
                 return Err(SmeltError::unsupported(
                     self.span(object_property.span.start, object_property.span.end),
                     "exported object namespace constants require static data properties",
@@ -1236,6 +1242,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ));
                 }
             };
+            if object_property.method {
+                let item = self.object_namespace_method_item(
+                    name_text,
+                    &key_text,
+                    object_property,
+                )?;
+                members.insert(key_text, item);
+                continue;
+            }
             let Expression::Identifier(value_ident) = &object_property.value else {
                 return Ok(false);
             };
@@ -1251,6 +1266,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .object_namespaces
             .insert(name_text.to_owned(), members);
         Ok(true)
+    }
+
+    /// Lower one object-method member from an exported namespace object.
+    ///
+    /// Date-fns uses objects such as `lightFormatters` as plain function tables:
+    /// each member is written with object method syntax and later called through
+    /// `lightFormatters.y(...)`. Smelt models those members as private module
+    /// functions and records the function item in namespace metadata.
+    fn object_namespace_method_item(
+        &mut self,
+        namespace: &str,
+        key: &str,
+        property: &oxc::ast::ast::ObjectProperty<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let Expression::FunctionExpression(function) = &property.value else {
+            return Err(SmeltError::unsupported(
+                self.span(property.span.start, property.span.end),
+                "object namespace methods must lower from function expressions",
+            ));
+        };
+        let name_text = format!("{namespace}_{key}");
+        self.function_expression_item(&name_text, function)
     }
 
     /// Lower an exported static object constant into importable const metadata.

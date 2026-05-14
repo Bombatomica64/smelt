@@ -1210,6 +1210,18 @@ impl ModuleBuilder<'_> {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
                 self.collect_expression_capture_names(&member.expression, param_names, captures);
             }
+            Expression::TSAsExpression(as_expr) => {
+                self.collect_expression_capture_names(&as_expr.expression, param_names, captures);
+            }
+            Expression::TSTypeAssertion(assertion) => {
+                self.collect_expression_capture_names(&assertion.expression, param_names, captures);
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.collect_expression_capture_names(&satisfies.expression, param_names, captures);
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.collect_expression_capture_names(&non_null.expression, param_names, captures);
+            }
             Expression::ChainExpression(chain) => match &chain.expression {
                 ChainElement::CallExpression(call) => {
                     self.collect_expression_capture_names(&call.callee, param_names, captures);

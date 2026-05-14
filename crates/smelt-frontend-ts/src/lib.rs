@@ -55,7 +55,8 @@ mod context;
 mod error;
 mod ident;
 mod lowering;
-mod test_support;
+#[doc(hidden)]
+pub mod test_support;
 
 pub use context::{HirCtx, ObjectConst, ObjectConstEntry, OverloadSignature};
 pub use error::SmeltError;

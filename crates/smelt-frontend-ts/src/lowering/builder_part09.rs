@@ -295,6 +295,15 @@ impl ModuleBuilder<'_> {
                     span: self.span(lit.span.start, lit.span.end),
                 }))
             }
+            Argument::RegExpLiteral(literal) => {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                let value = Self::regex_literal_pattern_text(literal);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(value)),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }))
+            }
             Argument::Identifier(ident) => self.identifier_expression(
                 ident.name.as_str(),
                 ident.span.start,

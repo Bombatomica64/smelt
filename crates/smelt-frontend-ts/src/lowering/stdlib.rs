@@ -36,8 +36,19 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        if let Some(target_ty) = self.object_assign_callable_target_type(target_arg, body) {
+        if self.object_assign_callable_target_candidate(target_arg, body) {
             let target = self.argument(target_arg, body)?;
+            let target_ty = Self::expr_ty(body, target);
+            let resolved = self.type_param_constraint_or_self(target_ty);
+            if !matches!(
+                self.ctx.krate.types.get(resolved),
+                Some(Type::Function(_) | Type::Class { .. })
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(target_arg.span().start, target_arg.span().end),
+                    "Object.assign callable target must lower to a function or class value",
+                ));
+            }
             let props = self.object_assign_callable_props(source_args, body)?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::CallableObjectAssign {
@@ -94,26 +105,27 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Return the existing callable target type for supported `Object.assign` targets.
-    fn object_assign_callable_target_type(
+    /// Return whether an `Object.assign` target should use callable decoration lowering.
+    fn object_assign_callable_target_candidate(
         &self,
         target_arg: &Argument<'_>,
         body: &Body,
-    ) -> Option<smelt_hir::TypeId> {
-        let Argument::Identifier(ident) = target_arg else {
-            return None;
-        };
-        if let Some(local) = self.locals.get(ident.name.as_str()).copied() {
-            let ty = Self::local_ty(body, local);
-            let resolved = self.type_param_constraint_or_self(ty);
-            if matches!(
-                self.ctx.krate.types.get(resolved),
-                Some(Type::Function(_) | Type::Class { .. })
-            ) {
-                return Some(ty);
+    ) -> bool {
+        match target_arg {
+            Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_) => true,
+            Argument::Identifier(ident) => {
+                if let Some(local) = self.locals.get(ident.name.as_str()).copied() {
+                    let ty = Self::local_ty(body, local);
+                    let resolved = self.type_param_constraint_or_self(ty);
+                    return matches!(
+                        self.ctx.krate.types.get(resolved),
+                        Some(Type::Function(_) | Type::Class { .. })
+                    );
+                }
+                false
             }
+            _ => false,
         }
-        None
     }
 
     /// Lower static object-literal sources used to decorate callable values.

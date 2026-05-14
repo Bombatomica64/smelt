@@ -326,6 +326,27 @@ const assigned = Object.assign(fnValue, { lazy: fnValue });
 }
 
 #[test]
+fn lowers_object_assign_call_on_inline_callable_target() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const assigned = Object.assign(
+  (value: number): number => value,
+  { flush: (): number => 1 },
+);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::CallableObjectAssign { ref props, .. } if props.len() == 1)
+    ));
+    Ok(())
+}
+
+#[test]
 fn lowers_function_length_to_static_arity() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -535,6 +556,198 @@ export type LazyDefinition = {
             .iter()
             .any(|ty| matches!(ty, Type::Function(function) if function.params.len() == 1))
     );
+    Ok(())
+}
+
+#[test]
+fn keeps_callable_alias_intersections_callable_after_reference() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LazyEvaluator<T = unknown, R = T> = (
+  item: T,
+  index: number,
+  data: readonly T[],
+) => R;
+
+type PreparedLazyFunction<T> = LazyEvaluator<T> & {
+  index: number;
+  items: T[];
+};
+
+function processItem(lazyFn: PreparedLazyFunction<number>): number {
+  const { index, items } = lazyFn;
+  return lazyFn(1, index, items);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "expected callable intersection alias references to lower as closure calls",
+    );
+    Ok(())
+}
+
+#[test]
+fn narrows_typeof_function_out_of_callable_tuple_union() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const labels = { asc: true, desc: false } as const;
+
+type Projection<T> = (value: T) => string;
+type OrderRule<T> =
+  | Projection<T>
+  | readonly [projection: Projection<T>, direction: keyof typeof labels];
+
+function projector<T>(primaryRule: OrderRule<T>): Projection<T> {
+  return typeof primaryRule === "function" ? primaryRule : primaryRule[0];
+}
+
+function direction<T>(primaryRule: OrderRule<T>): string {
+  return "function" !== typeof primaryRule ? primaryRule[1] : "asc";
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_module_symbol_const_used_by_arrow_closure() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const Marker = Symbol("marker");
+const read = <T>(): T => Marker as T;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn captures_type_assertion_wrapped_closure_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function read(value: unknown): () => string {
+  const local = "value";
+  return () => local as string;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_function_local_arrow_forward_references() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function run(): void {
+  const first = (): void => {
+    second();
+  };
+  const second = (): void => {};
+  first();
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nullish_assignment_on_optional_locals() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function read(value: number | undefined): number | undefined {
+  const now = 1;
+  value ??= now;
+  return value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn destructures_fields_from_union_intersection_aliases() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Timing =
+  | ({ readonly triggerAt?: "end" } & (
+      | { readonly minGapMs: number }
+      | {
+          readonly minQuietPeriodMs?: number;
+          readonly maxBurstDurationMs?: number;
+          readonly minGapMs?: never;
+        }
+    ))
+  | {
+      readonly triggerAt: "start" | "both";
+      readonly minQuietPeriodMs?: number;
+      readonly maxBurstDurationMs?: number;
+      readonly minGapMs?: number;
+    };
+
+type Options<R> = {
+  readonly reducer?: (accumulator: R | undefined) => R;
+} & Timing;
+
+export function read<R>({ minQuietPeriodMs }: Options<R>): number {
+  return minQuietPeriodMs ?? 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn infers_function_parameter_types_from_defaults() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function delay(wait = 0): number {
+  return wait + 1;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -762,6 +975,65 @@ function merge(options?: Options): Record<string, number> {
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_conditional_object_spread_sources() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function merge(maxWait: number | undefined): Record<string, number> {
+  return {
+    minQuietPeriodMs: 0,
+    ...(maxWait !== undefined && { maxBurstDurationMs: maxWait }),
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function) => Some(function),
+            _ => None,
+        })
+        .ok_or_else(|| "missing lowered function".to_owned())?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "expected conditional object spread source to lower as a conditional record",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_ternary_object_spread_sources_with_record_context() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function merge(trailing: boolean, leading: boolean): Record<string, string> {
+  return {
+    mode: "wait",
+    ...(trailing
+      ? leading
+        ? { triggerAt: "both" }
+        : { triggerAt: "end" }
+      : { triggerAt: "start" }),
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

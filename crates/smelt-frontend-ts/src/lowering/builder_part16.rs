@@ -260,6 +260,14 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let mut value_tys = Vec::new();
+        for member in &literal.members {
+            if let TSSignature::TSIndexSignature(index) = member {
+                let value_ty = self.ts_type_to_hir(&index.type_annotation.type_annotation)?;
+                if !value_tys.contains(&value_ty) {
+                    value_tys.push(value_ty);
+                }
+            }
+        }
         for field in self.type_literal_fields(literal)? {
             let value_ty = if field.optional {
                 self.ctx.krate.types.intern(Type::Optional(field.ty))
@@ -1025,11 +1033,24 @@ impl ModuleBuilder<'_> {
                         self.ctx.krate.types.get(alias.ty),
                         Some(Type::Union(_))
                     );
+                    let substituted_alias_ty = self.substitute_type_params(alias.ty, &substitutions);
                     if !alias_is_union
-                        && self
+                        && let Some(function_ty) = self.function_member_type(substituted_alias_ty)
+                    {
+                        if let Some(fields) = self.type_alias_fields.get(&symbol).cloned()
+                            && !fields.is_empty()
+                        {
+                            let fields = self.substituted_fields(&fields, &substitutions);
+                            self.callable_fields.insert(function_ty, fields.clone());
+                            self.ctx.callable_fields.insert(function_ty, fields);
+                        }
+                        return Ok(function_ty);
+                    }
+                    if self
                         .type_alias_fields
                         .get(&symbol)
                         .is_some_and(|fields| !fields.is_empty())
+                        && self.function_member_type(substituted_alias_ty).is_none()
                     {
                         let instantiated_args = alias
                             .type_params
@@ -1047,7 +1068,7 @@ impl ModuleBuilder<'_> {
                             args: instantiated_args,
                         }));
                     }
-                    return Ok(self.substitute_type_params(alias.ty, &substitutions));
+                    return Ok(substituted_alias_ty);
                 }
                 let lowered_args = args
                     .iter()

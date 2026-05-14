@@ -197,6 +197,24 @@ const asBool = Boolean("");
 }
 
 #[test]
+fn lowers_string_conversion_from_numeric_literal_union() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Day = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+
+function label(day: Day): string {
+  return String(day);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_number_to_string_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -1213,6 +1231,135 @@ export const formatLong: FormatLong = {
 }
 
 #[test]
+fn lowers_exported_object_namespace_method_members() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const lightFormatters = {
+  y(date: Date, token: string): string {
+    return token + String(date.getFullYear());
+  },
+};
+
+function read(date: Date): string {
+  return lightFormatters.y(date, "y");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_function_valued_object_properties_with_contextual_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Formatter = (date: Date, token: string) => string;
+
+export const formatters: { [token: string]: Formatter } = {
+  y: function (date, token) {
+    return token + String(date.getFullYear());
+  },
+};
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unary_plus_inside_function_valued_object_property() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Formatter = (date: Date, token: string) => number;
+
+export const formatters: { [token: string]: Formatter } = {
+  t: function (date, token) {
+    return +date;
+  },
+};
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_regex_literal_call_arguments() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function parts(pattern: string): string[] | null {
+  return pattern.match(/(P+)(p+)?/);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn infers_function_declaration_return_type_from_final_return() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function getRoundingMethod(method: "ceil" | "floor" | "round" | "trunc" | undefined) {
+  return (number: number) => {
+    const result = number;
+    return result === 0 ? 0 : result;
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+
+    ensure!(
+        !matches!(ctx.krate.types.get(function.return_ty), Some(Type::None)),
+        "expected final return expression to provide the function return type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_dynamic_math_rounding_member_reference() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function roundWith(method: "ceil" | "floor" | "round" | "trunc", value: number): number {
+  const round = Math[method];
+  return round(value);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Closure(_))),
+        "expected Math[method] to lower as a captured closure"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_optional_string_logical_or_as_value_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -1231,6 +1378,92 @@ function width(args: Args): string {
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nullish_coalescing_with_structural_object_fallback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Locale {
+  code: string;
+}
+interface Options {
+  locale?: Locale;
+}
+
+const defaultLocale = { code: "en-US" };
+
+function locale(options?: Options): Locale {
+  return options?.locale ?? defaultLocale;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 2)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::TypeAssert { .. })),
+        "expected concrete object fallback to be asserted to the optional object surface"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nullish_coalescing_when_fallback_matches_union_member() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Delay = number | (() => void) | undefined;
+
+function delay(value: Delay): number | (() => void) {
+  return value ?? 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
+        "expected union-member fallback to lower as nullish coalescing"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_numeric_logical_or_as_value_fallback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function localDay(day: number, weekStartsOn: number): string {
+  const localDayOfWeek = (day - weekStartsOn + 8) % 7 || 7;
+  return String(localDayOfWeek);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

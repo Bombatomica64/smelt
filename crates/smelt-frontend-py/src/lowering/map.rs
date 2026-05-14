@@ -261,6 +261,10 @@ impl ModuleBuilder<'_> {
                 span,
                 format!("asyncio.{} is not lowered yet", attr.attr),
             )),
+            _ => Err(SmeltError::unsupported(
+                span,
+                format!("asyncio.{} is not recognized by this frontend", attr.attr),
+            )),
         }
     }
 

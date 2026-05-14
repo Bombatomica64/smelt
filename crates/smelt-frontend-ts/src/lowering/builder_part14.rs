@@ -492,6 +492,11 @@ impl ModuleBuilder<'_> {
         let optional = self.expression(&logical.left, body)?;
         let optional_ty = Self::expr_ty(body, optional);
         if !self.is_nullishable_type(optional_ty) {
+            if let Some(expr) =
+                self.logical_or_numeric_fallback_expression(logical, body, optional, optional_ty)?
+            {
+                return Ok(Some(expr));
+            }
             return Ok(None);
         }
         let Some(ty) = self.non_nullish_type(optional_ty) else {
@@ -517,6 +522,51 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower numeric JavaScript `left || right` value fallback expressions.
+    ///
+    /// Date-fns uses `numeric % 7 || 7` to replace zero with a default value.
+    /// Lowering this as boolean `||` loses the numeric result type, so Smelt
+    /// models the expression as `left != 0 ? left : right` for numeric operands.
+    fn logical_or_numeric_fallback_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+        value: smelt_hir::ExprId,
+        value_ty: smelt_hir::TypeId,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !self.is_numeric_like_type(value_ty) {
+            return Ok(None);
+        }
+        let fallback = self.expression_with_hint(&logical.right, body, Some(value_ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        if !self.numeric_type_compatible(value_ty, fallback_ty) {
+            return Ok(None);
+        }
+        let zero = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(0.0)),
+            ty: self.ctx.krate.types.intern(Type::Float),
+            span: self.span(logical.span.start, logical.span.end),
+        });
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: value,
+                rhs: zero,
+            },
+            ty: self.ctx.krate.types.intern(Type::Bool),
+            span: self.span(logical.span.start, logical.span.end),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: value,
+                else_expr: fallback,
+            },
+            ty: value_ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
     /// Lower TypeScript nullish coalescing while preserving falsey values.
     fn nullish_coalesce_expression(
         &mut self,
@@ -533,7 +583,7 @@ impl ModuleBuilder<'_> {
             }
             return Ok(optional);
         };
-        let fallback = self.expression_with_hint(&logical.right, body, Some(ty))?;
+        let mut fallback = self.expression_with_hint(&logical.right, body, Some(ty))?;
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty {
             ty
@@ -549,6 +599,15 @@ impl ModuleBuilder<'_> {
             && fallback_inner == ty
         {
             self.ctx.krate.types.intern(Type::Optional(ty))
+        } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
+            && self.nullish_fallback_types_are_structurally_compatible(ty, fallback_inner)
+        {
+            fallback = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: fallback },
+                ty: self.ctx.krate.types.intern(Type::Optional(ty)),
+                span: self.span(logical.right.span().start, logical.right.span().end),
+            });
+            self.ctx.krate.types.intern(Type::Optional(ty))
         } else if matches!(self.ctx.krate.types.get(ty), Some(Type::TypeParam { .. }))
             && matches!(
                 self.ctx.krate.types.get(fallback_ty),
@@ -562,6 +621,15 @@ impl ModuleBuilder<'_> {
         ) || self.allow_unknown_index_access
         {
             fallback_ty
+        } else if self.nullish_fallback_matches_union_member(ty, fallback_ty) {
+            ty
+        } else if self.nullish_fallback_types_are_structurally_compatible(ty, fallback_ty) {
+            fallback = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: fallback },
+                ty,
+                span: self.span(logical.right.span().start, logical.right.span().end),
+            });
+            ty
         } else if let Some(hint) = type_hint
             && !self.concrete_type_requires_never_value(hint)
         {
@@ -577,6 +645,54 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(logical.span.start, logical.span.end),
         }))
+    }
+
+    /// Return whether a `??` fallback is covered by one member of the non-null union.
+    fn nullish_fallback_matches_union_member(
+        &self,
+        non_nullish_ty: smelt_hir::TypeId,
+        fallback_ty: smelt_hir::TypeId,
+    ) -> bool {
+        let Some(Type::Union(items)) = self.ctx.krate.types.get(non_nullish_ty) else {
+            return false;
+        };
+        items
+            .iter()
+            .copied()
+            .any(|item| item == fallback_ty || self.numeric_type_compatible(item, fallback_ty))
+    }
+
+    /// Return whether `??` may treat the fallback as the optional side's object surface.
+    ///
+    /// TypeScript uses structural object compatibility, so date-fns can coalesce
+    /// an optional `Locale` interface with a concrete exported locale object.
+    /// Smelt keeps the optional side's type and inserts a typed assertion around
+    /// the fallback expression when both sides are object-like surfaces.
+    fn nullish_fallback_types_are_structurally_compatible(
+        &mut self,
+        optional_inner: smelt_hir::TypeId,
+        fallback_ty: smelt_hir::TypeId,
+    ) -> bool {
+        let fallback_ty = self
+            .non_nullish_type(fallback_ty)
+            .unwrap_or(fallback_ty);
+        self.is_structural_object_surface(optional_inner)
+            && self.is_structural_object_surface(fallback_ty)
+    }
+
+    /// Return whether a type behaves as a structural object surface.
+    fn is_structural_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Class { .. } | Type::Dict(_, _) | Type::TypeParam { .. } | Type::Unknown) => {
+                true
+            }
+            Some(Type::Optional(item)) => self.is_structural_object_surface(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.is_structural_object_surface(item)),
+            _ => false,
+        }
     }
 
     /// Return the type left after removing TypeScript nullish values.
@@ -621,6 +737,28 @@ impl ModuleBuilder<'_> {
         let op = match unary.operator {
             UnaryOperator::LogicalNot => UnaryOp::Not,
             UnaryOperator::UnaryNegation => UnaryOp::Neg,
+            UnaryOperator::UnaryPlus => {
+                let operand = self.expression(&unary.argument, body)?;
+                let operand_ty = Self::expr_ty(body, operand);
+                if self.is_numeric_like_type(operand_ty) {
+                    return Ok(operand);
+                }
+                if self.is_date_constructor_arg_type(operand_ty) {
+                    let ty = self.ctx.krate.types.intern(Type::Float);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::PrimitiveCast {
+                            op: PrimitiveCastOp::ToFloat,
+                            operand,
+                        },
+                        ty,
+                        span: self.span(unary.span.start, unary.span.end),
+                    }));
+                }
+                return Err(SmeltError::unsupported(
+                    self.span(unary.span.start, unary.span.end),
+                    "unary plus requires a numeric or DateArg-compatible operand",
+                ));
+            }
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(unary.span.start, unary.span.end),
@@ -678,7 +816,7 @@ impl ModuleBuilder<'_> {
         }
         let mut items = Vec::new();
         let tuple_hints = type_hint.and_then(|hint| match self.ctx.krate.types.get(hint) {
-            Some(Type::Tuple(items)) => Some(items.clone()),
+            Some(Type::Tuple(tuple_items)) => Some(tuple_items.clone()),
             _ => None,
         });
         for (index, element) in array.elements.iter().enumerate() {
@@ -941,7 +1079,22 @@ impl ModuleBuilder<'_> {
                         body,
                         object.span,
                     );
-                    let source = self.expression(&spread.argument, body)?;
+                    if let Some(source) = self.conditional_object_spread_source(
+                        &spread.argument,
+                        record_ty,
+                        body,
+                        spread.span,
+                    )? {
+                        let source_ty = Self::expr_ty(body, source);
+                        if record_ty.is_none()
+                            && matches!(self.ctx.krate.types.get(source_ty), Some(Type::Dict(_, _)))
+                        {
+                            record_ty = Some(source_ty);
+                        }
+                        sources.push(source);
+                        continue;
+                    }
+                    let source = self.expression_with_hint(&spread.argument, body, record_ty)?;
                     let source_ty = Self::expr_ty(body, source);
                     self.accept_object_spread_source(source_ty, record_ty, spread.span)?;
                     if record_ty.is_none()
@@ -977,6 +1130,74 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower `...(condition && { ... })` object spread sources to conditional records.
+    ///
+    /// JavaScript object spread treats falsey primitives as empty sources. The
+    /// HIR spread operation expects object-like sources, so this helper keeps the
+    /// object branch typed as a record and supplies an empty record for the
+    /// false branch instead of exposing the boolean result of `&&`.
+    fn conditional_object_spread_source(
+        &mut self,
+        argument: &Expression<'_>,
+        record_ty: Option<smelt_hir::TypeId>,
+        body: &mut Body,
+        span: oxc::span::Span,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let argument = Self::object_spread_condition_source(argument);
+        let Expression::LogicalExpression(logical) = argument else {
+            return Ok(None);
+        };
+        if logical.operator != LogicalOperator::And
+            || !matches!(&logical.right, Expression::ObjectExpression(_))
+        {
+            return Ok(None);
+        }
+        let cond = self.expression(&logical.left, body)?;
+        let rhs_narrowing = self.guard_narrowing(&logical.left, body);
+        if let Some(narrowing) = rhs_narrowing.clone() {
+            self.narrowed_locals.push(narrowing);
+        }
+        let then_expr = self.expression_with_hint(&logical.right, body, record_ty)?;
+        if rhs_narrowing.is_some() {
+            self.narrowed_locals.pop();
+        }
+        let source_ty = Self::expr_ty(body, then_expr);
+        self.accept_object_spread_source(source_ty, record_ty, span)?;
+        let else_expr = body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty: source_ty,
+            span: self.span(span.start, span.start),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            },
+            ty: source_ty,
+            span: self.span(span.start, span.end),
+        })))
+    }
+
+    /// Strip transparent wrappers around an object-spread source condition.
+    fn object_spread_condition_source<'a>(argument: &'a Expression<'a>) -> &'a Expression<'a> {
+        match argument {
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::object_spread_condition_source(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::object_spread_condition_source(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::object_spread_condition_source(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::object_spread_condition_source(&non_null.expression)
+            }
+            _ => argument,
+        }
+    }
+
     /// Resolve a contextual field type for an object-literal property value.
     fn object_property_value_hint(
         &mut self,
@@ -1002,10 +1223,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if let Expression::FunctionExpression(function) = &property.value {
             if !function.params.items.is_empty() || function.params.rest.is_some() {
-                return Err(SmeltError::unsupported(
-                    self.span(function.span.start, function.span.end),
-                    "object getter functions must not take parameters",
-                ));
+                return self.function_expression_value(function, type_hint, property.span, body);
             }
             let Some(function_body) = &function.body else {
                 return Err(SmeltError::unsupported(
@@ -1029,6 +1247,144 @@ impl ModuleBuilder<'_> {
             return self.expression_with_hint(argument, body, type_hint);
         }
         self.expression_with_hint(&property.value, body, type_hint)
+    }
+
+    /// Lower a function-valued object property into a closure expression.
+    ///
+    /// Object tables such as date-fns `formatters` use `key: function (...) {}`
+    /// entries. Contextual object types provide the function parameter and
+    /// return types when the function expression omits annotations.
+    fn function_expression_value(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        span: oxc::span::Span,
+        outer_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(function_body) = &function.body else {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "function expressions must have a body",
+            ));
+        };
+        let hint_function = type_hint.and_then(|ty| {
+            let ty = self.type_param_constraint_or_self(ty);
+            match self.ctx.krate.types.get(ty) {
+                Some(Type::Function(function_ty)) => Some((ty, function_ty.clone())),
+                _ => None,
+            }
+        });
+        let return_ty = if let Some(return_type) = &function.return_type {
+            self.ts_type_to_hir(&return_type.type_annotation)?
+        } else if let Some((_, function_ty)) = &hint_function {
+            function_ty.return_ty
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "function expressions without return annotations need a function type hint",
+            ));
+        };
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_async = self.current_async;
+        let saved_return_ty = self.current_return_ty;
+        self.current_async = function.r#async;
+        self.current_return_ty = Some(return_ty);
+        let mut body = Body::new(
+            None,
+            self.span(function_body.span.start, function_body.span.end),
+        );
+        let mut params = Vec::new();
+        let mut errors = Vec::new();
+        for (index, param) in function.params.items.iter().enumerate() {
+            let result = (|| {
+                let ty = if let Some(annotation) = &param.type_annotation {
+                    self.ts_type_to_hir(&annotation.type_annotation)?
+                } else if let Some((_, function_ty)) = &hint_function {
+                    function_ty.params.get(index).copied().ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(param.span.start, param.span.end),
+                            "function expression has more parameters than its type hint",
+                        )
+                    })?
+                } else {
+                    return Err(SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "function expression parameters need annotations or a function type hint",
+                    ));
+                };
+                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                    return Err(SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "function expression parameters must be identifiers",
+                    ));
+                };
+                let param_name = self.intern_source_name(binding.name.as_str());
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                body.params.push(local);
+                self.locals.insert(binding.name.to_string(), local);
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                Ok(())
+            })();
+            if let Err(error) = result {
+                errors.push(error);
+                break;
+            }
+        }
+        if function.params.rest.is_some() {
+            errors.push(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "function expression rest parameters are not lowered in object values yet",
+            ));
+        }
+        for statement in &function_body.statements {
+            if let Err(error) = self.statement(statement, &mut body) {
+                errors.push(error);
+            }
+        }
+        if function.r#async {
+            body.build_async_state_machine();
+        }
+        self.locals = saved_locals;
+        self.current_async = saved_async;
+        self.current_return_ty = saved_return_ty;
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+
+        let body_id = self.ctx.krate.push_body(body);
+        let function_ty = hint_function.map_or_else(
+            || {
+                self.ctx.krate.types.intern(Type::Function(FunctionType {
+                    params: params.iter().map(|param| param.ty).collect(),
+                    return_ty,
+                    is_async: function.r#async,
+                }))
+            },
+            |(ty, _)| ty,
+        );
+        Ok(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params,
+                return_ty,
+                captures: Vec::new(),
+                body: body_id,
+                callback_body: None,
+                span: self.span(function.span.start, function.span.end),
+            }),
+            ty: function_ty,
+            span: self.span(span.start, span.end),
+        }))
     }
 
     /// Lower an object property key to a dictionary key expression.
@@ -1143,13 +1499,36 @@ impl ModuleBuilder<'_> {
 
     /// Validate a source expression used by an object spread property.
     fn accept_object_spread_source(
-        &self,
+        &mut self,
         source_ty: smelt_hir::TypeId,
         record_ty: Option<smelt_hir::TypeId>,
         span: oxc::span::Span,
     ) -> Result<(), SmeltError> {
         match self.ctx.krate.types.get(source_ty) {
             Some(Type::Dict(_, _)) if record_ty.is_none() || record_ty == Some(source_ty) => Ok(()),
+            Some(Type::Dict(source_key, source_value)) => {
+                let Some(record_ty) = record_ty else {
+                    return Ok(());
+                };
+                let Some(Type::Dict(record_key, record_value)) = self.ctx.krate.types.get(record_ty).cloned()
+                else {
+                    return Ok(());
+                };
+                if self.map_key_type_compatible(record_key, *source_key)
+                    && (record_value == *source_value
+                        || self.numeric_type_compatible(record_value, *source_value)
+                        || self
+                            .non_nullish_type(*source_value)
+                            .is_some_and(|inner| self.numeric_type_compatible(record_value, inner)))
+                {
+                    Ok(())
+                } else {
+                    Err(SmeltError::unsupported(
+                        self.span(span.start, span.end),
+                        "object spread sources must be record, generic object, or unknown values",
+                    ))
+                }
+            }
             Some(Type::Optional(inner)) => {
                 self.accept_object_spread_source(*inner, record_ty, span)
             }

@@ -51,8 +51,11 @@ use cli_parser::{Args, Command};
 use config::Config;
 use lowering::SourceLang;
 
+/// Result type used by CLI command handlers.
+type CliResult<T> = Result<T, Box<dyn std::error::Error>>;
+
 /// Main CLI entry point.
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> CliResult<()> {
     let args = Args::parse();
 
     if matches!(args.command, Command::DumpSchema) {
@@ -62,7 +65,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    let manifest_path_string = args.manifest_path.unwrap_or("Smelt.toml".to_owned());
+    let manifest_path_string = args
+        .manifest_path
+        .unwrap_or_else(|| "Smelt.toml".to_owned());
     let manifest_path = PathBuf::from(manifest_path_string);
     let config = config_parser::parse(
         manifest_path

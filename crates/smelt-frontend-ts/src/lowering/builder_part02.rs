@@ -37,6 +37,7 @@ impl ModuleBuilder<'_> {
         }
 
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         self.current_async = arrow.r#async;
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
@@ -51,6 +52,7 @@ impl ModuleBuilder<'_> {
                 Ok(value) => value,
                 Err(error) => {
                     self.locals = saved_locals;
+                    self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.pop_type_parameter_scope();
                     return Err(error);
@@ -62,6 +64,7 @@ impl ModuleBuilder<'_> {
                     .and_then(|function| function.params.get(params.len()).copied())
             }) else {
                 self.locals = saved_locals;
+                self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
@@ -117,6 +120,7 @@ impl ModuleBuilder<'_> {
         let rest = if let Some(rest) = &arrow.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.locals = saved_locals;
+                self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
@@ -126,6 +130,7 @@ impl ModuleBuilder<'_> {
             };
             let Some(annotation) = &rest.type_annotation else {
                 self.locals = saved_locals;
+                self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
@@ -137,6 +142,7 @@ impl ModuleBuilder<'_> {
                 Ok(ty) => self.type_param_constraint_or_self(ty),
                 Err(error) => {
                     self.locals = saved_locals;
+                    self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.pop_type_parameter_scope();
                     return Err(error);
@@ -146,6 +152,7 @@ impl ModuleBuilder<'_> {
                 *item_ty
             } else {
                 self.locals = saved_locals;
+                self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
@@ -209,6 +216,7 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
         self.locals = saved_locals;
+        self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         if let Some(error) = errors.into_iter().next() {
             self.pop_type_parameter_scope();
@@ -429,10 +437,22 @@ impl ModuleBuilder<'_> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
     ) -> Result<ConstLiteral, SmeltError> {
+        if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol") {
+            if call.arguments.len() > 1 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Symbol(...) supports at most one description argument",
+                ));
+            }
+            return Ok(ConstLiteral {
+                literal: Literal::String("symbol".to_owned()),
+                ty: self.ctx.krate.types.intern(Type::String),
+            });
+        }
         let Some(op) = stdlib_dispatch::pure_math_call(call) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "exported const call expressions currently support only selected Math calls",
+                "exported const call expressions currently support only Symbol and selected Math calls",
             ));
         };
         let args = call

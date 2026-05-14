@@ -718,33 +718,12 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
-        let Expression::BinaryExpression(binary) = expression else {
-            return None;
-        };
-        if !matches!(
-            binary.operator,
-            BinaryOperator::StrictEquality | BinaryOperator::Equality
-        ) {
-            return None;
+        let (name, kind, matches_kind) = Self::typeof_comparison(expression)?;
+        if matches_kind {
+            self.typeof_excluded_type(&name, &kind, body)
+        } else {
+            self.typeof_matched_type(&name, &kind, body)
         }
-        let Expression::UnaryExpression(unary) = &binary.left else {
-            return None;
-        };
-        if unary.operator != UnaryOperator::Typeof {
-            return None;
-        }
-        let Expression::Identifier(identifier) = &unary.argument else {
-            return None;
-        };
-        let Expression::StringLiteral(kind) = &binary.right else {
-            return None;
-        };
-        let local = self.locals.get(identifier.name.as_str()).copied()?;
-        let local_ty = self
-            .narrowed_type(identifier.name.as_str())
-            .unwrap_or_else(|| Self::local_ty(body, local));
-        let remaining = self.remove_typeof_member(local_ty, kind.value.as_str())?;
-        Some((identifier.name.to_string(), remaining))
     }
 
     /// Return a type with members matching a `typeof` kind removed.
@@ -896,16 +875,42 @@ impl ModuleBuilder<'_> {
         expression: &Expression<'_>,
         body: &Body,
     ) -> Option<(String, smelt_hir::TypeId)> {
+        let (name, kind, matches_kind) = Self::typeof_comparison(expression)?;
+        if matches_kind {
+            self.typeof_matched_type(&name, &kind, body)
+        } else {
+            self.typeof_excluded_type(&name, &kind, body)
+        }
+    }
+
+    /// Return a normalized local `typeof` comparison.
+    ///
+    /// JavaScript code commonly writes both `typeof value === "kind"` and
+    /// `"kind" !== typeof value`; the boolean indicates whether the expression
+    /// proves that the local matches the `typeof` kind.
+    fn typeof_comparison(expression: &Expression<'_>) -> Option<(String, String, bool)> {
         let Expression::BinaryExpression(binary) = expression else {
             return None;
         };
-        if !matches!(
-            binary.operator,
-            BinaryOperator::StrictEquality | BinaryOperator::Equality
-        ) {
-            return None;
+        let matches_kind = match binary.operator {
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => true,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => false,
+            _ => return None,
+        };
+        let left = Self::typeof_identifier_name(&binary.left);
+        let right = Self::typeof_identifier_name(&binary.right);
+        match (left, &binary.right, right, &binary.left) {
+            (Some(name), Expression::StringLiteral(kind), _, _)
+            | (_, _, Some(name), Expression::StringLiteral(kind)) => {
+                Some((name, kind.value.to_string(), matches_kind))
+            }
+            _ => None,
         }
-        let Expression::UnaryExpression(unary) = &binary.left else {
+    }
+
+    /// Return the identifier operand of a `typeof name` expression.
+    fn typeof_identifier_name(expression: &Expression<'_>) -> Option<String> {
+        let Expression::UnaryExpression(unary) = expression else {
             return None;
         };
         if unary.operator != UnaryOperator::Typeof {
@@ -914,18 +919,28 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(identifier) = &unary.argument else {
             return None;
         };
-        let Expression::StringLiteral(kind) = &binary.right else {
-            return None;
-        };
-        let ty = match kind.value.as_str() {
+        Some(identifier.name.to_string())
+    }
+
+    /// Return the local type proven by a positive `typeof` comparison.
+    fn typeof_matched_type(
+        &mut self,
+        name: &str,
+        kind: &str,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let ty = match kind {
             "boolean" => self.ctx.krate.types.intern(Type::Bool),
             "number" => self.ctx.krate.types.intern(Type::Float),
             "string" => self.ctx.krate.types.intern(Type::String),
             "function" => {
                 let local_ty = self
                     .locals
-                    .get(identifier.name.as_str())
-                    .map(|local| Self::local_ty(body, *local));
+                    .get(name)
+                    .map(|local| {
+                        self.narrowed_type(name)
+                            .unwrap_or_else(|| Self::local_ty(body, *local))
+                    });
                 local_ty
                     .and_then(|ty| self.function_member_type(ty))
                     .unwrap_or_else(|| {
@@ -937,10 +952,26 @@ impl ModuleBuilder<'_> {
                         }))
                     })
             }
+            "undefined" => self.ctx.krate.types.intern(Type::None),
             "object" => self.ctx.krate.types.intern(Type::Unknown),
             _ => return None,
         };
-        Some((identifier.name.to_string(), ty))
+        Some((name.to_owned(), ty))
+    }
+
+    /// Return the local type proven by excluding one `typeof` kind.
+    fn typeof_excluded_type(
+        &mut self,
+        name: &str,
+        kind: &str,
+        body: &Body,
+    ) -> Option<(String, smelt_hir::TypeId)> {
+        let local = self.locals.get(name).copied()?;
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
+        let remaining = self.remove_typeof_member(local_ty, kind)?;
+        Some((name.to_owned(), remaining))
     }
 
     /// Extract a callable member from a union or function type.
@@ -1083,6 +1114,53 @@ impl ModuleBuilder<'_> {
         Ok(local)
     }
 
+    /// Predeclare function-local arrow callbacks before statement lowering.
+    ///
+    /// JavaScript closures can reference `const` arrow callbacks declared later
+    /// in the same function body. Smelt still lowers statements in source order,
+    /// so this pass reserves locals with callable types first; the declaration
+    /// lowering later fills in the closure value and callback metadata.
+    fn predeclare_local_arrow_callbacks(
+        &mut self,
+        statements: &[Statement<'_>],
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        for statement in statements {
+            let Statement::VariableDeclaration(decl) = statement else {
+                continue;
+            };
+            if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+                continue;
+            }
+            for declarator in &decl.declarations {
+                let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                    continue;
+                };
+                let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                    continue;
+                };
+                if self.locals.contains_key(binding.name.as_str()) {
+                    continue;
+                }
+                let annotated_ty = declarator
+                    .type_annotation
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?;
+                let fn_ty = self.local_arrow_function_type(arrow, annotated_ty)?;
+                let symbol = self.intern_source_name(binding.name.as_str());
+                let local = body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty: fn_ty,
+                    mutable: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                self.locals.insert(binding.name.as_str().to_owned(), local);
+            }
+        }
+        Ok(())
+    }
+
     /// Lower a variable declaration statement.
     fn variable_declaration(
         &mut self,
@@ -1143,14 +1221,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let result = (|| {
-        let contextual_function = type_hint.and_then(|hint| {
-            let function_hint = self.function_member_type(hint).unwrap_or(hint);
-            if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
-                Some(function.clone())
-            } else {
-                None
-            }
-        });
+        let contextual_function = self.contextual_function_type(type_hint);
         let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
         let defaults = arrow
             .params
@@ -1202,6 +1273,7 @@ impl ModuleBuilder<'_> {
             return_ty,
             is_async: false,
         }));
+        let predeclared_local = self.local_arrow_existing_body_local(name, body);
         if let Ok(callback) = callback_result {
             let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
                 Some(Type::Future(inner)) if arrow.r#async => *inner,
@@ -1217,13 +1289,29 @@ impl ModuleBuilder<'_> {
                     ),
                 ));
             }
-            let local = body.push_local(LocalDecl {
-                name: Some(symbol),
-                ty: fn_ty,
-                mutable: false,
-                span: self.span(start, end),
-            });
+            let local = self.local_arrow_binding_local(
+                name,
+                symbol,
+                fn_ty,
+                self.span(start, end),
+                body,
+            );
             self.locals.insert(name.to_owned(), local);
+            if predeclared_local.is_some() {
+                let value = self.callback_expr_to_closure_with_return_ty(
+                    return_ty,
+                    callback.clone(),
+                    &params,
+                    self.span(arrow.span.start, arrow.span.end),
+                    body,
+                );
+                let pat = body.push_pattern(Pattern::Binding(local));
+                body.push_stmt(Stmt::Let {
+                    pat,
+                    ty: fn_ty,
+                    value: Some(value),
+                });
+            }
             self.local_callbacks.insert(
                 name.to_owned(),
                 LocalCallback {
@@ -1237,12 +1325,7 @@ impl ModuleBuilder<'_> {
             return Ok(());
         }
         let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
-        let local = body.push_local(LocalDecl {
-            name: Some(symbol),
-            ty: fn_ty,
-            mutable: false,
-            span: self.span(start, end),
-        });
+        let local = self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
         self.locals.insert(name.to_owned(), local);
         let pat = body.push_pattern(Pattern::Binding(local));
         body.push_stmt(Stmt::Let {
@@ -1254,6 +1337,81 @@ impl ModuleBuilder<'_> {
         })();
         self.pop_type_parameter_scope();
         result
+    }
+
+    /// Return a contextual function type from an optional type hint.
+    fn contextual_function_type(&self, type_hint: Option<smelt_hir::TypeId>) -> Option<FunctionType> {
+        type_hint.and_then(|hint| {
+            let function_hint = self.function_member_type(hint).unwrap_or(hint);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
+                Some(function.clone())
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Build the public function type for a local arrow declaration.
+    fn local_arrow_function_type(
+        &mut self,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        let contextual_function = self.contextual_function_type(type_hint);
+        let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+        let return_ty = arrow
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?
+            .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            return_ty,
+            is_async: arrow.r#async,
+        })))
+    }
+
+    /// Return a predeclared local arrow binding that belongs to this body.
+    fn local_arrow_existing_body_local(
+        &self,
+        name: &str,
+        body: &Body,
+    ) -> Option<smelt_hir::LocalId> {
+        let local = self.locals.get(name).copied()?;
+        usize::try_from(local.0)
+            .ok()
+            .and_then(|index| body.locals.get(index))
+            .map(|_| local)
+    }
+
+    /// Return the local slot for a local arrow declaration, updating predeclared slots.
+    fn local_arrow_binding_local(
+        &self,
+        name: &str,
+        symbol: smelt_hir::Symbol,
+        ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::LocalId {
+        if let Some(local) = self.local_arrow_existing_body_local(name, body)
+            && let Some(local_decl) = usize::try_from(local.0)
+                .ok()
+                .and_then(|index| body.locals.get_mut(index))
+        {
+            local_decl.name = Some(symbol);
+            local_decl.ty = ty;
+            local_decl.mutable = false;
+            local_decl.span = span;
+            return local;
+        }
+        body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty,
+            mutable: false,
+            span,
+        })
     }
 
     /// Return whether a lowered local callback body satisfies its declared return type.

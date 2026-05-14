@@ -43,10 +43,10 @@ impl ModuleBuilder<'_> {
                 return Err(error);
             }
         };
-        let return_ty = if assertion_return.is_some() {
-            self.ctx.krate.types.intern(Type::None)
+        let declared_return_ty = if assertion_return.is_some() {
+            Some(self.ctx.krate.types.intern(Type::None))
         } else {
-            match self.function_return_type_or_overload(function, name_text) {
+            match self.function_return_type_annotation_or_overload(function, name_text) {
                 Ok(value) => value,
                 Err(error) => {
                     self.pop_type_parameter_scope();
@@ -54,7 +54,11 @@ impl ModuleBuilder<'_> {
                 }
             }
         };
-        if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+        if function.r#async
+            && !matches!(
+                declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
+                Some(Type::Future(_))
+            )
         {
             self.pop_type_parameter_scope();
             return Err(SmeltError::unsupported(
@@ -64,10 +68,11 @@ impl ModuleBuilder<'_> {
         }
 
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         self.current_async = function.r#async;
-        self.current_return_ty = Some(return_ty);
+        self.current_return_ty = declared_return_ty;
         let mut body = Body::new(
             None,
             self.span(function_body.span.start, function_body.span.end),
@@ -76,23 +81,11 @@ impl ModuleBuilder<'_> {
 
         let mut destructured_params = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {
-            let ty = match param
-                .type_annotation
-                .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()
-                .and_then(|value| {
-                    value.ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(param.span.start, param.span.end),
-                            "function parameters must have explicit type annotations",
-                        )
-                    })
-                })
-            {
+            let ty = match self.function_parameter_type(param) {
                 Ok(value) => value,
                 Err(error) => {
                     self.locals = saved_locals;
+                    self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
                     self.pop_type_parameter_scope();
@@ -136,6 +129,7 @@ impl ModuleBuilder<'_> {
         let rest = if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.locals = saved_locals;
+                self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
@@ -160,6 +154,7 @@ impl ModuleBuilder<'_> {
                 Ok(value) => self.type_param_constraint_or_self(value),
                 Err(error) => {
                     self.locals = saved_locals;
+                    self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
                     self.pop_type_parameter_scope();
@@ -170,6 +165,7 @@ impl ModuleBuilder<'_> {
                 *item_ty
             } else {
                 self.locals = saved_locals;
+                self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
@@ -200,6 +196,10 @@ impl ModuleBuilder<'_> {
         };
 
         let mut errors = Vec::new();
+        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        {
+            errors.push(error);
+        }
         for (pattern, local, ty) in destructured_params {
             let root = body.root;
             let value = body.push_expr(Expr {
@@ -218,6 +218,10 @@ impl ModuleBuilder<'_> {
                 errors.push(error);
             }
         }
+        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        {
+            errors.push(error);
+        }
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
@@ -227,6 +231,7 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
         self.locals = saved_locals;
+        self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
         self.pop_type_parameter_scope();
@@ -235,6 +240,9 @@ impl ModuleBuilder<'_> {
             return Err(error);
         }
 
+        let return_ty = declared_return_ty
+            .or_else(|| Self::last_return_type(&body))
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
         let body_id = self.ctx.krate.push_body(body);
         let function_item = Function {
             name,
@@ -294,6 +302,155 @@ impl ModuleBuilder<'_> {
             );
         }
         Ok(item)
+    }
+
+    /// Resolve the HIR type for a function declaration parameter.
+    ///
+    /// Explicit TypeScript annotations remain the primary source of parameter
+    /// types. For unannotated parameters with default initializers, TypeScript
+    /// infers the in-body parameter type from the default expression, so Smelt
+    /// mirrors that narrow case without weakening arbitrary untyped functions.
+    fn function_parameter_type(
+        &mut self,
+        param: &oxc::ast::ast::FormalParameter<'_>,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        if let Some(annotation) = &param.type_annotation {
+            return self.ts_type_to_hir(&annotation.type_annotation);
+        }
+        if let Some(initializer) = &param.initializer {
+            return self.infer_module_global_initializer_type(initializer);
+        }
+        Err(SmeltError::unsupported(
+            self.span(param.span.start, param.span.end),
+            "function parameters must have explicit type annotations or default initializers",
+        ))
+    }
+
+    /// Lower a function expression into a module-owned HIR function item.
+    ///
+    /// Exported object namespace constants can contain method syntax, as in
+    /// date-fns formatter tables. Each method is represented as a private
+    /// module function and referenced from the namespace metadata.
+    fn function_expression_item(
+        &mut self,
+        name_text: &str,
+        function: &oxc::ast::ast::Function<'_>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let Some(function_body) = &function.body else {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "function expressions must have a body",
+            ));
+        };
+        if function.params.rest.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "object namespace method rest parameters are not lowered yet",
+            ));
+        }
+
+        let name = self.intern_source_name(name_text);
+        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let return_ty = match self.function_return_type_or_overload(function, name_text) {
+            Ok(value) => value,
+            Err(error) => {
+                self.pop_type_parameter_scope();
+                return Err(error);
+            }
+        };
+        if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+        {
+            self.pop_type_parameter_scope();
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "async functions must declare a Promise<T> return type",
+            ));
+        }
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let saved_async = self.current_async;
+        let saved_return_ty = self.current_return_ty;
+        self.current_async = function.r#async;
+        self.current_return_ty = Some(return_ty);
+        let mut body = Body::new(
+            None,
+            self.span(function_body.span.start, function_body.span.end),
+        );
+        let mut params = Vec::new();
+        let mut errors = Vec::new();
+
+        for (index, param) in function.params.items.iter().enumerate() {
+            let result = (|| {
+                let annotation = param.type_annotation.as_ref().ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "function expression parameters must have explicit type annotations",
+                    )
+                })?;
+                let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                    return Err(SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "function expression parameters must be identifiers",
+                    ));
+                };
+                let param_name = self.intern_source_name(binding.name.as_str());
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                body.params.push(local);
+                self.locals.insert(binding.name.to_string(), local);
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                debug_assert_eq!(
+                    usize::try_from(local.0).unwrap_or(usize::MAX),
+                    index,
+                    "function expression parameters should be added in source order",
+                );
+                Ok(())
+            })();
+            if let Err(error) = result {
+                errors.push(error);
+                break;
+            }
+        }
+        for statement in &function_body.statements {
+            if let Err(error) = self.statement(statement, &mut body) {
+                errors.push(error);
+            }
+        }
+        if function.r#async {
+            body.build_async_state_machine();
+        }
+
+        self.locals = saved_locals;
+        self.narrowed_locals = saved_narrowed_locals;
+        self.current_async = saved_async;
+        self.current_return_ty = saved_return_ty;
+        self.pop_type_parameter_scope();
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+
+        let body_id = self.ctx.krate.push_body(body);
+        Ok(self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span: self.span(function.span.start, function.span.end),
+            params,
+            return_ty,
+            is_async: function.r#async,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        })))
     }
 
     /// Lower a class declaration to HIR.
@@ -610,6 +767,10 @@ impl ModuleBuilder<'_> {
         }
 
         let mut errors = Vec::new();
+        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        {
+            errors.push(error);
+        }
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);

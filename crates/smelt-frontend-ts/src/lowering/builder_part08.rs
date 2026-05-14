@@ -613,7 +613,7 @@ impl ModuleBuilder<'_> {
                 span: self.expression_span(expression),
             }));
         }
-        if self.is_nullishable_type(cond_ty) {
+        if self.is_nullishable_type(cond_ty) || self.type_is_truthy_condition_surface(cond_ty) {
             let none_ty = self.ctx.krate.types.intern(Type::None);
             let none = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
@@ -635,6 +635,20 @@ impl ModuleBuilder<'_> {
             self.expression_span(expression),
             "condition expression must be boolean or optional",
         ))
+    }
+
+    /// Return whether a non-boolean type can appear in a JavaScript truthiness guard.
+    fn type_is_truthy_condition_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => {
+                true
+            }
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.type_is_truthy_condition_surface(item)),
+            _ => false,
+        }
     }
 
     /// Lower a template literal as string concatenation.

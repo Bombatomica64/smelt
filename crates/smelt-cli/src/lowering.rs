@@ -49,8 +49,7 @@ struct FrontendLoweringState {
     /// TypeScript structural type-alias fields visible across manifest entries.
     ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
     /// TypeScript interface heritage edges visible across manifest entries.
-    ts_interface_extends:
-        HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
+    ts_interface_extends: HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
     /// TypeScript callable intersection fields visible across manifest entries.
     ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
     /// Python module/package namespaces visible through `import package`.

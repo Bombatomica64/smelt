@@ -542,6 +542,9 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::ComputedMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.dynamic_math_member_expression(member, body) {
+            return Ok(expr);
+        }
         let receiver = self.expression(&member.object, body)?;
         let index = self.expression(&member.expression, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
@@ -640,6 +643,147 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower `Math[method]` for supported numeric method-key unions to a closure.
+    ///
+    /// Date-fns stores a selected rounding method as a string literal union and
+    /// then calls the selected function. Smelt keeps that value dynamic by
+    /// emitting a captured closure that dispatches over supported rounding names.
+    fn dynamic_math_member_expression(
+        &mut self,
+        member: &oxc::ast::ast::ComputedMemberExpression<'_>,
+        outer_body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Math" {
+            return None;
+        }
+        let Expression::Identifier(method_ident) = &member.expression else {
+            return None;
+        };
+        let source_local = self.locals.get(method_ident.name.as_str()).copied()?;
+        let source_decl = usize::try_from(source_local.0)
+            .ok()
+            .and_then(|index| outer_body.locals.get(index))?;
+
+        let span = self.span(member.span.start, member.span.end);
+        let number_ty = self.ctx.krate.types.intern(Type::Float);
+        let value_name = self.intern_source_name("value");
+        let method_name = source_decl
+            .name
+            .unwrap_or_else(|| self.intern_source_name(method_ident.name.as_str()));
+        let method_ty = source_decl.ty;
+        let mut closure_body = Body::new(None, span);
+        let method_local = closure_body.push_local(LocalDecl {
+            name: Some(method_name),
+            ty: method_ty,
+            mutable: source_decl.mutable,
+            span: source_decl.span,
+        });
+        let value_local = closure_body.push_local(LocalDecl {
+            name: Some(value_name),
+            ty: number_ty,
+            mutable: false,
+            span,
+        });
+        closure_body.params.push(value_local);
+        let value_expr = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(value_local),
+            ty: number_ty,
+            span,
+        });
+
+        let mut result = Self::dynamic_math_round_expr(
+            &mut closure_body,
+            NumericRoundOp::Trunc,
+            value_expr,
+            number_ty,
+            span,
+        );
+        for (method, op) in [
+            ("round", NumericRoundOp::Round),
+            ("floor", NumericRoundOp::Floor),
+            ("ceil", NumericRoundOp::Ceil),
+        ] {
+            let method_expr = closure_body.push_expr(Expr {
+                kind: ExprKind::Local(method_local),
+                ty: method_ty,
+                span,
+            });
+            let method_text = closure_body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(method.to_owned())),
+                ty: self.ctx.krate.types.intern(Type::String),
+                span,
+            });
+            let cond = closure_body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Eq,
+                    lhs: method_expr,
+                    rhs: method_text,
+                },
+                ty: self.ctx.krate.types.intern(Type::Bool),
+                span,
+            });
+            let then_expr =
+                Self::dynamic_math_round_expr(&mut closure_body, op, value_expr, number_ty, span);
+            result = closure_body.push_expr(Expr {
+                kind: ExprKind::Conditional {
+                    cond,
+                    then_expr,
+                    else_expr: result,
+                },
+                ty: number_ty,
+                span,
+            });
+        }
+        closure_body.push_stmt(Stmt::Return(Some(result)));
+        let body_id = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![number_ty],
+            return_ty: number_ty,
+            is_async: false,
+        }));
+        Some(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: vec![Param {
+                    name: value_name,
+                    local: value_local,
+                    ty: number_ty,
+                    span,
+                }],
+                return_ty: number_ty,
+                captures: vec![ClosureCapture {
+                    source_local,
+                    body_local: Some(method_local),
+                    symbol: method_name,
+                    ty: method_ty,
+                    mode: CaptureMode::ByRef,
+                }],
+                body: body_id,
+                callback_body: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        }))
+    }
+
+    /// Push one numeric rounding operation inside a generated dynamic Math closure.
+    fn dynamic_math_round_expr(
+        body: &mut Body,
+        op: NumericRoundOp,
+        operand: smelt_hir::ExprId,
+        number_ty: smelt_hir::TypeId,
+        span: Span,
+    ) -> smelt_hir::ExprId {
+        body.push_expr(Expr {
+            kind: ExprKind::NumericRound { op, operand },
+            ty: number_ty,
+            span,
+        })
+    }
+
     /// Lower explicitly acknowledged `unknown[key]` reads in unknown contexts.
     ///
     /// Runtime indexing into `unknown` is intentionally rejected by the normal
@@ -724,8 +868,9 @@ impl ModuleBuilder<'_> {
             ));
         };
         let operand = self.argument(arg, body)?;
-        let operand_type = self.ctx.krate.types.get(Self::expr_ty(body, operand));
-        if !self.primitive_cast_accepts_operand(op, operand_type) {
+        let operand_ty = Self::expr_ty(body, operand);
+        let operand_type = self.ctx.krate.types.get(operand_ty);
+        if !self.primitive_cast_accepts_operand(op, operand_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!("{} requires a primitive argument", callee.name),
@@ -757,15 +902,15 @@ impl ModuleBuilder<'_> {
     fn primitive_cast_accepts_operand(
         &self,
         op: PrimitiveCastOp,
-        operand_type: Option<&Type>,
+        operand_ty: smelt_hir::TypeId,
     ) -> bool {
-        match operand_type {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+        match self.ctx.krate.types.get(operand_ty) {
+            Some(Type::Bool | Type::String | Type::Int | Type::Float) => true,
             Some(Type::Unknown) if op == PrimitiveCastOp::ToString => true,
-            Some(Type::Optional(item)) if op == PrimitiveCastOp::ToString => matches!(
-                self.ctx.krate.types.get(*item),
-                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown)
-            ),
+            Some(Type::Optional(item)) if op == PrimitiveCastOp::ToString => {
+                self.primitive_cast_accepts_operand(op, *item)
+            }
+            Some(_) if self.is_numeric_like_type(operand_ty) => true,
             _ => false,
         }
     }
@@ -777,11 +922,25 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<(smelt_hir::ExprId, smelt_hir::ExprId), SmeltError> {
         let target = self.assignment_target_expr(&assign.left, body)?;
-        let right_ty_hint = (assign.operator == AssignmentOperator::Assign)
-            .then(|| Self::expr_ty(body, target));
+        let target_ty = Self::expr_ty(body, target);
+        let right_ty_hint = match assign.operator {
+            AssignmentOperator::Assign => Some(target_ty),
+            AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
+            _ => None,
+        };
         let right = self.expression_with_hint(&assign.right, body, right_ty_hint)?;
         let value = match assign.operator {
             AssignmentOperator::Assign => right,
+            AssignmentOperator::LogicalNullish => {
+                body.push_expr(Expr {
+                    kind: ExprKind::OptionalCoalesce {
+                        optional: target,
+                        fallback: right,
+                    },
+                    ty: self.non_nullish_type(target_ty).unwrap_or(target_ty),
+                    span: self.span(assign.span.start, assign.span.end),
+                })
+            }
             AssignmentOperator::Addition
             | AssignmentOperator::Subtraction
             | AssignmentOperator::Multiplication

@@ -390,8 +390,15 @@ impl ModuleBuilder<'_> {
                 let scrutinee = self.expression(&switch_stmt.discriminant, body)?;
                 let mut arms = Vec::new();
                 let mut default = None;
+                let mut pending_empty_labels = Vec::new();
 
                 for case in &switch_stmt.cases {
+                    if case.consequent.is_empty() {
+                        if let Some(test) = &case.test {
+                            pending_empty_labels.push(self.literal_case_label(test)?);
+                            continue;
+                        }
+                    }
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     let mut saw_break = false;
                     for case_statement in &case.consequent {
@@ -415,6 +422,12 @@ impl ModuleBuilder<'_> {
                     }
 
                     if let Some(test) = &case.test {
+                        for label in std::mem::take(&mut pending_empty_labels) {
+                            arms.push(MatchArm {
+                                label,
+                                body: case_block,
+                            });
+                        }
                         arms.push(MatchArm {
                             label: self.literal_case_label(test)?,
                             body: case_block,
@@ -424,7 +437,20 @@ impl ModuleBuilder<'_> {
                             self.span(case.span.start, case.span.end),
                             "switch statements can only have one default case",
                         ));
+                    } else {
+                        for label in std::mem::take(&mut pending_empty_labels) {
+                            arms.push(MatchArm {
+                                label,
+                                body: case_block,
+                            });
+                        }
                     }
+                }
+                if !pending_empty_labels.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(switch_stmt.span.start, switch_stmt.span.end),
+                        "switch fallthrough is not lowered yet; each case must break, return, or throw",
+                    ));
                 }
 
                 body.push_stmt_to_block(
