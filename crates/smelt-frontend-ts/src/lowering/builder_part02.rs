@@ -319,18 +319,13 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         };
+        self.pad_fp_wrapper_target_params(target_item, arity, self.span(call.span.start, call.span.end))?;
         let Item::Function(target_function) = self.item_ref(target_item).clone() else {
             return Err(SmeltError::unsupported(
                 self.span(target_ident.span.start, target_ident.span.end),
                 "convertToFP exported const wrappers require a function item argument",
             ));
         };
-        if arity > target_function.params.len() {
-            return Err(SmeltError::unsupported(
-                self.span(arity_arg.span().start, arity_arg.span().end),
-                "convertToFP exported const wrapper arity exceeds target parameters",
-            ));
-        }
 
         let span = self.span(call.span.start, call.span.end);
         let mut body = Body::new(None, span);
@@ -404,6 +399,70 @@ impl ModuleBuilder<'_> {
         self.items.insert(name_text.to_owned(), item);
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         Ok(Some(item))
+    }
+
+    /// Pad a date-fns FP target function when an optional tail parameter was erased.
+    ///
+    /// Generated date-fns `WithOptions` FP modules use `convertToFP(fn, 3)` even
+    /// when Smelt has only retained the target's required parameters. Keeping a
+    /// synthetic unknown slot preserves the callable arity and lets the wrapper
+    /// pass all collected FP arguments through in the original order.
+    fn pad_fp_wrapper_target_params(
+        &mut self,
+        target_item: smelt_hir::ItemId,
+        arity: usize,
+        span: Span,
+    ) -> Result<(), SmeltError> {
+        let item_index = usize::try_from(target_item.0).unwrap_or(usize::MAX);
+        let current_len = match self.ctx.krate.items.get(item_index) {
+            Some(Item::Function(function)) => function.params.len(),
+            _ => return Ok(()),
+        };
+        if current_len >= arity {
+            return Ok(());
+        }
+        let body_id = match self.ctx.krate.items.get(item_index) {
+            Some(Item::Function(function)) => function.body.ok_or_else(|| {
+                SmeltError::unsupported(
+                    span,
+                    "convertToFP exported const wrapper target must have a body when arity padding is required",
+                )
+            })?,
+            _ => return Ok(()),
+        };
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let body_index = usize::try_from(body_id.0).unwrap_or(usize::MAX);
+        let body = self.ctx.krate.bodies.get_mut(body_index).ok_or_else(|| {
+            SmeltError::unsupported(
+                span,
+                "convertToFP exported const wrapper target body was not found",
+            )
+        })?;
+        let mut padded_params = Vec::new();
+        for index in current_len..arity {
+            let name = self
+                .ctx
+                .krate
+                .symbols
+                .intern(format!("__fp_arg{index}").as_str());
+            let local = body.push_local(LocalDecl {
+                name: Some(name),
+                ty: unknown_ty,
+                mutable: false,
+                span,
+            });
+            body.params.push(local);
+            padded_params.push(Param {
+                name,
+                local,
+                ty: unknown_ty,
+                span,
+            });
+        }
+        if let Some(Item::Function(function)) = self.ctx.krate.items.get_mut(item_index) {
+            function.params.extend(padded_params);
+        }
+        Ok(())
     }
 
     /// Extract the literal arity used by generated date-fns `convertToFP` calls.

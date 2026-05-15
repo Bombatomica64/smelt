@@ -110,6 +110,9 @@ impl ModuleBuilder<'_> {
                 "new Array(...) supports at most one length argument",
             ));
         }
+        if let Some(Argument::ArrayExpression(array)) = new_expr.arguments.first() {
+            return self.array_expression(array, body, None);
+        }
         if let Some(length) = new_expr.arguments.first() {
             let length = self.argument(length, body)?;
             if !matches!(
@@ -131,8 +134,8 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `new Uint8Array(length)` to a numeric list used by typed-array consumers.
-    fn uint8_array_constructor_expression(
+    /// Lower `new TypedArray(length)` to a numeric list used by typed-array consumers.
+    fn numeric_typed_array_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
@@ -140,8 +143,11 @@ impl ModuleBuilder<'_> {
         if new_expr.arguments.len() > 1 {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "new Uint8Array(...) supports at most one length argument",
+                "new TypedArray(...) supports at most one length argument",
             ));
+        }
+        if let Some(Argument::ArrayExpression(array)) = new_expr.arguments.first() {
+            return self.array_expression(array, body, None);
         }
         if let Some(length) = new_expr.arguments.first() {
             let length = self.argument(length, body)?;
@@ -151,12 +157,19 @@ impl ModuleBuilder<'_> {
             ) {
                 return Err(SmeltError::unsupported(
                     self.span(new_expr.span.start, new_expr.span.end),
-                    "new Uint8Array(...) length must be numeric",
+                    "new TypedArray(...) length must be numeric",
                 ));
             }
         }
         let item_ty = self.ctx.krate.types.intern(Type::Float);
         let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        if new_expr.arguments.is_empty() {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ListLit(Vec::new()),
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
+        }
         let zero = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::Float(0.0)),
             ty: item_ty,
@@ -318,12 +331,10 @@ impl ModuleBuilder<'_> {
                     let item_ty = self.ts_type_to_hir(item)?;
                     self.ctx.krate.types.intern(Type::Set(item_ty))
                 } else {
-                    type_hint.ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(new_expr.span.start, new_expr.span.end),
-                            "empty Set constructors require a Set<T> type annotation",
-                        )
-                    })?
+                    type_hint.unwrap_or_else(|| {
+                        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        self.ctx.krate.types.intern(Type::Set(item_ty))
+                    })
                 };
                 if !matches!(self.ctx.krate.types.get(ty), Some(Type::Set(_))) {
                     return Err(SmeltError::unsupported(
@@ -386,10 +397,8 @@ impl ModuleBuilder<'_> {
                     let item_ty = self.ts_type_to_hir(item)?;
                     self.ctx.krate.types.intern(Type::Set(item_ty))
                 } else {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "empty Set array literals require a Set<T> type annotation",
-                    ));
+                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
                 };
                 (items, ty)
             }
@@ -455,12 +464,10 @@ impl ModuleBuilder<'_> {
                     let value_ty = self.ts_type_to_hir(value)?;
                     self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
                 } else {
-                    type_hint.ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(new_expr.span.start, new_expr.span.end),
-                            "empty Map constructors require a Map<K, V> type annotation",
-                        )
-                    })?
+                    type_hint.unwrap_or_else(|| {
+                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                        self.ctx.krate.types.intern(Type::Dict(unknown, unknown))
+                    })
                 };
                 if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
                     return Err(SmeltError::unsupported(
@@ -505,10 +512,8 @@ impl ModuleBuilder<'_> {
                     }
                     self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
                 } else {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "empty Map array literals require a Map<K, V> type annotation",
-                    ));
+                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::Dict(unknown, unknown))
                 };
                 (entries, ty)
             }
@@ -608,6 +613,15 @@ impl ModuleBuilder<'_> {
                 self.logical_expression(logical, body)
             }
             ArrayExpressionElement::UnaryExpression(unary) => self.unary_expression(unary, body),
+            ArrayExpressionElement::TSAsExpression(as_expr) => {
+                self.expression(&as_expr.expression, body)
+            }
+            ArrayExpressionElement::TSSatisfiesExpression(satisfies) => {
+                self.expression(&satisfies.expression, body)
+            }
+            ArrayExpressionElement::TSNonNullExpression(non_null) => {
+                self.expression(&non_null.expression, body)
+            }
             ArrayExpressionElement::ArrayExpression(array) => {
                 if let [ArrayExpressionElement::SpreadElement(spread)] = array.elements.as_slice() {
                     return self.expression(&spread.argument, body);
@@ -622,10 +636,15 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         ArrayExpressionElement::Elision(_) => {
-                            return Err(SmeltError::unsupported(
-                                self.span(nested_element.span().start, nested_element.span().end),
-                                "array elisions are not lowered",
-                            ));
+                            let ty = self.ctx.krate.types.intern(Type::Unknown);
+                            body.push_expr(Expr {
+                                kind: ExprKind::Literal(Literal::None),
+                                ty,
+                                span: self.span(
+                                    nested_element.span().start,
+                                    nested_element.span().end,
+                                ),
+                            })
                         }
                         _ => self.array_element(nested_element, body)?,
                     };
@@ -658,7 +677,9 @@ impl ModuleBuilder<'_> {
                 }))
             }
             ArrayExpressionElement::CallExpression(call) => self.call_expression(call, body),
-            ArrayExpressionElement::NewExpression(new_expr) => self.new_date_expression(new_expr, body),
+            ArrayExpressionElement::NewExpression(new_expr) => {
+                self.new_expression_with_hint(new_expr, body, None)
+            }
             ArrayExpressionElement::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
             }
@@ -1088,6 +1109,14 @@ impl ModuleBuilder<'_> {
         if unary.operator == UnaryOperator::Delete {
             return self.delete_unary_expression(unary, body);
         }
+        if unary.operator == UnaryOperator::Void {
+            let ty = self.ctx.krate.types.intern(Type::None);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
         let op = match unary.operator {
             UnaryOperator::LogicalNot => UnaryOp::Not,
             UnaryOperator::UnaryNegation => UnaryOp::Neg,
@@ -1176,19 +1205,26 @@ impl ModuleBuilder<'_> {
             _ => None,
         });
         for (index, element) in array.elements.iter().enumerate() {
-            if matches!(
-                element,
-                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_)
-            ) {
+            if matches!(element, ArrayExpressionElement::SpreadElement(_)) {
                 return Err(SmeltError::unsupported(
                     self.span(element.span().start, element.span().end),
-                    "array spread elements and elisions are not lowered",
+                    "array spread elements are not lowered",
                 ));
             }
             let element_hint = tuple_hints
                 .as_ref()
                 .and_then(|hints| hints.get(index).copied());
-            items.push(self.array_element_with_hint(element, body, element_hint)?);
+            let item = if let ArrayExpressionElement::Elision(elision) = element {
+                let ty = element_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(elision.span.start, elision.span.end),
+                })
+            } else {
+                self.array_element_with_hint(element, body, element_hint)?
+            };
+            items.push(item);
         }
         let ty = if let Some(hint) = type_hint {
             hint
@@ -1282,7 +1318,9 @@ impl ModuleBuilder<'_> {
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
                 Some(Type::String) => self.ctx.krate.types.intern(Type::String),
-                Some(Type::TypeParam { .. }) => self.ctx.krate.types.intern(Type::Unknown),
+                Some(Type::Unknown | Type::TypeParam { .. }) => {
+                    self.ctx.krate.types.intern(Type::Unknown)
+                }
                 _ => {
                     return Err(SmeltError::unsupported(
                         self.span(spread.span.start, spread.span.end),
@@ -1403,7 +1441,7 @@ impl ModuleBuilder<'_> {
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
-            Some(Type::TypeParam { .. }) => Ok(body.push_expr(Expr {
+            Some(Type::Unknown | Type::TypeParam { .. }) => Ok(body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value },
                 ty: list_ty,
                 span: self.span(span.start, span.end),
@@ -1439,6 +1477,9 @@ impl ModuleBuilder<'_> {
                 ));
             };
             if object_property.method {
+                if self.object_method_erases_to_iterable_marker(object_property) {
+                    continue;
+                }
                 return Err(SmeltError::unsupported(
                     self.span(object_property.span.start, object_property.span.end),
                     "object methods are not lowered yet",
@@ -1479,6 +1520,9 @@ impl ModuleBuilder<'_> {
             match property {
                 ObjectPropertyKind::ObjectProperty(object_property) => {
                     if object_property.method {
+                        if self.object_method_erases_to_iterable_marker(object_property) {
+                            continue;
+                        }
                         return Err(SmeltError::unsupported(
                             self.span(object_property.span.start, object_property.span.end),
                             "object methods are not lowered yet",
@@ -1546,6 +1590,22 @@ impl ModuleBuilder<'_> {
             ty: record_ty,
             span: self.span(object.span.start, object.span.end),
         }))
+    }
+
+    /// Return true for `[Symbol.iterator]()` methods that only mark an object as iterable.
+    fn object_method_erases_to_iterable_marker(
+        &self,
+        object_property: &oxc::ast::ast::ObjectProperty<'_>,
+    ) -> bool {
+        let Ok(start) = usize::try_from(object_property.span.start) else {
+            return false;
+        };
+        let Ok(end) = usize::try_from(object_property.span.end) else {
+            return false;
+        };
+        self.source
+            .get(start..end)
+            .is_some_and(|text| text.contains("[Symbol.iterator]"))
     }
 
     /// Lower `...(condition && { ... })` object spread sources to conditional records.
@@ -1840,13 +1900,26 @@ impl ModuleBuilder<'_> {
                         span: self.span(literal.span.start, literal.span.end),
                     }))
                 }
-                _ => Err(SmeltError::unsupported(
-                    self.span(
-                        object_property.key.span().start,
-                        object_property.key.span().end,
-                    ),
-                    "computed object keys support identifiers and literal keys for now",
-                )),
+                _ => {
+                    if let Some(key_text) = self.computed_string_literal_key(object_property) {
+                        let ty = self.ctx.krate.types.intern(Type::String);
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::String(key_text)),
+                            ty,
+                            span: self.span(
+                                object_property.key.span().start,
+                                object_property.key.span().end,
+                            ),
+                        }));
+                    }
+                    Err(SmeltError::unsupported(
+                        self.span(
+                            object_property.key.span().start,
+                            object_property.key.span().end,
+                        ),
+                        "computed object keys support identifiers and literal keys for now",
+                    ))
+                }
             };
         }
 
@@ -1893,7 +1966,31 @@ impl ModuleBuilder<'_> {
             &object_property.key,
             PropertyKey::CallExpression(call)
                 if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol")
+        ) || matches!(
+            &object_property.key,
+            PropertyKey::Identifier(identifier) if identifier.name.contains("SYMBOL")
         )
+    }
+
+    /// Extract the source string from a computed string literal key with erased assertions.
+    fn computed_string_literal_key(
+        &self,
+        object_property: &oxc::ast::ast::ObjectProperty<'_>,
+    ) -> Option<String> {
+        let source = self
+            .source
+            .get(
+                usize::try_from(object_property.key.span().start).ok()?
+                    ..usize::try_from(object_property.key.span().end).ok()?,
+            )?
+            .trim();
+        let quote = source.chars().next()?;
+        if quote != '"' && quote != '\'' {
+            return None;
+        }
+        let rest = &source[quote.len_utf8()..];
+        let end = rest.find(quote)?;
+        Some(rest[..end].to_owned())
     }
 
     /// Flush pending explicit properties into an ordered object-spread source.

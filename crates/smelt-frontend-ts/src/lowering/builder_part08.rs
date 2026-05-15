@@ -1,4 +1,185 @@
 impl ModuleBuilder<'_> {
+    /// Lower a `new ...` expression, including stdlib containers and class construction.
+    fn new_expression_with_hint(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.map_constructor_expression(new_expr, body, type_hint)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.promise_constructor_expression(new_expr, body, type_hint)? {
+            return Ok(expr);
+        }
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            if let Some(expr) = self.dynamic_date_constructor_expression(new_expr, body)? {
+                return Ok(expr);
+            }
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new expressions require a direct class name",
+            ));
+        };
+        if callee.name == "Date" {
+            return self.new_date_expression(new_expr, body);
+        }
+        if callee.name == "RegExp" {
+            return self.regexp_constructor_expression(new_expr, body);
+        }
+        if callee.name == "Array" {
+            return self.array_constructor_expression(new_expr, body);
+        }
+        if callee.name == "String" {
+            return self.string_constructor_expression(new_expr, body);
+        }
+        if Self::is_numeric_typed_array_constructor(callee.name.as_str()) {
+            return self.numeric_typed_array_constructor_expression(new_expr, body);
+        }
+        if callee.name == "URLSearchParams" {
+            return self.opaque_builtin_constructor_expression(new_expr, body, "URLSearchParams");
+        }
+        if matches!(callee.name.as_str(), "WeakMap" | "WeakSet") {
+            return self.opaque_builtin_constructor_expression(new_expr, body, callee.name.as_str());
+        }
+        if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
+            return self.error_constructor_expression(new_expr, body);
+        }
+        if callee.name == "URL" {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "TypeScript URL is not supported yet; URL construction and URL field access need a URL mapping policy",
+            ));
+        }
+        let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
+            if self.value_imports.contains(callee.name.as_str()) {
+                let class_name = self.intern_type_name(callee.name.as_str());
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: Vec::new(),
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: class_name,
+                        args,
+                    },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
+            }
+            return Err(SmeltError::unsupported(
+                self.span(callee.span.start, callee.span.end),
+                format!("unresolved class `{}`", callee.name),
+            ));
+        };
+        let Item::Class(class) = self.item_ref(item) else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new expressions require a class item",
+            ));
+        };
+        let class_name = class.name;
+        let args = new_expr
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name: class_name,
+            args: Vec::new(),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::New {
+                class: class_name,
+                args,
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Lower boxed `new String(value)` as its primitive string payload.
+    fn string_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new String(...) supports at most one argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        let Some(argument) = new_expr.arguments.first() else {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty,
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            }));
+        };
+        let value = self.argument(argument, body)?;
+        if Self::expr_ty(body, value) == ty {
+            return Ok(value);
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Return whether a global constructor creates a numeric typed array.
+    fn is_numeric_typed_array_constructor(name: &str) -> bool {
+        matches!(
+            name,
+            "Int8Array"
+                | "Uint8Array"
+                | "Uint8ClampedArray"
+                | "Int16Array"
+                | "Uint16Array"
+                | "Int32Array"
+                | "Uint32Array"
+                | "Float32Array"
+                | "Float64Array"
+        )
+    }
+
+    /// Lower a supported opaque builtin constructor to a class-like HIR value.
+    fn opaque_builtin_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+        class_text: &str,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let class_name = self.intern_type_name(class_text);
+        let args = new_expr
+            .arguments
+            .iter()
+            .map(|arg| self.argument(arg, body))
+            .collect::<Result<Vec<_>, _>>()?;
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name: class_name,
+            args: Vec::new(),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::New {
+                class: class_name,
+                args,
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
     /// Lower `new Error(message)` to the message expression used by HIR throws.
     fn error_constructor_expression(
         &mut self,
@@ -303,6 +484,14 @@ impl ModuleBuilder<'_> {
                 if unary.operator == UnaryOperator::Delete {
                     return self.unary_expression(unary, body);
                 }
+                if unary.operator == UnaryOperator::Void {
+                    let ty = self.ctx.krate.types.intern(Type::None);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(unary.span.start, unary.span.end),
+                    }));
+                }
                 let op = match unary.operator {
                     UnaryOperator::LogicalNot => UnaryOp::Not,
                     UnaryOperator::UnaryNegation => UnaryOp::Neg,
@@ -391,6 +580,18 @@ impl ModuleBuilder<'_> {
                 let (_target, value) = self.assignment_parts(assign, body)?;
                 Ok(value)
             }
+            Expression::YieldExpression(yield_expr) => {
+                if let Some(argument) = &yield_expr.argument {
+                    self.expression(argument, body)
+                } else {
+                    let ty = self.ctx.krate.types.intern(Type::None);
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(yield_expr.span.start, yield_expr.span.end),
+                    }))
+                }
+            }
             Expression::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)
             }
@@ -425,96 +626,7 @@ impl ModuleBuilder<'_> {
                 self.expression_with_hint(&parenthesized.expression, body, type_hint)
             }
             Expression::NewExpression(new_expr) => {
-                if let Some(expr) = self.set_constructor_expression(new_expr, body, type_hint)? {
-                    return Ok(expr);
-                }
-                if let Some(expr) = self.map_constructor_expression(new_expr, body, type_hint)? {
-                    return Ok(expr);
-                }
-                if let Some(expr) = self.promise_constructor_expression(new_expr, body, type_hint)?
-                {
-                    return Ok(expr);
-                }
-                let Expression::Identifier(callee) = &new_expr.callee else {
-                    if let Some(expr) = self.dynamic_date_constructor_expression(new_expr, body)? {
-                        return Ok(expr);
-                    }
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "new expressions require a direct class name",
-                    ));
-                };
-                if callee.name == "Date" {
-                    return self.new_date_expression(new_expr, body);
-                }
-                if callee.name == "RegExp" {
-                    return self.regexp_constructor_expression(new_expr, body);
-                }
-                if callee.name == "Array" {
-                    return self.array_constructor_expression(new_expr, body);
-                }
-                if callee.name == "Uint8Array" {
-                    return self.uint8_array_constructor_expression(new_expr, body);
-                }
-                if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
-                    return self.error_constructor_expression(new_expr, body);
-                }
-                if callee.name == "URL" {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "TypeScript URL is not supported yet; URL construction and URL field access need a URL mapping policy",
-                    ));
-                }
-                let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
-                    if self.value_imports.contains(callee.name.as_str()) {
-                        let class_name = self.intern_type_name(callee.name.as_str());
-                        let args = new_expr
-                            .arguments
-                            .iter()
-                            .map(|arg| self.argument(arg, body))
-                            .collect::<Result<Vec<_>, _>>()?;
-                        let ty = self.ctx.krate.types.intern(Type::Class {
-                            name: class_name,
-                            args: Vec::new(),
-                        });
-                        return Ok(body.push_expr(Expr {
-                            kind: ExprKind::New {
-                                class: class_name,
-                                args,
-                            },
-                            ty,
-                            span: self.span(new_expr.span.start, new_expr.span.end),
-                        }));
-                    }
-                    return Err(SmeltError::unsupported(
-                        self.span(callee.span.start, callee.span.end),
-                        format!("unresolved class `{}`", callee.name),
-                    ));
-                };
-                let Item::Class(class) = self.item_ref(item) else {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "new expressions require a class item",
-                    ));
-                };
-                let class_name = class.name;
-                let args = new_expr
-                    .arguments
-                    .iter()
-                    .map(|arg| self.argument(arg, body))
-                    .collect::<Result<Vec<_>, _>>()?;
-                let ty = self.ctx.krate.types.intern(Type::Class {
-                    name: class_name,
-                    args: Vec::new(),
-                });
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::New {
-                        class: class_name,
-                        args,
-                    },
-                    ty,
-                    span: self.span(new_expr.span.start, new_expr.span.end),
-                }))
+                self.new_expression_with_hint(new_expr, body, type_hint)
             }
             Expression::TemplateLiteral(tpl) => self.template_literal_expression(tpl, body),
             Expression::TaggedTemplateExpression(tagged) => Err(SmeltError::unsupported(
@@ -711,6 +823,26 @@ impl ModuleBuilder<'_> {
                     op: BinOp::NotEq,
                     lhs: cond,
                     rhs: empty,
+                },
+                ty: bool_ty,
+                span: self.expression_span(expression),
+            }));
+        }
+        if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Int | Type::Float)) {
+            let zero = body.push_expr(Expr {
+                kind: match self.ctx.krate.types.get(cond_ty) {
+                    Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
+                    _ => ExprKind::Literal(Literal::Float(0.0)),
+                },
+                ty: cond_ty,
+                span: self.expression_span(expression),
+            });
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    lhs: cond,
+                    rhs: zero,
                 },
                 ty: bool_ty,
                 span: self.expression_span(expression),

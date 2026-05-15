@@ -335,6 +335,23 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Converts regex replacement with an uppercase first-match callback.
+    pub(super) fn regex_replace_first_match_uppercase_text(
+        &self,
+        pattern: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
+        self.require_string_operands(&[pattern, haystack], "regex uppercase replace")?;
+        let regex_text = format!(
+            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
+            self.operand_text(pattern)?
+        );
+        let haystack_text = self.operand_text(haystack)?;
+        Ok(format!(
+            "{regex_text}.replace(&{haystack_text}, |captures: &regex::Captures<'_>| captures.get(0).map_or_else(String::new, |matched| matched.as_str().to_uppercase())).to_string()"
+        ))
+    }
+
     /// Converts a regex split operation to Rust text using the `regex` crate.
     /// Converts a regex split operation to Rust text using the `regex` crate.
     pub(super) fn regex_split_text(

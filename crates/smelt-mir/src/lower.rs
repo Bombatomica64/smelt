@@ -1603,6 +1603,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+                let pattern_operand = self.lower_expr(*pattern)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::RegexReplaceFirstMatchUppercase {
+                        pattern: pattern_operand,
+                        haystack: haystack_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::RegexSplit { pattern, haystack } => {
                 let pattern_operand = self.lower_expr(*pattern)?;
                 let haystack_operand = self.lower_expr(*haystack)?;
@@ -3063,6 +3076,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringPredicate { .. }
             | ExprKind::RegexIsMatch { .. }
             | ExprKind::RegexReplace { .. }
+            | ExprKind::RegexReplaceFirstMatchUppercase { .. }
             | ExprKind::RegexSplit { .. }
             | ExprKind::RegexFind { .. }
             | ExprKind::StringCharAt { .. }

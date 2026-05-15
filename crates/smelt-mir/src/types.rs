@@ -679,6 +679,13 @@ pub enum Rvalue {
         /// Replacement text.
         replacement: Operand,
     },
+    /// Replace the first regex match with its uppercase text.
+    RegexReplaceFirstMatchUppercase {
+        /// Regex pattern text.
+        pattern: Operand,
+        /// String value to transform.
+        haystack: Operand,
+    },
     /// Split a string with a regex pattern.
     RegexSplit {
         /// Regex pattern text.

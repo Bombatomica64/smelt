@@ -98,7 +98,19 @@ impl ModuleBuilder<'_> {
                 "Object.assign requires record-typed arguments",
             ));
         };
-        let target = self.argument_with_hint(target_arg, body, Some(record_ty))?;
+        let mut target = self.argument_with_hint(target_arg, body, Some(record_ty))?;
+        if Self::expr_ty(body, target) != record_ty
+            && self.object_assign_object_like_source(Self::expr_ty(body, target))
+        {
+            target = body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: target,
+                    target: record_ty,
+                },
+                ty: record_ty,
+                span: self.span(target_arg.span().start, target_arg.span().end),
+            });
+        }
         if Self::expr_ty(body, target) != record_ty {
             return Err(SmeltError::unsupported(
                 self.span(target_arg.span().start, target_arg.span().end),
@@ -1658,7 +1670,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Lower and validate a slice index argument.
-    fn slice_index_argument(
+    pub(super) fn slice_index_argument(
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,

@@ -29,6 +29,9 @@ impl ModuleBuilder<'_> {
                 oxc::ast::ast::TSLiteral::NumericLiteral(_) => {
                     Ok(self.ctx.krate.types.intern(Type::Float))
                 }
+                oxc::ast::ast::TSLiteral::BigIntLiteral(_) => {
+                    Ok(self.ctx.krate.types.intern(Type::Int))
+                }
                 oxc::ast::ast::TSLiteral::UnaryExpression(unary)
                     if unary.operator == UnaryOperator::UnaryNegation
                         && matches!(
@@ -508,7 +511,9 @@ impl ModuleBuilder<'_> {
             if prop.computed && !is_static_property_key(&prop.key) {
                 continue;
             }
-            let name = self.property_key_symbol(&prop.key)?;
+            let Ok(name) = self.property_key_symbol(&prop.key) else {
+                continue;
+            };
             let ty = prop
                 .type_annotation
                 .as_ref()
@@ -683,6 +688,7 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         match item {
             TSTupleElement::TSNumberKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Float)),
+            TSTupleElement::TSBigIntKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Int)),
             TSTupleElement::TSStringKeyword(_) | TSTupleElement::TSTemplateLiteralType(_) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -720,6 +726,9 @@ impl ModuleBuilder<'_> {
                 }
                 oxc::ast::ast::TSLiteral::NumericLiteral(_) => {
                     Ok(self.ctx.krate.types.intern(Type::Float))
+                }
+                oxc::ast::ast::TSLiteral::BigIntLiteral(_) => {
+                    Ok(self.ctx.krate.types.intern(Type::Int))
                 }
                 oxc::ast::ast::TSLiteral::BooleanLiteral(_) => {
                     Ok(self.ctx.krate.types.intern(Type::Bool))
@@ -1231,6 +1240,7 @@ impl ModuleBuilder<'_> {
             | TSType::TSAnyKeyword(_)
             | TSType::TSUnknownKeyword(_)
             | TSType::TSObjectKeyword(_)
+            | TSType::TSTypeQuery(_)
             | TSType::TSTemplateLiteralType(_)
             | TSType::TSNeverKeyword(_) => Ok(true),
             TSType::TSLiteralType(literal) => Ok(matches!(
@@ -1383,6 +1393,7 @@ impl ModuleBuilder<'_> {
                         .find(|item| item.name == field)
                         .map(|item| item.ty)
                 });
+                let class_base = self.class_by_symbol(name).and_then(|class| class.base);
                 let class_name = self
                     .ctx
                     .krate
@@ -1448,6 +1459,18 @@ impl ModuleBuilder<'_> {
                     .or(alias_field)
                 {
                     return Ok(ty);
+                }
+                if let Some(ty) = self.builtin_class_field_type(name, field) {
+                    return Ok(ty);
+                }
+                if let Some(base) = class_base {
+                    let base_ty = self.ctx.krate.types.intern(Type::Class {
+                        name: base,
+                        args: Vec::new(),
+                    });
+                    if let Ok(ty) = self.class_field_type(base_ty, field) {
+                        return Ok(ty);
+                    }
                 }
                 let mut visited = HashSet::new();
                 if let Some(ty) =
@@ -1644,6 +1667,42 @@ impl ModuleBuilder<'_> {
             }
             None
         })
+    }
+
+    /// Return declared fields for built-in classes that Smelt does not import from lib.d.ts.
+    fn builtin_class_field_type(
+        &mut self,
+        class: smelt_hir::Symbol,
+        field: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))?;
+        if !matches!(
+            class_name,
+            "Error"
+                | "EvalError"
+                | "RangeError"
+                | "ReferenceError"
+                | "SyntaxError"
+                | "TypeError"
+                | "URIError"
+                | "AggregateError"
+        ) {
+            return None;
+        }
+        let field_name = self.ctx.krate.symbols.get(field)?;
+        match field_name {
+            "name" | "message" => Some(self.ctx.krate.types.intern(Type::String)),
+            "stack" => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                Some(self.ctx.krate.types.intern(Type::Optional(string_ty)))
+            }
+            _ => None,
+        }
     }
 
     /// Resolve a method call on a type.
@@ -2155,7 +2214,7 @@ impl ModuleBuilder<'_> {
         }
         if matches!(
             self.ctx.krate.types.get(ty),
-            Some(Type::Class { .. } | Type::Unknown | Type::TypeParam { .. })
+            Some(Type::Class { .. } | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
             let key_ty = self.ctx.krate.types.intern(Type::String);
             let value_ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -2178,7 +2237,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
             Some(Type::Float) => ExprKind::Literal(Literal::Float(0.0)),
             Some(Type::String) => ExprKind::Literal(Literal::String(String::new())),
-            Some(Type::List(_)) => ExprKind::ListLit(Vec::new()),
+            Some(Type::List(_) | Type::Tuple(_)) => ExprKind::ListLit(Vec::new()),
             Some(Type::Set(_)) => ExprKind::SetLit(Vec::new()),
             _ => {
                 return Err(SmeltError::unsupported(

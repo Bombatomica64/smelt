@@ -248,6 +248,36 @@ const replaced = value.replace(/\d/g, "x");
 }
 
 #[test]
+fn lowers_callback_regex_replace_uppercase_inside_template_literal() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function format(units: string[]): string[] {
+  return units.map((unit) => `x${unit.replace(/(^.)/, (m) => m.toUpperCase())}` as string);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_string_key_record_access() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function values(record: Record<string, number>, keys: string[]): number[] {
+  return keys.map((key) => record[key]);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_string_repeat_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -490,7 +520,10 @@ const arrays = values.map((value, index, array) => array);
                 initial: None,
                 callback,
                 ..
-            } if closure_callback_has_param(body, *callback, 2)
+            } if matches!(
+                body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
+                Some(ExprKind::Closure(closure)) if closure.params.len() > 2
+            )
         )),
         "missing reduce without initial value using callback index param"
     );
@@ -798,6 +831,20 @@ function sliceOptional(start?: number, end?: number): string {
         all_string_slices >= 6,
         "optional string slice inside function body did not lower"
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_concat_element_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const values: string[] = [];
+const next = values.concat("a");
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 

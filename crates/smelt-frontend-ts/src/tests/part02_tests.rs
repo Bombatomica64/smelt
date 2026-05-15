@@ -1298,6 +1298,54 @@ export const differenceFp = convertToFP(difference, 2);
 }
 
 #[test]
+fn lowers_date_fns_fp_wrapper_with_erased_optional_tail_param() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function addDays(date: number, amount: number): number {
+  return date + amount;
+}
+
+export const addDaysWithOptions = convertToFP(addDays, 3);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let target = function_item(&ctx, module, 0)?;
+    let wrapper = function_item(&ctx, module, 1)?;
+    ensure_eq!(target.params.len(), 3);
+    ensure_eq!(wrapper.params.len(), 3);
+    ensure_eq!(
+        ctx.krate.symbols.get(wrapper.params[0].name),
+        Some("__fp_arg2")
+    );
+    ensure_eq!(
+        ctx.krate.symbols.get(wrapper.params[1].name),
+        Some("amount")
+    );
+    ensure_eq!(ctx.krate.symbols.get(wrapper.params[2].name), Some("date"));
+
+    let body = function_body(&ctx, wrapper)?;
+    let return_call = body
+        .stmts
+        .iter()
+        .find_map(|stmt| match stmt {
+            Stmt::Return(Some(expr)) => body.exprs.get(expr.0 as usize),
+            _ => None,
+        })
+        .ok_or_else(|| "expected FP wrapper to return a call".to_owned())?;
+    let ExprKind::Call { args, .. } = &return_call.kind else {
+        return Err(format!("expected wrapper return call, got {return_call:?}"));
+    };
+    ensure_eq!(args.len(), 3);
+    ensure!(matches!(
+        body.exprs.get(args[2].0 as usize).map(|expr| &expr.kind),
+        Some(ExprKind::Local(local)) if *local == wrapper.params[0].local
+    ));
+    Ok(())
+}
+
+#[test]
 fn skips_date_fns_context_options_type_only_heritage() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

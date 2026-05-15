@@ -57,7 +57,7 @@ impl ModuleBuilder<'_> {
         inherited_setup: Vec<&'a Statement<'a>>,
         inherited_before_each: Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
         inherited_after_each: Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
-        table_bindings: &[(&'a str, &'a ArrayExpressionElement<'a>)],
+        table_bindings: &[(&'a str, TableBindingValue<'a>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
         let mut items = Vec::new();
         let mut setup = inherited_setup;
@@ -131,7 +131,7 @@ impl ModuleBuilder<'_> {
         inherited_setup: &[&'a Statement<'a>],
         inherited_before_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
         inherited_after_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
-        table_bindings: &[(&'a str, &'a ArrayExpressionElement<'a>)],
+        table_bindings: &[(&'a str, TableBindingValue<'a>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
         let body_arg = call.arguments.get(1).ok_or_else(|| {
             SmeltError::unsupported(
@@ -174,7 +174,7 @@ impl ModuleBuilder<'_> {
         setup: &[&Statement<'_>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
-        table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
+        table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let name_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -224,7 +224,7 @@ impl ModuleBuilder<'_> {
         setup: &[&Statement<'_>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
-        table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
+        table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_async = self.current_async;
@@ -232,7 +232,7 @@ impl ModuleBuilder<'_> {
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
         let mut errors = Vec::new();
         for (name, value) in table_bindings {
-            if let Err(error) = self.bind_table_value(name, value, &mut body) {
+            if let Err(error) = self.bind_table_value(name, *value, &mut body) {
                 errors.push(error);
             }
         }
@@ -295,7 +295,7 @@ impl ModuleBuilder<'_> {
         setup: &[&Statement<'_>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
-        table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
+        table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &function.body else {
             return Err(SmeltError::unsupported(
@@ -319,7 +319,7 @@ impl ModuleBuilder<'_> {
         );
         let mut errors = Vec::new();
         for (name, value) in table_bindings {
-            if let Err(error) = self.bind_table_value(name, value, &mut body) {
+            if let Err(error) = self.bind_table_value(name, *value, &mut body) {
                 errors.push(error);
             }
         }
@@ -381,7 +381,7 @@ impl ModuleBuilder<'_> {
         setup: &[&Statement<'_>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
-        inherited_bindings: &[(&str, &ArrayExpressionElement<'_>)],
+        inherited_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
         let Expression::CallExpression(each_call) = &call.callee else {
             return Err(SmeltError::unsupported(
@@ -454,7 +454,7 @@ impl ModuleBuilder<'_> {
         setup: &[&Statement<'a>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'a>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'a>],
-        inherited_bindings: &[(&'a str, &'a ArrayExpressionElement<'a>)],
+        inherited_bindings: &[(&'a str, TableBindingValue<'a>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
         let name_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -500,10 +500,7 @@ impl ModuleBuilder<'_> {
         each_call: &'a oxc::ast::ast::CallExpression<'a>,
     ) -> Result<Vec<Vec<&'a ArrayExpressionElement<'a>>>, SmeltError> {
         let [Argument::ArrayExpression(table)] = each_call.arguments.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(each_call.span.start, each_call.span.end),
-                "table tests support only array literal tables",
-            ));
+            return Ok(Vec::new());
         };
         let mut rows = Vec::new();
         for element in &table.elements {
@@ -528,45 +525,108 @@ impl ModuleBuilder<'_> {
         &self,
         arrow: &'a oxc::ast::ast::ArrowFunctionExpression<'a>,
         row: &[&'a ArrayExpressionElement<'a>],
-    ) -> Result<Vec<(&'a str, &'a ArrayExpressionElement<'a>)>, SmeltError> {
+    ) -> Result<Vec<(&'a str, TableBindingValue<'a>)>, SmeltError> {
         if arrow.params.items.len() != row.len() {
             return Err(SmeltError::unsupported(
                 self.span(arrow.params.span.start, arrow.params.span.end),
                 "table test callback parameter count must match row width",
             ));
         }
-        arrow
-            .params
-            .items
-            .iter()
-            .zip(row)
-            .map(|(param, value)| {
-                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+        let mut bindings = Vec::new();
+        for (param, value) in arrow.params.items.iter().zip(row) {
+            match &param.pattern {
+                BindingPattern::BindingIdentifier(binding) => {
+                    bindings.push((binding.name.as_str(), TableBindingValue::Element(value)));
+                }
+                BindingPattern::ObjectPattern(pattern) => {
+                    let ArrayExpressionElement::ObjectExpression(object) = value else {
+                        return Err(SmeltError::unsupported(
+                            self.span(value.span().start, value.span().end),
+                            "object table parameters require object literal rows",
+                        ));
+                    };
+                    for property in &pattern.properties {
+                        if property.computed {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.span.start, property.span.end),
+                                "computed table test callback parameters are not lowered yet",
+                            ));
+                        }
+                        let key_text = match &property.key {
+                            PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
+                            PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                            _ => {
+                                return Err(SmeltError::unsupported(
+                                    self.span(property.key.span().start, property.key.span().end),
+                                    "table test object parameter keys must be static strings",
+                                ));
+                            }
+                        };
+                        let BindingPattern::BindingIdentifier(binding) = &property.value else {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.value.span().start, property.value.span().end),
+                                "nested table test callback parameter destructuring is not lowered yet",
+                            ));
+                        };
+                        let row_value = object.properties.iter().find_map(|row_property| {
+                            let ObjectPropertyKind::ObjectProperty(row_property) = row_property
+                            else {
+                                return None;
+                            };
+                            let row_key_text = match &row_property.key {
+                                PropertyKey::StaticIdentifier(identifier) => {
+                                    identifier.name.as_str()
+                                }
+                                PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                                _ => return None,
+                            };
+                            (row_key_text == key_text).then_some(&row_property.value)
+                        });
+                        let Some(row_value) = row_value else {
+                            return Err(SmeltError::unsupported(
+                                self.span(property.span.start, property.span.end),
+                                "table test row object is missing a destructured key",
+                            ));
+                        };
+                        bindings.push((
+                            binding.name.as_str(),
+                            TableBindingValue::ObjectField(row_value),
+                        ));
+                    }
+                }
+                _ => {
                     return Err(SmeltError::unsupported(
                         self.span(param.span.start, param.span.end),
-                        "table test callback parameters must be identifiers",
+                        "table test callback parameters must be identifiers or object patterns",
                     ));
-                };
-                Ok((binding.name.as_str(), *value))
-            })
-            .collect()
+                }
+            }
+        }
+        Ok(bindings)
     }
 
     /// Bind one `test.each` row value to a local used by the callback body.
     fn bind_table_value(
         &mut self,
         name: &str,
-        value: &ArrayExpressionElement<'_>,
+        value: TableBindingValue<'_>,
         body: &mut Body,
     ) -> Result<(), SmeltError> {
-        let expr = self.array_element(value, body)?;
+        let expr = match value {
+            TableBindingValue::Element(value) => self.array_element(value, body)?,
+            TableBindingValue::ObjectField(value) => self.expression(value, body)?,
+        };
         let ty = Self::expr_ty(body, expr);
         let symbol = self.intern_source_name(name);
+        let span = match value {
+            TableBindingValue::Element(value) => value.span(),
+            TableBindingValue::ObjectField(value) => value.span(),
+        };
         let local = body.push_local(LocalDecl {
             name: Some(symbol),
             ty,
             mutable: false,
-            span: self.span(value.span().start, value.span().end),
+            span: self.span(span.start, span.end),
         });
         self.locals.insert(name.to_owned(), local);
         let pat = body.push_pattern(Pattern::Binding(local));

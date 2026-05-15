@@ -26,6 +26,17 @@ impl ModuleBuilder<'_> {
         if let Some(pattern_op) = pattern_op {
             op = pattern_op;
         }
+        if op == StringReplaceOp::First
+            && let Argument::ArrowFunctionExpression(replacement) = replacement_arg
+            && self.arrow_callback_returns_param_uppercase(replacement)?
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let replacement = self.argument(replacement_arg, body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, haystack)),
@@ -510,13 +521,21 @@ impl ModuleBuilder<'_> {
             }
         };
         let operand = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, operand)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
+        match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
+            Some(Type::String) => Ok(operand),
+            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: operand },
+                    ty: string_ty,
+                    span: self.span(argument.span().start, argument.span().end),
+                }))
+            }
+            _ => Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!("{source_name} requires a string argument"),
-            ));
+            )),
         }
-        Ok(operand)
     }
 
     /// Lower direct TypeScript `.toString()` calls with an optional radix argument.

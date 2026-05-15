@@ -158,16 +158,16 @@ fn rejects_static_members() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_getters_setters_decorators_and_abstract_classes() -> Result<(), String> {
-    let mut getter_ctx = HirCtx::new();
-    let getter_errors = lowering_errors(
+fn rejects_setters_decorators_and_abstract_classes() -> Result<(), String> {
+    let mut setter_ctx = HirCtx::new();
+    let setter_errors = lowering_errors(
         ts!("class User {
-  get name(): string { return \"Ada\"; }
+  set name(value: string) {}
 }
 "),
-        &mut getter_ctx,
+        &mut setter_ctx,
     )?;
-    assert_unsupported_ts(&getter_errors, "getters and setters")?;
+    assert_unsupported_ts(&setter_errors, "getters and setters")?;
 
     let mut decorator_ctx = HirCtx::new();
     let decorator_errors = lowering_errors(

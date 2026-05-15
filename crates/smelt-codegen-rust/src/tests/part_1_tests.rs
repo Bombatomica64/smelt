@@ -253,6 +253,33 @@ for (let ch: string of word) {
 }
 
 #[test]
+fn emits_callback_regex_replace_uppercase() {
+    let source = source_for(
+        r#"
+export function format(units: string[]): string[] {
+  return units.map((unit) => `x${unit.replace(/(^.)/, (m) => m.toUpperCase())}` as string);
+}
+"#,
+    );
+
+    assert!(source.contains("regex::Regex::new"));
+    assert!(source.contains("to_uppercase()"));
+}
+
+#[test]
+fn emits_callback_string_key_record_access() {
+    let source = source_for(
+        r#"
+export function values(record: Record<string, number>, keys: string[]): number[] {
+  return keys.map((key) => record[key]);
+}
+"#,
+    );
+
+    assert!(source.contains(".get(&item)"), "{source}");
+}
+
+#[test]
 fn emits_string_case_methods() {
     let source = source_for(
         r#"

@@ -618,6 +618,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, replacement, errors);
         }
+        Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+            validate_operand_exists(function, pattern, errors);
+            validate_operand_exists(function, haystack, errors);
+        }
         Rvalue::RegexSplit { pattern, haystack } => {
             validate_operand_exists(function, pattern, errors);
             validate_operand_exists(function, haystack, errors);
@@ -1315,6 +1319,10 @@ fn validate_rvalue(
             validate_operand(function, definitions, pattern, errors);
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, replacement, errors);
+        }
+        Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+            validate_operand(function, definitions, pattern, errors);
+            validate_operand(function, definitions, haystack, errors);
         }
         Rvalue::RegexSplit { pattern, haystack } => {
             validate_operand(function, definitions, pattern, errors);

@@ -221,6 +221,9 @@ impl ModuleBuilder<'_> {
             errors.push(error);
         }
         for statement in &function_body.statements {
+            if self.is_super_call_statement(statement) {
+                continue;
+            }
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }
@@ -531,10 +534,24 @@ impl ModuleBuilder<'_> {
                 "generic classes are not lowered yet",
             ));
         }
-        if class
-            .super_class
-            .as_ref()
-            .is_some_and(|super_class| !matches!(super_class, Expression::Identifier(identifier) if identifier.name == "Date"))
+        if class.super_class.as_ref().is_some_and(|super_class| {
+            !matches!(
+                super_class,
+                Expression::Identifier(identifier)
+                    if matches!(
+                        identifier.name.as_str(),
+                        "Date"
+                            | "Error"
+                            | "EvalError"
+                            | "RangeError"
+                            | "ReferenceError"
+                            | "SyntaxError"
+                            | "TypeError"
+                            | "URIError"
+                            | "AggregateError"
+                    ) || self.classes.contains_key(identifier.name.as_str())
+            )
+        })
         {
             return Err(SmeltError::unsupported(
                 self.span(class.span.start, class.span.end),
@@ -548,55 +565,104 @@ impl ModuleBuilder<'_> {
             name: class_name,
             args: Vec::new(),
         });
+        let base = class.super_class.as_ref().and_then(|super_class| {
+            let Expression::Identifier(identifier) = super_class else {
+                return None;
+            };
+            Some(self.intern_type_name(identifier.name.as_str()))
+        });
         let mut fields = Vec::new();
         let mut constructor = None;
         let mut methods = Vec::new();
+        let mut has_required_storage_fields = false;
 
         for element in &class.body.body {
-            if let ClassElement::PropertyDefinition(property) = element {
-                if property.computed && !is_static_property_key(&property.key) {
-                    return Err(SmeltError::unsupported(
-                        self.span(property.span.start, property.span.end),
-                        "dynamic computed property names are not lowered yet",
-                    ));
-                }
-                if property.r#static {
-                    return Err(SmeltError::unsupported(
-                        self.span(property.span.start, property.span.end),
-                        "static fields are not lowered yet",
-                    ));
-                }
-                if property.value.is_some() {
-                    return Err(SmeltError::unsupported(
-                        self.span(property.span.start, property.span.end),
-                        "field initializers are not lowered yet",
-                    ));
-                }
-                if property.optional {
-                    return Err(SmeltError::unsupported(
-                        self.span(property.span.start, property.span.end),
-                        "optional class fields are not lowered yet",
-                    ));
-                }
-                let name = self.property_key_symbol(&property.key)?;
-                let ty = property
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()?
-                    .ok_or_else(|| {
-                        SmeltError::unsupported(
+            match element {
+                ClassElement::PropertyDefinition(property) => {
+                    if property.computed && !is_static_property_key(&property.key) {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "dynamic computed property names are not lowered yet",
+                        ));
+                    }
+                    if property.r#static {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "static fields are not lowered yet",
+                        ));
+                    }
+                    if property.optional {
+                        return Err(SmeltError::unsupported(
+                            self.span(property.span.start, property.span.end),
+                            "optional class fields are not lowered yet",
+                        ));
+                    }
+                    let name = self.property_key_symbol(&property.key)?;
+                    has_required_storage_fields |= property.value.is_none();
+                    let ty = if let Some(annotation) = &property.type_annotation {
+                        self.ts_type_to_hir(&annotation.type_annotation)?
+                    } else if let Some(value) = &property.value {
+                        let mut field_body =
+                            Body::new(None, self.span(value.span().start, value.span().end));
+                        let value = self.expression(value, &mut field_body)?;
+                        Self::expr_ty(&field_body, value)
+                    } else {
+                        return Err(SmeltError::unsupported(
                             self.span(property.span.start, property.span.end),
                             "class fields require explicit type annotations",
-                        )
-                    })?;
-                fields.push(Field {
-                    name,
-                    ty,
-                    visibility: visibility(property.accessibility),
-                    optional: false,
-                    span: self.span(property.span.start, property.span.end),
-                });
+                        ));
+                    };
+                    fields.push(Field {
+                        name,
+                        ty,
+                        visibility: visibility(property.accessibility),
+                        optional: false,
+                        span: self.span(property.span.start, property.span.end),
+                    });
+                }
+                ClassElement::MethodDefinition(method)
+                    if method.kind == MethodDefinitionKind::Get =>
+                {
+                    if !method.decorators.is_empty() {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "method decorators are not lowered yet",
+                        ));
+                    }
+                    if method.computed && !is_static_property_key(&method.key) {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "dynamic computed method names are not lowered yet",
+                        ));
+                    }
+                    if method.r#static {
+                        return Err(SmeltError::unsupported(
+                            self.span(method.span.start, method.span.end),
+                            "static methods are not lowered yet",
+                        ));
+                    }
+                    let name = self.property_key_symbol(&method.key)?;
+                    let ty = method
+                        .value
+                        .return_type
+                        .as_ref()
+                        .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                        .transpose()?
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(method.span.start, method.span.end),
+                                "getters require explicit return types",
+                            )
+                        })?;
+                    fields.push(Field {
+                        name,
+                        ty,
+                        visibility: visibility(method.accessibility),
+                        optional: false,
+                        span: self.span(method.span.start, method.span.end),
+                    });
+                }
+                _ => {}
             }
         }
         self.class_fields
@@ -606,6 +672,9 @@ impl ModuleBuilder<'_> {
             match element {
                 ClassElement::PropertyDefinition(_) => {}
                 ClassElement::MethodDefinition(method) => {
+                    if method.kind == MethodDefinitionKind::Get {
+                        continue;
+                    }
                     if !method.decorators.is_empty() {
                         return Err(SmeltError::unsupported(
                             self.span(method.span.start, method.span.end),
@@ -673,7 +742,7 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        if !fields.is_empty() && constructor.is_none() {
+        if has_required_storage_fields && constructor.is_none() {
             return Err(SmeltError::unsupported(
                 self.span(class.span.start, class.span.end),
                 "classes with required fields must declare a constructor",
@@ -689,7 +758,7 @@ impl ModuleBuilder<'_> {
             name: class_name,
             span: self.span(class.span.start, class.span.end),
             kind: smelt_hir::ClassKind::Plain,
-            base: None,
+            base,
             fields,
             constructor,
             methods,
@@ -791,17 +860,17 @@ impl ModuleBuilder<'_> {
                     "destructured parameters are not lowered yet",
                 ));
             };
-            let ty = param
-                .type_annotation
-                .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "method parameters must have explicit type annotations",
-                    )
-                })?;
+            let ty = if let Some(annotation) = &param.type_annotation {
+                self.ts_type_to_hir(&annotation.type_annotation)?
+            } else if let Some(default) = &param.initializer {
+                let default = self.expression(default, &mut body)?;
+                Self::expr_ty(&body, default)
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "method parameters must have explicit type annotations",
+                ));
+            };
             let param_name = self.intern_source_name(binding.name.as_str());
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
@@ -817,6 +886,19 @@ impl ModuleBuilder<'_> {
                 ty,
                 span: self.span(binding.span.start, binding.span.end),
             });
+            if is_constructor && param.accessibility.is_some() {
+                let field = Field {
+                    name: param_name,
+                    ty,
+                    visibility: visibility(param.accessibility),
+                    optional: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                };
+                self.class_fields
+                    .entry(class_text.to_owned())
+                    .or_default()
+                    .push(field);
+            }
         }
 
         let mut errors = Vec::new();
@@ -825,6 +907,9 @@ impl ModuleBuilder<'_> {
             errors.push(error);
         }
         for statement in &function_body.statements {
+            if self.is_super_call_statement(statement) {
+                continue;
+            }
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
             }
@@ -857,6 +942,27 @@ impl ModuleBuilder<'_> {
                 }
             },
         })))
+    }
+
+    /// Return whether a constructor statement is a bare `super(...)` call.
+    fn is_super_call_statement(&self, statement: &Statement<'_>) -> bool {
+        let Statement::ExpressionStatement(statement) = statement else {
+            return false;
+        };
+        if self
+            .source
+            .get(
+                usize::try_from(statement.span.start).unwrap_or(usize::MAX)
+                    ..usize::try_from(statement.span.end).unwrap_or(usize::MAX),
+            )
+            .is_some_and(|text| text.trim_start().starts_with("super("))
+        {
+            return true;
+        }
+        let Expression::CallExpression(call) = &statement.expression else {
+            return false;
+        };
+        matches!(call.callee, Expression::Super(_))
     }
 
     /// Lower a statement in the current scope.

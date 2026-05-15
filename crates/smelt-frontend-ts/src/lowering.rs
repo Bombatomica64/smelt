@@ -86,6 +86,15 @@ struct LocalCallback {
     return_ty: smelt_hir::TypeId,
 }
 
+/// Source value bound into a `test.each` callback parameter.
+#[derive(Debug, Clone, Copy)]
+enum TableBindingValue<'a> {
+    /// A whole row element, used for ordinary identifier parameters.
+    Element(&'a ArrayExpressionElement<'a>),
+    /// A property expression extracted from an object-literal row.
+    ObjectField(&'a Expression<'a>),
+}
+
 /// A default argument expression stored for a local callback.
 #[derive(Debug, Clone)]
 enum LocalCallbackDefault {

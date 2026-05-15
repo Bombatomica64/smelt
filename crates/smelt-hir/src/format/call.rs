@@ -263,6 +263,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*replacement)
             )
         }
+        ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+            format!(
+                "regex_replace_first_upper {}, {}",
+                expr_ref(*pattern),
+                expr_ref(*haystack)
+            )
+        }
         ExprKind::RegexSplit { pattern, haystack } => {
             format!(
                 "regex_split {}, {}",

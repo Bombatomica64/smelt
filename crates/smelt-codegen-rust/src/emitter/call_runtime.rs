@@ -233,6 +233,9 @@ impl FunctionEmitter<'_> {
                 haystack,
                 replacement,
             } => self.regex_replace_text(*op, pattern, haystack, replacement),
+            Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+                self.regex_replace_first_match_uppercase_text(pattern, haystack)
+            }
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
             Rvalue::RegexFind { pattern, haystack } => self.regex_find_text(pattern, haystack),
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),

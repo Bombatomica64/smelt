@@ -214,7 +214,7 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let callback_body = self.closure_callback_body(callback)?;
+        let legacy_callback_body = self.closure_callback_body(callback).ok();
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array reduce receiver must be a list"));
@@ -227,14 +227,20 @@ impl FunctionEmitter<'_> {
                 ));
             }
         }
-        if callback_body.ty != dest_ty {
+        if let Some(legacy_body) = legacy_callback_body
+            && legacy_body.ty != dest_ty
+        {
             return Err(EmitError::new(
                 "array reduce initial value and callback result must match the destination type",
             ));
         }
         let list_text = self.operand_text(list)?;
-        let callback_text =
-            self.callback_expr_text(callback_body, &["acc", "item", "index", "array"])?;
+        let callback_text = if let Some(legacy_body) = legacy_callback_body {
+            self.callback_expr_text(legacy_body, &["acc", "item", "index", "array"])?
+        } else {
+            let callback_closure = self.closure_operand_text(callback)?;
+            format!("{callback_closure}(acc, item, index, array)")
+        };
         if let Some(initial_operand) = initial {
             let initial_text = self.operand_text(initial_operand)?;
             Ok(format!(
@@ -443,6 +449,33 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Resolve a callback operand to a Rust closure expression.
+    fn closure_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let local = match operand {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
+            _ => {
+                return Err(EmitError::new(
+                    "list callback must be a non-escaping closure local",
+                ));
+            }
+        };
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign {
+                    dest,
+                    value: Rvalue::Closure { id, .. },
+                } = statement
+                    && *dest == local
+                {
+                    return self.closure_text(*id);
+                }
+            }
+        }
+        Err(EmitError::new(
+            "list callback closure construction was not found",
+        ))
+    }
+
     /// Converts a callback expression tree to Rust source text.
     pub(super) fn callback_expr_text(
         &self,
@@ -558,8 +591,16 @@ impl FunctionEmitter<'_> {
                     Some(Type::String) => Ok(format!(
                         "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.chars().count() as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.chars().nth(callback_index).map(|ch| ch.to_string()).expect(\"index out of bounds\") }}"
                     )),
+                    Some(Type::Dict(key_ty, value_ty))
+                        if self.mir.types.get(*key_ty) == Some(&Type::String) =>
+                    {
+                        Ok(format!(
+                            "{receiver_text}.get(&{index_text}).cloned().unwrap_or({})",
+                            self.default_value(*value_ty)?
+                        ))
+                    }
                     _ => Err(EmitError::new(
-                        "callback dynamic indexed access requires a list or string receiver",
+                        "callback dynamic indexed access requires a list, string, or record receiver",
                     )),
                 }
             }
@@ -727,6 +768,17 @@ impl FunctionEmitter<'_> {
                     let pattern_text = self.callback_expr_text(&pattern.expr, params)?;
                     Ok(format!(
                         "regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\").is_match(&{receiver_text})"
+                    ))
+                } else if method_text == "__smelt_replace_first_match_uppercase" && args.len() == 1
+                {
+                    let pattern = args.first().ok_or_else(|| {
+                        EmitError::new(
+                            "callback replace uppercase call requires one pattern argument",
+                        )
+                    })?;
+                    let pattern_text = self.callback_expr_text(&pattern.expr, params)?;
+                    Ok(format!(
+                        "regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\").replace(&{receiver_text}, |captures: &regex::Captures<'_>| captures.get(0).map_or_else(String::new, |matched| matched.as_str().to_uppercase())).to_string()"
                     ))
                 } else {
                     Ok(format!(

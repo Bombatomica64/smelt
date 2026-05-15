@@ -370,6 +370,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             let Some(annotation) = &declarator.type_annotation else {
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                    && let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init
+                    && let Ok(ty) = self.local_arrow_function_type(arrow, None)
+                {
+                    self.module_globals
+                        .insert(binding.name.as_str().to_owned(), ty);
+                }
+                if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                     && let Some(init) = &declarator.init
                     && (Self::is_module_global_array_initializer(init)
                         || Self::object_const_initializer(init).is_some())
@@ -412,7 +419,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Expression::ArrayExpression(_) => true,
             Expression::NewExpression(new_expr) => matches!(
                 &new_expr.callee,
-                Expression::Identifier(callee) if matches!(callee.name.as_str(), "Set" | "Map")
+                Expression::Identifier(callee)
+                    if matches!(callee.name.as_str(), "Set" | "Map")
+                        || Self::is_numeric_typed_array_constructor(callee.name.as_str())
             ),
             Expression::TSAsExpression(as_expr) => {
                 Self::is_module_global_array_initializer(&as_expr.expression)
@@ -1069,6 +1078,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
+            if matches!(init, Expression::CallExpression(_))
+                && self.literal_const_expression(init).is_err()
+            {
+                let span = self.span(binding.span.start, binding.span.end);
+                let mut body = Body::new(None, span);
+                let expr = self.expression(init, &mut body)?;
+                let ty = Self::expr_ty(&body, expr);
+                let body_id = self.ctx.krate.push_body(body);
+                let name_text = binding.name.as_str();
+                let name = self.intern_source_name(name_text);
+                let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+                    name,
+                    ty,
+                    value: expr,
+                    body: body_id,
+                    span,
+                }));
+                self.items.insert(name_text.to_owned(), item);
+                self.ctx.export_aliases.insert(name_text.to_owned(), item);
+                self.module_globals.insert(name_text.to_owned(), ty);
+                items.push(item);
+                continue;
+            }
             let value = match self.literal_const_expression(init) {
                 Ok(value) => value,
                 Err(error) if Self::is_known_non_importable_exported_const(init) => {
@@ -1436,6 +1468,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }));
         self.items.insert(name_text.to_owned(), item);
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
+        self.module_globals.insert(name_text.to_owned(), value.ty);
         self.const_objects
             .insert(name_text.to_owned(), value.clone());
         self.ctx.object_consts.insert(name_text.to_owned(), value);
@@ -1469,6 +1502,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }));
         self.items.insert(name_text.to_owned(), item);
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
+        self.module_globals.insert(name_text.to_owned(), ty);
         Ok(item)
     }
 

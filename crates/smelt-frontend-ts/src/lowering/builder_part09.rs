@@ -306,7 +306,9 @@ impl ModuleBuilder<'_> {
             return self.expression(expression, body);
         }
         let target = self.ts_type_to_hir(annotation)?;
-        if self.concrete_type_requires_never_value(target) {
+        if self.concrete_type_requires_never_value(target)
+            && !Self::is_empty_object_expression(expression)
+        {
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "type assertion cannot construct a never value",
@@ -342,6 +344,26 @@ impl ModuleBuilder<'_> {
                     TSTypeName::IdentifierReference(name) if name.name == "const"
                 )
         )
+    }
+
+    /// Return whether an expression is an empty object literal after TS-only wrappers.
+    fn is_empty_object_expression(expression: &Expression<'_>) -> bool {
+        match expression {
+            Expression::ObjectExpression(object) => object.properties.is_empty(),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::is_empty_object_expression(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(assertion) => {
+                Self::is_empty_object_expression(&assertion.expression)
+            }
+            Expression::TSSatisfiesExpression(assertion) => {
+                Self::is_empty_object_expression(&assertion.expression)
+            }
+            Expression::TSNonNullExpression(assertion) => {
+                Self::is_empty_object_expression(&assertion.expression)
+            }
+            _ => false,
+        }
     }
 
     /// Lower a function call argument.
@@ -446,66 +468,7 @@ impl ModuleBuilder<'_> {
                 self.span(non_null.span.start, non_null.span.end),
                 body,
             ),
-            Argument::NewExpression(new_expr) => {
-                let Expression::Identifier(callee) = &new_expr.callee else {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "call argument new expressions require a direct class name",
-                    ));
-                };
-                if callee.name == "Date" {
-                    self.new_date_expression(new_expr, body)
-                } else if let Some(item) = self.classes.get(callee.name.as_str()).copied() {
-                    let Item::Class(class) = self.item_ref(item) else {
-                        return Err(SmeltError::unsupported(
-                            self.span(new_expr.span.start, new_expr.span.end),
-                            "call argument new expressions require a class item",
-                        ));
-                    };
-                    let class_name = class.name;
-                    let args = new_expr
-                        .arguments
-                        .iter()
-                        .map(|arg| self.argument(arg, body))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let ty = self.ctx.krate.types.intern(Type::Class {
-                        name: class_name,
-                        args: Vec::new(),
-                    });
-                    Ok(body.push_expr(Expr {
-                        kind: ExprKind::New {
-                            class: class_name,
-                            args,
-                        },
-                        ty,
-                        span: self.span(new_expr.span.start, new_expr.span.end),
-                    }))
-                } else if self.value_imports.contains(callee.name.as_str()) {
-                    let class_name = self.intern_type_name(callee.name.as_str());
-                    let args = new_expr
-                        .arguments
-                        .iter()
-                        .map(|arg| self.argument(arg, body))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let ty = self.ctx.krate.types.intern(Type::Class {
-                        name: class_name,
-                        args: Vec::new(),
-                    });
-                    Ok(body.push_expr(Expr {
-                        kind: ExprKind::New {
-                            class: class_name,
-                            args,
-                        },
-                        ty,
-                        span: self.span(new_expr.span.start, new_expr.span.end),
-                    }))
-                } else {
-                    Err(SmeltError::unsupported(
-                        self.span(callee.span.start, callee.span.end),
-                        format!("unsupported call argument constructor `{}`", callee.name),
-                    ))
-                }
-            }
+            Argument::NewExpression(new_expr) => self.new_expression_with_hint(new_expr, body, None),
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
@@ -581,6 +544,34 @@ impl ModuleBuilder<'_> {
         };
         if object.name != "Promise" {
             return Ok(None);
+        }
+        if member.property.name == "resolve" {
+            if call.arguments.len() > 1 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Promise.resolve supports at most one value argument",
+                ));
+            }
+            let inner_ty = if let Some(argument) = call.arguments.first() {
+                let value = self.argument(argument, body)?;
+                Self::expr_ty(body, value)
+            } else {
+                self.ctx.krate.types.intern(Type::None)
+            };
+            let duration = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: self.ctx.krate.types.intern(Type::Float),
+                span: self.span(call.span.start, call.span.start),
+            });
+            let ty = self.ctx.krate.types.intern(Type::Future(inner_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::AsyncOp {
+                    op: AsyncOp::Sleep,
+                    args: vec![duration],
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
         }
         let op = match member.property.name.as_str() {
             "all" => AsyncOp::All,

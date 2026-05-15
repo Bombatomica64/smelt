@@ -342,6 +342,12 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Expression::CallExpression(callee_call) = &call.callee {
+            if let Some(expr) = self.slice_string_nested_call(callee_call, call, body)? {
+                return Ok(expr);
+            }
+            if let Some(expr) = self.partial_bind_nested_call(callee_call, call, body)? {
+                return Ok(expr);
+            }
             let callee = self.call_expression(callee_call, body)?;
             let Some(Type::Function(function)) =
                 self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
@@ -843,12 +849,28 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && let Expression::Identifier(object) = &member.object
+            && object.name == "Symbol"
+            && member.property.name == "for"
+        {
+            return self.symbol_like_call(call, body);
+        }
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
         };
         if callee.name != "Symbol" {
             return Ok(None);
         }
+        self.symbol_like_call(call, body)
+    }
+
+    /// Lower a supported symbol-producing call as a stable opaque string.
+    fn symbol_like_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if call.arguments.len() > 1 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -1638,6 +1660,128 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Fold Remeda partial-bind nested calls into direct closure calls.
+    fn partial_bind_nested_call(
+        &mut self,
+        callee_call: &oxc::ast::ast::CallExpression<'_>,
+        outer_call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &callee_call.callee else {
+            return Ok(None);
+        };
+        let append_partial_last = match callee.name.as_str() {
+            "partialBind" => false,
+            "partialLastBind" => true,
+            _ => return Ok(None),
+        };
+        let Some((function_arg, prefix_args)) = callee_call.arguments.split_first() else {
+            return Err(SmeltError::unsupported(
+                self.span(callee_call.span.start, callee_call.span.end),
+                "partialBind requires a function argument",
+            ));
+        };
+        let mut callee_expr = self.argument(function_arg, body)?;
+        let mut function_ty = self
+            .ctx
+            .krate
+            .types
+            .get(Self::expr_ty(body, callee_expr))
+            .cloned();
+        if !matches!(function_ty, Some(Type::Function(_)))
+            && let Argument::Identifier(identifier) = function_arg
+            && let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned()
+        {
+            callee_expr = self.callback_expr_to_closure_with_return_ty(
+                callback.return_ty,
+                callback.callback,
+                &callback.params,
+                self.span(identifier.span.start, identifier.span.end),
+                body,
+            );
+            function_ty = Some(Type::Function(FunctionType {
+                params: callback.params,
+                return_ty: callback.return_ty,
+                is_async: false,
+            }));
+        }
+        let Some(Type::Function(function)) = function_ty else {
+            return Err(SmeltError::unsupported(
+                self.span(function_arg.span().start, function_arg.span().end),
+                "partialBind function argument must be callable",
+            ));
+        };
+        let mut args = Vec::new();
+        let ordered_args: Box<dyn Iterator<Item = &Argument<'_>>> = if append_partial_last {
+            Box::new(outer_call.arguments.iter().chain(prefix_args.iter()))
+        } else {
+            Box::new(prefix_args.iter().chain(outer_call.arguments.iter()))
+        };
+        for arg in ordered_args {
+            args.push(self.argument(arg, body)?);
+        }
+        if args.len() != function.params.len() {
+            return Err(SmeltError::unsupported(
+                self.span(outer_call.span.start, outer_call.span.end),
+                "partialBind folded call argument count does not match function",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee: callee_expr,
+                args,
+            },
+            ty: function.return_ty,
+            span: self.span(outer_call.span.start, outer_call.span.end),
+        })))
+    }
+
+    /// Fold Remeda `sliceString(start, end?)(data)` into a string slice.
+    fn slice_string_nested_call(
+        &mut self,
+        callee_call: &oxc::ast::ast::CallExpression<'_>,
+        outer_call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &callee_call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "sliceString" {
+            return Ok(None);
+        }
+        let [data_arg] = outer_call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(outer_call.span.start, outer_call.span.end),
+                "sliceString data-last call requires one data argument",
+            ));
+        };
+        let (start_arg, end_arg) = match callee_call.arguments.as_slice() {
+            [start] => (start, None),
+            [start, end] => (start, Some(end)),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(callee_call.span.start, callee_call.span.end),
+                    "sliceString data-last call requires start and optional end",
+                ));
+            }
+        };
+        let operand = self.argument(data_arg, body)?;
+        let start = Some(self.slice_index_argument(start_arg, body)?);
+        let end = end_arg
+            .map(|argument| self.slice_index_argument(argument, body))
+            .transpose()?;
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringSlice {
+                operand,
+                start,
+                end,
+            },
+            ty,
+            span: self.span(outer_call.span.start, outer_call.span.end),
+        })))
     }
 
     /// Return the root `expectTypeOf(...)`-style call for a type-test chain.

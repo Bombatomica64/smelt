@@ -474,6 +474,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(replacement)
             )
         }
+        Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+            format!(
+                "regex_replace_first_upper {}, {}",
+                operand_text(pattern),
+                operand_text(haystack)
+            )
+        }
         Rvalue::RegexSplit { pattern, haystack } => {
             format!(
                 "regex_split {}, {}",

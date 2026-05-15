@@ -235,6 +235,10 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(pattern, aliases, dest)
                 | rewrite_operand_except(replacement, aliases, dest)
         }
+        Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+            rewrite_operand_except(pattern, aliases, dest)
+                | rewrite_operand_except(haystack, aliases, dest)
+        }
         Rvalue::RegexSplit { pattern, haystack } => {
             rewrite_operand_except(pattern, aliases, dest)
                 | rewrite_operand_except(haystack, aliases, dest)

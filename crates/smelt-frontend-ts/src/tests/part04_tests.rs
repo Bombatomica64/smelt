@@ -905,6 +905,32 @@ const customCtor = custom.constructor;
 }
 
 #[test]
+fn lowers_class_getters_as_readonly_fields() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class User {
+  public get name(): string {
+    return "Ada";
+  }
+}
+const user = new User();
+const name = user.name;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(ctx.krate.types.all().iter().any(|ty| {
+        matches!(
+            ty,
+            Type::Class { name, .. } if ctx.krate.symbols.get(*name) == Some("User")
+        )
+    }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_block_scoped_class_declarations() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -1251,6 +1277,33 @@ function run(): void {
     )?;
     let _module = module(&ctx, module_id)?;
 
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_promise_resolve_and_exported_object_values_const() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const TYPED_ARRAY = new Uint8Array(1);
+export const DATA = {
+  promise: Promise.resolve(5),
+  string: "text",
+  typedArray: TYPED_ARRAY,
+} as const;
+export const VALUES = Object.values(DATA);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
+    ensure!(ctx.krate.types.all().iter().any(|ty| {
+        matches!(
+            ty,
+            Type::Future(inner) if matches!(ctx.krate.types.get(*inner), Some(Type::Float))
+        )
+    }));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -1891,6 +1944,7 @@ fn lowers_template_literal_tuple_element_types() -> Result<(), String> {
         ts!(r#"
 type Entry = readonly [`testing_${string}`, boolean];
 type Entries = readonly Entry[];
+type BigIntLiterals = 1n | 2n | 3n;
 "#),
         &mut ctx,
     )?;
@@ -2157,6 +2211,7 @@ import { expectTypeOf, test } from "vitest";
 test("type assertion", () => {
   const result = {} as { a: string };
   expectTypeOf(result).toEqualTypeOf<{ a: string }>();
+  expectTypeOf(result).toEqualTypeOf<{ [Symbol.iterator]: string }>();
 });
 "#);
     let mut ctx = HirCtx::new();
