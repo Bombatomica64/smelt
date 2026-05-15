@@ -215,13 +215,26 @@ impl ModuleBuilder<'_> {
         };
         let element_ty = *list_element_ty;
         let index_ty = self.ctx.krate.types.intern(Type::Int);
-        let callback = self.callback_argument(
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let fallback_return_ty = match op {
+            ListCallbackOp::Map | ListCallbackOp::FlatMap => unknown_ty,
+            ListCallbackOp::Filter
+            | ListCallbackOp::Find
+            | ListCallbackOp::FindIndex
+            | ListCallbackOp::FindLast
+            | ListCallbackOp::FindLastIndex
+            | ListCallbackOp::Some
+            | ListCallbackOp::Every => bool_ty,
+            ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
+        };
+        let callback = self.callback_argument_with_body_fallback(
             callback_argument,
             &[element_ty, index_ty, list_ty],
+            fallback_return_ty,
             "array callback",
             body,
         )?;
-        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let ty = match op {
             ListCallbackOp::Map => self.ctx.krate.types.intern(Type::List(callback.return_ty)),
             ListCallbackOp::Filter => {
@@ -2215,6 +2228,35 @@ impl ModuleBuilder<'_> {
             body,
         );
         Ok(ClosureCallback { expr, return_ty })
+    }
+
+    /// Lower an array callback, falling back to a normal closure body when needed.
+    fn callback_argument_with_body_fallback(
+        &mut self,
+        argument: &Argument<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        fallback_return_ty: smelt_hir::TypeId,
+        context: &'static str,
+        body: &mut Body,
+    ) -> Result<ClosureCallback, SmeltError> {
+        match self.callback_argument(argument, expected_param_tys, context, body) {
+            Ok(callback) => Ok(callback),
+            Err(error)
+                if error.message == "callback expression kind is not supported yet"
+                    && matches!(argument, Argument::ArrowFunctionExpression(_)) =>
+            {
+                let Argument::ArrowFunctionExpression(arrow) = argument else {
+                    unreachable!("argument shape was checked in the guard")
+                };
+                let expr =
+                    self.arrow_closure_body_expr(arrow, expected_param_tys, fallback_return_ty, body)?;
+                Ok(ClosureCallback {
+                    expr,
+                    return_ty: fallback_return_ty,
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Collapse tuple item types into the element type used by array callbacks.

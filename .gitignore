@@ -22,3 +22,4 @@ target
 .codex
 codedb.snapshot
 dist/
+dist-smelt/
