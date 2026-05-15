@@ -1,0 +1,3 @@
+[submodule "third_party/remeda"]
+	path = third_party/remeda
+	url = https://github.com/remeda/remeda.git
