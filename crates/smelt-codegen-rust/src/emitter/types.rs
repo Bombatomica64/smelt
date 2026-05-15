@@ -38,6 +38,9 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::String) => {
                 Ok(format!("!{operand_text}.is_empty()"))
             }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Unknown) => Ok(format!(
+                "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => true }}"
+            )),
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Bool) => {
                 Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
             }

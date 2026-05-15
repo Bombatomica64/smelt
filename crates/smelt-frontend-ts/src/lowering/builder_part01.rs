@@ -144,12 +144,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
         let implemented_functions = implemented_function_names(program);
+        self.shadow_cross_module_overloads(&implemented_functions);
         self.predeclare_type_alias_items(program);
         self.collect_module_globals(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
-        let forward_arrow_consts = self.forward_arrow_const_names(program);
+        let mut forward_arrow_consts = self.forward_arrow_const_names(program);
+        forward_arrow_consts.extend(Self::object_namespace_arrow_const_names(program));
         for statement in &program.body {
             if let Statement::VariableDeclaration(variable) = statement {
                 match self.arrow_function_const_item_declarations(variable, &forward_arrow_consts) {
@@ -209,7 +211,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(table_call) = self.table_test_call(&expr_stmt.expression)
             {
-                match self.table_test_declarations(table_call, None, &before_each, &after_each) {
+                match self.table_test_declarations(
+                    table_call,
+                    None,
+                    &[],
+                    &before_each,
+                    &after_each,
+                    &[],
+                ) {
                     Ok(items) => module.items.extend(items),
                     Err(error) => errors.push(error),
                 }
@@ -218,7 +227,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(test_call) = self.test_case_call(&expr_stmt.expression)
             {
-                match self.test_case_declaration(test_call, None, &before_each, &after_each, &[]) {
+                match self.test_case_declaration(test_call, None, &[], &before_each, &after_each, &[]) {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),
                 }
@@ -227,7 +236,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(describe_call) = self.describe_call(&expr_stmt.expression)
             {
-                match self.describe_declaration(describe_call, &before_each, &after_each) {
+                match self.describe_declaration(describe_call, &[], &before_each, &after_each) {
                     Ok(items) => module.items.extend(items),
                     Err(error) => errors.push(error),
                 }
@@ -291,6 +300,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
             ) {
                 continue;
             }
+            if self.is_predeclared_arrow_const_statement(statement) {
+                continue;
+            }
 
             if let Err(error) = self.statement(statement, &mut body) {
                 errors.push(error);
@@ -304,6 +316,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(module))
+    }
+
+    /// Drop imported overloads shadowed by implementations in the current module.
+    ///
+    /// Overload signatures are valid only for their concrete implementation.
+    /// Because the builder carries visible items across files, a local helper
+    /// with the same name as an imported overloaded function must not inherit
+    /// that imported function's return surface.
+    fn shadow_cross_module_overloads(&mut self, implemented_functions: &HashSet<String>) {
+        for name in implemented_functions {
+            self.function_overloads.insert(name.clone(), Vec::new());
+        }
     }
 
     /// Collect typed top-level variables that functions may read or write.
@@ -347,7 +371,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let Some(annotation) = &declarator.type_annotation else {
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                     && let Some(init) = &declarator.init
-                    && (Self::is_arrow_array_initializer(init)
+                    && (Self::is_module_global_array_initializer(init)
                         || Self::object_const_initializer(init).is_some())
                     && let Ok(ty) = self.infer_module_global_initializer_type(init)
                 {
@@ -363,22 +387,40 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
     }
 
-    /// Return true for const array initializers whose function elements must be visible in tests.
-    fn is_arrow_array_initializer(init: &Expression<'_>) -> bool {
+    /// Return true for top-level const-arrow declarations already emitted as items.
+    fn is_predeclared_arrow_const_statement(&self, statement: &Statement<'_>) -> bool {
+        let Statement::VariableDeclaration(decl) = statement else {
+            return false;
+        };
+        if decl.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+            return false;
+        }
+        !decl.declarations.is_empty()
+            && decl.declarations.iter().all(|declarator| {
+                matches!(declarator.init, Some(Expression::ArrowFunctionExpression(_)))
+                    && matches!(
+                        &declarator.id,
+                        BindingPattern::BindingIdentifier(binding)
+                            if self.items.contains_key(binding.name.as_str())
+                    )
+            })
+    }
+
+    /// Return true for const array initializers whose values must be visible in functions.
+    fn is_module_global_array_initializer(init: &Expression<'_>) -> bool {
         match init {
-            Expression::ArrayExpression(array) => array
-                .elements
-                .iter()
-                .any(|element| matches!(element, ArrayExpressionElement::ArrowFunctionExpression(_))),
-            Expression::TSAsExpression(as_expr) => Self::is_arrow_array_initializer(&as_expr.expression),
+            Expression::ArrayExpression(_) => true,
+            Expression::TSAsExpression(as_expr) => {
+                Self::is_module_global_array_initializer(&as_expr.expression)
+            }
             Expression::TSSatisfiesExpression(satisfies) => {
-                Self::is_arrow_array_initializer(&satisfies.expression)
+                Self::is_module_global_array_initializer(&satisfies.expression)
             }
             Expression::TSNonNullExpression(non_null) => {
-                Self::is_arrow_array_initializer(&non_null.expression)
+                Self::is_module_global_array_initializer(&non_null.expression)
             }
             Expression::ParenthesizedExpression(parenthesized) => {
-                Self::is_arrow_array_initializer(&parenthesized.expression)
+                Self::is_module_global_array_initializer(&parenthesized.expression)
             }
             _ => false,
         }
@@ -561,19 +603,15 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
             };
             let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
-            let ty = self.type_param_constraint_or_self(ty);
-            let Some(Type::List(item_ty)) = self.ctx.krate.types.get(ty) else {
-                return Err(SmeltError::unsupported(
+            let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
+                SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
                     "rest function parameter type must be an array type",
-                ));
-            };
+                )
+            })?;
             let index = params.len();
             params.push(ty);
-            Some(RestParam {
-                index,
-                item_ty: *item_ty,
-            })
+            Some(RestParam { index, item_ty })
         } else {
             None
         };
@@ -771,16 +809,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ));
             };
             let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
-            let ty = self.type_param_constraint_or_self(ty);
-            let item_ty = match self.ctx.krate.types.get(ty) {
-                Some(Type::List(item_ty)) => *item_ty,
-                _ => {
-                    return Err(SmeltError::unsupported(
-                        self.span(rest.span.start, rest.span.end),
-                        "rest function parameter type must be an array type",
-                    ));
-                }
-            };
+            let (ty, item_ty) = self.rest_param_array_type(ty).map_err(|_error| {
+                SmeltError::unsupported(
+                    self.span(rest.span.start, rest.span.end),
+                    "rest function parameter type must be an array type",
+                )
+            })?;
             let index = params.len();
             self.function_rests.insert(
                 name_text.to_owned(),
@@ -996,17 +1030,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     "exported const declarations require an initializer",
                 )
             })?;
+            let type_hint = declarator
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
             if let Some(object) = Self::direct_object_initializer(init) {
-                if self.object_namespace_const_declaration(binding.name.as_str(), object)? {
+                if self.object_namespace_const_declaration(binding.name.as_str(), object, type_hint)?
+                {
                     continue;
                 }
             }
             if let Some(object) = Self::object_const_initializer(init) {
-                let type_hint = declarator
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()?;
                 let item = match self.object_const_declaration(
                     binding.name.as_str(),
                     object,
@@ -1021,13 +1056,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Expression::ArrowFunctionExpression(arrow) = init {
-                let type_hint = declarator
-                    .type_annotation
-                    .as_ref()
-                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                    .transpose()?;
                 let item =
                     self.arrow_function_const_declaration(binding.name.as_str(), arrow, type_hint)?;
+                items.push(item);
+                continue;
+            }
+            if let Some(item) = self.fp_wrapper_const_declaration(binding.name.as_str(), init)? {
                 items.push(item);
                 continue;
             }
@@ -1161,11 +1195,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     .get(..usize::try_from(const_start).unwrap_or(usize::MAX))
                     .is_some_and(|text| text.contains(&name))
                     || referrer_spans
-                    .iter()
-                    .filter(|(function_start, _)| *function_start < const_start)
-                    .any(|(function_start, function_end)| {
-                        self.source
-                            .get(
+                        .iter()
+                        .filter(|(referrer_start, referrer_end)| {
+                            !(const_start >= *referrer_start && const_start <= *referrer_end)
+                        })
+                        .any(|(function_start, function_end)| {
+                            self.source
+                                .get(
                                 usize::try_from(*function_start).unwrap_or(usize::MAX)
                                     ..usize::try_from(*function_end).unwrap_or(usize::MAX),
                             )
@@ -1174,6 +1210,64 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 referenced.then_some(name)
             })
             .collect()
+    }
+
+    /// Find arrow consts used as values in exported object function tables.
+    ///
+    /// Date-fns-style tables export objects whose properties point at local
+    /// arrow functions and later call them through dynamic keys. Those arrows
+    /// need real callable items before the export lowering records namespace
+    /// metadata for the table.
+    fn object_namespace_arrow_const_names(program: &Program<'_>) -> HashSet<String> {
+        let mut arrow_consts = HashSet::new();
+        for statement in &program.body {
+            let Statement::VariableDeclaration(variable) = statement else {
+                continue;
+            };
+            if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+                continue;
+            }
+            for declarator in &variable.declarations {
+                if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                    && matches!(declarator.init, Some(Expression::ArrowFunctionExpression(_)))
+                {
+                    arrow_consts.insert(binding.name.as_str().to_owned());
+                }
+            }
+        }
+
+        let mut referenced = HashSet::new();
+        for statement in &program.body {
+            let Statement::ExportNamedDeclaration(export) = statement else {
+                continue;
+            };
+            let Some(Declaration::VariableDeclaration(variable)) = &export.declaration else {
+                continue;
+            };
+            for declarator in &variable.declarations {
+                let Some(init) = &declarator.init else {
+                    continue;
+                };
+                let Some(object) = Self::direct_object_initializer(init) else {
+                    continue;
+                };
+                for property in &object.properties {
+                    let ObjectPropertyKind::ObjectProperty(object_property) = property else {
+                        continue;
+                    };
+                    if object_property.computed || object_property.method {
+                        continue;
+                    }
+                    if let Expression::Identifier(identifier) = &object_property.value {
+                        let name = identifier.name.as_str();
+                        if arrow_consts.contains(name) {
+                            referenced.insert(name.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        referenced
     }
 
     /// Return a directly written object initializer without stripping assertions.
@@ -1214,8 +1308,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         name_text: &str,
         object: &oxc::ast::ast::ObjectExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<bool, SmeltError> {
         let mut members = HashMap::new();
+        let function_hint = self.function_table_value_type(type_hint);
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {
                 return Err(SmeltError::unsupported(
@@ -1243,11 +1339,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
             };
             if object_property.method {
-                let item = self.object_namespace_method_item(
-                    name_text,
-                    &key_text,
-                    object_property,
-                )?;
+                let item =
+                    self.object_namespace_method_item(name_text, &key_text, object_property, function_hint)?;
+                members.insert(key_text, item);
+                continue;
+            }
+            if matches!(
+                object_property.value,
+                Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
+            ) {
+                let item =
+                    self.object_namespace_method_item(name_text, &key_text, object_property, function_hint)?;
                 members.insert(key_text, item);
                 continue;
             }
@@ -1268,6 +1370,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(true)
     }
 
+    /// Extract the callable value type from a string-keyed function table hint.
+    fn function_table_value_type(
+        &self,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        let hint = type_hint?;
+        let Type::Dict(_, value_ty) = self.ctx.krate.types.get(hint)? else {
+            return None;
+        };
+        matches!(self.ctx.krate.types.get(*value_ty), Some(Type::Function(_))).then_some(*value_ty)
+    }
+
     /// Lower one object-method member from an exported namespace object.
     ///
     /// Date-fns uses objects such as `lightFormatters` as plain function tables:
@@ -1279,15 +1393,21 @@ impl<'ctx> ModuleBuilder<'ctx> {
         namespace: &str,
         key: &str,
         property: &oxc::ast::ast::ObjectProperty<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let Expression::FunctionExpression(function) = &property.value else {
-            return Err(SmeltError::unsupported(
+        let name_text = format!("{namespace}_{key}");
+        match &property.value {
+            Expression::FunctionExpression(function) => {
+                self.function_expression_item(&name_text, function, type_hint)
+            }
+            Expression::ArrowFunctionExpression(arrow) => {
+                self.arrow_function_const_declaration(&name_text, arrow, type_hint)
+            }
+            _ => Err(SmeltError::unsupported(
                 self.span(property.span.start, property.span.end),
                 "object namespace methods must lower from function expressions",
-            ));
-        };
-        let name_text = format!("{namespace}_{key}");
-        self.function_expression_item(&name_text, function)
+            )),
+        }
     }
 
     /// Lower an exported static object constant into importable const metadata.

@@ -442,10 +442,35 @@ impl ModuleBuilder<'_> {
                     self.collect_callback_captures(item, body, captures);
                 }
             }
+            CallbackExprKind::Sequence { effects, result } => {
+                for effect in effects {
+                    self.collect_callback_captures(effect, body, captures);
+                }
+                self.collect_callback_captures(result, body, captures);
+            }
+            CallbackExprKind::DictLit(entries) => {
+                for (_, value) in entries {
+                    self.collect_callback_captures(value, body, captures);
+                }
+            }
+            CallbackExprKind::Throw { message } => {
+                if let Some(thrown_message) = message {
+                    self.collect_callback_captures(thrown_message, body, captures);
+                }
+            }
             CallbackExprKind::Index { receiver, .. }
             | CallbackExprKind::Field { receiver, .. }
-            | CallbackExprKind::HasField { receiver, .. } => {
+            | CallbackExprKind::HasField { receiver, .. }
+            | CallbackExprKind::FieldTruthy { receiver, .. } => {
                 self.collect_callback_captures(receiver, body, captures);
+            }
+            CallbackExprKind::DynamicIndex { receiver, index } => {
+                self.collect_callback_captures(receiver, body, captures);
+                self.collect_callback_captures(index, body, captures);
+            }
+            CallbackExprKind::HasDynamicField { receiver, field } => {
+                self.collect_callback_captures(receiver, body, captures);
+                self.collect_callback_captures(field, body, captures);
             }
             CallbackExprKind::Unary { operand, .. } => {
                 self.collect_callback_captures(operand, body, captures);
@@ -477,6 +502,9 @@ impl ModuleBuilder<'_> {
                 for arg in args {
                     self.collect_callback_captures(&arg.expr, body, captures);
                 }
+            }
+            CallbackExprKind::FunctionTableLookup { key, .. } => {
+                self.collect_callback_captures(key, body, captures);
             }
             CallbackExprKind::Param(_)
             | CallbackExprKind::Function(_)

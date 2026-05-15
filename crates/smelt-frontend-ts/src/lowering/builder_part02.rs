@@ -24,6 +24,7 @@ impl ModuleBuilder<'_> {
             }
         };
         if arrow.r#async
+            && declared_return_ty.is_some()
             && !matches!(
                 declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
                 Some(Type::Future(_))
@@ -139,7 +140,7 @@ impl ModuleBuilder<'_> {
                 ));
             };
             let ty = match self.ts_type_to_hir(&annotation.type_annotation) {
-                Ok(ty) => self.type_param_constraint_or_self(ty),
+                Ok(ty) => ty,
                 Err(error) => {
                     self.locals = saved_locals;
                     self.narrowed_locals = saved_narrowed_locals;
@@ -148,9 +149,7 @@ impl ModuleBuilder<'_> {
                     return Err(error);
                 }
             };
-            let item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(ty) {
-                *item_ty
-            } else {
+            let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.locals = saved_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
@@ -222,8 +221,15 @@ impl ModuleBuilder<'_> {
             self.pop_type_parameter_scope();
             return Err(error);
         }
-        let return_ty = declared_return_ty
-            .or(inferred_return_ty)
+        let inferred_return_ty = inferred_return_ty
+            .or_else(|| arrow.r#async.then(|| self.ctx.krate.types.intern(Type::None)));
+        let return_ty = if arrow.r#async {
+            declared_return_ty.or_else(|| {
+                inferred_return_ty.map(|inner| self.ctx.krate.types.intern(Type::Future(inner)))
+            })
+        } else {
+            declared_return_ty.or(inferred_return_ty)
+        }
             .ok_or_else(|| {
                 self.pop_type_parameter_scope();
                 SmeltError::unsupported(
@@ -267,6 +273,156 @@ impl ModuleBuilder<'_> {
         match body.stmts.get(usize::try_from(last_stmt.0).ok()?) {
             Some(Stmt::Return(Some(expr))) => Some(Self::expr_ty(body, *expr)),
             _ => None,
+        }
+    }
+
+    /// Lower date-fns-style `export const fpName = convertToFP(fn, arity)` wrappers.
+    ///
+    /// `convertToFP` reverses the first `arity` arguments before invoking the
+    /// target function. Smelt does not model generic runtime currying yet, so
+    /// this helper emits the direct uncurried wrapper shape used by generated
+    /// date-fns `src/fp` entrypoints while preserving the real target return
+    /// type and parameter types.
+    fn fp_wrapper_const_declaration(
+        &mut self,
+        name_text: &str,
+        init: &Expression<'_>,
+    ) -> Result<Option<smelt_hir::ItemId>, SmeltError> {
+        let Expression::CallExpression(call) = init else {
+            return Ok(None);
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "convertToFP" {
+            return Ok(None);
+        }
+        let [target_arg, arity_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "convertToFP exported const wrappers require function and arity arguments",
+            ));
+        };
+        let Argument::Identifier(target_ident) = target_arg else {
+            return Err(SmeltError::unsupported(
+                self.span(target_arg.span().start, target_arg.span().end),
+                "convertToFP exported const wrappers require an identifier function argument",
+            ));
+        };
+        let arity = Self::fp_wrapper_arity(arity_arg, self.span(call.span.start, call.span.end))?;
+        let Some(target_item) = self.items.get(target_ident.name.as_str()).copied() else {
+            return Err(SmeltError::unsupported(
+                self.span(target_ident.span.start, target_ident.span.end),
+                format!(
+                    "convertToFP exported const wrapper references unresolved function `{}`",
+                    target_ident.name
+                ),
+            ));
+        };
+        let Item::Function(target_function) = self.item_ref(target_item).clone() else {
+            return Err(SmeltError::unsupported(
+                self.span(target_ident.span.start, target_ident.span.end),
+                "convertToFP exported const wrappers require a function item argument",
+            ));
+        };
+        if arity > target_function.params.len() {
+            return Err(SmeltError::unsupported(
+                self.span(arity_arg.span().start, arity_arg.span().end),
+                "convertToFP exported const wrapper arity exceeds target parameters",
+            ));
+        }
+
+        let span = self.span(call.span.start, call.span.end);
+        let mut body = Body::new(None, span);
+        let mut wrapper_params = Vec::new();
+        let mut wrapper_arg_locals = Vec::new();
+        for target_param in target_function.params.iter().take(arity).rev() {
+            let local = body.push_local(LocalDecl {
+                name: Some(target_param.name),
+                ty: target_param.ty,
+                mutable: false,
+                span,
+            });
+            body.params.push(local);
+            wrapper_arg_locals.push(local);
+            wrapper_params.push(Param {
+                name: target_param.name,
+                local,
+                ty: target_param.ty,
+                span,
+            });
+        }
+
+        let callee_expr = body.push_expr(Expr {
+            kind: ExprKind::Item(target_item),
+            ty: self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: target_function
+                    .params
+                    .iter()
+                    .map(|param| param.ty)
+                    .collect(),
+                return_ty: target_function.return_ty,
+                is_async: target_function.is_async,
+            })),
+            span,
+        });
+        let mut args = Vec::new();
+        for (target_param, local) in target_function
+            .params
+            .iter()
+            .take(arity)
+            .zip(wrapper_arg_locals.into_iter().rev())
+        {
+            args.push(body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty: target_param.ty,
+                span,
+            }));
+        }
+        let call_expr = body.push_expr(Expr {
+            kind: ExprKind::Call {
+                callee: callee_expr,
+                args,
+            },
+            ty: target_function.return_ty,
+            span,
+        });
+        body.push_stmt(Stmt::Return(Some(call_expr)));
+
+        let body_id = self.ctx.krate.push_body(body);
+        let name = self.intern_source_name(name_text);
+        let item = self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span,
+            params: wrapper_params,
+            return_ty: target_function.return_ty,
+            is_async: target_function.is_async,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        }));
+        self.items.insert(name_text.to_owned(), item);
+        self.ctx.export_aliases.insert(name_text.to_owned(), item);
+        Ok(Some(item))
+    }
+
+    /// Extract the literal arity used by generated date-fns `convertToFP` calls.
+    fn fp_wrapper_arity(argument: &Argument<'_>, fallback_span: Span) -> Result<usize, SmeltError> {
+        let Argument::NumericLiteral(literal) = argument else {
+            return Err(SmeltError::unsupported(
+                fallback_span,
+                "convertToFP exported const wrappers require a numeric literal arity",
+            ));
+        };
+        match literal.value {
+            1.0_f64 => Ok(1),
+            2.0_f64 => Ok(2),
+            3.0_f64 => Ok(3),
+            4.0_f64 => Ok(4),
+            _ => Err(SmeltError::unsupported(
+                fallback_span,
+                "convertToFP exported const wrapper arity must be one of date-fns FP arities 1 through 4",
+            )),
         }
     }
 

@@ -31,6 +31,12 @@ pub enum BinOp {
     And,
     /// Logical OR operator.
     Or,
+    /// Signed left shift operator.
+    Shl,
+    /// Signed right shift operator.
+    Shr,
+    /// Unsigned right shift operator.
+    UShr,
 }
 
 /// Returns the text representation of a binary operator.
@@ -50,6 +56,9 @@ pub const fn bin_op_text(op: BinOp) -> &'static str {
         BinOp::Gte => ">=",
         BinOp::And => "&&",
         BinOp::Or => "||",
+        BinOp::Shl => "<<",
+        BinOp::Shr => ">>",
+        BinOp::UShr => ">>>",
     }
 }
 

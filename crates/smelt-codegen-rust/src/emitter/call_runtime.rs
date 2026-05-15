@@ -74,6 +74,21 @@ impl FunctionEmitter<'_> {
                 }
             }
             Rvalue::Binary { op, lhs, rhs } => {
+                if *op == smelt_hir::BinOp::UShr {
+                    let lhs_text = self.operand_text(lhs)?;
+                    let rhs_text = self.operand_text(rhs)?;
+                    return Ok(format!(
+                        "{{ let smelt_shift_value = ({lhs_text}).trunc(); let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = ({rhs_text}).trunc(); let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
+                    ));
+                }
+                if matches!(*op, smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr) {
+                    let lhs_text = self.operand_text(lhs)?;
+                    let rhs_text = self.operand_text(rhs)?;
+                    let op_text = smelt_hir::bin_op_text(*op);
+                    return Ok(format!(
+                        "((({lhs_text}).trunc() as i128) {op_text} ((({rhs_text}).trunc() as u32).min(127))) as f64"
+                    ));
+                }
                 if *op == smelt_hir::BinOp::Add
                     && matches!(
                         self.mir.types.get(self.operand_ty(lhs)?),
@@ -170,6 +185,9 @@ impl FunctionEmitter<'_> {
             Rvalue::NumericAtan2 { y, x } => self.numeric_atan2_text(y, x),
             Rvalue::NumericRandom => Ok("rand::random::<f64>()".to_owned()),
             Rvalue::NumericRandomInt { start, end } => self.numeric_random_int_text(start, end),
+            Rvalue::NumericToStringRadix { operand, radix } => {
+                self.numeric_to_string_radix_text(operand, radix)
+            }
             Rvalue::PrimitiveCast { op, operand } => {
                 self.primitive_cast_text(*op, operand, dest_ty)
             }
@@ -256,6 +274,10 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_text(*op, list, callback, dest_ty)
+            }
+            Rvalue::ListFromLength { length } => self.list_from_length_text(length, dest_ty),
+            Rvalue::ListFromLengthMap { length, callback } => {
+                self.list_from_length_map_text(length, callback, dest_ty)
             }
             Rvalue::ListReduce {
                 list,

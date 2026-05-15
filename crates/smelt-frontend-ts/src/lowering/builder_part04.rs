@@ -196,8 +196,28 @@ impl ModuleBuilder<'_> {
     ) -> Result<(), SmeltError> {
         match statement {
             Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
+            Statement::FunctionDeclaration(function) => {
+                self.local_function_declaration(function, body, block)
+            }
+            Statement::ClassDeclaration(class) => {
+                self.class_declaration(class)?;
+                Ok(())
+            }
+            Statement::TSTypeAliasDeclaration(alias) => {
+                self.type_alias_declaration(alias)?;
+                Ok(())
+            }
+            Statement::TSInterfaceDeclaration(interface) => {
+                self.interface_declaration(interface)?;
+                Ok(())
+            }
             Statement::ExpressionStatement(expr_stmt) => {
                 if self.is_test_framework_statement(&expr_stmt.expression) {
+                    return Ok(());
+                }
+                if let Expression::CallExpression(call) = &expr_stmt.expression
+                    && self.for_each_statement(call, body, block)?
+                {
                     return Ok(());
                 }
                 if let Expression::CallExpression(call) = &expr_stmt.expression
@@ -287,6 +307,41 @@ impl ModuleBuilder<'_> {
                     block,
                     Stmt::While {
                         cond,
+                        body: loop_body,
+                    },
+                );
+                Ok(())
+            }
+            Statement::DoWhileStatement(do_while) => {
+                let loop_body = self.block_from_statement(&do_while.body, body)?;
+                let cond = self.condition_expression(&do_while.test, body)?;
+                let negated = body.push_expr(Expr {
+                    kind: ExprKind::UnaryOp {
+                        op: UnaryOp::Not,
+                        operand: cond,
+                    },
+                    ty: self.ctx.krate.types.intern(Type::Bool),
+                    span: self.span(do_while.test.span().start, do_while.test.span().end),
+                });
+                let break_block = body.push_block(self.span(do_while.span.start, do_while.span.end));
+                body.push_stmt_to_block(break_block, Stmt::Break);
+                body.push_stmt_to_block(
+                    loop_body,
+                    Stmt::If {
+                        cond: negated,
+                        then_block: break_block,
+                        else_block: None,
+                    },
+                );
+                let true_expr = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(true)),
+                    ty: self.ctx.krate.types.intern(Type::Bool),
+                    span: self.span(do_while.span.start, do_while.span.end),
+                });
+                body.push_stmt_to_block(
+                    block,
+                    Stmt::While {
+                        cond: true_expr,
                         body: loop_body,
                     },
                 );
@@ -533,6 +588,234 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower side-effecting `array.forEach((item) => { ... })` as a normal loop.
+    fn for_each_statement(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(false);
+        };
+        if member.property.name != "forEach" {
+            return Ok(false);
+        }
+        let [Argument::ArrowFunctionExpression(arrow)] = call.arguments.as_slice() else {
+            return Ok(false);
+        };
+        let Some(item_param) = arrow.params.items.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(arrow.params.span.start, arrow.params.span.end),
+                "array forEach callbacks require an item parameter",
+            ));
+        };
+        let BindingPattern::BindingIdentifier(item_binding) = &item_param.pattern else {
+            return Err(SmeltError::unsupported(
+                self.span(item_param.span.start, item_param.span.end),
+                "array forEach statement callbacks only support identifier item parameters",
+            ));
+        };
+        let iter = self.expression(&member.object, body)?;
+        let iter_ty = Self::expr_ty(body, iter);
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(iter_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                self.span(member.object.span().start, member.object.span().end),
+                "array forEach statement receiver must be an array",
+            ));
+        };
+        let item_symbol = self.intern_source_name(item_binding.name.as_str());
+        let item_local = body.push_local(LocalDecl {
+            name: Some(item_symbol),
+            ty: item_ty,
+            mutable: false,
+            span: self.span(item_binding.span.start, item_binding.span.end),
+        });
+        let saved_item_local = self
+            .locals
+            .insert(item_binding.name.to_string(), item_local);
+        let item_pat = body.push_pattern(Pattern::Binding(item_local));
+        let index_binding = arrow
+            .params
+            .items
+            .get(1)
+            .map(|index_param| {
+                let BindingPattern::BindingIdentifier(index_binding) = &index_param.pattern else {
+                    return Err(SmeltError::unsupported(
+                        self.span(index_param.span.start, index_param.span.end),
+                        "array forEach statement index parameters must be identifiers",
+                    ));
+                };
+                Ok(index_binding)
+            })
+            .transpose()?;
+        let index_ty = self.ctx.krate.types.intern(Type::Float);
+        let index_counter = index_binding.is_some().then(|| {
+            let counter_symbol = self.ctx.krate.symbols.intern("__for_each_index");
+            let counter_local = body.push_local(LocalDecl {
+                name: Some(counter_symbol),
+                ty: index_ty,
+                mutable: true,
+                span: self.span(call.span.start, call.span.end),
+            });
+            let zero = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: index_ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+            let counter_pat = body.push_pattern(Pattern::Binding(counter_local));
+            body.push_stmt_to_block(block, Stmt::Let {
+                pat: counter_pat,
+                ty: index_ty,
+                value: Some(zero),
+            });
+            counter_local
+        });
+        let loop_body = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+        let saved_index_local =
+            if let (Some(index_binding), Some(counter)) = (index_binding, index_counter) {
+                let index_symbol = self.intern_source_name(index_binding.name.as_str());
+                let index_local = body.push_local(LocalDecl {
+                    name: Some(index_symbol),
+                    ty: index_ty,
+                    mutable: false,
+                    span: self.span(index_binding.span.start, index_binding.span.end),
+                });
+                let counter_value = body.push_expr(Expr {
+                    kind: ExprKind::Local(counter),
+                    ty: index_ty,
+                    span: self.span(index_binding.span.start, index_binding.span.end),
+                });
+                let index_pat = body.push_pattern(Pattern::Binding(index_local));
+                body.push_stmt_to_block(loop_body, Stmt::Let {
+                    pat: index_pat,
+                    ty: index_ty,
+                    value: Some(counter_value),
+                });
+                let one = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Float(1.0)),
+                    ty: index_ty,
+                    span: self.span(index_binding.span.start, index_binding.span.end),
+                });
+                let next = body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Add,
+                        lhs: counter_value,
+                        rhs: one,
+                    },
+                    ty: index_ty,
+                    span: self.span(index_binding.span.start, index_binding.span.end),
+                });
+                let target = body.push_expr(Expr {
+                    kind: ExprKind::Local(counter),
+                    ty: index_ty,
+                    span: self.span(index_binding.span.start, index_binding.span.end),
+                });
+                body.push_stmt_to_block(loop_body, Stmt::Assign {
+                    target,
+                    value: next,
+                });
+                self.locals
+                    .insert(index_binding.name.to_string(), index_local)
+            } else {
+                None
+            };
+        for statement in &arrow.body.statements {
+            self.for_each_callback_statement(statement, body, loop_body)?;
+        }
+        if let Some(index_binding) = index_binding {
+            if let Some(prior) = saved_index_local {
+                self.locals.insert(index_binding.name.to_string(), prior);
+            } else {
+                self.locals.remove(index_binding.name.as_str());
+            }
+        }
+        if let Some(prior) = saved_item_local {
+            self.locals.insert(item_binding.name.to_string(), prior);
+        } else {
+            self.locals.remove(item_binding.name.as_str());
+        }
+        body.push_stmt_to_block(
+            block,
+            Stmt::For {
+                pat: item_pat,
+                iter,
+                body: loop_body,
+            },
+        );
+        Ok(true)
+    }
+
+    /// Lower a statement inside a `forEach` callback body.
+    fn for_each_callback_statement(
+        &mut self,
+        statement: &Statement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        match statement {
+            Statement::ExpressionStatement(expr_stmt) => {
+                if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    let (target, value) = self.assignment_parts(assign, body)?;
+                    if let Some(local_decl) = usize::try_from(target.0)
+                        .ok()
+                        .and_then(|index| body.exprs.get(index))
+                        .and_then(|expr| match expr.kind {
+                            ExprKind::Local(local) => usize::try_from(local.0)
+                                .ok()
+                                .and_then(|index| body.locals.get(index)),
+                            _ => None,
+                        })
+                        && !local_decl.mutable
+                    {
+                        return Err(SmeltError::unsupported(
+                            self.span(assign.span.start, assign.span.end),
+                            "callback assignment to captured const local is not supported",
+                        ));
+                    }
+                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                    Ok(())
+                } else {
+                    self.statement_in_block(statement, body, block)
+                }
+            }
+            Statement::ReturnStatement(_) => {
+                body.push_stmt_to_block(block, Stmt::Continue);
+                Ok(())
+            }
+            Statement::BlockStatement(block_stmt) => {
+                for child in &block_stmt.body {
+                    self.for_each_callback_statement(child, body, block)?;
+                }
+                Ok(())
+            }
+            Statement::IfStatement(if_stmt) => {
+                let cond = self.expression(&if_stmt.test, body)?;
+                let then_block = body.push_block(self.statement_span(&if_stmt.consequent));
+                self.for_each_callback_statement(&if_stmt.consequent, body, then_block)?;
+                let else_block = if_stmt
+                    .alternate
+                    .as_ref()
+                    .map(|alternate| {
+                        let else_block = body.push_block(self.statement_span(alternate));
+                        self.for_each_callback_statement(alternate, body, else_block)?;
+                        Ok(else_block)
+                    })
+                    .transpose()?;
+                body.push_stmt_to_block(
+                    block,
+                    Stmt::If {
+                        cond,
+                        then_block,
+                        else_block,
+                    },
+                );
+                Ok(())
+            }
+            _ => self.statement_in_block(statement, body, block),
+        }
+    }
+
     /// Lower writes to known module-level variables without requiring a local target.
     fn module_global_assignment_statement(
         &mut self,
@@ -554,6 +837,9 @@ impl ModuleBuilder<'_> {
     /// Return whether an expression is a top-level Vitest organization call.
     fn is_test_framework_statement(&self, expression: &Expression<'_>) -> bool {
         if self.table_test_call(expression).is_some() {
+            return true;
+        }
+        if self.property_test_call(expression).is_some() {
             return true;
         }
         let Expression::CallExpression(call) = expression else {
@@ -612,6 +898,32 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// Return a supported `test.prop(...)` or `it.prop(...)` property-test call.
+    fn property_test_call<'a>(
+        &self,
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
+        let Expression::CallExpression(call) = expression else {
+            return None;
+        };
+        let Expression::CallExpression(prop_call) = &call.callee else {
+            return None;
+        };
+        let Expression::StaticMemberExpression(member) = &prop_call.callee else {
+            return None;
+        };
+        if member.property.name != "prop" {
+            return None;
+        }
+        matches!(
+            &member.object,
+            Expression::Identifier(object)
+                if self.test_builtins.contains(object.name.as_str())
+                    && matches!(object.name.as_str(), "test" | "it")
+        )
+        .then_some(call)
+    }
+
     /// Return a supported top-level `describe` call, if this expression is one.
     fn describe_call<'a>(
         &self,
@@ -623,7 +935,10 @@ impl ModuleBuilder<'_> {
         self.is_describe_callee(&call.callee).then_some(call)
     }
 
-    /// Collect a top-level `beforeEach` or `afterEach` callback.
+    /// Collect a test lifecycle callback that should wrap flattened tests.
+    ///
+    /// Smelt emits one Rust test per supported Vitest test case, so suite-level
+    /// hooks are inherited into each flattened test body in declaration order.
     fn collect_lifecycle_hook<'a>(
         &self,
         expression: &'a Expression<'a>,
@@ -637,7 +952,9 @@ impl ModuleBuilder<'_> {
             return false;
         };
         let name = callee.name.as_str();
-        if !self.test_builtins.contains(name) || !matches!(name, "beforeEach" | "afterEach") {
+        if !self.test_builtins.contains(name)
+            || !matches!(name, "beforeAll" | "beforeEach" | "afterAll" | "afterEach")
+        {
             return false;
         }
         let Some(callback_arg) = call.arguments.first() else {
@@ -646,7 +963,7 @@ impl ModuleBuilder<'_> {
         let Ok(callback) = self.test_arrow_callback(callback_arg, "lifecycle callbacks") else {
             return false;
         };
-        if name == "beforeEach" {
+        if matches!(name, "beforeAll" | "beforeEach") {
             before_each.push(callback);
         } else {
             after_each.push(callback);

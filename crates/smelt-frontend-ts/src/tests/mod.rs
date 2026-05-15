@@ -97,6 +97,9 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
         smelt_hir::CallbackExprKind::Param(index) => *index == target,
         smelt_hir::CallbackExprKind::Capture(_) => false,
         smelt_hir::CallbackExprKind::Function(_) => false,
+        smelt_hir::CallbackExprKind::FunctionTableLookup { key, .. } => {
+            callback_has_param(key, target)
+        }
         smelt_hir::CallbackExprKind::AssignCapture { value, .. } => {
             callback_has_param(value, target)
         }
@@ -104,10 +107,29 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
         smelt_hir::CallbackExprKind::ListLit(items) => {
             items.iter().any(|item| callback_has_param(item, target))
         }
+        smelt_hir::CallbackExprKind::Sequence { effects, result } => {
+            effects
+                .iter()
+                .any(|effect| callback_has_param(effect, target))
+                || callback_has_param(result, target)
+        }
+        smelt_hir::CallbackExprKind::DictLit(entries) => entries
+            .iter()
+            .any(|(_, value)| callback_has_param(value, target)),
+        smelt_hir::CallbackExprKind::Throw { message } => message
+            .as_deref()
+            .is_some_and(|message| callback_has_param(message, target)),
         smelt_hir::CallbackExprKind::Index { receiver, .. }
         | smelt_hir::CallbackExprKind::Field { receiver, .. }
-        | smelt_hir::CallbackExprKind::HasField { receiver, .. } => {
+        | smelt_hir::CallbackExprKind::HasField { receiver, .. }
+        | smelt_hir::CallbackExprKind::FieldTruthy { receiver, .. } => {
             callback_has_param(receiver, target)
+        }
+        smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
+            callback_has_param(receiver, target) || callback_has_param(index, target)
+        }
+        smelt_hir::CallbackExprKind::HasDynamicField { receiver, field } => {
+            callback_has_param(receiver, target) || callback_has_param(field, target)
         }
         smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_param(operand, target),
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
@@ -152,10 +174,29 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
         smelt_hir::CallbackExprKind::Param(_)
         | smelt_hir::CallbackExprKind::Function(_)
         | smelt_hir::CallbackExprKind::Literal(_) => false,
+        smelt_hir::CallbackExprKind::FunctionTableLookup { key, .. } => callback_has_capture(key),
         smelt_hir::CallbackExprKind::ListLit(items) => items.iter().any(callback_has_capture),
+        smelt_hir::CallbackExprKind::Sequence { effects, result } => {
+            effects.iter().any(callback_has_capture) || callback_has_capture(result)
+        }
+        smelt_hir::CallbackExprKind::DictLit(entries) => {
+            entries.iter().any(|(_, value)| callback_has_capture(value))
+        }
+        smelt_hir::CallbackExprKind::Throw { message } => {
+            message.as_deref().is_some_and(callback_has_capture)
+        }
         smelt_hir::CallbackExprKind::Index { receiver, .. }
         | smelt_hir::CallbackExprKind::Field { receiver, .. }
-        | smelt_hir::CallbackExprKind::HasField { receiver, .. } => callback_has_capture(receiver),
+        | smelt_hir::CallbackExprKind::HasField { receiver, .. }
+        | smelt_hir::CallbackExprKind::FieldTruthy { receiver, .. } => {
+            callback_has_capture(receiver)
+        }
+        smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
+            callback_has_capture(receiver) || callback_has_capture(index)
+        }
+        smelt_hir::CallbackExprKind::HasDynamicField { receiver, field } => {
+            callback_has_capture(receiver) || callback_has_capture(field)
+        }
         smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_capture(operand),
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_capture(lhs) || callback_has_capture(rhs)
@@ -182,16 +223,6 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
 /// Return whether a closure expression's callback body captures an enclosing local.
 fn closure_callback_has_capture(body: &smelt_hir::Body, callback: smelt_hir::ExprId) -> bool {
     closure_callback_body(body, callback).is_some_and(callback_has_capture)
-}
-
-/// Return whether a closure expression's callback body assigns a captured local.
-fn closure_callback_assigns_capture(body: &smelt_hir::Body, callback: smelt_hir::ExprId) -> bool {
-    closure_callback_body(body, callback).is_some_and(|callback| {
-        matches!(
-            callback.kind,
-            smelt_hir::CallbackExprKind::AssignCapture { .. }
-        )
-    })
 }
 
 /// Resolve the temporary callback-expression bridge from a closure expression.

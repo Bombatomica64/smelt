@@ -11,6 +11,14 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         match op {
             smelt_hir::AsyncOp::All | smelt_hir::AsyncOp::AllSettled => {
+                if let [arg] = args
+                    && self.async_list_operand_item_type(arg)?.is_some()
+                {
+                    let list = self.await_operand_text(arg)?;
+                    return Ok(format!(
+                        "Box::pin(async move {{ let mut __smelt_values = Vec::new(); for __smelt_future in {list} {{ __smelt_values.push(__smelt_future.await); }} __smelt_values }})"
+                    ));
+                }
                 let rendered_args = args
                     .iter()
                     .map(|arg| self.await_operand_text(arg))
@@ -92,6 +100,19 @@ impl FunctionEmitter<'_> {
                     self.operand_text(url)?
                 ))
             }
+        }
+    }
+
+    /// Return the future item type when an async combinator operand is a list of futures.
+    fn async_list_operand_item_type(&self, operand: &Operand) -> Result<Option<TypeId>, EmitError> {
+        let operand_ty = self.operand_ty(operand)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(operand_ty) else {
+            return Ok(None);
+        };
+        if matches!(self.mir.types.get(*item_ty), Some(Type::Future(_))) {
+            Ok(Some(*item_ty))
+        } else {
+            Ok(None)
         }
     }
 

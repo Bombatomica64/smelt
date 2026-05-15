@@ -151,7 +151,7 @@ impl ModuleBuilder<'_> {
                         )
                     })
                 }) {
-                Ok(value) => self.type_param_constraint_or_self(value),
+                Ok(value) => value,
                 Err(error) => {
                     self.locals = saved_locals;
                     self.narrowed_locals = saved_narrowed_locals;
@@ -161,9 +161,7 @@ impl ModuleBuilder<'_> {
                     return Err(error);
                 }
             };
-            let item_ty = if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(ty) {
-                *item_ty
-            } else {
+            let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.locals = saved_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
@@ -314,16 +312,21 @@ impl ModuleBuilder<'_> {
         &mut self,
         param: &oxc::ast::ast::FormalParameter<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        if let Some(annotation) = &param.type_annotation {
-            return self.ts_type_to_hir(&annotation.type_annotation);
+        let ty = if let Some(annotation) = &param.type_annotation {
+            self.ts_type_to_hir(&annotation.type_annotation)?
+        } else if let Some(initializer) = &param.initializer {
+            self.infer_module_global_initializer_type(initializer)?
+        } else {
+            return Err(SmeltError::unsupported(
+                self.span(param.span.start, param.span.end),
+                "function parameters must have explicit type annotations or default initializers",
+            ));
+        };
+        if param.optional && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+            Ok(self.ctx.krate.types.intern(Type::Optional(ty)))
+        } else {
+            Ok(ty)
         }
-        if let Some(initializer) = &param.initializer {
-            return self.infer_module_global_initializer_type(initializer);
-        }
-        Err(SmeltError::unsupported(
-            self.span(param.span.start, param.span.end),
-            "function parameters must have explicit type annotations or default initializers",
-        ))
     }
 
     /// Lower a function expression into a module-owned HIR function item.
@@ -335,6 +338,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         name_text: &str,
         function: &oxc::ast::ast::Function<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &function.body else {
             return Err(SmeltError::unsupported(
@@ -351,11 +355,27 @@ impl ModuleBuilder<'_> {
 
         let name = self.intern_source_name(name_text);
         let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
-        let return_ty = match self.function_return_type_or_overload(function, name_text) {
-            Ok(value) => value,
-            Err(error) => {
-                self.pop_type_parameter_scope();
-                return Err(error);
+        let hinted_function = type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::Function(function_ty)) => Some(function_ty),
+            _ => None,
+        });
+        let return_ty = if let Some(return_type) = &function.return_type {
+            match self.ts_type_to_hir(&return_type.type_annotation) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.pop_type_parameter_scope();
+                    return Err(error);
+                }
+            }
+        } else if let Some(function_ty) = &hinted_function {
+            function_ty.return_ty
+        } else {
+            match self.function_return_type_or_overload(function, name_text) {
+                Ok(value) => value,
+                Err(error) => {
+                    self.pop_type_parameter_scope();
+                    return Err(error);
+                }
             }
         };
         if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
@@ -382,13 +402,21 @@ impl ModuleBuilder<'_> {
 
         for (index, param) in function.params.items.iter().enumerate() {
             let result = (|| {
-                let annotation = param.type_annotation.as_ref().ok_or_else(|| {
-                    SmeltError::unsupported(
+                let ty = if let Some(annotation) = &param.type_annotation {
+                    self.ts_type_to_hir(&annotation.type_annotation)?
+                } else if let Some(function_ty) = &hinted_function {
+                    function_ty.params.get(index).copied().ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(param.span.start, param.span.end),
+                            "function expression parameter is missing from contextual callable type",
+                        )
+                    })?
+                } else {
+                    return Err(SmeltError::unsupported(
                         self.span(param.span.start, param.span.end),
                         "function expression parameters must have explicit type annotations",
-                    )
-                })?;
-                let ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+                    ));
+                };
                 let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                     return Err(SmeltError::unsupported(
                         self.span(param.span.start, param.span.end),
@@ -420,6 +448,27 @@ impl ModuleBuilder<'_> {
             if let Err(error) = result {
                 errors.push(error);
                 break;
+            }
+        }
+        if errors.is_empty()
+            && let Some(function_ty) = &hinted_function
+            && function_ty.params.len() > params.len()
+        {
+            for (index, ty) in function_ty.params.iter().copied().enumerate().skip(params.len()) {
+                let param_name = self.intern_source_name(&format!("__unused{index}"));
+                let local = body.push_local(LocalDecl {
+                    name: Some(param_name),
+                    ty,
+                    mutable: false,
+                    span: self.span(function.span.start, function.span.end),
+                });
+                body.params.push(local);
+                params.push(Param {
+                    name: param_name,
+                    local,
+                    ty,
+                    span: self.span(function.span.start, function.span.end),
+                });
             }
         }
         for statement in &function_body.statements {
@@ -482,7 +531,11 @@ impl ModuleBuilder<'_> {
                 "generic classes are not lowered yet",
             ));
         }
-        if class.super_class.is_some() {
+        if class
+            .super_class
+            .as_ref()
+            .is_some_and(|super_class| !matches!(super_class, Expression::Identifier(identifier) if identifier.name == "Date"))
+        {
             return Err(SmeltError::unsupported(
                 self.span(class.span.start, class.span.end),
                 "class extends is not lowered yet",

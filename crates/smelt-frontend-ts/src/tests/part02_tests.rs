@@ -19,6 +19,83 @@ describe.each([[1], [2]])("group", (value) => {
 }
 
 #[test]
+fn vitest_describe_each_supports_nested_describe_and_hooks() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, test, expect, beforeAll, afterEach } from "vitest";
+
+describe.each([[1], [2]])("outer", (value) => {
+  const expected = value;
+  beforeAll(() => {
+    expect(expected).toBe(value);
+  });
+  describe("inner", () => {
+    afterEach(() => {
+      expect(expected).toBe(value);
+    });
+    test("case", () => {
+      expect(value).toBe(expected);
+    });
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/nested-describe-each.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_dynamic_function_table_lookup() -> Result<(), String> {
+    let source = ts!(r#"
+type Formatter = (value: string) => string;
+
+const lower: Formatter = (value) => value.toLowerCase();
+const upper: Formatter = (value) => value.toUpperCase();
+
+export const table: Record<string, Formatter> = {
+  a: lower,
+  b: upper,
+};
+
+export function apply(values: string[]): string[] {
+  return values.map((value) => {
+    const key = value[0];
+    const formatter = table[key];
+    return formatter(value);
+  });
+}
+"#);
+    let mut ctx = HirCtx::new();
+    lower_ok(source, &mut ctx)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_structural_object_literal_branch() -> Result<(), String> {
+    let source = ts!(r#"
+interface Part {
+  isToken: boolean;
+  value: string;
+}
+
+export function normalize(parts: Part[]): Part[] {
+  return parts.map((part) =>
+    part.isToken && part.value === "do"
+      ? { isToken: true, value: "d" }
+      : part,
+  );
+}
+"#);
+    let mut ctx = HirCtx::new();
+    lower_ok(source, &mut ctx)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn converts_top_level_let_and_console_log() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -175,6 +252,9 @@ const value = 42;
 const asText = String(value);
 const asNumber = Number("42");
 const asBool = Boolean("");
+function truthy<T>(value: T): boolean {
+  return Boolean(value);
+}
 "#),
         &mut ctx,
     )?;
@@ -380,6 +460,108 @@ fn lowers_unary_plus_expression() -> Result<(), String> {
 }
 
 #[test]
+fn lowers_unary_plus_bool_to_float() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(ts!("const value = +true;"), &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::PrimitiveCast {
+            op: PrimitiveCastOp::ToFloat,
+            ..
+        }
+    )));
+    Ok(())
+}
+
+#[test]
+fn lowers_postfix_update_expression_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values = [10, 20];
+let index = 0;
+const value = values[index++];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::Assign { .. })),
+        "expected postfix update to emit assignment side effect",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_non_null_string_match_array_callbacks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const parts = "abc"
+  .match(/a/)!
+  .map((substring) => substring)
+  .join("")
+  .match(/b/)!
+  .map((substring) => substring);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCallback { .. })),
+        "expected match(...)! to preserve array type for callback methods",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_block_bodied_array_callback_control_flow() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const formatters: Record<string, boolean> = { a: true };
+const re = /x/;
+const parts = "ab"
+  .match(/./)!
+  .map((substring) => {
+    if (substring === "a") {
+      return { isToken: false, value: "'" };
+    }
+    const firstCharacter = substring[0];
+    if (formatters[firstCharacter]) {
+      return { isToken: true, value: substring };
+    }
+    if (firstCharacter.match(re)) {
+      throw new RangeError("bad " + firstCharacter);
+    }
+    return { isToken: false, value: substring };
+  });
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCallback { .. })),
+        "expected block-bodied callback to lower into list callback",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_typeof_expression_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -397,6 +579,48 @@ const numeric = typeof 1;
     ensure!(body.exprs.iter().any(
         |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "number")
     ));
+    Ok(())
+}
+
+#[test]
+fn lowers_typeof_bigint_guard() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function isBig(value: unknown): boolean {
+  return typeof value === "bigint";
+}
+
+const zero = 0n;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(0.0))))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_coercive_nullish_equality_idiom() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function emptyish(data: object | string | undefined): boolean {
+  return data == undefined || data != null;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -651,6 +875,52 @@ const result = value instanceof Date;
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(false))))
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_error_instanceof_for_generic_union_guard() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function isError<T>(data: Error | T): boolean {
+  return data instanceof Error;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_promise_instanceof_for_generic_union_guard() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function isPromise<T>(data: PromiseLike<unknown> | T): boolean {
+  return data instanceof Promise;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -925,6 +1195,57 @@ export interface FPFn2<Result, Arg2, Arg1> {
         &mut ctx,
     )?;
     let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_fp_exported_convert_to_fp_wrapper() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function difference(dateLeft: number, dateRight: number): number {
+  return dateLeft - dateRight;
+}
+
+export const differenceFp = convertToFP(difference, 2);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let wrapper = function_item(&ctx, module, 1)?;
+    ensure_eq!(ctx.krate.symbols.get(wrapper.name), Some("difference_fp"));
+    ensure_eq!(wrapper.params.len(), 2);
+    ensure_eq!(
+        ctx.krate.symbols.get(wrapper.params[0].name),
+        Some("date_right")
+    );
+    ensure_eq!(
+        ctx.krate.symbols.get(wrapper.params[1].name),
+        Some("date_left")
+    );
+
+    let body = function_body(&ctx, wrapper)?;
+    let return_call = body
+        .stmts
+        .iter()
+        .find_map(|stmt| match stmt {
+            Stmt::Return(Some(expr)) => body.exprs.get(expr.0 as usize),
+            _ => None,
+        })
+        .ok_or_else(|| "expected FP wrapper to return a call".to_owned())?;
+    let ExprKind::Call { args, .. } = &return_call.kind else {
+        return Err(format!("expected wrapper return call, got {return_call:?}"));
+    };
+    ensure_eq!(args.len(), 2);
+    ensure!(matches!(
+        body.exprs.get(args[0].0 as usize).map(|expr| &expr.kind),
+        Some(ExprKind::Local(local)) if *local == wrapper.params[1].local
+    ));
+    ensure!(matches!(
+        body.exprs.get(args[1].0 as usize).map(|expr| &expr.kind),
+        Some(ExprKind::Local(local)) if *local == wrapper.params[0].local
+    ));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -1273,6 +1594,24 @@ export const formatters: { [token: string]: Formatter } = {
 }
 
 #[test]
+fn lowers_arrow_valued_record_properties_with_contextual_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Formatter = (date: Date, token: string) => string;
+
+export const formatters: { [token: string]: Formatter } = {
+  y: (date, token) => token + String(date.getFullYear()),
+};
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_unary_plus_inside_function_valued_object_property() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -1284,6 +1623,28 @@ export const formatters: { [token: string]: Formatter } = {
     return +date;
   },
 };
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_function_expression_call_argument_with_contextual_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function accepts(predicate: (pattern: string) => boolean): boolean {
+  return predicate("abc");
+}
+
+function check(): boolean {
+  return accepts(function (pattern) {
+    return pattern.length > 0;
+  });
+}
 "#),
         &mut ctx,
     )?;
@@ -1534,6 +1895,45 @@ function call<ArgCallback extends Callback | undefined>(
   value: string,
 ): string {
   return args.argumentCallback ? args.argumentCallback(value) : value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_captured_callback_in_array_callback_condition() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Mapper = ((value: number) => number) | undefined;
+
+function applyMaybe(mapper: Mapper, value: number): number {
+  const values = [value].map((item) => mapper ? mapper(item) : item);
+  return values[0];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_chain_condition_in_array_callback_conditional() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Options = { width?: string };
+
+function widths(options: Options | undefined): string[] {
+  return ["wide"].map((fallback) =>
+    options?.width ? String(options.width) : fallback
+  );
 }
 "#),
         &mut ctx,

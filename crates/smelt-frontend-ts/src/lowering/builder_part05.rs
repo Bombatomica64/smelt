@@ -3,6 +3,7 @@ impl ModuleBuilder<'_> {
     fn describe_declaration(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
+        inherited_setup: &[&Statement<'_>],
         inherited_before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         inherited_after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
@@ -20,57 +21,14 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
-        let mut items = Vec::new();
-        let mut before_each = inherited_before_each.to_vec();
-        let mut after_each = inherited_after_each.to_vec();
-        for statement in &arrow.body.statements {
-            let Statement::ExpressionStatement(expr_stmt) = statement else {
-                return Err(SmeltError::unsupported(
-                    self.statement_span(statement),
-                    "describe blocks only support direct it/test calls for now",
-                ));
-            };
-            if self.collect_lifecycle_hook(&expr_stmt.expression, &mut before_each, &mut after_each)
-            {
-                continue;
-            }
-            if let Some(table_call) = self.table_test_call(&expr_stmt.expression) {
-                items.extend(self.table_test_declarations(
-                    table_call,
-                    Some(&group_name),
-                    &before_each,
-                    &after_each,
-                )?);
-                continue;
-            }
-            if let Some(nested_describe) = self.describe_call(&expr_stmt.expression) {
-                let nested_group_name = format!(
-                    "{group_name} {}",
-                    self.describe_group_name(nested_describe)?
-                );
-                items.extend(self.describe_declaration_with_name(
-                    nested_describe,
-                    &nested_group_name,
-                    &before_each,
-                    &after_each,
-                )?);
-                continue;
-            }
-            let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
-                return Err(SmeltError::unsupported(
-                    self.statement_span(statement),
-                    "describe blocks only support direct it/test calls for now",
-                ));
-            };
-            items.push(self.test_case_declaration(
-                test_call,
-                Some(&group_name),
-                &before_each,
-                &after_each,
-                &[],
-            )?);
-        }
-        Ok(items)
+        self.describe_body_declarations(
+            &arrow.body.statements,
+            &group_name,
+            inherited_setup.to_vec(),
+            inherited_before_each.to_vec(),
+            inherited_after_each.to_vec(),
+            &[],
+        )
     }
 
     /// Return the static title for a supported `describe(...)` call.
@@ -87,25 +45,29 @@ impl ModuleBuilder<'_> {
         self.test_title(name_arg)
     }
 
-    /// Lower a `describe` block using a caller-provided flattened group name.
-    fn describe_declaration_with_name(
+    /// Lower the statements in a `describe`-like suite body.
+    ///
+    /// This recursively flattens nested suite organization into Rust test
+    /// functions while preserving inherited setup statements, lifecycle hooks,
+    /// and literal table bindings from enclosing `describe.each` rows.
+    fn describe_body_declarations<'a>(
         &mut self,
-        call: &oxc::ast::ast::CallExpression<'_>,
+        statements: &'a oxc::allocator::Vec<'a, Statement<'a>>,
         group_name: &str,
-        inherited_before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
-        inherited_after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        inherited_setup: Vec<&'a Statement<'a>>,
+        inherited_before_each: Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
+        inherited_after_each: Vec<&'a oxc::ast::ast::ArrowFunctionExpression<'a>>,
+        table_bindings: &[(&'a str, &'a ArrayExpressionElement<'a>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
-        let body_arg = call.arguments.get(1).ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "describe calls require a callback",
-            )
-        })?;
-        let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
         let mut items = Vec::new();
-        let mut before_each = inherited_before_each.to_vec();
-        let mut after_each = inherited_after_each.to_vec();
-        for statement in &arrow.body.statements {
+        let mut setup = inherited_setup;
+        let mut before_each = inherited_before_each;
+        let mut after_each = inherited_after_each;
+        for statement in statements {
+            if matches!(statement, Statement::VariableDeclaration(_)) {
+                setup.push(statement);
+                continue;
+            }
             let Statement::ExpressionStatement(expr_stmt) = statement else {
                 return Err(SmeltError::unsupported(
                     self.statement_span(statement),
@@ -120,8 +82,10 @@ impl ModuleBuilder<'_> {
                 items.extend(self.table_test_declarations(
                     table_call,
                     Some(group_name),
+                    &setup,
                     &before_each,
                     &after_each,
+                    table_bindings,
                 )?);
                 continue;
             }
@@ -130,12 +94,17 @@ impl ModuleBuilder<'_> {
                     "{group_name} {}",
                     self.describe_group_name(nested_describe)?
                 );
-                items.extend(self.describe_declaration_with_name(
+                items.extend(self.describe_declaration_with_name_and_bindings(
                     nested_describe,
                     &nested_group_name,
+                    &setup,
                     &before_each,
                     &after_each,
+                    table_bindings,
                 )?);
+                continue;
+            }
+            if self.dynamic_test_alias_call(&expr_stmt.expression) {
                 continue;
             }
             let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
@@ -147,12 +116,56 @@ impl ModuleBuilder<'_> {
             items.push(self.test_case_declaration(
                 test_call,
                 Some(group_name),
+                &setup,
                 &before_each,
                 &after_each,
-                &[],
+                table_bindings,
             )?);
         }
         Ok(items)
+    }
+
+    /// Lower a nested `describe` while carrying inherited table bindings.
+    fn describe_declaration_with_name_and_bindings<'a>(
+        &mut self,
+        call: &'a oxc::ast::ast::CallExpression<'a>,
+        group_name: &str,
+        inherited_setup: &[&'a Statement<'a>],
+        inherited_before_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        inherited_after_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        table_bindings: &[(&'a str, &'a ArrayExpressionElement<'a>)],
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let body_arg = call.arguments.get(1).ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "describe calls require a callback",
+            )
+        })?;
+        let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
+        self.describe_body_declarations(
+            &arrow.body.statements,
+            group_name,
+            inherited_setup.to_vec(),
+            inherited_before_each.to_vec(),
+            inherited_after_each.to_vec(),
+            table_bindings,
+        )
+    }
+
+    /// Return whether an expression is a dynamic test alias call.
+    fn dynamic_test_alias_call(&self, expression: &Expression<'_>) -> bool {
+        let Expression::CallExpression(call) = expression else {
+            return false;
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return false;
+        };
+        if self.test_builtins.contains(callee.name.as_str()) || call.arguments.len() < 2 {
+            return false;
+        }
+        call.arguments
+            .get(1)
+            .is_some_and(|argument| self.test_arrow_callback(argument, "dynamic test alias").is_ok())
     }
 
     /// Lower a top-level Vitest `test` / `it` call into an HIR test function.
@@ -160,6 +173,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         group_name: Option<&str>,
+        setup: &[&Statement<'_>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
@@ -182,6 +196,7 @@ impl ModuleBuilder<'_> {
             &test_name,
             self.span(call.span.start, call.span.end),
             arrow,
+            setup,
             before_each,
             after_each,
             table_bindings,
@@ -194,6 +209,7 @@ impl ModuleBuilder<'_> {
         test_name: &str,
         span: Span,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        setup: &[&Statement<'_>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
@@ -205,6 +221,11 @@ impl ModuleBuilder<'_> {
         let mut errors = Vec::new();
         for (name, value) in table_bindings {
             if let Err(error) = self.bind_table_value(name, value, &mut body) {
+                errors.push(error);
+            }
+        }
+        for statement in setup {
+            if let Err(error) = self.test_case_statement(statement, &mut body) {
                 errors.push(error);
             }
         }
@@ -258,8 +279,10 @@ impl ModuleBuilder<'_> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         group_name: Option<&str>,
+        setup: &[&Statement<'_>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        inherited_bindings: &[(&str, &ArrayExpressionElement<'_>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
         let Expression::CallExpression(each_call) = &call.callee else {
             return Err(SmeltError::unsupported(
@@ -285,8 +308,10 @@ impl ModuleBuilder<'_> {
                 call,
                 group_name,
                 &rows,
+                setup,
                 before_each,
                 after_each,
+                inherited_bindings,
             );
         }
         let name_arg = call.arguments.first().ok_or_else(|| {
@@ -306,11 +331,13 @@ impl ModuleBuilder<'_> {
         for (case_index, row) in rows.iter().enumerate() {
             let case_group = group_name.map(|name| format!("{name} case {case_index}"));
             let test_name = self.test_case_name(name_arg, case_group.as_deref())?;
-            let bindings = self.table_bindings(arrow, row)?;
+            let mut bindings = inherited_bindings.to_vec();
+            bindings.extend(self.table_bindings(arrow, row)?);
             items.push(self.test_function_from_arrow(
                 &test_name,
                 self.span(call.span.start, call.span.end),
                 arrow,
+                setup,
                 before_each,
                 after_each,
                 &bindings,
@@ -319,14 +346,16 @@ impl ModuleBuilder<'_> {
         Ok(items)
     }
 
-    /// Lower `describe.each` by flattening each row's direct tests.
+    /// Lower `describe.each` by flattening each row's nested suite body.
     fn describe_each_declarations<'a>(
         &mut self,
         call: &'a oxc::ast::ast::CallExpression<'a>,
         group_name: Option<&str>,
         rows: &[Vec<&'a ArrayExpressionElement<'a>>],
+        setup: &[&Statement<'a>],
         before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'a>],
         after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'a>],
+        inherited_bindings: &[(&'a str, &'a ArrayExpressionElement<'a>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
         let name_arg = call.arguments.first().ok_or_else(|| {
             SmeltError::unsupported(
@@ -349,28 +378,16 @@ impl ModuleBuilder<'_> {
                 || format!("{row_group} case {case_index}"),
                 |parent| format!("{parent} {row_group} case {case_index}"),
             );
-            let bindings = self.table_bindings(arrow, row)?;
-            for statement in &arrow.body.statements {
-                let Statement::ExpressionStatement(expr_stmt) = statement else {
-                    return Err(SmeltError::unsupported(
-                        self.statement_span(statement),
-                        "describe.each blocks only support direct it/test calls for now",
-                    ));
-                };
-                let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
-                    return Err(SmeltError::unsupported(
-                        self.statement_span(statement),
-                        "describe.each blocks only support direct it/test calls for now",
-                    ));
-                };
-                items.push(self.test_case_declaration(
-                    test_call,
-                    Some(&row_group),
-                    before_each,
-                    after_each,
-                    &bindings,
-                )?);
-            }
+            let mut bindings = inherited_bindings.to_vec();
+            bindings.extend(self.table_bindings(arrow, row)?);
+            items.extend(self.describe_body_declarations(
+                &arrow.body.statements,
+                &row_group,
+                setup.to_vec(),
+                before_each.to_vec(),
+                after_each.to_vec(),
+                &bindings,
+            )?);
         }
         Ok(items)
     }

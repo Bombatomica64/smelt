@@ -157,6 +157,55 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Converts `Array.from({ length }, mapper)` into an indexed Rust loop.
+    pub(super) fn list_from_length_map_text(
+        &self,
+        length: &Operand,
+        callback: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let callback_body = self.closure_callback_body(callback)?;
+        if self.mir.types.get(dest_ty) != Some(&Type::List(callback_body.ty)) {
+            return Err(EmitError::new(
+                "Array.from mapper destination must be a list of callback results",
+            ));
+        }
+        if !matches!(
+            self.mir.types.get(self.operand_ty(length)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("Array.from length must be numeric"));
+        }
+        let length_text = self.operand_text(length)?;
+        let callback_text = self.callback_expr_text(callback_body, &["item", "index"])?;
+        Ok(format!(
+            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {{ let item = SmeltUnknown::Null; let index = index as f64; {callback_text} }}).collect::<Vec<_>>() }}"
+        ))
+    }
+
+    /// Converts `Array.from({ length })` into a sparse-like unknown vector.
+    pub(super) fn list_from_length_text(
+        &self,
+        length: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        if self.mir.types.get(dest_ty) != Some(&Type::List(self.type_id(Type::Unknown)?)) {
+            return Err(EmitError::new(
+                "Array.from length destination must be list[unknown]",
+            ));
+        }
+        if !matches!(
+            self.mir.types.get(self.operand_ty(length)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new("Array.from length must be numeric"));
+        }
+        let length_text = self.operand_text(length)?;
+        Ok(format!(
+            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; vec![SmeltUnknown::Null; array_from_length] }}"
+        ))
+    }
+
     /// Converts an array reduce callback into Rust `fold` text.
     pub(super) fn list_reduce_text(
         &self,
@@ -411,6 +460,20 @@ impl FunctionEmitter<'_> {
             smelt_hir::CallbackExprKind::Function(function) => {
                 Ok(sanitize_ident(self.symbol_name(*function)?))
             }
+            smelt_hir::CallbackExprKind::FunctionTableLookup { key, cases } => {
+                let key_text = self.callback_expr_text(key, params)?;
+                let cases_text = cases
+                    .iter()
+                    .map(|(case_key, function)| {
+                        let function_text = sanitize_ident(self.symbol_name(*function)?);
+                        Ok(format!("{case_key:?} => {function_text}"))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                Ok(format!(
+                    "match {key_text}.as_str() {{ {cases_text}, _ => panic!(\"unknown function table key: {{}}\", {key_text}) }}"
+                ))
+            }
             smelt_hir::CallbackExprKind::AssignCapture { target, value } => {
                 let target_text = self.local_name(LocalId(target.0))?;
                 let value_text = self.callback_expr_text(value, params)?;
@@ -427,13 +490,76 @@ impl FunctionEmitter<'_> {
                     .join(", ");
                 Ok(format!("vec![{items_text}]"))
             }
+            smelt_hir::CallbackExprKind::Sequence { effects, result } => {
+                let effects_text = effects
+                    .iter()
+                    .map(|effect| {
+                        self.callback_expr_text(effect, params)
+                            .map(|text| format!("{text};"))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(" ");
+                let result_text = self.callback_expr_text(result, params)?;
+                Ok(format!("{{ {effects_text} {result_text} }}"))
+            }
+            smelt_hir::CallbackExprKind::DictLit(entries) => match self.mir.types.get(expr.ty) {
+                Some(Type::Dict(_, value_ty)) => {
+                    let entries_text = entries
+                        .iter()
+                        .map(|(key, value)| {
+                            let key_text = self.symbol_name(*key)?;
+                            let value_text =
+                                self.callback_expr_as_type_text(value, *value_ty, params)?;
+                            Ok(format!("({key_text:?}.to_owned(), {value_text})"))
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                        .join(", ");
+                    Ok(format!(
+                        "::std::collections::HashMap::from([{entries_text}])"
+                    ))
+                }
+                Some(Type::Class { name, .. }) => {
+                    self.callback_struct_literal_text(*name, entries, params)
+                }
+                _ => Err(EmitError::new(
+                    "callback object literal requires a dict or structural result type",
+                )),
+            },
+            smelt_hir::CallbackExprKind::Throw { message } => {
+                if let Some(thrown_message) = message {
+                    Ok(format!(
+                        "panic!(\"{{}}\", {})",
+                        self.callback_expr_text(thrown_message, params)?
+                    ))
+                } else {
+                    Ok("panic!(\"callback threw\")".to_owned())
+                }
+            }
             smelt_hir::CallbackExprKind::Index { receiver, index } => {
                 let receiver_text = self.callback_expr_text(receiver, params)?;
                 match self.mir.types.get(receiver.ty) {
                     Some(Type::Tuple(_)) => Ok(format!("{receiver_text}.{index}.clone()")),
                     Some(Type::List(_)) => Ok(format!("{receiver_text}[{index}].clone()")),
+                    Some(Type::String) => Ok(format!(
+                        "{receiver_text}.chars().nth({index}).unwrap_or_default().to_string()"
+                    )),
                     _ => Err(EmitError::new(
-                        "callback indexed access requires a tuple or list receiver",
+                        "callback indexed access requires a tuple, list, or string receiver",
+                    )),
+                }
+            }
+            smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
+                let receiver_text = self.callback_expr_text(receiver, params)?;
+                let index_text = self.callback_expr_text(index, params)?;
+                match self.mir.types.get(receiver.ty) {
+                    Some(Type::List(_)) => Ok(format!(
+                        "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.len() as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.get(callback_index).cloned().expect(\"index out of bounds\") }}"
+                    )),
+                    Some(Type::String) => Ok(format!(
+                        "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.chars().count() as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.chars().nth(callback_index).map(|ch| ch.to_string()).expect(\"index out of bounds\") }}"
+                    )),
+                    _ => Err(EmitError::new(
+                        "callback dynamic indexed access requires a list or string receiver",
                     )),
                 }
             }
@@ -470,6 +596,58 @@ impl FunctionEmitter<'_> {
                     )),
                 }
             }
+            smelt_hir::CallbackExprKind::HasDynamicField { receiver, field } => {
+                let receiver_text = self.callback_expr_text(receiver, params)?;
+                let field_text = self.callback_expr_text(field, params)?;
+                match self.mir.types.get(receiver.ty) {
+                    Some(Type::Dict(key, _)) if self.mir.types.get(*key) == Some(&Type::String) => {
+                        Ok(format!("{receiver_text}.contains_key(&{field_text})"))
+                    }
+                    Some(Type::Unknown) => Ok(format!(
+                        "matches!({receiver_text}, SmeltUnknown::Object(ref map) if map.contains_key(&{field_text}))"
+                    )),
+                    Some(Type::Class { .. }) => Ok("true".to_owned()),
+                    _ => Err(EmitError::new(
+                        "callback dynamic field check requires a record, unknown, or class receiver",
+                    )),
+                }
+            }
+            smelt_hir::CallbackExprKind::FieldTruthy { receiver, field } => {
+                let receiver_text = self.callback_expr_text(receiver, params)?;
+                let field_text = self.symbol_name(*field)?;
+                match self.mir.types.get(receiver.ty) {
+                    Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
+                        Some(Type::Class { .. }) => Ok(format!(
+                            "{receiver_text}.as_ref().is_some_and(|value| value.{})",
+                            sanitize_ident(field_text)
+                        )),
+                        Some(Type::Dict(key, _))
+                            if self.mir.types.get(*key) == Some(&Type::String) =>
+                        {
+                            Ok(format!(
+                                "{receiver_text}.as_ref().and_then(|value| value.get({field_text:?})).copied().unwrap_or(false)"
+                            ))
+                        }
+                        _ => Err(EmitError::new(
+                            "callback optional field truthiness requires an optional class or record receiver",
+                        )),
+                    },
+                    Some(Type::Class { .. }) => {
+                        Ok(format!("{receiver_text}.{}", sanitize_ident(field_text)))
+                    }
+                    Some(Type::Dict(key, _)) if self.mir.types.get(*key) == Some(&Type::String) => {
+                        Ok(format!(
+                            "{receiver_text}.get({field_text:?}).copied().unwrap_or(false)"
+                        ))
+                    }
+                    Some(Type::Unknown) => Ok(format!(
+                        "matches!({receiver_text}, SmeltUnknown::Object(ref map) if matches!(map.get({field_text:?}), Some(SmeltUnknown::Bool(true))))"
+                    )),
+                    _ => Err(EmitError::new(
+                        "callback field truthiness requires a class, record, optional, or unknown receiver",
+                    )),
+                }
+            }
             smelt_hir::CallbackExprKind::Unary { op, operand } => {
                 let op_text = match op {
                     smelt_hir::UnaryOp::Not => "!",
@@ -480,12 +658,19 @@ impl FunctionEmitter<'_> {
                     self.callback_expr_text(operand, params)?
                 ))
             }
-            smelt_hir::CallbackExprKind::Binary { op, lhs, rhs } => Ok(format!(
-                "({} {} {})",
-                self.callback_expr_text(lhs, params)?,
-                smelt_hir::bin_op_text(*op),
-                self.callback_expr_text(rhs, params)?
-            )),
+            smelt_hir::CallbackExprKind::Binary { op, lhs, rhs } => {
+                let lhs_text = self.callback_expr_text(lhs, params)?;
+                let rhs_text = self.callback_expr_text(rhs, params)?;
+                if *op == smelt_hir::BinOp::UShr {
+                    return Ok(format!(
+                        "{{ let smelt_shift_value = ({lhs_text}).trunc(); let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = ({rhs_text}).trunc(); let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
+                    ));
+                }
+                Ok(format!(
+                    "({lhs_text} {} {rhs_text})",
+                    smelt_hir::bin_op_text(*op)
+                ))
+            }
             smelt_hir::CallbackExprKind::UnknownIs { value, kind } => {
                 let value_text = self.callback_expr_text(value, params)?;
                 self.unknown_is_text_raw(&value_text, *kind)
@@ -501,6 +686,11 @@ impl FunctionEmitter<'_> {
                 self.callback_expr_as_type_text(else_expr, expr.ty, params)?
             )),
             smelt_hir::CallbackExprKind::Call { callee, args } => {
+                if let smelt_hir::CallbackExprKind::FunctionTableLookup { key, cases } =
+                    &callee.kind
+                {
+                    return self.callback_function_table_call_text(key, cases, args, params);
+                }
                 let callee_text = self.callback_expr_text(callee, params)?;
                 let args_text = args
                     .iter()
@@ -530,6 +720,14 @@ impl FunctionEmitter<'_> {
                     .join(", ");
                 if method_text == "toString" {
                     Ok(format!("{receiver_text}.to_string()"))
+                } else if method_text == "match" && args.len() == 1 {
+                    let pattern = args.first().ok_or_else(|| {
+                        EmitError::new("callback match call requires one pattern argument")
+                    })?;
+                    let pattern_text = self.callback_expr_text(&pattern.expr, params)?;
+                    Ok(format!(
+                        "regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\").is_match(&{receiver_text})"
+                    ))
                 } else {
                     Ok(format!(
                         "{receiver_text}.{}({args_text})",
@@ -538,6 +736,77 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
+    }
+
+    /// Emits a dynamic call through a statically known function table.
+    ///
+    /// JavaScript libraries often select a formatter from an exported object
+    /// and immediately call it. Rust has no direct equivalent for heterogenous
+    /// function items in a map, so codegen lowers the table lookup to a
+    /// key-dispatching `match` that calls the selected function directly.
+    fn callback_function_table_call_text(
+        &self,
+        key: &smelt_hir::CallbackExpr,
+        cases: &[(String, Symbol)],
+        args: &[smelt_hir::CallbackCallArg],
+        params: &[&str],
+    ) -> Result<String, EmitError> {
+        let key_text = self.callback_expr_text(key, params)?;
+        let args_text = args
+            .iter()
+            .map(|arg| {
+                let text = self.callback_expr_text(&arg.expr, params)?;
+                if arg.spread {
+                    Ok(format!("{text}.clone()"))
+                } else {
+                    Ok(text)
+                }
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        let cases_text = cases
+            .iter()
+            .map(|(case_key, function)| {
+                let function_text = sanitize_ident(self.symbol_name(*function)?);
+                Ok(format!("{case_key:?} => {function_text}({args_text})"))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        Ok(format!(
+            "{{ let __smelt_function_key = {key_text}; match __smelt_function_key.as_str() {{ {cases_text}, _ => panic!(\"unknown function table key: {{}}\", __smelt_function_key) }} }}"
+        ))
+    }
+
+    /// Emits a callback object literal as a structural Rust value.
+    fn callback_struct_literal_text(
+        &self,
+        class: Symbol,
+        entries: &[(Symbol, smelt_hir::CallbackExpr)],
+        params: &[&str],
+    ) -> Result<String, EmitError> {
+        let class_name = sanitize_ident(self.symbol_name(class)?);
+        let mir_class = self
+            .mir
+            .classes
+            .iter()
+            .find(|item| item.name == class)
+            .ok_or_else(|| {
+                EmitError::new("callback structural object literal references an unknown class")
+            })?;
+        let mut parts = Vec::new();
+        for field in &mir_class.fields {
+            let name = sanitize_ident(self.symbol_name(field.name)?);
+            if let Some((_, value)) = entries
+                .iter()
+                .find(|(entry_name, _)| *entry_name == field.name)
+            {
+                let value_text = self.callback_expr_as_type_text(value, field.ty, params)?;
+                parts.push(format!("{name}: {value_text}"));
+            } else {
+                parts.push(format!("{name}: {}", self.default_value(field.ty)?));
+            }
+        }
+        Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
     }
 
     /// Converts a callback expression to Rust text expected at a target type.
@@ -554,6 +823,21 @@ impl FunctionEmitter<'_> {
             if expr.ty == *inner {
                 return Ok(format!("Some({})", self.callback_expr_text(expr, params)?));
             }
+        }
+        if self.mir.types.get(target) == Some(&Type::Unknown) {
+            let text = self.callback_expr_text(expr, params)?;
+            return match self.mir.types.get(expr.ty) {
+                Some(Type::None) => Ok("SmeltUnknown::Null".to_owned()),
+                Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
+                Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
+                Some(Type::String) => Ok(format!("SmeltUnknown::String({text})")),
+                Some(Type::List(_)) => Ok(format!("SmeltUnknown::Array({text})")),
+                Some(Type::Dict(_, _)) => Ok(format!("SmeltUnknown::Object({text})")),
+                Some(Type::Unknown) => Ok(text),
+                _ => Err(EmitError::new(
+                    "callback expression cannot be wrapped as unknown",
+                )),
+            };
         }
         self.callback_expr_text(expr, params)
     }

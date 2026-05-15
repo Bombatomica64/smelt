@@ -177,10 +177,35 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
                 assigned_callback_locals(item, locals);
             }
         }
+        smelt_hir::CallbackExprKind::Sequence { effects, result } => {
+            for effect in effects {
+                assigned_callback_locals(effect, locals);
+            }
+            assigned_callback_locals(result, locals);
+        }
+        smelt_hir::CallbackExprKind::DictLit(entries) => {
+            for (_, value) in entries {
+                assigned_callback_locals(value, locals);
+            }
+        }
+        smelt_hir::CallbackExprKind::Throw { message } => {
+            if let Some(thrown_message) = message {
+                assigned_callback_locals(thrown_message, locals);
+            }
+        }
         smelt_hir::CallbackExprKind::Index { receiver, .. }
         | smelt_hir::CallbackExprKind::Field { receiver, .. }
-        | smelt_hir::CallbackExprKind::HasField { receiver, .. } => {
+        | smelt_hir::CallbackExprKind::HasField { receiver, .. }
+        | smelt_hir::CallbackExprKind::FieldTruthy { receiver, .. } => {
             assigned_callback_locals(receiver, locals);
+        }
+        smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
+            assigned_callback_locals(receiver, locals);
+            assigned_callback_locals(index, locals);
+        }
+        smelt_hir::CallbackExprKind::HasDynamicField { receiver, field } => {
+            assigned_callback_locals(receiver, locals);
+            assigned_callback_locals(field, locals);
         }
         smelt_hir::CallbackExprKind::Unary { operand, .. } => {
             assigned_callback_locals(operand, locals);
@@ -212,6 +237,9 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
             for arg in args {
                 assigned_callback_locals(&arg.expr, locals);
             }
+        }
+        smelt_hir::CallbackExprKind::FunctionTableLookup { key, .. } => {
+            assigned_callback_locals(key, locals);
         }
         smelt_hir::CallbackExprKind::Param(_)
         | smelt_hir::CallbackExprKind::Capture(_)

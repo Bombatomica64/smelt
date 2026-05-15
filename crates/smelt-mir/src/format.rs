@@ -316,6 +316,13 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(end)
             )
         }
+        Rvalue::NumericToStringRadix { operand, radix } => {
+            format!(
+                "numeric_to_string_radix {}, {}",
+                operand_text(operand),
+                operand_text(radix)
+            )
+        }
         Rvalue::PrimitiveCast { op, operand } => {
             let op_text = match op {
                 smelt_hir::PrimitiveCastOp::ToBool => "bool",
@@ -618,6 +625,14 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(callback)
             )
         }
+        Rvalue::ListFromLength { length } => {
+            format!("list_from_length {}", operand_text(length))
+        }
+        Rvalue::ListFromLengthMap { length, callback } => format!(
+            "list_from_length_map {}, {}",
+            operand_text(length),
+            operand_text(callback)
+        ),
         Rvalue::ListReduce {
             list,
             initial,

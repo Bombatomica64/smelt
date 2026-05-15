@@ -1,12 +1,143 @@
 impl ModuleBuilder<'_> {
+    /// Return whether a lowered actual type can be assigned to an expected type.
+    ///
+    /// This models the parts of TypeScript assignability that survive Smelt's
+    /// erased HIR types: bottom `never`, top-like annotations, union inclusion,
+    /// nullish optionals, and recursive container/function shapes.
+    fn type_assignable_to(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+    ) -> bool {
+        self.type_assignable_to_inner(actual, expected, 0)
+    }
+
+    /// Recursive implementation for `type_assignable_to` with a depth guard.
+    fn type_assignable_to_inner(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+        depth: usize,
+    ) -> bool {
+        if depth > 32 {
+            return actual == expected;
+        }
+        let actual = self.type_param_constraint_or_self(actual);
+        let expected = self.type_param_constraint_or_self(expected);
+        if actual == expected {
+            return true;
+        }
+        let Some(actual_ty) = self.ctx.krate.types.get(actual).cloned() else {
+            return false;
+        };
+        let Some(expected_ty) = self.ctx.krate.types.get(expected).cloned() else {
+            return false;
+        };
+        match (actual_ty, expected_ty) {
+            (Type::Never, _) | (Type::None, Type::Optional(_)) => true,
+            (_, Type::Never) | (Type::Int, Type::Float) => false,
+            (_, Type::Unknown) | (Type::Unknown, _) => true,
+            (Type::Union(actual_items), _) => actual_items
+                .iter()
+                .all(|item| self.type_assignable_to_inner(*item, expected, depth + 1)),
+            (_, Type::Union(expected_items)) => expected_items
+                .iter()
+                .any(|item| self.type_assignable_to_inner(actual, *item, depth + 1)),
+            (Type::Optional(actual_item), Type::Optional(expected_item))
+            | (Type::List(actual_item), Type::List(expected_item))
+            | (Type::Set(actual_item), Type::Set(expected_item))
+            | (Type::Future(actual_item), Type::Future(expected_item)) => {
+                self.type_assignable_to_inner(actual_item, expected_item, depth + 1)
+            }
+            (Type::Optional(_), _) => false,
+            (_, Type::Optional(expected_item)) => {
+                self.type_assignable_to_inner(actual, expected_item, depth + 1)
+            }
+            (Type::Tuple(actual_items), Type::Tuple(expected_items)) => {
+                actual_items.len() == expected_items.len()
+                    && actual_items
+                        .iter()
+                        .zip(expected_items.iter())
+                        .all(|(actual_item, expected_item)| {
+                            self.type_assignable_to_inner(
+                                *actual_item,
+                                *expected_item,
+                                depth + 1,
+                            )
+                        })
+            }
+            (Type::Tuple(actual_items), Type::List(expected_item)) => actual_items
+                .iter()
+                .all(|actual_item| {
+                    self.type_assignable_to_inner(*actual_item, expected_item, depth + 1)
+                }),
+            (Type::Dict(actual_key, actual_value), Type::Dict(expected_key, expected_value)) => {
+                self.type_assignable_to_inner(actual_key, expected_key, depth + 1)
+                    && self.type_assignable_to_inner(actual_value, expected_value, depth + 1)
+            }
+            (Type::Function(actual_fn), Type::Function(expected_fn)) => {
+                actual_fn.params.len() == expected_fn.params.len()
+                    && actual_fn.is_async == expected_fn.is_async
+                    && actual_fn
+                        .params
+                        .iter()
+                        .zip(expected_fn.params.iter())
+                        .all(|(actual_param, expected_param)| {
+                            self.type_assignable_to_inner(
+                                *expected_param,
+                                *actual_param,
+                                depth + 1,
+                            )
+                        })
+                    && self.type_assignable_to_inner(
+                        actual_fn.return_ty,
+                        expected_fn.return_ty,
+                        depth + 1,
+                    )
+            }
+            (
+                Type::Class {
+                    name: actual_name,
+                    args: actual_args,
+                },
+                Type::Class {
+                    name: expected_name,
+                    args: expected_args,
+                },
+            ) => {
+                actual_name == expected_name
+                    && actual_args.len() == expected_args.len()
+                    && actual_args
+                        .iter()
+                        .zip(expected_args.iter())
+                        .all(|(actual_arg, expected_arg)| {
+                            self.type_assignable_to_inner(*actual_arg, *expected_arg, depth + 1)
+                        })
+            }
+            (actual_ty, expected_ty) => actual_ty == expected_ty,
+        }
+    }
+
     /// Return whether a key argument can be used with a lowered map key type.
     fn map_key_type_compatible(
         &self,
         expected: smelt_hir::TypeId,
         actual: smelt_hir::TypeId,
     ) -> bool {
+        let expected = self.type_param_constraint_or_self(expected);
+        let actual = self.type_param_constraint_or_self(actual);
         if expected == actual {
             return true;
+        }
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(expected) {
+            return items
+                .iter()
+                .any(|item| self.map_key_type_compatible(*item, actual));
+        }
+        if let Some(Type::Union(items)) = self.ctx.krate.types.get(actual) {
+            return items
+                .iter()
+                .all(|item| self.map_key_type_compatible(expected, *item));
         }
         if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(actual) {
             return self.map_key_type_compatible(expected, *inner);
@@ -37,7 +168,7 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a type is represented by Smelt's numeric runtime value.
     fn is_numeric_like_type(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(ty) {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
             Some(Type::Float | Type::Int) => true,
             Some(Type::Union(items)) => items
                 .iter()
@@ -168,11 +299,17 @@ impl ModuleBuilder<'_> {
         }
         let items = self.expression(&member.object, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
-        let items_ty = Self::expr_ty(body, items);
-        if self.ctx.krate.types.get(items_ty) != Some(&Type::List(string_ty)) {
+        let items_ty = self.type_param_constraint_or_self(Self::expr_ty(body, items));
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(items_ty) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "array join currently requires a string[] receiver",
+                "array join requires an array receiver",
+            ));
+        };
+        if !self.array_join_item_type_supported(*item_ty) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "array join currently requires primitive or unknown array items",
             ));
         }
         let separator = match call.arguments.as_slice() {
@@ -203,6 +340,31 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether `Array.prototype.join` can stringify this lowered item type.
+    fn array_join_item_type_supported(&self, item_ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(item_ty))
+        {
+            Some(
+                Type::Bool
+                | Type::String
+                | Type::Int
+                | Type::Float
+                | Type::Unknown
+                | Type::TypeParam { .. },
+            ) => true,
+            Some(Type::Optional(item)) => self.array_join_item_type_supported(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .all(|item| self.array_join_item_type_supported(item)),
+            _ => false,
+        }
     }
 
     /// Lower direct TypeScript string containment.

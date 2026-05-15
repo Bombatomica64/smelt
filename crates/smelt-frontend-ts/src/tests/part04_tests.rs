@@ -307,6 +307,768 @@ const merged = Object.assign({}, source, { b: 2 });
 }
 
 #[test]
+fn lowers_object_assign_with_optional_interface_source() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Options {
+  addSuffix?: boolean;
+}
+
+function merge(options?: Options): Record<string, unknown> {
+  return Object.assign({}, options, {
+    addSuffix: options?.addSuffix,
+    comparison: 1,
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_module_global_array_with_null_elements() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const daysInMonths = [31, null, 31];
+
+function days(month: number): number {
+  return daysInMonths[month] || 28;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_parse_iso_string_and_regexp_helpers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function parseDateUnit(value: string): number {
+  return value ? parseInt(value) : 1;
+}
+
+function parseYear(dateString: string, additionalDigits: number): string[] | undefined {
+  const regex = new RegExp("^(\\d{" + (4 + additionalDigits) + "})");
+  const captures = dateString.substr(1, dateString.length).match(regex);
+  const token = regex.exec(dateString);
+  if (!captures) return undefined;
+  return token || dateString.slice((captures[1] || captures[2]).length).match(regex);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_string_length_after_truthy_guard() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface DateString {
+  date?: string;
+}
+
+function read(dateStrings: DateString): number {
+  if (dateStrings.date) {
+    return dateStrings.date.length;
+  }
+  return 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_global_is_nan_with_coercible_unknown() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function read(): boolean {
+  let offset;
+  offset = 1;
+  return isNaN(offset);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_console_warn_and_error_like_console_log() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function warn(message: string): void {
+  console.warn(message);
+  console.error(message);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_error_constructor_with_unknown_message() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function fail(message: unknown): void {
+  throw new RangeError(message);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_timezone_offset_as_number() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function offset(date: Date): number {
+  return Math.abs(date.getTimezoneOffset());
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_qualified_external_type_reference_as_opaque_class() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function fakeDate(): void {
+  let clock: sinon.SinonFakeTimers | undefined;
+  clock = undefined;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nested_function_declaration_as_local_closure() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function outer(value: number): { inner: (next: number) => void } {
+  let current = value;
+  function inner(next: number) {
+    current = next;
+  }
+  return { inner };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_sinon_fake_timers_helper_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function fakeDate(date: number | Date): { fakeNow: (date: number | Date) => void } {
+  let clock: sinon.SinonFakeTimers | undefined;
+  function fakeNow(date: number | Date) {
+    clock?.restore();
+    clock = sinon.useFakeTimers(+date);
+  }
+  return { fakeNow };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_do_while_statement() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function countDown(value: number): number {
+  let current = value;
+  do {
+    current = current - 1;
+  } while (current > 0);
+  return current;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_static_field_access() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function read(value: unknown): unknown {
+  return value.date;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_index_access() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function read(values: unknown, index: number): unknown {
+  return values[index];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn tolerates_describe_scope_setup_and_dynamic_test_alias() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { describe, expect, it } from "vitest";
+
+describe("group", () => {
+  const enabled = true;
+  const alias = enabled ? it : it.skip;
+  alias("dynamic", () => {});
+
+  describe("nested", () => {
+    it("static", () => {
+      expect(enabled).toBe(true);
+    });
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_values_through_partial_record_alias() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Boxed<T> = Partial<Record<string, T[]>>;
+
+function values(result: Boxed<number>): number {
+  return Object.values(result).length;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_literal_types_inside_tuples() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Items = [{ a: "cat" }, { a: string }?];
+
+function first(items: Items): string {
+  return items[0].a;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_constructor_identifier_as_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+
+it("checks date", () => {
+  const result = Date.now();
+  expect(result).toBeInstanceOf(Date);
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_intl_timezone_probe_for_test_labels() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || process.env.tz;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_local_arrow_defaults_referencing_prior_params() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const override = (
+  base: Date,
+  year = base.getFullYear(),
+  month = base.getMonth(),
+) => new Date(year, month);
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_for_each_statement_callback_as_loop() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function maxValue(values: number[]): number {
+  let result = 0;
+  values.forEach((value, index) => {
+    if (index < 0) return;
+    if (result < value) result = value;
+  });
+  return result;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_for_each_statement_function_callback_as_list_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function call(data: readonly number[], callbackfn: (value: number, index: number, data: readonly number[]) => void): void {
+  data.forEach(callbackfn);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::ListCallback {
+            op: ListCallbackOp::ForEach,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn packs_normal_and_spread_arguments_into_rest_parameter() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function collect(first: number, ...rest: number[]): number {
+  return rest.length;
+}
+
+function call(values: number[]): number {
+  return collect(1, 2, ...values);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn splits_spread_arguments_across_fixed_and_rest_parameters() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function collect(first: unknown, second: unknown, ...rest: unknown[]): unknown {
+  return second;
+}
+
+function call(values: readonly unknown[]): unknown {
+  return collect("prefix", ...values);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 1)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
+        "missing fixed parameter read from spread list"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListSlice { .. })),
+        "missing rest slice from spread list"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_tuple_rest_destructuring_as_list() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pick(index: number): number {
+  const [first, ...rest] = [1, 2, 3] as [number, number, number];
+  return rest[index];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_sort_with_function_reference_comparator() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function compare(left: number, right: number): number {
+  return left - right;
+}
+
+function sortValues(values: number[]): number[] {
+  return values.sort(compare);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn preserves_set_item_type_through_spread_sort() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const sampleIndices = new Set<number>();
+const sorted = [...sampleIndices].sort((a, b) => a - b);
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_dynamic_index_with_non_null_assertion() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function sample<T>(data: readonly T[]): T[] {
+  const sampleIndices = new Set<number>();
+  return [...sampleIndices].sort((a, b) => a - b).map((index) => data[index]!);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_sort_with_comparator_function_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const sortByImplementation = <T>(
+  data: readonly T[],
+  compareFn: (left: T, right: T) => number,
+): T[] => [...data].sort(compareFn);
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_instanceof_inside_expect_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+
+it("checks instance", () => {
+  const value = new Date(0);
+  expect(value instanceof Date).toBe(true);
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_constructor_field_on_date_like_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const value = new Date(0);
+const ctor = value.constructor;
+class CustomDate extends Date {}
+const custom = new CustomDate(0);
+const customCtor = custom.constructor;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_block_scoped_class_declarations() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function make(): void {
+  class CustomDate extends Date {}
+  function acceptDate(value: CustomDate): void {}
+  const value = new CustomDate(0);
+  acceptDate(new CustomDate(0));
+  const ctor = CustomDate;
+  value instanceof CustomDate;
+  const base = new Date(0);
+  base instanceof CustomDate;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_block_scoped_type_declarations() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function check(): void {
+  interface AB {
+    a: number;
+    b: number;
+  }
+  type Boxed = { value: AB };
+  const item: Boxed = { value: { a: 1, b: 2 } };
+  item.value.a;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_imported_constructor_as_opaque_class() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { UTCDate } from "@date-fns/utc";
+import { expect, it } from "vitest";
+
+it("checks extension date", () => {
+  const result = new UTCDate();
+  expect(result).toBeInstanceOf(UTCDate);
+  expect(result instanceof UTCDate).toBe(true);
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn allows_map_get_with_union_member_key_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function lookup<T, S>(map: Map<S | T, number>, value: T): number | undefined {
+  return map.get(value);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_keys_after_object_string_nullish_guards() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function empty(data: object | string | undefined): boolean {
+  if (data === "" || data === undefined) {
+    return true;
+  }
+  if (Array.isArray(data)) {
+    return data.length === 0;
+  }
+  return Object.keys(data).length === 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_for_in_after_typeof_object_guard() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function hasEnumerable(data: unknown): boolean {
+  if (typeof data !== "object") {
+    return false;
+  }
+  for (const key in data) {
+    return true;
+  }
+  return false;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_get_own_property_symbols_length() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function symbolCount(data: unknown): number {
+  return Object.getOwnPropertySymbols(data).length;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_uninitialized_let_as_unknown_for_date_coercion() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function parseDate(): Date {
+  return new Date(0);
+}
+
+function read(): number {
+  let date;
+  date = parseDate();
+  return +date;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_object_assign_call_on_callable_target() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -343,6 +1105,172 @@ const assigned = Object.assign(
     ensure!(body.exprs.iter().any(
         |expr| matches!(expr.kind, ExprKind::CallableObjectAssign { ref props, .. } if props.len() == 1)
     ));
+    Ok(())
+}
+
+#[test]
+fn local_function_implementations_shadow_cross_module_overloads() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Debouncer<F> = { readonly call: () => void };
+function debounce<F>(func: F): Debouncer<F>;
+function debounce<F>(func: F): Debouncer<F> {
+  return { call: () => {} };
+}
+"#),
+        &mut ctx,
+    )?;
+    let module_id = lower_ok(
+        ts!(r#"
+function debounce(func: () => void) {
+  return Object.assign(func, { cancel: () => {} });
+}
+
+const debounced = debounce(() => {});
+debounced();
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn infers_async_arrow_const_return_type_from_await_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function run(): Promise<void> {
+  await yieldExecution();
+}
+
+const yieldExecution = async () => await sleep(0);
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_ignored_promise_then_catch_chain() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+async function load(values: number[]): Promise<number[]> {
+  return values;
+}
+
+function run(values: number[]): void {
+  load(values)
+    .then((response) => {
+      response.length;
+    })
+    .catch((_error) => {});
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_spread_from_generic_accumulator_fallback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function append<T>(items: T | undefined, item: number): number[] {
+  return [...(items ?? []), item];
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn keeps_vitest_mock_with_implementation_callable() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { vi } from "vitest";
+
+async function run(): Promise<void> {
+  const mockApi = vi.fn<(words: readonly string[]) => Promise<Record<string, number>>>(
+    async (words) => ({ count: words.length }),
+  );
+  await mockApi(["a"]);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn keeps_captured_vitest_mock_callable_inside_async_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { vi } from "vitest";
+
+function batch<Params extends any[], BatchResponse>(
+  callback: (requests: readonly Params[]) => Promise<BatchResponse>,
+): void {
+  callback([]);
+}
+
+function run(): void {
+  const mockApi = vi.fn<(words: readonly string[]) => Promise<Record<string, number>>>(
+    async (words) => ({ count: words.length }),
+  );
+  batch(async (requests: readonly [word: string][]) => await mockApi(requests.flat()));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_generic_promise_constructor_executor_as_future() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function makeValue(): Promise<number> {
+  return new Promise<number>((resolve) => {
+    resolve(1);
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -658,6 +1586,54 @@ export function read(value: unknown): () => string {
 }
 
 #[test]
+fn lowers_async_arrow_expression_object_property() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type AsyncCaller = {
+  readonly call: (...params: number[]) => Promise<void>;
+};
+
+export function makeCaller(): AsyncCaller {
+  return {
+    call: async (...params: number[]): Promise<void> =>
+      new Promise<void>((resolve) => setTimeout(resolve, 1)),
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    let async_closure_body = ctx.krate.bodies.iter().any(|body| {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::Closure(closure) = &expr.kind else {
+                return false;
+            };
+            let Some(Type::Function(function)) = ctx.krate.types.get(expr.ty) else {
+                return false;
+            };
+            function.is_async
+                && matches!(
+                    ctx.krate.types.get(closure.return_ty),
+                    Some(Type::Future(_))
+                )
+                && ctx
+                    .krate
+                    .bodies
+                    .get(closure.body.0 as usize)
+                    .is_some_and(|body| body.async_state_machine.is_some())
+        })
+    });
+    ensure!(
+        async_closure_body,
+        "expected object-property async arrow to lower as an async closure"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_function_local_arrow_forward_references() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -752,6 +1728,26 @@ export function delay(wait = 0): number {
 }
 
 #[test]
+fn lowers_console_members_inside_test_callbacks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { it } from "vitest";
+
+it("logs diagnostic output", () => {
+  console.log("starting");
+  console.warn("fallback");
+  console.error("failed");
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_object_has_own_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -759,6 +1755,9 @@ fn lowers_object_has_own_methods() -> Result<(), String> {
 const mapping: Record<string, number> = { a: 1, b: 2 };
 const first = Object.hasOwn(mapping, "a");
 const second = mapping.hasOwnProperty("b");
+function generic<T>(value: T, key: string): boolean {
+  return Object.hasOwn(value, key);
+}
 "#),
         &mut ctx,
     )?;
@@ -772,6 +1771,37 @@ const second = mapping.hasOwnProperty("b");
             .count()
             == 2
     );
+    let generic_body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+    ensure!(
+        generic_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_computed_destructuring_key_with_type_assertion() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pick<T>(value: T, key: string): unknown {
+  const { [key as keyof T]: picked } = value;
+  return picked;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -841,6 +1871,31 @@ type Entries = readonly Entry[];
             .any(|ty| matches!(ty, Type::Tuple(items) if items.iter().any(|item| matches!(ctx.krate.types.get(*item), Some(Type::String))))),
         "expected template literal tuple keys to lower as strings",
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_top_level_arrow_const_used_by_later_function() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const compare = (left: number, right: number): number => left - right;
+
+function sortValues(values: number[]): number[] {
+  return values.toSorted(compare);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 1)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListSort { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -1282,6 +2337,10 @@ fn lowers_set_constructor_and_has_method() -> Result<(), String> {
 const values: Set<number> = new Set([1, 2, 3]);
 const has = values.has(2);
 const empty: Set<string> = new Set();
+const genericEmpty = new Set<number>();
+const genericEmptyLiteral = new Set<string>([]);
+const source: readonly number[] = [1, 2, 3];
+const fromSource = new Set(source);
 "#),
         &mut ctx,
     )?;
@@ -1291,7 +2350,9 @@ const empty: Set<string> = new Set();
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::SetLit(_))),
+            .filter(|expr| matches!(expr.kind, ExprKind::SetLit(_)))
+            .count()
+            >= 4,
         "Set constructor did not lower to SetLit"
     );
     ensure!(
@@ -1300,5 +2361,195 @@ const empty: Set<string> = new Set();
             .any(|expr| matches!(expr.kind, ExprKind::SetContains { .. })),
         "Set.has did not lower to SetContains"
     );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListToSet { .. })),
+        "Set constructor from array did not lower to ListToSet"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_rest_parameters_with_type_level_tuple_alias_constraints() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type StrictFunction = (...args: never) => unknown;
+type IterableContainer = readonly unknown[];
+type TuplePrefix<T extends IterableContainer> = readonly unknown[];
+type TupleSuffix<T extends IterableContainer> = readonly unknown[];
+type RemovePrefix<
+  T extends IterableContainer,
+  Prefix extends TuplePrefix<T>,
+> = readonly unknown[];
+type RemoveSuffix<
+  T extends IterableContainer,
+  Suffix extends TupleSuffix<T>,
+> = readonly unknown[];
+
+export function partialBind<
+  F extends StrictFunction,
+  PrefixArgs extends TuplePrefix<Parameters<F>>,
+  RemovedPrefix extends RemovePrefix<Parameters<F>, PrefixArgs>,
+>(
+  func: F,
+  ...partial: PrefixArgs
+): (
+  ...rest: RemovedPrefix extends IterableContainer ? RemovedPrefix : never
+) => ReturnType<F> {
+  return (...rest) => func(...partial, ...rest);
+}
+
+export function partialLastBind<
+  F extends StrictFunction,
+  SuffixArgs extends TupleSuffix<Parameters<F>>,
+  RemovedSuffix extends RemoveSuffix<Parameters<F>, SuffixArgs>,
+>(
+  func: F,
+  ...partial: SuffixArgs
+): (
+  ...rest: RemovedSuffix extends IterableContainer ? RemovedSuffix : never
+) => ReturnType<F> {
+  return (...rest) => func(...rest, ...partial);
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_random_bigint_stdlib_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function asBigInt(bytes: Iterable<number>): bigint {
+  let result = 0n;
+  for (const byte of bytes) {
+    result = (result << 8n) + BigInt(byte);
+  }
+  return result >> 1n;
+}
+
+function random(numBytes: number): Uint8Array {
+  const output = new Uint8Array(numBytes);
+  if (typeof crypto === "undefined") {
+    for (let index = 0; index < numBytes; index += 1) {
+      output[index] = Math.floor(Math.random() * 256);
+    }
+  } else {
+    crypto.getRandomValues(output);
+  }
+  return output;
+}
+
+const text = (10n).toString(2);
+const bits = text.length;
+const pivot = (4 + 10) >>> 1;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::Shl | BinOp::Shr | BinOp::UShr,
+                        ..
+                    }
+                )
+            })
+        }),
+        "bitwise shift operators did not lower"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::NumericToStringRadix { .. })),
+        "number.toString(radix) did not lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_from_length_mapper() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function range(start: number, length: number, step: number): number[] {
+  return Array.from({ length }, (_, i) => (i === 0 ? start : start + i * step));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::ListFromLengthMap { .. }))
+        }),
+        "Array.from({{ length }}, mapper) did not lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_array_from_length_without_mapper() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("const sparse = Array.from({ length: 1000 });"),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. })),
+        "Array.from({{ length }}) did not lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn accepts_assignable_arrow_return_annotations() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function use<T, R>(items: readonly T[], fn: (item: T) => R): R {
+  return fn(items[0]);
+}
+
+const stringValue = use(
+  [
+    { a: "cat", b: 123 },
+    { a: "dog", b: 456 },
+  ] as const,
+  (x): string => x.a,
+);
+
+const numberValue = use(
+  [
+    { a: "cat", b: 123 },
+    { a: "dog", b: 456 },
+  ] as const,
+  (x): number => x.b,
+);
+
+const unionValue = use(
+  [
+    { a: "cat", b: 123 },
+    { a: "dog", b: 456 },
+  ] as const,
+  (x): number | string => x.b,
+);
+"#),
+        &mut ctx,
+    )?;
     Ok(())
 }

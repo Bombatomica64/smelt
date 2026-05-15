@@ -97,6 +97,10 @@ pub enum ExprKind {
         start: ExprId,
         end: ExprId,
     },
+    NumericToStringRadix {
+        operand: ExprId,
+        radix: ExprId,
+    },
     PrimitiveCast {
         op: PrimitiveCastOp,
         operand: ExprId,
@@ -233,6 +237,13 @@ pub enum ExprKind {
     ListCallback {
         op: ListCallbackOp,
         list: ExprId,
+        callback: ExprId,
+    },
+    ListFromLength {
+        length: ExprId,
+    },
+    ListFromLengthMap {
+        length: ExprId,
         callback: ExprId,
     },
     ListReduce {

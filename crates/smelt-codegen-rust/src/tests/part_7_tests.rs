@@ -107,6 +107,20 @@ function isArray(value: unknown): boolean {
 }
 
 #[test]
+fn emits_boolean_cast_for_typescript_unknown() {
+    let source = source_for(
+        r#"
+function truthy(value: unknown): boolean {
+  return Boolean(value);
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Null => false"));
+    assert!(source.contains("SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => true"));
+}
+
+#[test]
 fn emits_call_bodied_local_arrow_as_real_closure_body() {
     let source = source_for(
         r#"
@@ -181,4 +195,71 @@ console.log(user[key]);
         source.contains("user.get(&key.clone()).cloned().expect(\"index out of bounds\")"),
         "{source}"
     );
+}
+
+#[test]
+fn emits_radix_to_string_and_numeric_shift_surface() {
+    let source = source_for(
+        r#"
+const binary = (10n).toString(2);
+const left = 1n << 8n;
+const right = left >> 1n;
+const pivot = (4 + 10) >>> 1;
+"#,
+    );
+
+    assert!(
+        source.contains("let radix = (2.0.trunc() as u32).clamp(2, 36);"),
+        "{source}"
+    );
+    assert!(source.contains("<<"), "{source}");
+    assert!(source.contains(">>"), "{source}");
+    assert!(source.contains("rem_euclid(4294967296.0)"), "{source}");
+}
+
+#[test]
+fn emits_array_from_length_mapper() {
+    let source = source_for(
+        r#"
+function range(start: number, length: number, step: number): number[] {
+  return Array.from({ length }, (_, i) => (i === 0 ? start : start + i * step));
+}
+"#,
+    );
+
+    assert!(source.contains("array_from_length"), "{source}");
+    assert!(source.contains("(0..array_from_length).map"), "{source}");
+    assert!(source.contains("let index = index as f64"), "{source}");
+}
+
+#[test]
+fn emits_callback_dynamic_index_with_non_null_assertion() {
+    let source = source_for(
+        r#"
+function sample<T>(data: readonly T[]): T[] {
+  const sampleIndices = new Set<number>();
+  return [...sampleIndices].sort((a, b) => a - b).map((index) => data[index]!);
+}
+"#,
+    );
+
+    assert!(source.contains("callback_index_receiver"), "{source}");
+    assert!(
+        source.contains(".get(callback_index).cloned().expect(\"index out of bounds\")"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_sort_with_comparator_function_value() {
+    let source = source_for(
+        r#"
+const sortByImplementation = <T>(
+  data: readonly T[],
+  compareFn: (left: T, right: T) => number,
+): T[] => [...data].sort(compareFn);
+"#,
+    );
+
+    assert!(source.contains("closure_arg_1(left, right)"), "{source}");
 }

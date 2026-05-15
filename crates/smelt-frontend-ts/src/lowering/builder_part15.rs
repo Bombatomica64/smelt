@@ -115,9 +115,11 @@ impl ModuleBuilder<'_> {
             ChainElement::CallExpression(call) => self.call_expression(call, body),
             ChainElement::StaticMemberExpression(member) => self.static_member(member, body),
             ChainElement::ComputedMemberExpression(member) => self.computed_member(member, body),
-            ChainElement::TSNonNullExpression(non_null) => {
-                self.expression(&non_null.expression, body)
-            }
+            ChainElement::TSNonNullExpression(non_null) => self.non_null_assertion_expression(
+                &non_null.expression,
+                self.span(non_null.span.start, non_null.span.end),
+                body,
+            ),
             ChainElement::PrivateFieldExpression(private_field) => Err(SmeltError::unsupported(
                 self.span(private_field.span.start, private_field.span.end),
                 "private field optional chains are not lowered yet",
@@ -164,14 +166,24 @@ impl ModuleBuilder<'_> {
                 && self.supports_stdlib_size(access_receiver_ty)
         {
             let ty = self.ctx.krate.types.intern(Type::Float);
+            let operand = if optional_access {
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: receiver },
+                    ty: access_receiver_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                })
+            } else {
+                receiver
+            };
             if optional_access {
-                return Err(SmeltError::unsupported(
-                    self.span(member.span.start, member.span.end),
-                    "optional length and size access is not lowered yet",
-                ));
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Len { operand },
+                    ty,
+                    span: self.span(member.span.start, member.span.end),
+                }));
             }
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Len { operand: receiver },
+                kind: ExprKind::Len { operand },
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
@@ -501,7 +513,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        if Self::is_process_env_field(member, "TZ") {
+        if Self::is_process_env_field(member, "TZ") || Self::is_process_env_field(member, "tz") {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
@@ -857,7 +869,7 @@ impl ModuleBuilder<'_> {
         }
         let (op, result_ty) = match callee.name.as_str() {
             "String" => (PrimitiveCastOp::ToString, Type::String),
-            "Number" | "parseFloat" => (PrimitiveCastOp::ToFloat, Type::Float),
+            "Number" | "parseFloat" | "BigInt" => (PrimitiveCastOp::ToFloat, Type::Float),
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
             _ => return Ok(None),
         };
@@ -906,7 +918,15 @@ impl ModuleBuilder<'_> {
     ) -> bool {
         match self.ctx.krate.types.get(operand_ty) {
             Some(Type::Bool | Type::String | Type::Int | Type::Float) => true,
+            Some(Type::Unknown | Type::TypeParam { .. }) if op == PrimitiveCastOp::ToBool => true,
             Some(Type::Unknown) if op == PrimitiveCastOp::ToString => true,
+            Some(Type::Union(items)) if op == PrimitiveCastOp::ToBool => items
+                .iter()
+                .copied()
+                .all(|item| self.primitive_cast_accepts_operand(op, item)),
+            Some(Type::Optional(item)) if op == PrimitiveCastOp::ToBool => {
+                self.primitive_cast_accepts_operand(op, *item)
+            }
             Some(Type::Optional(item)) if op == PrimitiveCastOp::ToString => {
                 self.primitive_cast_accepts_operand(op, *item)
             }
@@ -1005,6 +1025,25 @@ impl ModuleBuilder<'_> {
             span: self.span(update.span.start, update.span.end),
         });
         Ok((target, value))
+    }
+
+    /// Lower prefix and postfix increment/decrement used as expression values.
+    ///
+    /// JavaScript returns the old value for postfix updates and the updated
+    /// value for prefix updates. The assignment is still emitted immediately so
+    /// surrounding expressions observe the same side effect ordering.
+    fn update_expression(
+        &mut self,
+        update: &oxc::ast::ast::UpdateExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let (target, value) = self.update_parts(update, body)?;
+        body.push_stmt(Stmt::Assign { target, value });
+        if update.prefix {
+            Ok(value)
+        } else {
+            Ok(target)
+        }
     }
 
     /// Convert assignment target to expression.

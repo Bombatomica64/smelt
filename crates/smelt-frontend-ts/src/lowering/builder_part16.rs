@@ -130,8 +130,12 @@ impl ModuleBuilder<'_> {
             TSType::TSConditionalType(conditional) => {
                 let true_ty = self.ts_type_to_hir(&conditional.true_type)?;
                 let false_ty = self.ts_type_to_hir(&conditional.false_type)?;
-                if true_ty == false_ty {
+                if true_ty == false_ty
+                    || matches!(self.ctx.krate.types.get(false_ty), Some(Type::Never))
+                {
                     Ok(true_ty)
+                } else if matches!(self.ctx.krate.types.get(true_ty), Some(Type::Never)) {
+                    Ok(false_ty)
                 } else {
                     Ok(self.ctx.krate.types.intern(Type::Union(vec![true_ty, false_ty])))
                 }
@@ -250,7 +254,58 @@ impl ModuleBuilder<'_> {
             let item_ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(self.ctx.krate.types.intern(Type::List(item_ty)));
         }
-        self.ts_type_to_hir(ty)
+        if matches!(ty, TSType::TSNeverKeyword(_)) {
+            let item_ty = self.ctx.krate.types.intern(Type::Never);
+            return Ok(self.ctx.krate.types.intern(Type::List(item_ty)));
+        }
+        let ty = self.ts_type_to_hir(ty)?;
+        let (list_ty, _) = self.rest_param_array_type(ty)?;
+        Ok(list_ty)
+    }
+
+    /// Resolve a rest-parameter annotation to the runtime array binding type and item type.
+    fn rest_param_array_type(
+        &mut self,
+        ty: smelt_hir::TypeId,
+    ) -> Result<(smelt_hir::TypeId, smelt_hir::TypeId), SmeltError> {
+        let ty = self.type_param_constraint_or_self(ty);
+        match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::List(item_ty)) => Ok((ty, item_ty)),
+            Some(Type::Tuple(items)) => {
+                let item_ty = self.union_of_types_or_unknown(items);
+                Ok((self.ctx.krate.types.intern(Type::List(item_ty)), item_ty))
+            }
+            Some(Type::Union(items)) => {
+                let mut item_tys = Vec::new();
+                for item in items {
+                    if matches!(self.ctx.krate.types.get(item), Some(Type::Never)) {
+                        continue;
+                    }
+                    let (_, item_ty) = self.rest_param_array_type(item)?;
+                    if !item_tys.contains(&item_ty) {
+                        item_tys.push(item_ty);
+                    }
+                }
+                let item_ty = self.union_of_types_or_unknown(item_tys);
+                Ok((self.ctx.krate.types.intern(Type::List(item_ty)), item_ty))
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(0, 0),
+                "rest parameter type must resolve to an array type",
+            )),
+        }
+    }
+
+    /// Build a union type from unique item types, falling back to `unknown` for an empty set.
+    fn union_of_types_or_unknown(
+        &mut self,
+        items: Vec<smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
+        match items.as_slice() {
+            [] => self.ctx.krate.types.intern(Type::Unknown),
+            [single] => *single,
+            _ => self.ctx.krate.types.intern(Type::Union(items)),
+        }
     }
 
     /// Convert an inline TypeScript object type into Smelt's record-like dict type.
@@ -658,6 +713,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::Tuple(items)))
             }
             TSTupleElement::TSTypeReference(reference) => self.type_reference_to_hir(reference),
+            TSTupleElement::TSTypeLiteral(literal) => self.type_literal_to_hir(literal),
             TSTupleElement::TSLiteralType(literal) => match &literal.literal {
                 oxc::ast::ast::TSLiteral::StringLiteral(_) => {
                     Ok(self.ctx.krate.types.intern(Type::String))
@@ -890,9 +946,16 @@ impl ModuleBuilder<'_> {
         reference: &oxc::ast::ast::TSTypeReference<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+            if let TSTypeName::QualifiedName(qualified) = &reference.type_name {
+                let symbol = self.intern_type_name(qualified.right.name.as_str());
+                return Ok(self.ctx.krate.types.intern(Type::Class {
+                    name: symbol,
+                    args: Vec::new(),
+                }));
+            }
             return Err(SmeltError::unsupported(
                 self.span(reference.span.start, reference.span.end),
-                "qualified type references are not lowered yet",
+                "unsupported type reference name",
             ));
         };
         let name_text = name.name.as_str();
@@ -926,11 +989,12 @@ impl ModuleBuilder<'_> {
                 let lowered_item = self.ts_type_to_hir(item)?;
                 Ok(self.ctx.krate.types.intern(Type::List(lowered_item)))
             }
-            ("IterableContainer", []) => {
+            ("TuplePrefix" | "RemovePrefix" | "TupleSuffix" | "RemoveSuffix", _)
+            | ("IterableContainer", []) => {
                 let item = self.ctx.krate.types.intern(Type::Unknown);
                 Ok(self.ctx.krate.types.intern(Type::List(item)))
             }
-            ("Readonly", [item]) => self.ts_type_to_hir(item),
+            ("Partial" | "Readonly" | "Required", [item]) => self.ts_type_to_hir(item),
             ("Pick", [base, _keys]) => self.ts_type_to_hir(base),
             ("Set" | "ReadonlySet", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
@@ -1246,10 +1310,18 @@ impl ModuleBuilder<'_> {
         };
         match receiver_type {
             Type::Dict(_, value) => Ok(value),
-            Type::Unknown | Type::String if self.allow_unknown_index_access => {
+            Type::Unknown | Type::TypeParam { .. } => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            Type::Float | Type::Int
+                if self.ctx.krate.symbols.get(field) == Some("constructor") =>
+            {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
-            Type::TypeParam { .. } => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            Type::String if self.ctx.krate.symbols.get(field) == Some("length") => {
+                Ok(self.ctx.krate.types.intern(Type::Float))
+            }
+            Type::String if self.allow_unknown_index_access => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
             Type::Function(_) => {
                 if let Some(field) = self
                     .callable_fields
@@ -1290,6 +1362,9 @@ impl ModuleBuilder<'_> {
                 }
             }
             Type::Class { name, args } => {
+                if self.ctx.krate.symbols.get(field) == Some("constructor") {
+                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                }
                 let class_field = self.class_by_symbol(name).and_then(|class| {
                     class
                         .fields
@@ -1574,10 +1649,7 @@ impl ModuleBuilder<'_> {
             ));
         };
         let Some(class) = self.class_by_symbol(*name) else {
-            return Err(SmeltError::unsupported(
-                self.span(0, 0),
-                "method receiver class is unknown",
-            ));
+            return Ok((receiver_ty, smelt_hir::ItemId(u32::MAX)));
         };
         for item in &class.methods {
             if let Item::Function(function) = self.item_ref(*item)
@@ -1603,9 +1675,7 @@ impl ModuleBuilder<'_> {
             Some(Type::List(item)) => Ok(*item),
             Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
-            Some(Type::Unknown) if self.allow_unknown_index_access => {
-                Ok(self.ctx.krate.types.intern(Type::Unknown))
-            }
+            Some(Type::Unknown) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
@@ -1868,6 +1938,30 @@ impl ModuleBuilder<'_> {
         }
         if name == "undefined" {
             let ty = self.ctx.krate.types.intern(Type::None);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        if name == "Date" {
+            let symbol = self.intern_type_name("Date");
+            let ty = self.ctx.krate.types.intern(Type::Class {
+                name: symbol,
+                args: Vec::new(),
+            });
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
+        if self.classes.contains_key(name) {
+            let symbol = self.intern_type_name(name);
+            let ty = self.ctx.krate.types.intern(Type::Class {
+                name: symbol,
+                args: Vec::new(),
+            });
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
                 ty,

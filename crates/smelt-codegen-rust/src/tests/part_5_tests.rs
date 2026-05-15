@@ -249,11 +249,14 @@ fn emits_array_join_method() {
 const words: string[] = ["a", "b", "c"];
 const joined = words.join("-");
 const comma = words.join();
+const numbers: number[] = [1, 2, 3];
+const numberJoined = numbers.join("-");
 "#,
     );
 
     assert!(source.contains(".join(&\"-\".to_owned());"));
     assert!(source.contains(".join(&\",\".to_owned());"));
+    assert!(source.contains(".iter().map(|item| { item.to_string() })"));
 }
 
 #[test]
@@ -298,6 +301,9 @@ const allText = word.slice();
 const tailText = word.slice(1);
 const midText = word.slice(1, 4);
 const lastText = word.slice(-3);
+function sliceOptional(start?: number, end?: number): string {
+  return word.slice(start, end);
+}
 "#,
     );
 
@@ -308,6 +314,8 @@ const lastText = word.slice(-3);
     assert!(source.contains(".chars().skip(0usize).take("));
     assert!(source.matches("if index < 0").count() >= 2);
     assert!(source.contains(".collect::<String>();"));
+    assert!(source.contains(".unwrap_or(0.0)"));
+    assert!(source.contains(".chars().count() as f64"));
 }
 
 #[test]

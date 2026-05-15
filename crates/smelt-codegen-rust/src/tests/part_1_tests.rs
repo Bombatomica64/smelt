@@ -220,15 +220,16 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains(".iter().enumerate().position(|(index, item)|"));
     assert!(source.contains(".iter().enumerate().any(|(index, item)|"));
     assert!(source.contains(".iter().enumerate().all(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().for_each(|(index, item)|"));
+    assert!(source.matches("while ").count() >= 2);
     assert!(source.contains(".iter().enumerate().fold("));
     assert!(source.contains("reduce of empty array with no initial value"));
     assert!(source.contains(".collect::<Vec<_>>()"));
     assert!(source.contains(".map_or(-1.0"));
-    assert!(source.contains("(item * factor)"));
-    assert!(source.contains("(item + factor)"));
+    assert!(source.contains("(item * 2.0)"), "{source}");
+    assert!(source.contains("(item + 2.0)"));
     assert!(source.contains("let mut mutable_total"));
-    assert!(source.contains("mutable_total = (mutable_total + item)"));
+    assert!(source.contains("mutable_total.clone() +"));
+    assert!(source.contains("mutable_total ="));
 }
 
 #[test]

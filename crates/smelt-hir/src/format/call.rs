@@ -109,6 +109,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*end)
             )
         }
+        ExprKind::NumericToStringRadix { operand, radix } => {
+            format!(
+                "numeric_to_string_radix {}, {}",
+                expr_ref(*operand),
+                expr_ref(*radix)
+            )
+        }
         ExprKind::PrimitiveCast { op, operand } => {
             let op_name = match op {
                 crate::expr::PrimitiveCastOp::ToBool => "bool",
@@ -375,6 +382,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*callback)
             )
         }
+        ExprKind::ListFromLength { length } => {
+            format!("list_from_length {}", expr_ref(*length))
+        }
+        ExprKind::ListFromLengthMap { length, callback } => format!(
+            "list_from_length_map {}, {}",
+            expr_ref(*length),
+            expr_ref(*callback)
+        ),
         ExprKind::ListReduce {
             list,
             initial,

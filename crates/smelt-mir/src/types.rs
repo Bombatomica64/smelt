@@ -559,6 +559,13 @@ pub enum Rvalue {
         /// Inclusive upper bound.
         end: Operand,
     },
+    /// Convert a numeric value to a string with a numeric radix.
+    NumericToStringRadix {
+        /// Numeric operand.
+        operand: Operand,
+        /// Numeric radix operand.
+        radix: Operand,
+    },
     /// Convert a primitive value to another primitive type.
     PrimitiveCast {
         /// Conversion operation to apply.
@@ -811,6 +818,18 @@ pub enum Rvalue {
         op: smelt_hir::ListCallbackOp,
         /// List value to process.
         list: Operand,
+        /// Closure or callable value.
+        callback: Operand,
+    },
+    /// Build a sparse-like unknown list from a numeric length.
+    ListFromLength {
+        /// Numeric length source.
+        length: Operand,
+    },
+    /// Build a list by invoking a mapper for indexes from zero to length.
+    ListFromLengthMap {
+        /// Numeric length source.
+        length: Operand,
         /// Closure or callable value.
         callback: Operand,
     },

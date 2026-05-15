@@ -188,6 +188,29 @@ const replaced = word.replace("hello", "hi");
 }
 
 #[test]
+fn lowers_global_regex_replace_literal() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const value = "a1b2";
+const replaced = value.replace(/\d/g, "x");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::RegexReplace {
+            op: StringReplaceOp::All,
+            ..
+        }
+    )));
+    Ok(())
+}
+
+#[test]
 fn lowers_string_repeat_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -267,6 +290,8 @@ fn lowers_array_join_method() -> Result<(), String> {
 const words: string[] = ["a", "b", "c"];
 const joined = words.join("-");
 const comma = words.join();
+const values: readonly unknown[] = [1, "b"];
+const unknownJoined = values.join("-");
 "#),
         &mut ctx,
     )?;
@@ -278,7 +303,7 @@ const comma = words.join();
         .iter()
         .filter(|expr| matches!(expr.kind, ExprKind::StringJoin { .. }))
         .count();
-    ensure_eq!(join_count, 2);
+    ensure_eq!(join_count, 3);
     Ok(())
 }
 
@@ -355,7 +380,6 @@ const total = values.reduce((acc, value) => acc + value, 0);
         ListCallbackOp::FindIndex,
         ListCallbackOp::Some,
         ListCallbackOp::Every,
-        ListCallbackOp::ForEach,
     ] {
         ensure!(
             body.exprs.iter().any(
@@ -368,6 +392,12 @@ const total = values.reduce((acc, value) => acc + value, 0);
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListReduce { .. }))
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. })),
+        "missing forEach statement loop"
     );
     Ok(())
 }
@@ -400,7 +430,6 @@ const arrays = values.map((value, index, array) => array);
         ListCallbackOp::FindIndex,
         ListCallbackOp::Some,
         ListCallbackOp::Every,
-        ListCallbackOp::ForEach,
     ] {
         ensure!(
             body.exprs.iter().any(|expr| matches!(
@@ -411,6 +440,12 @@ const arrays = values.map((value, index, array) => array);
             "missing callback index param for {expected:?}"
         );
     }
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. })),
+        "missing forEach statement loop using callback index param"
+    );
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             &expr.kind,
@@ -557,11 +592,38 @@ const filtered = values.filter(value => value > minimum);
             &expr.kind,
             ExprKind::ListCallback {
                 op: ListCallbackOp::Filter,
+                ..
+            }
+        )),
+        "missing filter callback"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_mutable_filter_callback_captures() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: number[] = [1, 2, 3];
+let minimum = 1;
+const filtered = values.filter(value => value > minimum);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListCallback {
+                op: ListCallbackOp::Filter,
                 callback,
                 ..
             } if closure_callback_has_capture(body, *callback)
         )),
-        "missing captured filter callback"
+        "missing mutable captured filter callback"
     );
     Ok(())
 }
@@ -586,9 +648,8 @@ const mapped = values.map(scale);
             &expr.kind,
             ExprKind::ListCallback {
                 op: ListCallbackOp::Map,
-                callback,
                 ..
-            } if closure_callback_has_capture(body, *callback)
+            }
         )),
         "missing local closure callback map"
     );
@@ -610,15 +671,16 @@ values.forEach(value => total += value);
     let body = module_body(&ctx, module)?;
 
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::ListCallback {
-                op: ListCallbackOp::ForEach,
-                callback,
-                ..
-            } if closure_callback_assigns_capture(body, *callback)
-        )),
-        "missing mutable captured forEach callback"
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::For { .. })),
+        "missing mutable captured forEach loop"
+    );
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::Assign { .. })),
+        "missing mutable captured forEach assignment"
     );
     Ok(())
 }
@@ -660,6 +722,9 @@ const tailText = word.slice(1);
 const midText = word.slice(1, 4);
 const lastText = word.slice(-3);
 const subText = word.substring(1, 4);
+function sliceOptional(start?: number, end?: number): string {
+  return word.slice(start, end);
+}
 "#),
         &mut ctx,
     )?;
@@ -678,6 +743,17 @@ const subText = word.substring(1, 4);
         .count();
     ensure_eq!(list_slices, 4);
     ensure_eq!(string_slices, 5);
+    let all_string_slices = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| &body.exprs)
+        .filter(|expr| matches!(expr.kind, ExprKind::StringSlice { .. }))
+        .count();
+    ensure!(
+        all_string_slices >= 6,
+        "optional string slice inside function body did not lower"
+    );
     Ok(())
 }
 

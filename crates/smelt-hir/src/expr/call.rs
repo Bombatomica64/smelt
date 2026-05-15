@@ -35,6 +35,13 @@ pub enum CallbackExprKind {
     Capture(LocalId),
     /// A free function or callable item referenced from inside a callback.
     Function(Symbol),
+    /// A dynamic lookup into a static object table whose values are functions.
+    FunctionTableLookup {
+        /// Runtime key used to select a function from the table.
+        key: Box<CallbackExpr>,
+        /// Statically known table entries, preserving source keys.
+        cases: Vec<(String, Symbol)>,
+    },
     /// Assignment to a mutable local captured from the enclosing HIR body.
     AssignCapture {
         /// Captured local assigned by the callback.
@@ -46,12 +53,33 @@ pub enum CallbackExprKind {
     Literal(Literal),
     /// A list literal built inside a callback.
     ListLit(Vec<CallbackExpr>),
+    /// Side-effect callback expressions followed by a final value expression.
+    Sequence {
+        /// Expressions evaluated for side effects.
+        effects: Vec<CallbackExpr>,
+        /// Final value produced by the callback expression.
+        result: Box<CallbackExpr>,
+    },
+    /// A string-keyed object literal built inside a callback.
+    DictLit(Vec<(Symbol, CallbackExpr)>),
+    /// A thrown/panicking callback branch.
+    Throw {
+        /// Optional panic message.
+        message: Option<Box<CallbackExpr>>,
+    },
     /// Indexed access inside a callback expression.
     Index {
         /// Receiver being indexed.
         receiver: Box<CallbackExpr>,
         /// Zero-based static index.
         index: usize,
+    },
+    /// Runtime indexed access inside a callback expression.
+    DynamicIndex {
+        /// Receiver being indexed.
+        receiver: Box<CallbackExpr>,
+        /// Runtime index expression.
+        index: Box<CallbackExpr>,
     },
     /// Static field/key access inside a callback expression.
     Field {
@@ -62,6 +90,20 @@ pub enum CallbackExprKind {
     },
     /// Static field/key presence check inside a callback expression.
     HasField {
+        /// Receiver being checked.
+        receiver: Box<CallbackExpr>,
+        /// Static field or string key.
+        field: Symbol,
+    },
+    /// Dynamic field/key presence check inside a callback expression.
+    HasDynamicField {
+        /// Receiver being checked.
+        receiver: Box<CallbackExpr>,
+        /// Runtime field/key expression.
+        field: Box<CallbackExpr>,
+    },
+    /// JavaScript truthiness of a possibly optional field access.
+    FieldTruthy {
         /// Receiver being checked.
         receiver: Box<CallbackExpr>,
         /// Static field or string key.

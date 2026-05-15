@@ -238,13 +238,6 @@ impl ModuleBuilder<'_> {
                 "expect(...).toThrow(...) requires a callback",
             )
         })?;
-        let Argument::ArrowFunctionExpression(arrow) = actual_arg else {
-            return Err(SmeltError::unsupported(
-                self.span(actual_arg.span().start, actual_arg.span().end),
-                "expect(...).toThrow(...) supports arrow callbacks",
-            ));
-        };
-
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         let span = self.span(call.span.start, call.span.end);
         let did_throw_name = self.intern_source_name("did_throw");
@@ -266,10 +259,46 @@ impl ModuleBuilder<'_> {
             value: Some(false_expr),
         });
 
-        let try_block = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
-        for statement in &arrow.body.statements {
-            self.statement_in_block(statement, body, try_block)?;
-        }
+        let try_block = if let Argument::ArrowFunctionExpression(arrow) = actual_arg {
+            let try_block = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+            for statement in &arrow.body.statements {
+                self.statement_in_block(statement, body, try_block)?;
+            }
+            try_block
+        } else {
+            let callee = self.argument(actual_arg, body)?;
+            let Some(Type::Function(function)) =
+                self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(actual_arg.span().start, actual_arg.span().end),
+                    "expect(...).toThrow(...) requires a zero-argument callback",
+                ));
+            };
+            let try_block =
+                body.push_block(self.span(actual_arg.span().start, actual_arg.span().end));
+            let mut args = Vec::new();
+            for param_ty in function.params {
+                if !matches!(self.ctx.krate.types.get(param_ty), Some(Type::Optional(_))) {
+                    return Err(SmeltError::unsupported(
+                        self.span(actual_arg.span().start, actual_arg.span().end),
+                        "expect(...).toThrow(...) requires a zero-argument callback",
+                    ));
+                }
+                args.push(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: param_ty,
+                    span: self.span(actual_arg.span().start, actual_arg.span().end),
+                }));
+            }
+            let call_expr = body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty: function.return_ty,
+                span: self.span(actual_arg.span().start, actual_arg.span().end),
+            });
+            body.push_stmt_to_block(try_block, Stmt::Expr(call_expr));
+            try_block
+        };
         let catch_block = body.push_block(span);
         let did_throw_target = body.push_expr(Expr {
             kind: ExprKind::Local(did_throw),
@@ -1223,6 +1252,14 @@ impl ModuleBuilder<'_> {
         let result = (|| {
         let contextual_function = self.contextual_function_type(type_hint);
         let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+        let mut default_params = HashMap::new();
+        for (index, param) in arrow.params.items.iter().enumerate() {
+            let ty = params
+                .get(index)
+                .copied()
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            Self::bind_local_callback_default_param(&param.pattern, index, ty, &mut default_params)?;
+        }
         let defaults = arrow
             .params
             .items
@@ -1230,7 +1267,10 @@ impl ModuleBuilder<'_> {
             .map(|param| {
                 param.initializer
                     .as_ref()
-                    .map(|default| self.expression_with_hint(default, body, None))
+                    .map(|default| {
+                        self.callback_expression(default, &default_params, body)
+                            .map(LocalCallbackDefault::Callback)
+                    })
                     .transpose()
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -1334,6 +1374,212 @@ impl ModuleBuilder<'_> {
             value: Some(value),
         });
         Ok(())
+        })();
+        self.pop_type_parameter_scope();
+        result
+    }
+
+    /// Bind parameter names that may be referenced by local callback default values.
+    fn bind_local_callback_default_param<'a>(
+        pattern: &'a BindingPattern<'a>,
+        index: usize,
+        ty: smelt_hir::TypeId,
+        params: &mut HashMap<&'a str, CallbackExpr>,
+    ) -> Result<(), SmeltError> {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                params.insert(
+                    binding.name.as_str(),
+                    CallbackExpr {
+                        kind: CallbackExprKind::Param(index),
+                        ty,
+                    },
+                );
+                Ok(())
+            }
+            BindingPattern::AssignmentPattern(assign) => {
+                Self::bind_local_callback_default_param(&assign.left, index, ty, params)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Lower a nested `function name(...) { ... }` declaration as a local closure.
+    fn local_function_declaration(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        outer_body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<(), SmeltError> {
+        let id = function.id.as_ref().ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "anonymous local function declarations are not lowered yet",
+            )
+        })?;
+        let Some(function_body) = &function.body else {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "declare local functions are not lowered yet",
+            ));
+        };
+        self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let result = (|| {
+            let mut param_tys = Vec::new();
+            let mut closure_body =
+                Body::new(None, self.span(function_body.span.start, function_body.span.end));
+            let mut closure_params = Vec::new();
+            let mut param_names = HashSet::new();
+            let mut saved_locals = Vec::new();
+
+            for (index, param) in function.params.items.iter().enumerate() {
+                let ty = self.function_parameter_type(param)?;
+                let (symbol, param_span, source_name) = match &param.pattern {
+                    BindingPattern::BindingIdentifier(binding) => (
+                        self.intern_source_name(binding.name.as_str()),
+                        self.span(binding.span.start, binding.span.end),
+                        Some(binding.name.as_str().to_owned()),
+                    ),
+                    _ => (
+                        self.synthetic_param_symbol(index),
+                        self.span(param.span.start, param.span.end),
+                        None,
+                    ),
+                };
+                let local = closure_body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty,
+                    mutable: false,
+                    span: param_span,
+                });
+                closure_body.params.push(local);
+                closure_params.push(Param {
+                    name: symbol,
+                    local,
+                    ty,
+                    span: param_span,
+                });
+                param_tys.push(ty);
+                if let Some(source_name) = source_name {
+                    param_names.insert(source_name.clone());
+                    saved_locals.push((source_name.clone(), self.locals.insert(source_name, local)));
+                }
+            }
+
+            if function.params.rest.is_some() {
+                return Err(SmeltError::unsupported(
+                    self.span(function.params.span.start, function.params.span.end),
+                    "nested function rest parameters are not lowered yet",
+                ));
+            }
+
+            let mut capture_names = Vec::new();
+            for statement in &function_body.statements {
+                self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
+            }
+            capture_names.sort();
+            capture_names.dedup();
+
+            let mut captures = Vec::new();
+            for name in capture_names {
+                let Some(source_local) = saved_locals
+                    .iter()
+                    .find_map(|(saved_name, prior)| (saved_name == &name).then_some(*prior).flatten())
+                    .or_else(|| self.locals.get(name.as_str()).copied())
+                else {
+                    continue;
+                };
+                let Some(source_decl) = usize::try_from(source_local.0)
+                    .ok()
+                    .and_then(|index| outer_body.locals.get(index))
+                else {
+                    continue;
+                };
+                let symbol = source_decl
+                    .name
+                    .unwrap_or_else(|| self.ctx.krate.symbols.intern(name.as_str()));
+                let body_local = closure_body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty: source_decl.ty,
+                    mutable: source_decl.mutable,
+                    span: source_decl.span,
+                });
+                saved_locals.push((name.clone(), self.locals.insert(name, body_local)));
+                captures.push(ClosureCapture {
+                    source_local,
+                    body_local: Some(body_local),
+                    symbol,
+                    ty: source_decl.ty,
+                    mode: CaptureMode::ByRef,
+                });
+            }
+
+            let declared_return_ty = function
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
+            let saved_return_ty = self.current_return_ty;
+            let saved_async = self.current_async;
+            self.current_return_ty = declared_return_ty;
+            self.current_async = function.r#async;
+            let mut lowering_result = Ok(());
+            for statement in &function_body.statements {
+                if let Err(error) = self.statement(statement, &mut closure_body) {
+                    lowering_result = Err(error);
+                    break;
+                }
+            }
+            if function.r#async {
+                closure_body.build_async_state_machine();
+            }
+            self.current_return_ty = saved_return_ty;
+            self.current_async = saved_async;
+            for (name, prior) in saved_locals.into_iter().rev() {
+                if let Some(local) = prior {
+                    self.locals.insert(name, local);
+                } else {
+                    self.locals.remove(name.as_str());
+                }
+            }
+            lowering_result?;
+
+            let return_ty = declared_return_ty
+                .or_else(|| Self::last_return_type(&closure_body))
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+            let body_id = self.ctx.krate.push_body(closure_body);
+            let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: param_tys,
+                return_ty,
+                is_async: function.r#async,
+            }));
+            let symbol = self.intern_source_name(id.name.as_str());
+            let local = outer_body.push_local(LocalDecl {
+                name: Some(symbol),
+                ty: fn_ty,
+                mutable: false,
+                span: self.span(id.span.start, id.span.end),
+            });
+            self.locals.insert(id.name.as_str().to_owned(), local);
+            let value = outer_body.push_expr(Expr {
+                kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                    params: closure_params,
+                    return_ty,
+                    captures,
+                    body: body_id,
+                    callback_body: None,
+                    span: self.span(function.span.start, function.span.end),
+                }),
+                ty: fn_ty,
+                span: self.span(function.span.start, function.span.end),
+            });
+            let pat = outer_body.push_pattern(Pattern::Binding(local));
+            outer_body.push_stmt_to_block(block, Stmt::Let {
+                pat,
+                ty: fn_ty,
+                value: Some(value),
+            });
+            Ok(())
         })();
         self.pop_type_parameter_scope();
         result
@@ -1448,7 +1694,7 @@ impl ModuleBuilder<'_> {
             BindingPattern::BindingIdentifier(binding) => {
                 let ty = annotated_ty
                     .or_else(|| value.map(|expr_id| Self::expr_ty(body, expr_id)))
-                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                 if annotated_ty.is_some()
                     && value.is_some()
                     && matches!(self.ctx.krate.types.get(ty), Some(Type::Never))
@@ -1595,19 +1841,41 @@ impl ModuleBuilder<'_> {
                         } else {
                             Vec::new()
                         };
-                        let ty = self.ctx.krate.types.intern(Type::Tuple(selected));
-                        (
-                            ty,
-                            body.push_expr(Expr {
-                                kind: ExprKind::TupleSlice {
+                        let item_ty = match selected.as_slice() {
+                            [] => self.ctx.krate.types.intern(Type::Unknown),
+                            [single] => *single,
+                            _ => {
+                                let mut unique = Vec::new();
+                                for item in selected {
+                                    if !unique.contains(&item) {
+                                        unique.push(item);
+                                    }
+                                }
+                                match unique.as_slice() {
+                                    [single] => *single,
+                                    _ => self.ctx.krate.types.intern(Type::Union(unique)),
+                                }
+                            }
+                        };
+                        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                        let mut rest_items = Vec::new();
+                        for index in start..end {
+                            let item_ty = items.get(index).copied().unwrap_or(item_ty);
+                            rest_items.push(body.push_expr(Expr {
+                                kind: ExprKind::TupleIndex {
                                     tuple: receiver,
-                                    start,
-                                    end,
+                                    index,
                                 },
-                                ty,
+                                ty: item_ty,
                                 span: self.span(rest.span.start, rest.span.end),
-                            }),
-                        )
+                            }));
+                        }
+                        let extracted = body.push_expr(Expr {
+                            kind: ExprKind::ListLit(rest_items),
+                            ty,
+                            span: self.span(rest.span.start, rest.span.end),
+                        });
+                        (ty, extracted)
                     } else {
                         let item_ty = self.index_type(receiver_ty)?;
                         let ty = self.ctx.krate.types.intern(Type::List(item_ty));

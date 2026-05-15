@@ -76,11 +76,18 @@ struct LocalCallback {
     /// Parameter types in source order.
     params: Vec<smelt_hir::TypeId>,
     /// Default argument expressions in source order.
-    defaults: Vec<Option<smelt_hir::ExprId>>,
+    defaults: Vec<Option<LocalCallbackDefault>>,
     /// Rest parameter metadata when the source closure uses `...args`.
     rest: Option<RestParam>,
     /// Return type produced by the callback.
     return_ty: smelt_hir::TypeId,
+}
+
+/// A default argument expression stored for a local callback.
+#[derive(Debug, Clone)]
+enum LocalCallbackDefault {
+    /// The default references callback parameters and must be instantiated at each call site.
+    Callback(CallbackExpr),
 }
 
 /// A JavaScript/TypeScript rest parameter represented as one list argument.

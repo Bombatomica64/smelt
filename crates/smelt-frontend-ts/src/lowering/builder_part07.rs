@@ -214,7 +214,7 @@ impl ModuleBuilder<'_> {
         source: &Expression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let object = self.expression(source, body)?;
+        let mut object = self.expression(source, body)?;
         let object_ty = self.type_param_constraint_or_self(Self::expr_ty(body, object));
         match self.ctx.krate.types.get(object_ty).cloned() {
             Some(Type::Dict(key_ty, _)) => {
@@ -228,8 +228,18 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 }))
             }
-            Some(Type::Unknown) if self.allow_unknown_index_access => {
+            Some(Type::Unknown | Type::Class { .. }) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                object = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: object,
+                        target: dict_ty,
+                    },
+                    ty: dict_ty,
+                    span: self.expression_span(source),
+                });
                 let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::DictProjection {

@@ -2,7 +2,9 @@
 
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
-use smelt_hir::{Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, RegexMatchOp, Type};
+use smelt_hir::{
+    BinOp, Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, RegexMatchOp, Type,
+};
 use smelt_stdlib::RuleId;
 
 use super::{ModuleBuilder, SmeltError, stdlib_dispatch};
@@ -65,21 +67,26 @@ impl ModuleBuilder<'_> {
         for source_arg in source_args {
             let source = self.argument_with_hint(source_arg, body, record_ty)?;
             let source_ty = Self::expr_ty(body, source);
-            if !matches!(self.ctx.krate.types.get(source_ty), Some(Type::Dict(_, _))) {
-                return Err(SmeltError::unsupported(
-                    self.span(source_arg.span().start, source_arg.span().end),
-                    "Object.assign sources must be record values",
-                ));
-            }
-            if let Some(expected_ty) = record_ty {
-                if source_ty != expected_ty {
-                    return Err(SmeltError::unsupported(
-                        self.span(source_arg.span().start, source_arg.span().end),
-                        "Object.assign sources must share the target record type",
-                    ));
+            if let Some(source_record_ty) = self.object_assign_record_source_type(source_ty) {
+                if let Some(expected_ty) = record_ty {
+                    if source_record_ty != expected_ty {
+                        return Err(SmeltError::unsupported(
+                            self.span(source_arg.span().start, source_arg.span().end),
+                            "Object.assign sources must share the target record type",
+                        ));
+                    }
+                } else {
+                    record_ty = Some(source_record_ty);
+                }
+            } else if self.object_assign_object_like_source(source_ty) {
+                if record_ty.is_none() {
+                    record_ty = Some(self.object_assign_generic_record_type());
                 }
             } else {
-                record_ty = Some(source_ty);
+                return Err(SmeltError::unsupported(
+                    self.span(source_arg.span().start, source_arg.span().end),
+                    "Object.assign sources must be record or object-like values",
+                ));
             }
             sources.push(source);
         }
@@ -103,6 +110,38 @@ impl ModuleBuilder<'_> {
             ty: record_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return the concrete record type represented by an `Object.assign` source.
+    fn object_assign_record_source_type(
+        &self,
+        source_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(source_ty) {
+            Some(Type::Dict(_, _)) => Some(source_ty),
+            Some(Type::Optional(inner)) => self.object_assign_record_source_type(*inner),
+            _ => None,
+        }
+    }
+
+    /// Return whether a source is a TypeScript object surface assignable by `Object.assign`.
+    fn object_assign_object_like_source(&self, source_ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(source_ty) {
+            Some(Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => true,
+            Some(Type::Optional(inner)) => self.object_assign_object_like_source(*inner),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .all(|item| self.object_assign_object_like_source(item)),
+            _ => false,
+        }
+    }
+
+    /// Build the fallback record type for object-like assign sources without a record source.
+    fn object_assign_generic_record_type(&mut self) -> smelt_hir::TypeId {
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
     }
 
     /// Return whether an `Object.assign` target should use callable decoration lowering.
@@ -225,6 +264,132 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(smelt_hir::Literal::None),
             ty: function_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower async Vitest matcher chains as `Promise<void>` test-side effects.
+    pub(super) fn vitest_async_expect_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(matcher) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::StaticMemberExpression(modifier) = &matcher.object else {
+            return Ok(None);
+        };
+        if !matches!(modifier.property.name.as_str(), "resolves" | "rejects") {
+            return Ok(None);
+        }
+        let Expression::CallExpression(expect_call) = &modifier.object else {
+            return Ok(None);
+        };
+        let Expression::Identifier(expect_ident) = &expect_call.callee else {
+            return Ok(None);
+        };
+        if expect_ident.name != "expect" || !self.test_builtins.contains("expect") {
+            return Ok(None);
+        }
+        let Some(actual_arg) = expect_call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(expect_call.span.start, expect_call.span.end),
+                "expect(...).resolves/rejects matcher requires an actual promise",
+            ));
+        };
+        let actual = self.argument(actual_arg, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, actual)),
+            Some(Type::Future(_))
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(actual_arg.span().start, actual_arg.span().end),
+                "expect(...).resolves/rejects actual value must be a Promise<T>",
+            ));
+        }
+        for argument in &call.arguments {
+            self.argument(argument, body)?;
+        }
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower Sinon fake timer construction and clock methods used by test helpers.
+    pub(super) fn sinon_fake_timers_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if let Expression::Identifier(object) = &member.object
+            && object.name == "sinon"
+            && member.property.name == "useFakeTimers"
+        {
+            if call.arguments.len() > 1 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "sinon.useFakeTimers supports at most one timestamp argument",
+                ));
+            }
+            if let Some(argument) = call.arguments.first() {
+                let timestamp = self.argument(argument, body)?;
+                if !self.is_date_constructor_arg_type(Self::expr_ty(body, timestamp)) {
+                    return Err(SmeltError::unsupported(
+                        self.span(argument.span().start, argument.span().end),
+                        "sinon.useFakeTimers timestamp must be DateArg-compatible",
+                    ));
+                }
+            }
+            let name = self.intern_type_name("SinonFakeTimers");
+            let ty = self.ctx.krate.types.intern(Type::Class {
+                name,
+                args: Vec::new(),
+            });
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(smelt_hir::Literal::None),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        if !matches!(
+            member.property.name.as_str(),
+            "restore"
+                | "reset"
+                | "tick"
+                | "tickAsync"
+                | "next"
+                | "nextAsync"
+                | "runAll"
+                | "runAllAsync"
+                | "runToLast"
+                | "runToLastAsync"
+                | "setSystemTime"
+        ) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = self.optional_receiver_inner_type(Self::expr_ty(body, receiver));
+        if !matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Class { .. } | Type::Unknown)
+        ) {
+            return Ok(None);
+        }
+        for argument in &call.arguments {
+            self.argument(argument, body)?;
+        }
+        let ty = self.ctx.krate.types.intern(Type::None);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
@@ -368,6 +533,44 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower TypeScript `pattern.exec(text)` to an optional match array.
+    pub(super) fn regexp_exec_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "exec" {
+            return Ok(None);
+        }
+        let [haystack_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "RegExp.exec() requires exactly one string argument",
+            ));
+        };
+        let Some(pattern) = self.regexp_pattern_expression(&member.object, body, false)? else {
+            return Ok(None);
+        };
+        let haystack = self.argument(haystack_argument, body)?;
+        let Some(haystack) = self.regexp_text_operand(haystack, body) else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "RegExp.exec() requires a string haystack",
+            ));
+        };
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
+        let ty = self.ctx.krate.types.intern(Type::Optional(list_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::RegexFind { pattern, haystack },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower TypeScript `text.match(pattern)` to an optional match array.
     pub(super) fn string_match_call(
         &mut self,
@@ -422,6 +625,27 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Extract a pattern string from a supported TypeScript RegExp-producing expression.
+    pub(super) fn regexp_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let [pattern_argument] = new_expr.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "RegExp construction currently requires exactly one string pattern argument",
+            ));
+        };
+        let pattern = self.argument(pattern_argument, body)?;
+        self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
+            SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "RegExp construction requires a string pattern",
+            )
+        })
     }
 
     /// Extract a pattern string from a supported TypeScript RegExp-producing expression.
@@ -950,6 +1174,7 @@ impl ModuleBuilder<'_> {
                     .get(self.type_param_constraint_or_self(element_ty))
                 {
                     Some(Type::List(flat_item_ty)) => *flat_item_ty,
+                    Some(Type::Tuple(items)) => self.flattened_tuple_item_type(items.clone()),
                     Some(Type::Unknown | Type::TypeParam { .. }) => {
                         self.ctx.krate.types.intern(Type::Unknown)
                     }
@@ -1135,6 +1360,7 @@ impl ModuleBuilder<'_> {
             .cloned()
         {
             Some(Type::List(item_ty)) => Some(item_ty),
+            Some(Type::Tuple(items)) => Some(self.flattened_tuple_item_type(items)),
             Some(Type::Union(items)) => {
                 let mut item_tys = Vec::new();
                 for item in items {
@@ -1146,6 +1372,12 @@ impl ModuleBuilder<'_> {
                     {
                         Some(Type::List(list_item)) if !item_tys.contains(list_item) => {
                             item_tys.push(*list_item);
+                        }
+                        Some(Type::Tuple(tuple_items)) => {
+                            let tuple_item = self.flattened_tuple_item_type(tuple_items.clone());
+                            if !item_tys.contains(&tuple_item) {
+                                item_tys.push(tuple_item);
+                            }
                         }
                         Some(Type::List(_) | Type::Never) => {}
                         _ if !item_tys.contains(&item) => item_tys.push(item),
@@ -1162,6 +1394,15 @@ impl ModuleBuilder<'_> {
                 Some(self.ctx.krate.types.intern(Type::Unknown))
             }
             Some(_) | None => None,
+        }
+    }
+
+    /// Collapse a tuple used as an array element into the item type produced by flattening it.
+    fn flattened_tuple_item_type(&mut self, items: Vec<smelt_hir::TypeId>) -> smelt_hir::TypeId {
+        match items.as_slice() {
+            [] => self.ctx.krate.types.intern(Type::Never),
+            [single] => *single,
+            _ => self.ctx.krate.types.intern(Type::Union(items)),
         }
     }
 
@@ -1208,8 +1449,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower direct TypeScript `Array.prototype.slice`, `String.prototype.slice`, and
-    /// positive-bound `String.prototype.substring` calls.
+    /// Lower direct TypeScript collection and string slicing calls.
     pub(super) fn collection_slice_call(
         &mut self,
         call: &CallExpression<'_>,
@@ -1219,13 +1459,13 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let method = member.property.name.as_str();
-        if !matches!(method, "slice" | "substring") {
+        if !matches!(method, "slice" | "substring" | "substr") {
             return Ok(None);
         }
         if call.arguments.len() > 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "slice/substring currently support only omitted, start, and end arguments",
+                "slice/substring/substr currently support only omitted, start, and end arguments",
             ));
         }
         let operand = self.expression(&member.object, body)?;
@@ -1241,11 +1481,25 @@ impl ModuleBuilder<'_> {
             .first()
             .map(|argument| self.slice_index_argument(argument, body))
             .transpose()?;
-        let end = call
+        let mut end = call
             .arguments
             .get(1)
             .map(|argument| self.slice_index_argument(argument, body))
             .transpose()?;
+        if method == "substr"
+            && let (Some(start_expr), Some(length_expr)) = (start, end)
+        {
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            end = Some(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::Add,
+                    lhs: start_expr,
+                    rhs: length_expr,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
 
         match self.ctx.krate.types.get(effective_operand_ty) {
             Some(Type::String) => {
@@ -1271,7 +1525,7 @@ impl ModuleBuilder<'_> {
             }))),
             _ => Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "slice/substring requires a string receiver, or an array receiver for slice",
+                "slice/substring/substr requires a string receiver, or an array receiver for slice",
             )),
         }
     }
@@ -1283,15 +1537,30 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let index = self.argument(argument, body)?;
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, index)),
-            Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. })
-        ) {
+        if !self.slice_index_type_is_number(Self::expr_ty(body, index)) {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "slice indexes must be numbers",
             ));
         }
         Ok(index)
+    }
+
+    /// Return whether a type can be used as a JavaScript slice index.
+    fn slice_index_type_is_number(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Optional(item)) => self.slice_index_type_is_number(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .all(|item| self.slice_index_type_is_number(item)),
+            _ => false,
+        }
     }
 }

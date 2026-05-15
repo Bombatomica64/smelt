@@ -373,6 +373,13 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, list, errors);
             validate_operand_exists(function, callback, errors);
         }
+        Rvalue::ListFromLength { length } => {
+            validate_operand_exists(function, length, errors);
+        }
+        Rvalue::ListFromLengthMap { length, callback } => {
+            validate_operand_exists(function, length, errors);
+            validate_operand_exists(function, callback, errors);
+        }
         Rvalue::ListReduce {
             list,
             initial,
@@ -667,6 +674,10 @@ fn validate_rvalue_exists(
         Rvalue::NumericRandomInt { start, end } => {
             validate_operand_exists(function, start, errors);
             validate_operand_exists(function, end, errors);
+        }
+        Rvalue::NumericToStringRadix { operand, radix } => {
+            validate_operand_exists(function, operand, errors);
+            validate_operand_exists(function, radix, errors);
         }
         Rvalue::PrimitiveCast { operand, .. } => validate_operand_exists(function, operand, errors),
         Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
@@ -1055,6 +1066,13 @@ fn validate_rvalue(
             validate_operand(function, definitions, list, errors);
             validate_operand(function, definitions, callback, errors);
         }
+        Rvalue::ListFromLength { length } => {
+            validate_operand(function, definitions, length, errors);
+        }
+        Rvalue::ListFromLengthMap { length, callback } => {
+            validate_operand(function, definitions, length, errors);
+            validate_operand(function, definitions, callback, errors);
+        }
         Rvalue::ListReduce {
             list,
             initial,
@@ -1349,6 +1367,10 @@ fn validate_rvalue(
         Rvalue::NumericRandomInt { start, end } => {
             validate_operand(function, definitions, start, errors);
             validate_operand(function, definitions, end, errors);
+        }
+        Rvalue::NumericToStringRadix { operand, radix } => {
+            validate_operand(function, definitions, operand, errors);
+            validate_operand(function, definitions, radix, errors);
         }
         Rvalue::PrimitiveCast { operand, .. } => {
             validate_operand(function, definitions, operand, errors);

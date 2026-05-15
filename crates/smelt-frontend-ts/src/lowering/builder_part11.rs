@@ -163,7 +163,23 @@ impl ModuleBuilder<'_> {
         let dict_ty = Self::expr_ty(body, dict);
         let (key_type, value_type) = match self.ctx.krate.types.get(dict_ty) {
             Some(Type::Dict(key_type, value_type)) => (*key_type, *value_type),
-            Some(Type::Unknown | Type::TypeParam { .. }) => {
+            Some(
+                Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Class { .. }
+                | Type::String,
+            ) => {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                dict = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast { value: dict, target },
+                    ty: target,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                (key_ty, value_ty)
+            }
+            Some(Type::Union(items)) if items.iter().all(|item| self.object_keys_compatible_type(*item)) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
@@ -197,6 +213,54 @@ impl ModuleBuilder<'_> {
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictProjection { op, dict },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Return whether a type can use JavaScript object projection through `Object.*`.
+    fn object_keys_compatible_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(
+                Type::Dict(_, _)
+                | Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Class { .. }
+                | Type::String,
+            ) => true,
+            Some(Type::Union(items)) => items
+                .iter()
+                .all(|item| self.object_keys_compatible_type(*item)),
+            _ => false,
+        }
+    }
+
+    /// Lower `Object.getOwnPropertySymbols(value)` to an opaque symbol-key list.
+    fn object_get_own_property_symbols_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Object" || member.property.name != "getOwnPropertySymbols" {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.getOwnPropertySymbols requires exactly one object argument",
+            ));
+        };
+        self.argument(argument, body)?;
+        let symbol_ty = self.ctx.krate.types.intern(Type::String);
+        let ty = self.ctx.krate.types.intern(Type::List(symbol_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -361,18 +425,55 @@ impl ModuleBuilder<'_> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
-        dict: smelt_hir::ExprId,
+        mut dict: smelt_hir::ExprId,
         key: smelt_hir::ExprId,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let dict_ty = Self::expr_ty(body, dict);
         let dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
-        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(dict_shape_ty) else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "object key ownership checks require a record receiver",
-            ));
+        let key_ty = match self.ctx.krate.types.get(dict_shape_ty) {
+            Some(Type::Dict(key_ty, _)) => *key_ty,
+            Some(
+                Type::Unknown | Type::TypeParam { .. } | Type::Class { .. } | Type::String,
+            ) => {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                dict = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: dict,
+                        target,
+                    },
+                    ty: target,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                key_ty
+            }
+            Some(Type::Union(items))
+                if items
+                    .iter()
+                    .all(|item| self.object_keys_compatible_type(*item)) =>
+            {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                dict = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: dict,
+                        target,
+                    },
+                    ty: target,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                key_ty
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "object key ownership checks require a record receiver",
+                ));
+            }
         };
-        if Self::expr_ty(body, key) != *key_ty {
+        if Self::expr_ty(body, key) != key_ty {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "object key ownership checks require a key matching the record key type",

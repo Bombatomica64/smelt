@@ -321,6 +321,11 @@ fn rewrite_rvalue(
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(callback, aliases, dest)
         }
+        Rvalue::ListFromLength { length } => rewrite_operand_except(length, aliases, dest),
+        Rvalue::ListFromLengthMap { length, callback } => {
+            rewrite_operand_except(length, aliases, dest)
+                | rewrite_operand_except(callback, aliases, dest)
+        }
         Rvalue::ListReduce {
             list,
             initial,
@@ -569,6 +574,10 @@ fn rewrite_rvalue(
         Rvalue::NumericRandomInt { start, end } => {
             rewrite_operand_except(start, aliases, dest)
                 | rewrite_operand_except(end, aliases, dest)
+        }
+        Rvalue::NumericToStringRadix { operand, radix } => {
+            rewrite_operand_except(operand, aliases, dest)
+                | rewrite_operand_except(radix, aliases, dest)
         }
         Rvalue::PrimitiveCast { operand, .. } => rewrite_operand_except(operand, aliases, dest),
         Rvalue::Unary { operand, .. } => rewrite_operand_except(operand, aliases, dest),

@@ -414,6 +414,71 @@ async function settled(): Promise<[number, number]> {
 }
 
 #[test]
+fn lowers_promise_all_over_local_array() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("async function lift(value: number): Promise<number> {
+  return value;
+}
+
+async function main(): Promise<number[]> {
+  const prepared = [lift(1), lift(2), lift(3)];
+  return await Promise.all(prepared);
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_vitest_async_expect_matchers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!("async function value(): Promise<void> {
+}
+
+import { expect } from \"vitest\";
+
+async function testCase(): Promise<void> {
+  await expect(value()).resolves.toBeUndefined();
+  await expect(Promise.all([value(), value()])).rejects.toThrow(\"boom\");
+}
+"),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn skips_fast_check_vitest_property_registration() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { fc, test } from "@fast-check/vitest";
+
+test.prop([fc.array(fc.anything()), fc.func(fc.string()).map((fn) => fn)])(
+  "property",
+  (data, grouper) => {
+    expect(data.map(grouper)).toHaveLength(data.length);
+  },
+);
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_fetch_to_async_http_get_text() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

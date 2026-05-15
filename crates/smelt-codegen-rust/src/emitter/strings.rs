@@ -522,17 +522,40 @@ impl FunctionEmitter<'_> {
         let Some(Type::List(item_ty)) = self.mir.types.get(items_ty) else {
             return Err(EmitError::new("string join items must be a list"));
         };
-        if self.mir.types.get(*item_ty) != Some(&Type::String)
-            || self.mir.types.get(self.operand_ty(separator)?) != Some(&Type::String)
-        {
-            return Err(EmitError::new(
-                "string join requires a list of strings and string separator",
-            ));
+        if self.mir.types.get(self.operand_ty(separator)?) != Some(&Type::String) {
+            return Err(EmitError::new("string join requires a string separator"));
         }
+        let items_text = self.operand_text(items)?;
+        let separator_text = self.operand_text(separator)?;
+        if self.mir.types.get(*item_ty) == Some(&Type::String) {
+            return Ok(format!("{items_text}.join(&{separator_text})"));
+        }
+        let item_text = match self.mir.types.get(*item_ty) {
+            Some(Type::Bool | Type::Int | Type::Float) => "item.to_string()".to_owned(),
+            Some(Type::Unknown) => {
+                "match item { SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value.clone(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }".to_owned()
+            }
+            Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
+                Some(Type::Bool | Type::Int | Type::Float) => {
+                    "item.as_ref().map_or_else(String::new, |value| value.to_string())".to_owned()
+                }
+                Some(Type::String) => {
+                    "item.as_ref().map_or_else(String::new, Clone::clone)".to_owned()
+                }
+                _ => {
+                    return Err(EmitError::new(
+                        "string join optional items must contain primitive values",
+                    ));
+                }
+            },
+            _ => {
+                return Err(EmitError::new(
+                    "string join items must be strings, primitives, or unknown",
+                ));
+            }
+        };
         Ok(format!(
-            "{}.join(&{})",
-            self.operand_text(items)?,
-            self.operand_text(separator)?
+            "{items_text}.iter().map(|item| {{ {item_text} }}).collect::<Vec<_>>().join(&{separator_text})"
         ))
     }
 

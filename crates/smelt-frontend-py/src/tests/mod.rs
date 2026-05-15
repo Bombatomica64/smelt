@@ -124,10 +124,29 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
         smelt_hir::CallbackExprKind::Param(_)
         | smelt_hir::CallbackExprKind::Function(_)
         | smelt_hir::CallbackExprKind::Literal(_) => false,
+        smelt_hir::CallbackExprKind::FunctionTableLookup { key, .. } => callback_has_capture(key),
         smelt_hir::CallbackExprKind::ListLit(items) => items.iter().any(callback_has_capture),
+        smelt_hir::CallbackExprKind::Sequence { effects, result } => {
+            effects.iter().any(callback_has_capture) || callback_has_capture(result)
+        }
+        smelt_hir::CallbackExprKind::DictLit(entries) => {
+            entries.iter().any(|(_, value)| callback_has_capture(value))
+        }
+        smelt_hir::CallbackExprKind::Throw { message } => {
+            message.as_deref().is_some_and(callback_has_capture)
+        }
         smelt_hir::CallbackExprKind::Index { receiver, .. }
         | smelt_hir::CallbackExprKind::Field { receiver, .. }
-        | smelt_hir::CallbackExprKind::HasField { receiver, .. } => callback_has_capture(receiver),
+        | smelt_hir::CallbackExprKind::HasField { receiver, .. }
+        | smelt_hir::CallbackExprKind::FieldTruthy { receiver, .. } => {
+            callback_has_capture(receiver)
+        }
+        smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
+            callback_has_capture(receiver) || callback_has_capture(index)
+        }
+        smelt_hir::CallbackExprKind::HasDynamicField { receiver, field } => {
+            callback_has_capture(receiver) || callback_has_capture(field)
+        }
         smelt_hir::CallbackExprKind::UnknownIs { value, .. } => callback_has_capture(value),
         smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_capture(operand),
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {

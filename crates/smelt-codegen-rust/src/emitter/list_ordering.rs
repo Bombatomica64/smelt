@@ -269,14 +269,22 @@ impl FunctionEmitter<'_> {
         context: &str,
     ) -> Result<(), EmitError> {
         if let Some(inner) = maybe_operand
-            && !matches!(
-                self.mir.types.get(self.operand_ty(inner)?),
-                Some(Type::Int | Type::Float)
-            )
+            && !self.slice_bound_type_is_numeric(self.operand_ty(inner)?)
         {
             return Err(EmitError::new(format!("{context} must be numeric")));
         }
         Ok(())
+    }
+
+    /// Return whether a slice-bound type is numeric, allowing optional numeric bounds.
+    fn slice_bound_type_is_numeric(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Int | Type::Float) => true,
+            Some(Type::Optional(item)) => {
+                matches!(self.mir.types.get(*item), Some(Type::Int | Type::Float))
+            }
+            _ => false,
+        }
     }
 
     /// Converts an optional Python-style slice start to a clamped Rust `usize` expression.
@@ -294,7 +302,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         maybe_start.map_or_else(
             || Ok("0usize".to_owned()),
-            |bound| self.normalized_slice_bound_text(bound, len_expr),
+            |bound| self.normalized_slice_bound_text_with_default(bound, len_expr, "0.0"),
         )
     }
 
@@ -319,60 +327,34 @@ impl FunctionEmitter<'_> {
         };
         let start_text = self.slice_start_text(maybe_start, &len_source)?;
         let end_text = match maybe_end {
-            Some(bound) => self.normalized_slice_bound_text(bound, &len_source)?,
+            Some(bound) => self.normalized_slice_bound_text_with_default(
+                bound,
+                &len_source,
+                &format!("{len_source} as f64"),
+            )?,
             None => len_source,
         };
         Ok(format!("{end_text}.saturating_sub({start_text})"))
     }
 
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    /// Converts a Python-style slice bound to a clamped Rust `usize` expression.
-    ///
-    /// Negative bounds are interpreted relative to collection length; all bounds
-    /// are clamped into `0..=len`. That matches Python slicing and TypeScript
-    /// `slice` behavior for the supported numeric subset.
-    pub(super) fn normalized_slice_bound_text(
+    /// Converts a possibly optional slice bound to a clamped Rust `usize` expression.
+    fn normalized_slice_bound_text_with_default(
         &self,
         bound: &Operand,
         len_expr: &str,
+        default_text: &str,
     ) -> Result<String, EmitError> {
         let bound_text = self.operand_text(bound)?;
+        let index_text = match self.mir.types.get(self.operand_ty(bound)?) {
+            Some(Type::Optional(item))
+                if matches!(self.mir.types.get(*item), Some(Type::Int | Type::Float)) =>
+            {
+                format!("{bound_text}.unwrap_or({default_text})")
+            }
+            _ => bound_text,
+        };
         Ok(format!(
-            "{{ let len = {len_expr} as i64; let index = {bound_text} as i64; if index < 0 {{ (len + index).clamp(0, len) as usize }} else {{ index.clamp(0, len) as usize }} }}"
+            "{{ let len = {len_expr} as i64; let index = {index_text} as i64; if index < 0 {{ (len + index).clamp(0, len) as usize }} else {{ index.clamp(0, len) as usize }} }}"
         ))
     }
 

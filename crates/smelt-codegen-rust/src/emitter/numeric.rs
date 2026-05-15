@@ -257,6 +257,30 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts a numeric value to string text with a JavaScript-style radix.
+    pub(super) fn numeric_to_string_radix_text(
+        &self,
+        operand: &Operand,
+        radix: &Operand,
+    ) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Int | Type::Float)
+        ) || !matches!(
+            self.mir.types.get(self.operand_ty(radix)?),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(EmitError::new(
+                "number.toString(radix) requires numeric operands",
+            ));
+        }
+        let operand_text = self.operand_text(operand)?;
+        let radix_text = self.operand_text(radix)?;
+        Ok(format!(
+            "{{ let value = {operand_text}.trunc() as i128; let radix = ({radix_text}.trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 {{ digits.push('0'); }} while n > 0 {{ let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 {{ (b'0' + digit) as char }} else {{ (b'a' + digit - 10) as char }}); n /= u128::from(radix); }} if negative {{ digits.push('-'); }} digits.iter().rev().collect::<String>() }}"
+        ))
+    }
+
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.
     /// Converts a numeric operand to text usable as an `f64` receiver or argument.
     pub(super) fn float_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {

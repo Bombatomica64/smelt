@@ -25,8 +25,39 @@ Deferred TS stress target:
 - Workspace health from the latest required check:
   - `cargo test`: passed.
   - `cargo check`: passed.
-  - `cargo clippy`: passed.
+  - `cargo clippy`: passed, with non-fatal shadowing warnings in `smelt-mir` for
+    `NumericToStringRadix` lowering.
 - External repo checks can be used as signal again.
+
+### External Probe: 2026-05-15 date-fns Full TS-Only Manifest
+
+Manifest:
+`/tmp/smelt_date_fns_ts_only_check_1778832912/Smelt.toml`
+
+This manifest includes all `src/**/*.ts` files from the fresh date-fns clone and excludes generated
+`.d.ts` stubs.
+
+Progress from this pass:
+
+- Full date-fns now gets past `constructFrom/test.ts`, including local `CustomDate` classes,
+  imported opaque constructors such as `TZDate`, direct `instanceof` over imported constructors,
+  and `.constructor` field probes on Date-like/class values.
+- Full date-fns now gets past `constructNow/test.ts`, including local class constructors used as
+  call arguments and constructor names used as values.
+- Full date-fns now gets past boolean unary-plus coercion in `differenceInMonths/index.ts`
+  (`+isLastMonthNotFull`).
+- Full date-fns now gets past bound function `expect(block).not.toThrow()` in
+  `eachMinuteOfInterval/test.ts`, including optional remaining parameters on the bound callback.
+- Full date-fns now gets past postfix update expressions in value position such as
+  `dateInterval[index++]` in `eachWeekendOfInterval/index.ts`.
+- Full date-fns now gets past non-null asserted string match arrays such as
+  `formatStr.match(...)!.map(...).join("").match(...)!.map(...)` preserving `List<String>`.
+
+Current first blocker:
+
+| File | Unsupported feature | Current error shape |
+|---|---|---|
+| `src/format/index.ts:385-409` | Block-bodied array callback with internal `if` statements and multiple return paths. | `block-bodied callbacks currently require a single return statement` in the second `.map((substring) => { ... })`. |
 
 ### External Probe: 2026-05-14 Current Rerun
 

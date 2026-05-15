@@ -14,22 +14,37 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.date_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.intl_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.regex_replace_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.object_assign_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.vitest_async_expect_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.vitest_mock_function_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.sinon_fake_timers_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.structured_clone_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.crypto_get_random_values_call(call, body)? {
             return Ok(expr);
         }
         if let Some(error) = self.unsupported_object_collection_call(call) {
             return Err(error);
         }
         if let Some(expr) = self.promise_static_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.promise_continuation_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.timer_call(call, body)? {
@@ -92,6 +107,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.object_get_prototype_of_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.object_get_own_property_symbols_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.object_projection_call(call, body)? {
             return Ok(expr);
         }
@@ -116,6 +134,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.array_is_array_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.array_from_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.json_stringify_call(call, body)? {
             return Ok(expr);
         }
@@ -123,6 +144,9 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.regexp_test_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.regexp_exec_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.string_match_call(call, body)? {
@@ -235,7 +259,7 @@ impl ModuleBuilder<'_> {
         if let Expression::StaticMemberExpression(member) = &call.callee
             && let Expression::Identifier(object) = &member.object
             && object.name == "console"
-            && member.property.name == "log"
+            && matches!(member.property.name.as_str(), "log" | "warn" | "error")
         {
             let mut args = Vec::new();
             for arg in &call.arguments {
@@ -578,6 +602,32 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
+    ///
+    /// Smelt does not model JavaScript Promise continuation scheduling yet. For
+    /// type-surface lowering, promise chains whose value is ignored can still be
+    /// represented as the original future value so subsequent `.catch(...)`
+    /// links and surrounding statements keep a precise `Promise<T>` surface.
+    fn promise_continuation_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let method = member.property.name.as_str();
+        if !matches!(method, "then" | "catch") {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Future(_))) {
+            return Ok(None);
+        }
+        Ok(Some(receiver))
+    }
+
     /// Lower `callable.bind(this_arg, ...bound)` into a closure with captured arguments.
     ///
     /// JavaScript `Function.prototype.bind` produces a new callable value. Smelt
@@ -813,14 +863,16 @@ impl ModuleBuilder<'_> {
         span: oxc::span::Span,
         body: &mut Body,
     ) -> Result<Option<OverloadSignature>, SmeltError> {
-        let Some(signatures) = self
-            .function_overloads
-            .get(name)
-            .cloned()
-            .or_else(|| self.ctx.overloads.get(name).cloned())
-        else {
+        let Some(signatures) = (if let Some(signatures) = self.function_overloads.get(name) {
+            Some(signatures.clone())
+        } else {
+            self.ctx.overloads.get(name).cloned()
+        }) else {
             return Ok(None);
         };
+        if signatures.is_empty() {
+            return Ok(None);
+        }
         let mut lowered_arg_tys = Vec::new();
         for argument in arguments {
             let arg = self.argument(argument, body)?;
@@ -1243,12 +1295,18 @@ impl ModuleBuilder<'_> {
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
         for index in supplied_arg_count..fixed_param_count {
-            let Some(default) = defaults.get(index).and_then(|default| *default) else {
+            let Some(default) = defaults.get(index).and_then(|default| default.as_ref()) else {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
                     "closure call argument count does not match closure parameters",
                 ));
             };
+            let default = self.local_callback_default_expr(
+                default,
+                &args,
+                body,
+                self.span(call.span.start, call.span.end),
+            )?;
             args.push(default);
         }
         if let Some(rest) = rest {
@@ -1288,80 +1346,158 @@ impl ModuleBuilder<'_> {
         })?;
         let fixed_param_count = rest.index;
         let mut args = Vec::new();
+        let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
+        let mut rest_items = Vec::new();
+        let mut rest_list = None;
+        let mut fixed_index = 0;
         for argument in &call.arguments {
-            if let Argument::SpreadElement(spread) = argument {
+            if fixed_index < fixed_param_count {
+                let Argument::SpreadElement(spread) = argument else {
+                    args.push(self.argument(argument, body)?);
+                    fixed_index += 1;
+                    continue;
+                };
                 let spread_list = self.expression(&spread.argument, body)?;
-                let mut spread_index = 0usize;
-                while args.len() < fixed_param_count {
-                    let target_ty = function.params.get(args.len()).copied().ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(call.span.start, call.span.end),
-                            "spread closure call argument count does not match closure parameters",
-                        )
-                    })?;
-                    let index_ty = self.ctx.krate.types.intern(Type::Float);
-                    let index_value = u32::try_from(spread_index).map_err(|err| {
-                        SmeltError::unsupported(
-                            self.span(spread.span.start, spread.span.end),
-                            format!("spread closure argument index is too large: {err}"),
-                        )
-                    })?;
-                    let index = body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::Float(f64::from(index_value))),
-                        ty: index_ty,
-                        span: self.span(spread.span.start, spread.span.end),
-                    });
+                let consumed = fixed_param_count - fixed_index;
+                for offset in 0..consumed {
+                    let index = self.usize_float_literal(
+                        offset,
+                        self.span(spread.span.start, spread.span.end),
+                        body,
+                    )?;
+                    let ty = function
+                        .params
+                        .get(fixed_index + offset)
+                        .copied()
+                        .unwrap_or_else(|| self.index_type(Self::expr_ty(body, spread_list)).unwrap_or(rest.item_ty));
                     args.push(body.push_expr(Expr {
                         kind: ExprKind::Index {
                             receiver: spread_list,
                             index,
                         },
-                        ty: target_ty,
+                        ty,
                         span: self.span(spread.span.start, spread.span.end),
                     }));
-                    spread_index += 1;
                 }
-                let start_ty = self.ctx.krate.types.intern(Type::Float);
-                let start_value = u32::try_from(spread_index).map_err(|err| {
-                    SmeltError::unsupported(
+                fixed_index = fixed_param_count;
+                let spread_rest = if consumed == 0 {
+                    spread_list
+                } else {
+                    let start = self.usize_float_literal(
+                        consumed,
                         self.span(spread.span.start, spread.span.end),
-                        format!("spread closure rest index is too large: {err}"),
-                    )
-                })?;
-                let start = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::Float(f64::from(start_value))),
-                    ty: start_ty,
-                    span: self.span(spread.span.start, spread.span.end),
-                });
-                let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
-                args.push(body.push_expr(Expr {
-                    kind: ExprKind::ListSlice {
-                        list: spread_list,
-                        start: Some(start),
-                        end: None,
-                    },
-                    ty: rest_ty,
-                    span: self.span(spread.span.start, spread.span.end),
+                        body,
+                    )?;
+                    body.push_expr(Expr {
+                        kind: ExprKind::ListSlice {
+                            list: spread_list,
+                            start: Some(start),
+                            end: None,
+                        },
+                        ty: rest_ty,
+                        span: self.span(spread.span.start, spread.span.end),
+                    })
+                };
+                rest_list = Some(rest_list.map_or(spread_rest, |left| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::ListConcat {
+                            left,
+                            right: spread_rest,
+                        },
+                        ty: rest_ty,
+                        span: self.span(spread.span.start, spread.span.end),
+                    })
                 }));
-            } else {
-                if args.len() >= fixed_param_count {
-                    return Err(SmeltError::unsupported(
-                        self.span(argument.span().start, argument.span().end),
-                        "non-spread arguments cannot follow rest closure arguments",
-                    ));
+                continue;
+            }
+            match argument {
+                Argument::SpreadElement(spread) => {
+                    Self::flush_rest_items(
+                        &mut rest_items,
+                        &mut rest_list,
+                        rest_ty,
+                        body,
+                        self.span(spread.span.start, spread.span.end),
+                    );
+                    let spread_list = self.expression(&spread.argument, body)?;
+                    rest_list = Some(rest_list.map_or(spread_list, |left| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::ListConcat {
+                                left,
+                                right: spread_list,
+                            },
+                            ty: rest_ty,
+                            span: self.span(spread.span.start, spread.span.end),
+                        })
+                    }));
                 }
-                args.push(self.argument(argument, body)?);
+                _ => rest_items.push(self.argument(argument, body)?),
             }
         }
-        if args.len() == fixed_param_count {
-            let rest_ty = self.ctx.krate.types.intern(Type::List(rest.item_ty));
-            args.push(body.push_expr(Expr {
+        if fixed_index < fixed_param_count {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "spread closure call does not provide enough fixed parameters",
+            ));
+        }
+        Self::flush_rest_items(
+            &mut rest_items,
+            &mut rest_list,
+            rest_ty,
+            body,
+            self.span(call.span.start, call.span.end),
+        );
+        args.push(rest_list.unwrap_or_else(|| {
+            body.push_expr(Expr {
                 kind: ExprKind::ListLit(Vec::new()),
                 ty: rest_ty,
                 span: self.span(call.span.start, call.span.end),
-            }));
-        }
+            })
+        }));
         Ok(args)
+    }
+
+    /// Lower a small positional index as the numeric literal used by JS indexing.
+    fn usize_float_literal(
+        &mut self,
+        value: usize,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = value.to_string().parse::<f64>().map_err(|err| {
+            SmeltError::unsupported(span, format!("spread index cannot be represented: {err}"))
+        })?;
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(value)),
+            ty,
+            span,
+        }))
+    }
+
+    /// Append queued rest items to the accumulated rest list expression.
+    fn flush_rest_items(
+        rest_items: &mut Vec<smelt_hir::ExprId>,
+        rest_list: &mut Option<smelt_hir::ExprId>,
+        rest_ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) {
+        if rest_items.is_empty() {
+            return;
+        }
+        let right = body.push_expr(Expr {
+            kind: ExprKind::ListLit(std::mem::take(rest_items)),
+            ty: rest_ty,
+            span,
+        });
+        *rest_list = Some(rest_list.map_or(right, |left| {
+            body.push_expr(Expr {
+                kind: ExprKind::ListConcat { left, right },
+                ty: rest_ty,
+                span,
+            })
+        }));
     }
 
     /// Pack JavaScript spread call arguments into one variadic list argument.

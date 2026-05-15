@@ -7,20 +7,6 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(&binary.left, body)?;
         let value_ty = Self::expr_ty(body, value);
-        if Self::instanceof_builtin_target(&binary.right) && !self.instanceof_concrete_class(value_ty) {
-            let ty = self.ctx.krate.types.intern(Type::Bool);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Bool(false)),
-                ty,
-                span: self.span(binary.span.start, binary.span.end),
-            }));
-        }
-        if !matches!(self.ctx.krate.types.get(value_ty), Some(Type::Class { .. })) {
-            return Err(SmeltError::unsupported(
-                self.span(binary.left.span().start, binary.left.span().end),
-                "TypeScript instanceof requires a concrete class-typed left operand",
-            ));
-        }
         let Expression::Identifier(class_ident) = &binary.right else {
             return Err(SmeltError::unsupported(
                 self.span(binary.right.span().start, binary.right.span().end),
@@ -28,7 +14,27 @@ impl ModuleBuilder<'_> {
             ));
         };
         let class_text = class_ident.name.as_str();
-        if !self.classes.contains_key(class_text) {
+        if Self::instanceof_fold_false_builtin_target(class_text)
+            && !self.instanceof_concrete_class(value_ty)
+        {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(false)),
+                ty,
+                span: self.span(binary.span.start, binary.span.end),
+            }));
+        }
+        let builtin_target = Self::instanceof_builtin_target(class_text);
+        if !self.instanceof_supported_left_operand(value_ty) {
+            return Err(SmeltError::unsupported(
+                self.span(binary.left.span().start, binary.left.span().end),
+                "TypeScript instanceof requires a concrete class-typed left operand",
+            ));
+        }
+        if !builtin_target
+            && !self.classes.contains_key(class_text)
+            && !self.value_imports.contains(class_text)
+        {
             return Err(SmeltError::unsupported(
                 self.span(class_ident.span.start, class_ident.span.end),
                 format!("TypeScript instanceof target `{class_text}` is not a lowered class"),
@@ -44,17 +50,53 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return true when an expression is a built-in constructor target.
-    fn instanceof_builtin_target(target: &Expression<'_>) -> bool {
+    fn instanceof_builtin_target(target: &str) -> bool {
         matches!(
             target,
-            Expression::Identifier(class_ident)
-                if matches!(class_ident.name.as_str(), "Date" | "Map" | "Set" | "RegExp")
+            "Date"
+                | "Map"
+                | "Set"
+                | "RegExp"
+                | "Promise"
+                | "Error"
+                | "EvalError"
+                | "RangeError"
+                | "ReferenceError"
+                | "SyntaxError"
+                | "TypeError"
+                | "URIError"
+                | "AggregateError"
         )
+    }
+
+    /// Return true for builtin targets represented by non-class HIR values today.
+    fn instanceof_fold_false_builtin_target(target: &str) -> bool {
+        matches!(target, "Date" | "Map" | "Set" | "RegExp")
     }
 
     /// Return true when `instanceof` can be emitted as a concrete HIR class check.
     fn instanceof_concrete_class(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+    }
+
+    /// Return true when an `instanceof` left operand can participate in a lowered guard.
+    fn instanceof_supported_left_operand(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(
+                Type::Class { .. }
+                | Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Future(_)
+                | Type::Float
+                | Type::Int,
+            ) => true,
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.instanceof_supported_left_operand(item)),
+            Some(Type::Optional(item)) => self.instanceof_supported_left_operand(*item),
+            _ => false,
+        }
     }
 
     /// Lower `typeof value === "kind"` checks using known HIR types when possible.
@@ -81,6 +123,21 @@ impl ModuleBuilder<'_> {
         let Expression::StringLiteral(kind_lit) = &binary.right else {
             return Ok(None);
         };
+        if kind_lit.value.as_str() == "undefined"
+            && let Expression::Identifier(identifier) = &unary.argument
+            && identifier.name == "crypto"
+        {
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let result = !matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            );
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
         let Some(kind) = unknown_kind_from_typeof(kind_lit.value.as_str()) else {
             return Err(SmeltError::unsupported(
                 self.span(kind_lit.span.start, kind_lit.span.end),
@@ -173,16 +230,27 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
-        let ((Expression::NullLiteral(_), value_expr) | (value_expr, Expression::NullLiteral(_))) =
-            (&binary.left, &binary.right)
-        else {
+        let Some(value_expr) = Self::nullish_comparison_value(&binary.left, &binary.right) else {
             return Ok(None);
         };
         let value = self.expression(value_expr, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
-            return Ok(None);
-        }
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
+            let none = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: self.ctx.krate.types.intern(Type::None),
+                span: self.span(binary.span.start, binary.span.end),
+            });
+            let op = if matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            ) {
+                BinOp::NotEq
+            } else {
+                BinOp::Eq
+            };
+            return Ok(Some(self.comparison_expr(op, value, none, binary.span, body)));
+        }
         let check = body.push_expr(Expr {
             kind: ExprKind::UnknownIs {
                 value,
@@ -204,6 +272,26 @@ impl ModuleBuilder<'_> {
             )));
         }
         Ok(Some(check))
+    }
+
+    /// Return the non-nullish operand for `value == null/undefined` comparisons.
+    fn nullish_comparison_value<'a>(
+        left: &'a Expression<'a>,
+        right: &'a Expression<'a>,
+    ) -> Option<&'a Expression<'a>> {
+        if Self::is_nullish_expression(left) {
+            Some(right)
+        } else if Self::is_nullish_expression(right) {
+            Some(left)
+        } else {
+            None
+        }
+    }
+
+    /// Return whether an expression is JavaScript `null` or `undefined`.
+    fn is_nullish_expression(expression: &Expression<'_>) -> bool {
+        matches!(expression, Expression::NullLiteral(_))
+            || matches!(expression, Expression::Identifier(identifier) if identifier.name == "undefined")
     }
 
     /// Lower TypeScript type assertions against `unknown` as checked extractions.
@@ -271,6 +359,9 @@ impl ModuleBuilder<'_> {
                     span: self.span(lit.span.start, lit.span.end),
                 }))
             }
+            Argument::BigIntLiteral(lit) => {
+                self.bigint_literal_expression(lit.value.as_str(), lit.span, body)
+            }
             Argument::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
@@ -310,7 +401,20 @@ impl ModuleBuilder<'_> {
                 ident.span.end,
                 body,
             ),
-            Argument::BinaryExpression(binary) => self.binary_expression(binary, body),
+            Argument::BinaryExpression(binary) => {
+                if binary.operator == BinaryOperator::Instanceof {
+                    return self.instanceof_expression(binary, body);
+                }
+                if binary.operator == BinaryOperator::In {
+                    let ty = self.ctx.krate.types.intern(Type::Bool);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Bool(false)),
+                        ty,
+                        span: self.span(binary.span.start, binary.span.end),
+                    }));
+                }
+                self.binary_expression(binary, body)
+            }
             Argument::ConditionalExpression(conditional) => {
                 self.conditional_expression(conditional, body, None)
             }
@@ -337,7 +441,11 @@ impl ModuleBuilder<'_> {
                 let target = self.ts_type_to_hir(&satisfies.type_annotation)?;
                 self.expression_with_hint(&satisfies.expression, body, Some(target))
             }
-            Argument::TSNonNullExpression(non_null) => self.expression(&non_null.expression, body),
+            Argument::TSNonNullExpression(non_null) => self.non_null_assertion_expression(
+                &non_null.expression,
+                self.span(non_null.span.start, non_null.span.end),
+                body,
+            ),
             Argument::NewExpression(new_expr) => {
                 let Expression::Identifier(callee) = &new_expr.callee else {
                     return Err(SmeltError::unsupported(
@@ -347,6 +455,50 @@ impl ModuleBuilder<'_> {
                 };
                 if callee.name == "Date" {
                     self.new_date_expression(new_expr, body)
+                } else if let Some(item) = self.classes.get(callee.name.as_str()).copied() {
+                    let Item::Class(class) = self.item_ref(item) else {
+                        return Err(SmeltError::unsupported(
+                            self.span(new_expr.span.start, new_expr.span.end),
+                            "call argument new expressions require a class item",
+                        ));
+                    };
+                    let class_name = class.name;
+                    let args = new_expr
+                        .arguments
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let ty = self.ctx.krate.types.intern(Type::Class {
+                        name: class_name,
+                        args: Vec::new(),
+                    });
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::New {
+                            class: class_name,
+                            args,
+                        },
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    }))
+                } else if self.value_imports.contains(callee.name.as_str()) {
+                    let class_name = self.intern_type_name(callee.name.as_str());
+                    let args = new_expr
+                        .arguments
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let ty = self.ctx.krate.types.intern(Type::Class {
+                        name: class_name,
+                        args: Vec::new(),
+                    });
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::New {
+                            class: class_name,
+                            args,
+                        },
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    }))
                 } else {
                     Err(SmeltError::unsupported(
                         self.span(callee.span.start, callee.span.end),
@@ -381,6 +533,12 @@ impl ModuleBuilder<'_> {
             Argument::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)
             }
+            Argument::FunctionExpression(function) => self.function_expression_value(
+                function,
+                type_hint,
+                function.span,
+                body,
+            ),
             Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
                 &as_expr.type_annotation,
@@ -398,7 +556,12 @@ impl ModuleBuilder<'_> {
                 self.expression_with_hint(&satisfies.expression, body, Some(target))
             }
             Argument::TSNonNullExpression(non_null) => {
-                self.expression_with_hint(&non_null.expression, body, type_hint)
+                let value = self.expression_with_hint(&non_null.expression, body, type_hint)?;
+                Ok(self.non_null_assertion_value(
+                    value,
+                    self.span(non_null.span.start, non_null.span.end),
+                    body,
+                ))
             }
             _ => self.argument(argument, body),
         }
@@ -442,50 +605,12 @@ impl ModuleBuilder<'_> {
                 "Promise combinators require exactly one array argument",
             ));
         };
-        let Argument::ArrayExpression(array) = first_argument else {
-            return Err(SmeltError::unsupported(
-                self.span(first_argument.span().start, first_argument.span().end),
-                "Promise combinators require an array literal argument",
-            ));
-        };
-        let args = self.promise_array_args(array, body)?;
-        let output_ty = match op {
-            AsyncOp::All | AsyncOp::AllSettled => {
-                let outputs = args
-                    .iter()
-                    .map(|arg| {
-                        self.future_inner_type(Self::expr_ty(body, *arg))
-                            .ok_or_else(|| {
-                                SmeltError::unsupported(
-                                    self.span(array.span.start, array.span.end),
-                                    "Promise combinator entries must be Promise<T> values",
-                                )
-                            })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                self.ctx.krate.types.intern(Type::Tuple(outputs))
-            }
-            AsyncOp::Race => {
-                let Some(first) = args.first() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(array.span.start, array.span.end),
-                        "Promise.race requires at least one promise",
-                    ));
-                };
-                self.future_inner_type(Self::expr_ty(body, *first))
-                    .ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(array.span.start, array.span.end),
-                            "Promise.race entries must be Promise<T> values",
-                        )
-                    })?
-            }
-            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor | AsyncOp::HttpGetText => {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    format!("Promise.{op:?} is not lowered yet"),
-                ));
-            }
+        let (args, output_ty) = if let Argument::ArrayExpression(array) = first_argument {
+            let args = self.promise_array_args(array, body)?;
+            let output_ty = self.promise_literal_combinator_output(op, &args, array.span, body)?;
+            (args, output_ty)
+        } else {
+            self.promise_list_combinator_args(op, first_argument, body)?
         };
         let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
         Ok(Some(body.push_expr(Expr {
@@ -495,12 +620,90 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower the common sleep-helper shape `new Promise(resolve => setTimeout(resolve, ms))`.
+    /// Return output type for Promise combinators over a source array literal.
+    fn promise_literal_combinator_output(
+        &mut self,
+        op: AsyncOp,
+        args: &[smelt_hir::ExprId],
+        span: oxc::span::Span,
+        body: &Body,
+    ) -> Result<smelt_hir::TypeId, SmeltError> {
+        match op {
+            AsyncOp::All | AsyncOp::AllSettled => {
+                let outputs = args
+                    .iter()
+                    .map(|arg| {
+                        self.future_inner_type(Self::expr_ty(body, *arg))
+                            .ok_or_else(|| {
+                                SmeltError::unsupported(
+                                    self.span(span.start, span.end),
+                                    "Promise combinator entries must be Promise<T> values",
+                                )
+                            })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(self.ctx.krate.types.intern(Type::Tuple(outputs)))
+            }
+            AsyncOp::Race => {
+                let Some(first) = args.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(span.start, span.end),
+                        "Promise.race requires at least one promise",
+                    ));
+                };
+                self.future_inner_type(Self::expr_ty(body, *first))
+                    .ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(span.start, span.end),
+                            "Promise.race entries must be Promise<T> values",
+                        )
+                    })
+            }
+            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor | AsyncOp::HttpGetText => {
+                Err(SmeltError::unsupported(
+                    self.span(span.start, span.end),
+                    format!("Promise.{op:?} is not lowered yet"),
+                ))
+            }
+        }
+    }
+
+    /// Lower Promise combinators over a non-literal list of homogeneous futures.
+    fn promise_list_combinator_args(
+        &mut self,
+        op: AsyncOp,
+        argument: &Argument<'_>,
+        body: &mut Body,
+    ) -> Result<(Vec<smelt_hir::ExprId>, smelt_hir::TypeId), SmeltError> {
+        if op == AsyncOp::Race {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "Promise.race over a non-literal array is not lowered yet",
+            ));
+        }
+        let list = self.argument(argument, body)?;
+        let list_ty = self.type_param_constraint_or_self(Self::expr_ty(body, list));
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "Promise combinators require an array of Promise<T> values",
+            ));
+        };
+        let Some(output_item_ty) = self.future_inner_type(*item_ty) else {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "Promise combinator entries must be Promise<T> values",
+            ));
+        };
+        let output_ty = self.ctx.krate.types.intern(Type::List(output_item_ty));
+        Ok((vec![list], output_ty))
+    }
+
+    /// Lower supported `new Promise<T>(executor)` expressions to future values.
     ///
-    /// Smelt models this constructor as a timer future instead of trying to
-    /// represent the JavaScript executor callback. The lowering stays narrow so
-    /// arbitrary Promise construction still produces a targeted unsupported
-    /// diagnostic when its semantics are not recognized.
+    /// Timer executors keep their timeout duration. Other executor forms are
+    /// represented as zero-delay futures with the explicit `Promise<T>` output
+    /// type so async batching helpers can keep their type surface.
     fn promise_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -519,23 +722,26 @@ impl ModuleBuilder<'_> {
                 "Promise constructor lowering supports one arrow executor",
             ));
         };
-        let Some(timer_call) = Self::promise_executor_timer_call(executor) else {
-            return Err(SmeltError::unsupported(
-                self.span(executor.span.start, executor.span.end),
-                "Promise constructor lowering supports executors that call setTimeout(resolve, milliseconds)",
-            ));
-        };
-        let Some(duration_argument) = timer_call.arguments.get(1) else {
-            return Err(SmeltError::unsupported(
-                self.span(timer_call.span.start, timer_call.span.end),
-                "Promise timer executor must pass a duration argument",
-            ));
-        };
-        let duration = self.argument(duration_argument, body)?;
         let output_ty = type_hint
             .and_then(|hint| self.future_inner_type(hint))
+            .or_else(|| self.promise_constructor_output_type(new_expr).ok().flatten())
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
         let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
+        let duration = if let Some(timer_call) = Self::promise_executor_timer_call(executor) {
+            let Some(duration_argument) = timer_call.arguments.get(1) else {
+                return Err(SmeltError::unsupported(
+                    self.span(timer_call.span.start, timer_call.span.end),
+                    "Promise timer executor must pass a duration argument",
+                ));
+            };
+            self.argument(duration_argument, body)?
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty: self.ctx.krate.types.intern(Type::Float),
+                span: self.span(new_expr.span.start, new_expr.span.start),
+            })
+        };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::AsyncOp {
                 op: AsyncOp::Sleep,
@@ -544,6 +750,23 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         })))
+    }
+
+    /// Return the explicit `Promise<T>` constructor output type when present.
+    fn promise_constructor_output_type(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        let Some(type_arguments) = &new_expr.type_arguments else {
+            return Ok(None);
+        };
+        let [item] = type_arguments.params.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "Promise construction supports exactly one type argument",
+            ));
+        };
+        self.ts_type_to_hir(item).map(Some)
     }
 
     /// Return the `setTimeout` call inside a supported Promise executor.
@@ -946,6 +1169,20 @@ impl ModuleBuilder<'_> {
                 ));
             }
             return Ok(Some(self.expression(&member.object, body)?));
+        }
+        if method == "getTimezoneOffset" {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Date.getTimezoneOffset() does not accept arguments",
+                ));
+            }
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(0.0)),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
         }
         let getter_part = match method {
             "getFullYear" | "getUTCFullYear" => Some(DatePart::FullYear),

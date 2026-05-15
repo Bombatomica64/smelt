@@ -4,7 +4,7 @@
 //! The first lowering phase only needs to stop treating framework symbols as
 //! user runtime imports; native Rust test emission is layered on top later.
 /// Vitest-compatible module specifiers recognized by Smelt's test lowering.
-const VITEST_COMPATIBLE_MODULES: &[&str] = &["vitest", "@effect/vitest"];
+const VITEST_COMPATIBLE_MODULES: &[&str] = &["vitest", "@effect/vitest", "@fast-check/vitest"];
 
 /// Names imported from Vitest-compatible modules that are test-framework APIs.
 const VITEST_BUILTIN_NAMES: &[&str] = &[
@@ -13,6 +13,8 @@ const VITEST_BUILTIN_NAMES: &[&str] = &[
     "test",
     "expect",
     "expectTypeOf",
+    "beforeAll",
+    "afterAll",
     "beforeEach",
     "afterEach",
 ];

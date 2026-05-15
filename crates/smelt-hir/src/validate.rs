@@ -30,6 +30,19 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
             *slot = function.is_async;
         }
     }
+    for body in &krate.bodies {
+        for expr in &body.exprs {
+            if let ExprKind::Closure(closure) = &expr.kind
+                && krate
+                    .bodies
+                    .get(closure.body.0 as usize)
+                    .is_some_and(|body| body.async_state_machine.is_some())
+                && let Some(slot) = async_bodies.get_mut(closure.body.0 as usize)
+            {
+                *slot = true;
+            }
+        }
+    }
 
     for (body_idx, body) in krate.bodies.iter().enumerate() {
         for (expr_idx, expr) in body.exprs.iter().enumerate() {
@@ -80,7 +93,9 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                 reason = "HIR validation only needs special handling for callback-bearing expressions"
             )]
             match &expr.kind {
-                ExprKind::ListCallback { callback, .. } | ExprKind::ListReduce { callback, .. } => {
+                ExprKind::ListCallback { callback, .. }
+                | ExprKind::ListFromLengthMap { callback, .. }
+                | ExprKind::ListReduce { callback, .. } => {
                     let Some(callback_expr) = body.exprs.get(callback.0 as usize) else {
                         errors.push(ValidationError {
                             message: format!(
@@ -232,10 +247,35 @@ fn validate_callback_expr(
                 validate_callback_expr(body_idx, body, item, errors);
             }
         }
+        CallbackExprKind::Sequence { effects, result } => {
+            for effect in effects {
+                validate_callback_expr(body_idx, body, effect, errors);
+            }
+            validate_callback_expr(body_idx, body, result, errors);
+        }
+        CallbackExprKind::DictLit(entries) => {
+            for (_, value) in entries {
+                validate_callback_expr(body_idx, body, value, errors);
+            }
+        }
+        CallbackExprKind::Throw { message } => {
+            if let Some(message) = message {
+                validate_callback_expr(body_idx, body, message, errors);
+            }
+        }
         CallbackExprKind::Index { receiver, .. }
         | CallbackExprKind::Field { receiver, .. }
-        | CallbackExprKind::HasField { receiver, .. } => {
+        | CallbackExprKind::HasField { receiver, .. }
+        | CallbackExprKind::FieldTruthy { receiver, .. } => {
             validate_callback_expr(body_idx, body, receiver, errors);
+        }
+        CallbackExprKind::DynamicIndex { receiver, index } => {
+            validate_callback_expr(body_idx, body, receiver, errors);
+            validate_callback_expr(body_idx, body, index, errors);
+        }
+        CallbackExprKind::HasDynamicField { receiver, field } => {
+            validate_callback_expr(body_idx, body, receiver, errors);
+            validate_callback_expr(body_idx, body, field, errors);
         }
         CallbackExprKind::Unary { operand, .. } => {
             validate_callback_expr(body_idx, body, operand, errors);
@@ -267,6 +307,9 @@ fn validate_callback_expr(
             for arg in args {
                 validate_callback_expr(body_idx, body, &arg.expr, errors);
             }
+        }
+        CallbackExprKind::FunctionTableLookup { key, .. } => {
+            validate_callback_expr(body_idx, body, key, errors);
         }
         CallbackExprKind::Param(_)
         | CallbackExprKind::Function(_)

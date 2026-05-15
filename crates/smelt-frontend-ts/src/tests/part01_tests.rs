@@ -3,11 +3,13 @@ use super::*;
 #[test]
 fn vitest_public_api_imports_lower_as_test_builtins() -> Result<(), String> {
     let source = ts!(r#"
-import { describe, it, test, beforeEach, afterEach } from "vitest";
+import { describe, it, test, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 
 describe("group", () => {});
 it("case", () => {});
 test("case 2", () => {});
+beforeAll(() => {});
+afterAll(() => {});
 beforeEach(() => {});
 afterEach(() => {});
 "#);
@@ -221,7 +223,7 @@ export type NonEmptyArray<T> = [T, ...T[]];
     };
     ensure!(matches!(
         function.params.as_slice(),
-        [param] if matches!(ctx.krate.types.get(*param), Some(Type::Never))
+        [param] if matches!(ctx.krate.types.get(*param), Some(Type::List(item)) if matches!(ctx.krate.types.get(*item), Some(Type::Never)))
     ));
     ensure!(matches!(
         ctx.krate.types.get(function.return_ty),
@@ -1226,6 +1228,40 @@ test("throws", () => {
 }
 
 #[test]
+fn vitest_to_throw_lowers_bound_function_callback_assertion() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+function noop(value?: number): void {}
+
+test("does not throw", () => {
+  const block = noop.bind(null);
+  expect(block).not.toThrow();
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/to-throw-bound.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body_id = function
+        .body
+        .ok_or_else(|| "missing test body id".to_owned())?;
+    let body = ctx
+        .krate
+        .bodies
+        .get(body_id.0 as usize)
+        .ok_or_else(|| "missing test body".to_owned())?;
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::TryCatch { .. })),
+        "expected bound toThrow to lower through try/catch",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn vitest_expect_matchers_lower_inside_nested_test_blocks() -> Result<(), String> {
     let source = ts!(r#"
 import { test, expect } from "vitest";
@@ -1629,10 +1665,13 @@ fn lowers_declaration_type_test_index_access_on_unknown_metadata() -> Result<(),
 }
 
 #[test]
-fn rejects_runtime_index_access_on_unknown_metadata() -> Result<(), String> {
-    let errors = lowering_errors(
+fn lowers_runtime_index_access_on_unknown_metadata() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
         ts!("function read(value: unknown): unknown { return value[0]; }"),
-        &mut HirCtx::new(),
+        &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "index access is only lowered")
+    let _ = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }

@@ -56,6 +56,14 @@ impl ModuleBuilder<'_> {
                 }))
             }
             PropertyKey::ComputedMemberExpression(member) => self.computed_member(member, body),
+            PropertyKey::TSAsExpression(assertion) => self.expression(&assertion.expression, body),
+            PropertyKey::TSSatisfiesExpression(assertion) => {
+                self.expression(&assertion.expression, body)
+            }
+            PropertyKey::TSTypeAssertion(assertion) => self.expression(&assertion.expression, body),
+            PropertyKey::TSNonNullExpression(assertion) => {
+                self.expression(&assertion.expression, body)
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(key.span().start, key.span().end),
                 "computed property keys must be identifier, member, string, or numeric expressions",

@@ -1394,6 +1394,19 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::NumericToStringRadix { operand, radix } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let lowered_radix = self.lower_expr(*radix)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::NumericToStringRadix {
+                        operand: lowered_operand,
+                        radix: lowered_radix,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::PrimitiveCast { op, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1852,6 +1865,30 @@ impl<'hir> LoweringCtx<'hir> {
                     value: Rvalue::ListCallback {
                         op: *op,
                         list: list_operand,
+                        callback: callback_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListFromLength { length } => {
+                let length_operand = self.lower_expr(*length)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListFromLength {
+                        length: length_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ListFromLengthMap { length, callback } => {
+                let length_operand = self.lower_expr(*length)?;
+                let callback_operand = self.lower_expr(*callback)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListFromLengthMap {
+                        length: length_operand,
                         callback: callback_operand,
                     },
                 });
@@ -2992,6 +3029,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::NumericAtan2 { .. }
             | ExprKind::NumericRandom
             | ExprKind::NumericRandomInt { .. }
+            | ExprKind::NumericToStringRadix { .. }
             | ExprKind::PrimitiveCast { .. }
             | ExprKind::StringCase { .. }
             | ExprKind::StringTrim { .. }
@@ -3025,6 +3063,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListConcat { .. }
             | ExprKind::ListSearch { .. }
             | ExprKind::ListCallback { .. }
+            | ExprKind::ListFromLength { .. }
+            | ExprKind::ListFromLengthMap { .. }
             | ExprKind::ListReduce { .. }
             | ExprKind::ListSlice { .. }
             | ExprKind::ListSplice { .. }

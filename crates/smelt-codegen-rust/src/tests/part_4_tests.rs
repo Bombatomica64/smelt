@@ -394,6 +394,8 @@ fn emits_set_constructor_and_has_method() {
 const values: Set<number> = new Set([1, 2, 3]);
 const has = values.has(2);
 const empty: Set<string> = new Set();
+const source: number[] = [1, 2, 3];
+const fromSource = new Set(source);
 "#,
     );
 
@@ -401,6 +403,7 @@ const empty: Set<string> = new Set();
     assert!(source.contains("::std::collections::HashSet::from(["));
     assert!(source.contains(".contains(&2.0);"));
     assert!(source.contains("::std::collections::HashSet::from([]);"));
+    assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
 }
 
 #[test]

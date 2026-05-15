@@ -20,13 +20,23 @@ impl ModuleBuilder<'_> {
             }));
         };
         let message = self.argument(message_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, message)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(message_arg.span().start, message_arg.span().end),
-                "Error constructor message must be a string",
-            ));
+        if self.ctx.krate.types.get(Self::expr_ty(body, message)) == Some(&Type::String) {
+            return Ok(message);
         }
-        Ok(message)
+        if self.is_string_compatible_type(Self::expr_ty(body, message))
+            || self.type_contains_unknown(Self::expr_ty(body, message))
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: message },
+                ty,
+                span: self.span(message_arg.span().start, message_arg.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(message_arg.span().start, message_arg.span().end),
+            "Error constructor message must be a string",
+        ))
     }
 
     /// Lower an expression while preserving a caller-supplied type hint when possible.
@@ -44,6 +54,9 @@ impl ModuleBuilder<'_> {
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))
+            }
+            Expression::BigIntLiteral(lit) => {
+                self.bigint_literal_expression(lit.value.as_str(), lit.span, body)
             }
             Expression::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
@@ -127,10 +140,10 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::LessEqualThan => BinOp::Lte,
                     BinaryOperator::GreaterThan => BinOp::Gt,
                     BinaryOperator::GreaterEqualThan => BinOp::Gte,
+                    BinaryOperator::ShiftLeft => BinOp::Shl,
+                    BinaryOperator::ShiftRight => BinOp::Shr,
+                    BinaryOperator::ShiftRightZeroFill => BinOp::UShr,
                     BinaryOperator::Exponential
-                    | BinaryOperator::ShiftLeft
-                    | BinaryOperator::ShiftRight
-                    | BinaryOperator::ShiftRightZeroFill
                     | BinaryOperator::BitwiseOR
                     | BinaryOperator::BitwiseXOR
                     | BinaryOperator::BitwiseAnd
@@ -299,7 +312,9 @@ impl ModuleBuilder<'_> {
                         if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
                             return Ok(operand);
                         }
-                        if self.is_date_constructor_arg_type(operand_ty) {
+                        if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Bool))
+                            || self.is_date_constructor_arg_type(operand_ty)
+                        {
                             let ty = self.ctx.krate.types.intern(Type::Float);
                             return Ok(body.push_expr(Expr {
                                 kind: ExprKind::PrimitiveCast {
@@ -356,6 +371,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(await_expr.span.start, await_expr.span.end),
                 }))
             }
+            Expression::UpdateExpression(update) => self.update_expression(update, body),
             Expression::StaticMemberExpression(member) => self.static_member(member, body),
             Expression::ComputedMemberExpression(member) => {
                 if type_hint.is_some_and(|hint| {
@@ -374,6 +390,12 @@ impl ModuleBuilder<'_> {
             Expression::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)
             }
+            Expression::FunctionExpression(function) => self.function_expression_value(
+                function,
+                type_hint,
+                function.span,
+                body,
+            ),
             Expression::ChainExpression(chain) => self.chain_expression(chain, body),
             Expression::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
@@ -390,9 +412,11 @@ impl ModuleBuilder<'_> {
             Expression::TSSatisfiesExpression(satisfies) => {
                 self.expression(&satisfies.expression, body)
             }
-            Expression::TSNonNullExpression(non_null) => {
-                self.expression(&non_null.expression, body)
-            }
+            Expression::TSNonNullExpression(non_null) => self.non_null_assertion_expression(
+                &non_null.expression,
+                self.span(non_null.span.start, non_null.span.end),
+                body,
+            ),
             Expression::ParenthesizedExpression(parenthesized) => {
                 self.expression_with_hint(&parenthesized.expression, body, type_hint)
             }
@@ -419,8 +443,14 @@ impl ModuleBuilder<'_> {
                 if callee.name == "Date" {
                     return self.new_date_expression(new_expr, body);
                 }
+                if callee.name == "RegExp" {
+                    return self.regexp_constructor_expression(new_expr, body);
+                }
                 if callee.name == "Array" {
                     return self.array_constructor_expression(new_expr, body);
+                }
+                if callee.name == "Uint8Array" {
+                    return self.uint8_array_constructor_expression(new_expr, body);
                 }
                 if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
                     return self.error_constructor_expression(new_expr, body);
@@ -432,6 +462,26 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
+                    if self.value_imports.contains(callee.name.as_str()) {
+                        let class_name = self.intern_type_name(callee.name.as_str());
+                        let args = new_expr
+                            .arguments
+                            .iter()
+                            .map(|arg| self.argument(arg, body))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        let ty = self.ctx.krate.types.intern(Type::Class {
+                            name: class_name,
+                            args: Vec::new(),
+                        });
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::New {
+                                class: class_name,
+                                args,
+                            },
+                            ty,
+                            span: self.span(new_expr.span.start, new_expr.span.end),
+                        }));
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(callee.span.start, callee.span.end),
                         format!("unresolved class `{}`", callee.name),
@@ -474,12 +524,43 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower a TypeScript bigint literal into Smelt's current numeric runtime value.
+    fn bigint_literal_expression(
+        &mut self,
+        value: &str,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = value.parse::<f64>().map_err(|err| {
+            SmeltError::unsupported(
+                self.span(span.start, span.end),
+                format!("bigint literal cannot be represented numerically: {err}"),
+            )
+        })?;
+        let ty = self.ctx.krate.types.intern(Type::Float);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(value)),
+            ty,
+            span: self.span(span.start, span.end),
+        }))
+    }
+
     /// Lower JavaScript `typeof value` to a string result when used as a value.
     fn typeof_expression(
         &mut self,
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Expression::Identifier(identifier) = &unary.argument
+            && identifier.name == "crypto"
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("undefined".to_owned())),
+                ty,
+                span: self.span(unary.span.start, unary.span.end),
+            }));
+        }
         let operand = self.expression(&unary.argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         let kind = self.typeof_type_name(operand_ty).unwrap_or("object");
@@ -610,6 +691,24 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),
                 ty,
+                span: self.expression_span(expression),
+            }));
+        }
+        if self.ctx.krate.types.get(cond_ty) == Some(&Type::String) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let empty = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty: string_ty,
+                span: self.expression_span(expression),
+            });
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    lhs: cond,
+                    rhs: empty,
+                },
+                ty: bool_ty,
                 span: self.expression_span(expression),
             }));
         }

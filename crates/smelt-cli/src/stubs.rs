@@ -282,10 +282,10 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
                 .join(", ");
             format!("[{tuple_items}]")
         }
-        Some(Type::Optional(item)) => format!("{} | null", ts_type(krate, *item)),
+        Some(Type::Optional(item)) => format!("{} | null", ts_union_member_type(krate, *item)),
         Some(Type::Union(items)) => items
             .iter()
-            .map(|item| ts_type(krate, *item))
+            .map(|item| ts_union_member_type(krate, *item))
             .collect::<Vec<_>>()
             .join(" | "),
         Some(Type::Function(function)) => {
@@ -298,6 +298,14 @@ fn ts_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
             format!("({params}) => {}", ts_type(krate, function.return_ty))
         }
         Some(Type::Future(item)) => format!("Promise<{}>", ts_type(krate, *item)),
+    }
+}
+
+/// Render a TypeScript type in a union member position.
+fn ts_union_member_type(krate: &Crate, ty: smelt_hir::TypeId) -> String {
+    match krate.types.get(ty) {
+        Some(Type::Function(_)) => format!("({})", ts_type(krate, ty)),
+        _ => ts_type(krate, ty),
     }
 }
 

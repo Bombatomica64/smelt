@@ -1,4 +1,100 @@
 impl ModuleBuilder<'_> {
+    /// Lower static `Array.from({ length }, mapper)` calls into indexed list construction.
+    fn array_from_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if !matches!(&member.object, Expression::Identifier(object) if object.name == "Array")
+            || member.property.name != "from"
+        {
+            return Ok(None);
+        }
+        let (source_arg, mapper_arg) = match call.arguments.as_slice() {
+            [source_arg] => (source_arg, None),
+            [source_arg, mapper_arg] => (source_arg, Some(mapper_arg)),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Array.from currently requires an array-like source and optional mapper callback",
+                ));
+            }
+        };
+        let length = self.array_from_length_argument(source_arg, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, length)),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(source_arg.span().start, source_arg.span().end),
+                "Array.from({ length }, mapper) length must be numeric",
+            ));
+        }
+        let Some(mapper_arg) = mapper_arg else {
+            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListFromLength { length },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        };
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let index_ty = self.ctx.krate.types.intern(Type::Float);
+        let callback = self.callback_argument(
+            mapper_arg,
+            &[unknown_ty, index_ty],
+            "Array.from mapper",
+            body,
+        )?;
+        let ty = self.ctx.krate.types.intern(Type::List(callback.return_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListFromLengthMap {
+                length,
+                callback: callback.expr,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Extract the numeric `length` expression from `Array.from`'s source argument.
+    fn array_from_length_argument(
+        &mut self,
+        source_arg: &Argument<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Argument::ObjectExpression(object) = source_arg else {
+            return Err(SmeltError::unsupported(
+                self.span(source_arg.span().start, source_arg.span().end),
+                "Array.from currently supports object sources shaped as { length }",
+            ));
+        };
+        for property in &object.properties {
+            let ObjectPropertyKind::ObjectProperty(property) = property else {
+                return Err(SmeltError::unsupported(
+                    self.span(source_arg.span().start, source_arg.span().end),
+                    "Array.from({ length }, mapper) does not support spread properties",
+                ));
+            };
+            let key_text = match &property.key {
+                PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
+                PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                _ => continue,
+            };
+            if key_text == "length" {
+                return self.object_property_value_expr(property, body, None);
+            }
+        }
+        Err(SmeltError::unsupported(
+            self.span(source_arg.span().start, source_arg.span().end),
+            "Array.from object source must provide a length property",
+        ))
+    }
+
     /// Lower `new Array<T>(length)` to an empty list with item metadata.
     ///
     /// JavaScript creates a sparse array here; Smelt models the later indexed
@@ -30,6 +126,44 @@ impl ModuleBuilder<'_> {
         let ty = self.ctx.krate.types.intern(Type::List(item_ty));
         Ok(body.push_expr(Expr {
             kind: ExprKind::ListLit(Vec::new()),
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Lower `new Uint8Array(length)` to a numeric list used by typed-array consumers.
+    fn uint8_array_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new Uint8Array(...) supports at most one length argument",
+            ));
+        }
+        if let Some(length) = new_expr.arguments.first() {
+            let length = self.argument(length, body)?;
+            if !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, length)),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Uint8Array(...) length must be numeric",
+                ));
+            }
+        }
+        let item_ty = self.ctx.krate.types.intern(Type::Float);
+        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let zero = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(0.0)),
+            ty: item_ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ListLit(vec![zero; 1024]),
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
@@ -119,19 +253,26 @@ impl ModuleBuilder<'_> {
         }
         let (items, ty) = match new_expr.arguments.as_slice() {
             [] => {
-                let Some(hint) = type_hint else {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "empty Set constructors require a Set<T> type annotation",
-                    ));
+                let ty = if let Some(type_args) = &new_expr.type_arguments
+                    && let [item] = type_args.params.as_slice()
+                {
+                    let item_ty = self.ts_type_to_hir(item)?;
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else {
+                    type_hint.ok_or_else(|| {
+                        SmeltError::unsupported(
+                            self.span(new_expr.span.start, new_expr.span.end),
+                            "empty Set constructors require a Set<T> type annotation",
+                        )
+                    })?
                 };
-                if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
+                if !matches!(self.ctx.krate.types.get(ty), Some(Type::Set(_))) {
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
                         "new Set() requires a Set<T> type annotation",
                     ));
                 }
-                (Vec::new(), hint)
+                (Vec::new(), ty)
             }
             [Argument::ArrayExpression(array)] => {
                 let items = array
@@ -150,6 +291,11 @@ impl ModuleBuilder<'_> {
                 } else if let Some(first_item) = items.first().copied() {
                     let item_ty = Self::expr_ty(body, first_item);
                     self.ctx.krate.types.intern(Type::Set(item_ty))
+                } else if let Some(type_args) = &new_expr.type_arguments
+                    && let [item] = type_args.params.as_slice()
+                {
+                    let item_ty = self.ts_type_to_hir(item)?;
+                    self.ctx.krate.types.intern(Type::Set(item_ty))
                 } else {
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
@@ -158,10 +304,36 @@ impl ModuleBuilder<'_> {
                 };
                 (items, ty)
             }
+            [argument] => {
+                let list = self.argument(argument, body)?;
+                let list_ty = self.type_param_constraint_or_self(Self::expr_ty(body, list));
+                let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+                    return Err(SmeltError::unsupported(
+                        self.span(argument.span().start, argument.span().end),
+                        "new Set(iterable) currently requires an array argument",
+                    ));
+                };
+                let ty = if let Some(hint) = type_hint {
+                    if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
+                        return Err(SmeltError::unsupported(
+                            self.span(new_expr.span.start, new_expr.span.end),
+                            "new Set(iterable) requires a Set<T> type annotation when annotated",
+                        ));
+                    }
+                    hint
+                } else {
+                    self.ctx.krate.types.intern(Type::Set(*item_ty))
+                };
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ListToSet { list },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                })));
+            }
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(new_expr.span.start, new_expr.span.end),
-                    "new Set currently supports no arguments or one array literal argument",
+                    "new Set currently supports no arguments or one array argument",
                 ));
             }
         };
@@ -307,6 +479,9 @@ impl ModuleBuilder<'_> {
                     span: self.span(lit.span.start, lit.span.end),
                 }))
             }
+            ArrayExpressionElement::BigIntLiteral(lit) => {
+                self.bigint_literal_expression(lit.value.as_str(), lit.span, body)
+            }
             ArrayExpressionElement::StringLiteral(lit) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {
@@ -319,6 +494,14 @@ impl ModuleBuilder<'_> {
                 let ty = self.ctx.krate.types.intern(Type::Bool);
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::Bool(lit.value)),
+                    ty,
+                    span: self.span(lit.span.start, lit.span.end),
+                }))
+            }
+            ArrayExpressionElement::NullLiteral(lit) => {
+                let ty = self.ctx.krate.types.intern(Type::None);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
                     ty,
                     span: self.span(lit.span.start, lit.span.end),
                 }))
@@ -427,6 +610,9 @@ impl ModuleBuilder<'_> {
             BinaryOperator::LessEqualThan => BinOp::Lte,
             BinaryOperator::GreaterThan => BinOp::Gt,
             BinaryOperator::GreaterEqualThan => BinOp::Gte,
+            BinaryOperator::ShiftLeft => BinOp::Shl,
+            BinaryOperator::ShiftRight => BinOp::Shr,
+            BinaryOperator::ShiftRightZeroFill => BinOp::UShr,
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(binary.span.start, binary.span.end),
@@ -497,6 +683,11 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(Some(expr));
             }
+            if let Some(expr) =
+                self.logical_or_string_fallback_expression(logical, body, optional, optional_ty)?
+            {
+                return Ok(Some(expr));
+            }
             return Ok(None);
         }
         let Some(ty) = self.non_nullish_type(optional_ty) else {
@@ -563,6 +754,48 @@ impl ModuleBuilder<'_> {
                 else_expr: fallback,
             },
             ty: value_ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
+    /// Lower JavaScript `left || right` fallback expressions for string values.
+    fn logical_or_string_fallback_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+        value: smelt_hir::ExprId,
+        value_ty: smelt_hir::TypeId,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !self.is_string_compatible_type(value_ty) {
+            return Ok(None);
+        }
+        let fallback = self.expression_with_hint(&logical.right, body, Some(value_ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        if !self.is_string_compatible_type(fallback_ty) {
+            return Ok(None);
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let empty = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(String::new())),
+            ty: string_ty,
+            span: self.span(logical.span.start, logical.span.end),
+        });
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: value,
+                rhs: empty,
+            },
+            ty: self.ctx.krate.types.intern(Type::Bool),
+            span: self.span(logical.span.start, logical.span.end),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: value,
+                else_expr: fallback,
+            },
+            ty: string_ty,
             span: self.span(logical.span.start, logical.span.end),
         })))
     }
@@ -725,6 +958,38 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Lower a TypeScript non-null assertion while preserving the narrowed type.
+    fn non_null_assertion_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = self.expression(expression, body)?;
+        Ok(self.non_null_assertion_value(value, span, body))
+    }
+
+    /// Apply non-null assertion narrowing to an already-lowered expression.
+    fn non_null_assertion_value(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let value_ty = Self::expr_ty(body, value);
+        let Some(non_null_ty) = self.non_nullish_type(value_ty) else {
+            return value;
+        };
+        if non_null_ty == value_ty {
+            return value;
+        }
+        body.push_expr(Expr {
+            kind: ExprKind::TypeAssert { value },
+            ty: non_null_ty,
+            span,
+        })
+    }
+
     /// Lower a unary expression.
     fn unary_expression(
         &mut self,
@@ -743,7 +1008,9 @@ impl ModuleBuilder<'_> {
                 if self.is_numeric_like_type(operand_ty) {
                     return Ok(operand);
                 }
-                if self.is_date_constructor_arg_type(operand_ty) {
+                if matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Bool))
+                    || self.is_date_constructor_arg_type(operand_ty)
+                {
                     let ty = self.ctx.krate.types.intern(Type::Float);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::PrimitiveCast {
@@ -836,8 +1103,8 @@ impl ModuleBuilder<'_> {
         }
         let ty = if let Some(hint) = type_hint {
             hint
-        } else if let Some(first) = items.first() {
-            let item_ty = Self::expr_ty(body, *first);
+        } else if !items.is_empty() {
+            let item_ty = self.array_literal_item_type(&items, body);
             self.ctx.krate.types.intern(Type::List(item_ty))
         } else {
             let item_ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -858,6 +1125,39 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(array.span.start, array.span.end),
         }))
+    }
+
+    /// Infer one item type for an array literal, preserving nullability when needed.
+    fn array_literal_item_type(
+        &mut self,
+        items: &[smelt_hir::ExprId],
+        body: &Body,
+    ) -> smelt_hir::TypeId {
+        let item_tys = items
+            .iter()
+            .map(|item| Self::expr_ty(body, *item))
+            .collect::<Vec<_>>();
+        let Some(first_ty) = item_tys.first().copied() else {
+            return self.ctx.krate.types.intern(Type::Unknown);
+        };
+        if item_tys.iter().all(|item_ty| *item_ty == first_ty) {
+            return first_ty;
+        }
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let non_nullish = item_tys
+            .iter()
+            .copied()
+            .filter(|item_ty| *item_ty != none_ty)
+            .collect::<Vec<_>>();
+        if let Some(first_non_nullish) = non_nullish.first().copied()
+            && non_nullish
+                .iter()
+                .all(|item_ty| *item_ty == first_non_nullish)
+            && item_tys.contains(&none_ty)
+        {
+            return self.ctx.krate.types.intern(Type::Optional(first_non_nullish));
+        }
+        self.ctx.krate.types.intern(Type::Unknown)
     }
 
     /// Lower an array literal element with contextual type information.
@@ -885,6 +1185,24 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if type_hint.is_none()
+            && let [ArrayExpressionElement::SpreadElement(spread)] = array.elements.as_slice()
+        {
+            let spread_value = self.expression(&spread.argument, body)?;
+            let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, spread_value));
+            let item_ty = match self.ctx.krate.types.get(value_ty) {
+                Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
+                Some(Type::TypeParam { .. }) => self.ctx.krate.types.intern(Type::Unknown),
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(spread.span.start, spread.span.end),
+                        "array spread operands must be arrays or sets",
+                    ));
+                }
+            };
+            let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+            return self.list_expr_from_spread_value(spread_value, list_ty, spread.span, body);
+        }
         let item_ty = self.array_spread_item_type(array, type_hint);
         let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
         let mut packed = None;
@@ -987,6 +1305,11 @@ impl ModuleBuilder<'_> {
                     op: SetProjectionOp::Values,
                     set: value,
                 },
+                ty: list_ty,
+                span: self.span(span.start, span.end),
+            })),
+            Some(Type::TypeParam { .. }) => Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
@@ -1205,6 +1528,9 @@ impl ModuleBuilder<'_> {
         object_hint: Option<smelt_hir::TypeId>,
     ) -> Option<smelt_hir::TypeId> {
         let hint = object_hint?;
+        if let Some(Type::Dict(_, value_ty)) = self.ctx.krate.types.get(hint) {
+            return Some(*value_ty);
+        }
         let field_name = match &property.key {
             PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
             PropertyKey::StringLiteral(literal) => literal.value.as_str(),
@@ -1268,7 +1594,9 @@ impl ModuleBuilder<'_> {
             ));
         };
         let hint_function = type_hint.and_then(|ty| {
-            let ty = self.type_param_constraint_or_self(ty);
+            let ty = self
+                .function_member_type(ty)
+                .unwrap_or_else(|| self.type_param_constraint_or_self(ty));
             match self.ctx.krate.types.get(ty) {
                 Some(Type::Function(function_ty)) => Some((ty, function_ty.clone())),
                 _ => None,

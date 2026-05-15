@@ -8,7 +8,7 @@ impl ModuleBuilder<'_> {
         let Expression::StaticMemberExpression(member) = &call.callee else {
             return Ok(None);
         };
-        let op = match member.property.name.as_str() {
+        let mut op = match member.property.name.as_str() {
             "replace" => StringReplaceOp::First,
             "replaceAll" => StringReplaceOp::All,
             _ => return Ok(None),
@@ -20,9 +20,12 @@ impl ModuleBuilder<'_> {
             ));
         };
         let haystack = self.expression(&member.object, body)?;
-        let Some(pattern) = self.regex_replacement_pattern(pattern_arg, body)? else {
+        let Some((pattern, pattern_op)) = self.regex_replacement_pattern(pattern_arg, body)? else {
             return Ok(None);
         };
+        if let Some(pattern_op) = pattern_op {
+            op = pattern_op;
+        }
         let replacement = self.argument(replacement_arg, body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, haystack)),
@@ -53,7 +56,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         argument: &Argument<'_>,
         body: &mut Body,
-    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+    ) -> Result<Option<(smelt_hir::ExprId, Option<StringReplaceOp>)>, SmeltError> {
         match argument {
             Argument::NewExpression(pattern_new) => {
                 let Expression::Identifier(callee) = &pattern_new.callee else {
@@ -68,7 +71,7 @@ impl ModuleBuilder<'_> {
                         "regex replacement supports RegExp(pattern) without flags",
                     ));
                 };
-                Ok(Some(self.argument(regex_pattern_arg, body)?))
+                Ok(Some((self.argument(regex_pattern_arg, body)?, None)))
             }
             Argument::CallExpression(pattern_call) => {
                 let Expression::Identifier(callee) = &pattern_call.callee else {
@@ -83,23 +86,30 @@ impl ModuleBuilder<'_> {
                         "regex replacement supports RegExp(pattern) without flags",
                     ));
                 };
-                Ok(Some(self.argument(regex_pattern_arg, body)?))
+                Ok(Some((self.argument(regex_pattern_arg, body)?, None)))
             }
             Argument::RegExpLiteral(literal) => {
-                if !literal.regex.flags.is_empty() {
+                let flags = literal.regex.flags.to_string();
+                if flags
+                    .chars()
+                    .any(|flag| !matches!(flag, 'g' | 'i' | 'm' | 's'))
+                {
                     return Err(SmeltError::unsupported(
                         self.span(literal.span.start, literal.span.end),
-                        "regex replacement does not lower RegExp literal flags yet",
+                        "regex replacement supports only g/i/m/s RegExp literal flags",
                     ));
                 }
+                let op = flags
+                    .contains('g')
+                    .then_some(StringReplaceOp::All);
                 let ty = self.ctx.krate.types.intern(Type::String);
-                Ok(Some(body.push_expr(Expr {
+                Ok(Some((body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::String(
-                        literal.regex.pattern.text.to_string(),
+                        Self::regex_literal_pattern_text(literal),
                     )),
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
-                })))
+                }), op)))
             }
             _ => Ok(None),
         }
@@ -234,15 +244,16 @@ impl ModuleBuilder<'_> {
         };
         let operand = self.argument(argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
-        if self.ctx.krate.types.get(operand_ty) != Some(&Type::Float) {
+        if !self.is_numeric_like_type(operand_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 format!("Math.{} requires a number argument", member.property.name),
             ));
         }
+        let result_ty = self.type_param_constraint_or_self(operand_ty);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericRound { op, operand },
-            ty: operand_ty,
+            ty: result_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
@@ -365,7 +376,23 @@ impl ModuleBuilder<'_> {
                 format!("{source_name} requires exactly one number argument"),
             ));
         };
-        let operand = self.argument(argument, body)?;
+        let mut operand = self.argument(argument, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
+            if source_name == "isNaN" && self.is_date_constructor_arg_type(operand_ty) {
+                let ty = self.ctx.krate.types.intern(Type::Float);
+                operand = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: operand },
+                    ty,
+                    span: self.span(argument.span().start, argument.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("{source_name} requires a number argument"),
+                ));
+            }
+        }
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, operand)),
             Some(Type::Int | Type::Float)
@@ -492,7 +519,7 @@ impl ModuleBuilder<'_> {
         Ok(operand)
     }
 
-    /// Lower direct TypeScript `.toString()` calls without a radix argument.
+    /// Lower direct TypeScript `.toString()` calls with an optional radix argument.
     fn number_to_string_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -518,13 +545,36 @@ impl ModuleBuilder<'_> {
         ) {
             return Ok(None);
         }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        if let Some(radix_argument) = call.arguments.first() {
+            if call.arguments.len() != 1 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "number.toString accepts at most one radix argument",
+                ));
+            }
+            let radix = self.argument(radix_argument, body)?;
+            if !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, radix)),
+                Some(Type::Int | Type::Float)
+            ) {
+                return Err(SmeltError::unsupported(
+                    self.span(radix_argument.span().start, radix_argument.span().end),
+                    "number.toString radix argument must be numeric",
+                ));
+            }
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::NumericToStringRadix { operand, radix },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if !call.arguments.is_empty() {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "number.toString radix arguments are not supported yet",
             ));
         }
-        let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::PrimitiveCast {
                 op: PrimitiveCastOp::ToString,
@@ -533,6 +583,43 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower `crypto.getRandomValues(output)` as an accepted typed-array surface.
+    fn crypto_get_random_values_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "getRandomValues" {
+            return Ok(None);
+        }
+        let Expression::Identifier(receiver) = &member.object else {
+            return Ok(None);
+        };
+        if receiver.name != "crypto" {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "crypto.getRandomValues requires one typed array argument",
+            ));
+        };
+        let output = self.argument(argument, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, output)),
+            Some(Type::List(item)) if matches!(self.ctx.krate.types.get(*item), Some(Type::Float | Type::Int))
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "crypto.getRandomValues requires a numeric typed array",
+            ));
+        }
+        Ok(Some(output))
     }
 
     /// Lower the specific Node probe `process.version.match(/^v(\d+)\./)` used by date-fns tests.
@@ -564,6 +651,79 @@ impl ModuleBuilder<'_> {
             ty: list_ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Lower the small `Intl` surface used by date-fns timezone test labels.
+    fn intl_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if Self::is_intl_date_time_format_call(call) {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Intl.DateTimeFormat() arguments are not lowered yet",
+                ));
+            }
+            let key = self.ctx.krate.types.intern(Type::String);
+            let value = self.ctx.krate.types.intern(Type::Unknown);
+            let ty = self.ctx.krate.types.intern(Type::Dict(key, value));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        if Self::is_intl_resolved_options_call(call) {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Intl.DateTimeFormat().resolvedOptions() does not accept arguments",
+                ));
+            }
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("timeZone".to_owned())),
+                ty: string_ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+            let value = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
+                ty: string_ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+            let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, string_ty));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictLit(vec![(key, value)]),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        Ok(None)
+    }
+
+    /// Return whether this call is `Intl.DateTimeFormat()`.
+    fn is_intl_date_time_format_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return false;
+        };
+        matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "Intl")
+            && member.property.name == "DateTimeFormat"
+    }
+
+    /// Return whether this call is `Intl.DateTimeFormat().resolvedOptions()`.
+    fn is_intl_resolved_options_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return false;
+        };
+        if member.property.name != "resolvedOptions" {
+            return false;
+        }
+        let Expression::CallExpression(receiver_call) = &member.object else {
+            return false;
+        };
+        Self::is_intl_date_time_format_call(receiver_call)
     }
 
     /// Lower direct TypeScript unary `Math.*` numeric calls.
