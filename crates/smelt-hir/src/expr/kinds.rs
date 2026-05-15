@@ -433,6 +433,10 @@ pub enum ExprKind {
         separator: ExprId,
         limit: Option<ExprId>,
     },
+    /// Convert a string into a list of one-character strings.
+    StringChars {
+        haystack: ExprId,
+    },
     StringJoin {
         items: ExprId,
         separator: ExprId,

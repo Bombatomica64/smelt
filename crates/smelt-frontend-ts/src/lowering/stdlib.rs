@@ -269,6 +269,96 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower Vitest `vi.spyOn(target, "method")` calls as mock handles.
+    pub(super) fn vitest_spy_on_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "vi" || member.property.name != "spyOn" {
+            return Ok(None);
+        }
+        let [target, method] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "vi.spyOn requires target object and method name arguments",
+            ));
+        };
+        let _target = self.argument(target, body)?;
+        let method_expr = self.argument(method, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, method_expr)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(method.span().start, method.span().end),
+                "vi.spyOn method name must be a string",
+            ));
+        }
+        Ok(Some(self.vitest_mock_handle_expr(
+            self.span(call.span.start, call.span.end),
+            body,
+        )))
+    }
+
+    /// Lower Vitest mock-handle methods used to configure or restore mocks.
+    pub(super) fn vitest_mock_handle_method_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let method = member.property.name.as_str();
+        if !matches!(
+            method,
+            "mockImplementation" | "mockRestore" | "mockClear" | "mockReset"
+        ) {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        if method == "mockImplementation" {
+            let [implementation] = call.arguments.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "mockImplementation requires exactly one implementation callback",
+                ));
+            };
+            let _implementation = self.argument(implementation, body)?;
+            return Ok(Some(receiver));
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("{method} does not accept arguments"),
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::None);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Build the opaque value Smelt uses for Vitest mock handles.
+    fn vitest_mock_handle_expr(
+        &mut self,
+        span: smelt_hir::Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        body.push_expr(Expr {
+            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            ty,
+            span,
+        })
+    }
+
     /// Lower async Vitest matcher chains as `Promise<void>` test-side effects.
     pub(super) fn vitest_async_expect_call(
         &mut self,
@@ -634,10 +724,10 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let [pattern_argument] = new_expr.arguments.as_slice() else {
+        let ([pattern_argument] | [pattern_argument, _]) = new_expr.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
-                "RegExp construction currently requires exactly one string pattern argument",
+                "RegExp construction requires a string pattern and optional flags",
             ));
         };
         let pattern = self.argument(pattern_argument, body)?;
@@ -670,10 +760,11 @@ impl ModuleBuilder<'_> {
                         "RegExp.test() requires a RegExp receiver",
                     ));
                 }
-                let [pattern_argument] = new_expr.arguments.as_slice() else {
+                let ([pattern_argument] | [pattern_argument, _]) = new_expr.arguments.as_slice()
+                else {
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
-                        "RegExp construction currently requires exactly one string pattern argument",
+                        "RegExp construction requires a string pattern and optional flags",
                     ));
                 };
                 let pattern = self.argument(pattern_argument, body)?;
@@ -692,10 +783,11 @@ impl ModuleBuilder<'_> {
                         "RegExp.test() requires a RegExp receiver",
                     ));
                 }
-                let [pattern_argument] = call_expr.arguments.as_slice() else {
+                let ([pattern_argument] | [pattern_argument, _]) = call_expr.arguments.as_slice()
+                else {
                     return Err(SmeltError::unsupported(
                         self.span(call_expr.span.start, call_expr.span.end),
-                        "RegExp construction currently requires exactly one string pattern argument",
+                        "RegExp construction requires a string pattern and optional flags",
                     ));
                 };
                 let pattern = self.argument(pattern_argument, body)?;
@@ -1482,9 +1574,30 @@ impl ModuleBuilder<'_> {
                 "slice/substring/substr currently support only omitted, start, and end arguments",
             ));
         }
-        let operand = self.expression(&member.object, body)?;
+        let mut operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
-        let effective_operand_ty = self.type_param_constraint_or_self(operand_ty);
+        let mut effective_operand_ty = self.type_param_constraint_or_self(operand_ty);
+        if matches!(
+            self.ctx.krate.types.get(effective_operand_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) || self.type_contains_unknown(effective_operand_ty)
+            || matches!(
+                self.ctx.krate.types.get(effective_operand_ty),
+                Some(Type::Optional(inner)) if self.is_string_compatible_type(*inner)
+            )
+            || matches!(
+                self.ctx.krate.types.get(effective_operand_ty),
+                Some(Type::Union(items)) if items.iter().any(|item| self.is_string_compatible_type(*item))
+            )
+        {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            operand = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: operand },
+                ty: string_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+            effective_operand_ty = string_ty;
+        }
         if method == "substring"
             && self.ctx.krate.types.get(effective_operand_ty) != Some(&Type::String)
         {
@@ -1579,7 +1692,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a value type is compatible with an array element type.
-    fn array_item_type_compatible(
+    pub(super) fn array_item_type_compatible(
         &mut self,
         actual: smelt_hir::TypeId,
         expected: smelt_hir::TypeId,

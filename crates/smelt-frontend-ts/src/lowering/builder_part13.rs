@@ -156,8 +156,44 @@ impl ModuleBuilder<'_> {
                 "array callback methods require exactly one callback argument",
             ));
         };
-        let list = self.expression(&member.object, body)?;
+        let mut list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
+        let list_ty = match self.ctx.krate.types.get(list_ty) {
+            Some(Type::List(_)) => list_ty,
+            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                list = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: list },
+                    ty: asserted_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                asserted_ty
+            }
+            Some(Type::Union(items))
+                if items.iter().any(|item| {
+                    matches!(
+                        self.ctx.krate.types.get(*item),
+                        Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
+                    )
+                }) =>
+            {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                list = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: list },
+                    ty: asserted_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                asserted_ty
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array callback method receiver must be an array",
+                ));
+            }
+        };
         let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -2330,6 +2366,57 @@ impl ModuleBuilder<'_> {
                                 ty,
                             }
                         }
+                        ArrayExpressionElement::ComputedMemberExpression(member) => {
+                            let receiver =
+                                self.callback_expression(&member.object, params, body)?;
+                            let index =
+                                self.callback_expression(&member.expression, params, body)?;
+                            if self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                                != Some(&Type::Float)
+                                && self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                                    != Some(&Type::Int)
+                                && self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                                    != Some(&Type::Unknown)
+                            {
+                                return Err(SmeltError::unsupported(
+                                    self.span(
+                                        member.expression.span().start,
+                                        member.expression.span().end,
+                                    ),
+                                    "callback dynamic computed access index must be a number",
+                                ));
+                            }
+                            let item_ty = match self
+                                .ctx
+                                .krate
+                                .types
+                                .get(self.type_param_constraint_or_self(receiver.ty))
+                            {
+                                Some(Type::List(item_ty)) => *item_ty,
+                                Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+                                Some(Type::Unknown | Type::TypeParam { .. }) => {
+                                    self.ctx.krate.types.intern(Type::Unknown)
+                                }
+                                Some(Type::Union(union_items))
+                                    if union_items.iter().any(|item| {
+                                        matches!(
+                                            self.ctx.krate.types.get(*item),
+                                            Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
+                                        )
+                                    }) =>
+                                {
+                                    self.ctx.krate.types.intern(Type::Unknown)
+                                }
+                                _ => self.ctx.krate.types.intern(Type::Unknown),
+                            };
+                            CallbackExpr {
+                                kind: CallbackExprKind::DynamicIndex {
+                                    receiver: Box::new(receiver),
+                                    index: Box::new(index),
+                                },
+                                ty: item_ty,
+                            }
+                        }
                         _ => {
                             return Err(SmeltError::unsupported(
                                 self.span(element.span().start, element.span().end),
@@ -2647,6 +2734,9 @@ impl ModuleBuilder<'_> {
                             }
                             Some(Type::List(item_ty)) => *item_ty,
                             Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+                            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                                self.ctx.krate.types.intern(Type::Unknown)
+                            }
                             _ => {
                                 return Err(SmeltError::unsupported(
                                     self.span(member.span.start, member.span.end),
@@ -2665,6 +2755,10 @@ impl ModuleBuilder<'_> {
                 let index = self.callback_expression(&member.expression, params, body)?;
                 if self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
                     != Some(&Type::Float)
+                    && self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                        != Some(&Type::Int)
+                    && self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                        != Some(&Type::Unknown)
                 {
                     return Err(SmeltError::unsupported(
                         self.span(member.expression.span().start, member.expression.span().end),
@@ -2679,12 +2773,20 @@ impl ModuleBuilder<'_> {
                 {
                     Some(Type::List(item_ty)) => *item_ty,
                     Some(Type::String) => self.ctx.krate.types.intern(Type::String),
-                    _ => {
-                        return Err(SmeltError::unsupported(
-                            self.span(member.span.start, member.span.end),
-                            "callback dynamic computed access receiver must be an array or string",
-                        ));
+                    Some(Type::Unknown | Type::TypeParam { .. }) => {
+                        self.ctx.krate.types.intern(Type::Unknown)
                     }
+                    Some(Type::Union(items))
+                        if items.iter().any(|item| {
+                            matches!(
+                                self.ctx.krate.types.get(*item),
+                                Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
+                            )
+                        }) =>
+                    {
+                        self.ctx.krate.types.intern(Type::Unknown)
+                    }
+                    _ => self.ctx.krate.types.intern(Type::Unknown),
                 };
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::DynamicIndex {
@@ -2898,11 +3000,73 @@ impl ModuleBuilder<'_> {
                     ty: self.ctx.krate.types.intern(Type::Bool),
                 })
             }
+            Expression::TemplateLiteral(template) => {
+                self.callback_template_literal(template, params, body)
+            }
             _ => Err(SmeltError::unsupported(
                 self.expression_span(expression),
                 "callback expression kind is not supported yet",
             )),
         }
+    }
+
+    /// Lower a callback template literal as string concatenation.
+    fn callback_template_literal(
+        &mut self,
+        template: &oxc::ast::ast::TemplateLiteral<'_>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let Some(first_quasi) = template.quasis.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(template.span.start, template.span.end),
+                "callback template literals must contain at least one quasi",
+            ));
+        };
+        let first_text = first_quasi
+            .value
+            .cooked
+            .as_ref()
+            .map_or_else(|| first_quasi.value.raw.as_str(), |cooked| cooked.as_str())
+            .to_owned();
+        let mut acc = CallbackExpr {
+            kind: CallbackExprKind::Literal(Literal::String(first_text)),
+            ty: string_ty,
+        };
+        for (index, expression) in template.expressions.iter().enumerate() {
+            let part = self.callback_expression(expression, params, body)?;
+            acc = CallbackExpr {
+                kind: CallbackExprKind::Binary {
+                    op: BinOp::Add,
+                    lhs: Box::new(acc),
+                    rhs: Box::new(part),
+                },
+                ty: string_ty,
+            };
+            if let Some(quasi) = template.quasis.get(index.saturating_add(1)) {
+                let text = quasi
+                    .value
+                    .cooked
+                    .as_ref()
+                    .map_or_else(|| quasi.value.raw.as_str(), |cooked| cooked.as_str());
+                if !text.is_empty() {
+                    let literal = CallbackExpr {
+                        kind: CallbackExprKind::Literal(Literal::String(text.to_owned())),
+                        ty: string_ty,
+                    };
+                    acc = CallbackExpr {
+                        kind: CallbackExprKind::Binary {
+                            op: BinOp::Add,
+                            lhs: Box::new(acc),
+                            rhs: Box::new(literal),
+                        },
+                        ty: string_ty,
+                    };
+                }
+            }
+        }
+        Ok(acc)
     }
 
     /// Lower callback `typeof value` expressions to string literals.
@@ -3130,16 +3294,16 @@ impl ModuleBuilder<'_> {
             "lastIndexOf" => ListSearchOp::RFind,
             _ => return Ok(None),
         };
+        let list = self.expression(&member.object, body)?;
+        let list_ty = Self::expr_ty(body, list);
+        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
+            return Ok(None);
+        };
         let [item_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array indexOf/lastIndexOf currently require exactly one item argument",
             ));
-        };
-        let list = self.expression(&member.object, body)?;
-        let list_ty = Self::expr_ty(body, list);
-        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
-            return Ok(None);
         };
         let item_ty = *element_ty;
         let item = self.argument(item_argument, body)?;

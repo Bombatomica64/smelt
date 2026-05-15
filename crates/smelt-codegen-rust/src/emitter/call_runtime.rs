@@ -379,6 +379,7 @@ impl FunctionEmitter<'_> {
                 separator,
                 limit,
             } => self.string_split_text(haystack, separator, limit.as_ref()),
+            Rvalue::StringChars { haystack } => self.string_chars_text(haystack),
             Rvalue::StringJoin { items, separator } => self.string_join_text(items, separator),
             Rvalue::JsonStringify { value: json_value } => {
                 self.json_stringify_text(json_value, dest_ty)

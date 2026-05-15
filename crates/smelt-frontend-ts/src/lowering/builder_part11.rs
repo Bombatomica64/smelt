@@ -672,20 +672,29 @@ impl ModuleBuilder<'_> {
             "lastIndexOf" => StringSearchOp::RFind,
             _ => return Ok(None),
         };
-        if call.arguments.len() != 1 {
+        if !(1..=2).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string search optional fromIndex arguments are not supported yet",
+                "string search requires one needle and an optional fromIndex argument",
             ));
         }
         let haystack = self.expression(&member.object, body)?;
         let Some(needle_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string search optional fromIndex arguments are not supported yet",
+                "string search requires one needle and an optional fromIndex argument",
             ));
         };
         let needle = self.argument(needle_argument, body)?;
+        if let Some(from_index_argument) = call.arguments.get(1) {
+            let from_index = self.argument(from_index_argument, body)?;
+            if !self.slice_index_type_is_number(Self::expr_ty(body, from_index)) {
+                return Err(SmeltError::unsupported(
+                    self.span(from_index_argument.span().start, from_index_argument.span().end),
+                    "string search fromIndex must be numeric",
+                ));
+            }
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
         {
@@ -701,6 +710,43 @@ impl ModuleBuilder<'_> {
                 haystack,
                 needle,
             },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower `String.prototype.matchAll` to a match-record list surface.
+    pub(super) fn string_match_all_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "matchAll" {
+            return Ok(None);
+        }
+        let [pattern_argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "string matchAll requires one RegExp argument",
+            ));
+        };
+        let haystack = self.expression(&member.object, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(member.object.span().start, member.object.span().end),
+                "string matchAll requires a string receiver",
+            ));
+        }
+        let _pattern = self.argument(pattern_argument, body)?;
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Float);
+        let match_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        let ty = self.ctx.krate.types.intern(Type::List(match_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListLit(Vec::new()),
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

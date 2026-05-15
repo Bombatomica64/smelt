@@ -29,6 +29,12 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.vitest_mock_function_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.vitest_spy_on_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.vitest_mock_handle_method_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.sinon_fake_timers_call(call, body)? {
             return Ok(expr);
         }
@@ -150,6 +156,9 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.string_match_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.string_match_all_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.string_case_call(call, body)? {
@@ -283,6 +292,18 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Expression::StaticMemberExpression(member) = &call.callee {
+            if member.property.name == "next" && call.arguments.is_empty() {
+                let receiver = self.expression(&member.object, body)?;
+                let receiver_ty = Self::expr_ty(body, receiver);
+                if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_))) {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: receiver },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+            }
             let receiver = self.expression(&member.object, body)?;
             let method = self.intern_source_name(member.property.name.as_str());
             let receiver_ty = Self::expr_ty(body, receiver);

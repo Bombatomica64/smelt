@@ -530,6 +530,20 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Converts a string into a list of one-character strings.
+    pub(super) fn string_chars_text(&self, haystack: &Operand) -> Result<String, EmitError> {
+        if !matches!(
+            self.mir.types.get(self.operand_ty(haystack)?),
+            Some(Type::String)
+        ) {
+            return Err(EmitError::new("string chars operand must be a string"));
+        }
+        Ok(format!(
+            "{}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()",
+            self.operand_text(haystack)?
+        ))
+    }
+
     /// Converts a string join operation to Rust text.
     /// Converts a string join operation to Rust text.
     pub(super) fn string_join_text(

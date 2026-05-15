@@ -623,6 +623,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 optional_expr_ref(*limit)
             )
         }
+        ExprKind::StringChars { haystack } => {
+            format!("string_chars {}", expr_ref(*haystack))
+        }
         ExprKind::StringJoin { items, separator } => {
             format!("string_join {}, {}", expr_ref(*items), expr_ref(*separator))
         }

@@ -989,7 +989,38 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        self.apply_assignment_observed_type(&assign.left, Self::expr_ty(body, value), body);
         Ok((target, value))
+    }
+
+    /// Record the observed type produced by assigning into an unknown local.
+    ///
+    /// TypeScript flow analysis narrows a variable's observed type after direct
+    /// assignment even when its declaration started as `unknown` in Smelt's
+    /// no-`any` model. Keeping this as a narrowing fact preserves the local's
+    /// declared storage type while allowing later reads in the same flow to be
+    /// lowered with the assigned value type.
+    fn apply_assignment_observed_type(
+        &mut self,
+        target: &AssignmentTarget<'_>,
+        observed_ty: smelt_hir::TypeId,
+        body: &Body,
+    ) {
+        let AssignmentTarget::AssignmentTargetIdentifier(identifier) = target else {
+            return;
+        };
+        let name = identifier.name.as_str();
+        let Some(local) = self.locals.get(name).copied() else {
+            return;
+        };
+        let base_ty = Self::local_ty(body, local);
+        if self.ctx.krate.types.get(base_ty) != Some(&Type::Unknown) {
+            return;
+        }
+        if self.ctx.krate.types.get(observed_ty) == Some(&Type::Unknown) {
+            return;
+        }
+        self.apply_narrowing(name.to_owned(), observed_ty);
     }
 
     /// Extract target and value from increment/decrement expression.

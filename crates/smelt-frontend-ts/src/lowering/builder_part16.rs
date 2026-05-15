@@ -2023,6 +2023,14 @@ impl ModuleBuilder<'_> {
             if let Some(ty) = self.module_globals.get(name).copied() {
                 return self.module_global_expression(ty, start, end, body);
             }
+            if name == "console" {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(start, end),
+                }));
+            }
             if self.value_imports.contains(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(ty, start, end, body);
@@ -2171,6 +2179,7 @@ impl ModuleBuilder<'_> {
             Some(Type::Float) => ExprKind::Literal(Literal::Float(0.0)),
             Some(Type::String) => ExprKind::Literal(Literal::String(String::new())),
             Some(Type::List(_)) => ExprKind::ListLit(Vec::new()),
+            Some(Type::Set(_)) => ExprKind::SetLit(Vec::new()),
             _ => {
                 return Err(SmeltError::unsupported(
                     self.span(start, end),

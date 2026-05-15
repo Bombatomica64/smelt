@@ -1182,6 +1182,11 @@ pub enum Rvalue {
         /// Optional maximum number of pieces.
         limit: Option<Operand>,
     },
+    /// Convert a string into one-character strings.
+    StringChars {
+        /// String value to expand.
+        haystack: Operand,
+    },
     /// Join a list of strings with a separator string.
     StringJoin {
         /// String items to join.

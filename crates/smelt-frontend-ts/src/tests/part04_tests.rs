@@ -1748,6 +1748,37 @@ it("logs diagnostic output", () => {
 }
 
 #[test]
+fn lowers_vitest_spy_on_console_mock_lifecycle() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { beforeEach, afterEach, describe, it, vi } from "vitest";
+import type { MockInstance } from "vitest";
+
+describe("console.warn", () => {
+  let warn: MockInstance;
+
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it("runs", () => {
+    console.warn("hidden");
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_object_has_own_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2222,14 +2253,13 @@ const literalHasDigits = /\d+/.test(text);
 #[test]
 fn rejects_unsupported_regexp_test_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let flags = lowering_errors(
+    lower_ok(
         ts!(r#"
 const text = "abc123";
 const hasDigits = new RegExp("\\d+", "g").test(text);
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&flags, "exactly one string pattern")?;
 
     let mut ctx = HirCtx::new();
     let non_string = lowering_errors(

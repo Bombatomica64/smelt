@@ -297,9 +297,45 @@ impl ModuleBuilder<'_> {
         if member.property.name != "join" {
             return Ok(None);
         }
-        let items = self.expression(&member.object, body)?;
+        let mut items = self.expression(&member.object, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let items_ty = self.type_param_constraint_or_self(Self::expr_ty(body, items));
+        let items_ty = match self.ctx.krate.types.get(items_ty) {
+            Some(Type::List(_)) => items_ty,
+            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                items = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: items },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                list_ty
+            }
+            Some(Type::Union(members))
+                if members.iter().any(|union_member| {
+                    matches!(
+                        self.ctx.krate.types.get(*union_member),
+                        Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
+                    )
+                }) =>
+            {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                items = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: items },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                list_ty
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array join requires an array receiver",
+                ));
+            }
+        };
         let Some(Type::List(item_ty)) = self.ctx.krate.types.get(items_ty) else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -385,18 +421,39 @@ impl ModuleBuilder<'_> {
                 "string includes requires exactly one argument",
             ));
         }
-        let haystack = self.expression(&member.object, body)?;
+        let mut haystack = self.expression(&member.object, body)?;
         let Some(needle_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "string includes requires exactly one argument",
             ));
         };
-        let needle = self.argument(needle_argument, body)?;
+        let mut needle = self.argument(needle_argument, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
         let haystack_ty = Self::expr_ty(body, haystack);
+        if self.ctx.krate.types.get(haystack_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(haystack_ty)
+        {
+            haystack = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: haystack },
+                ty: string_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+        }
         let needle_ty = Self::expr_ty(body, needle);
-        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
-            || self.ctx.krate.types.get(needle_ty) != Some(&Type::String)
+        if self.ctx.krate.types.get(needle_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(needle_ty)
+        {
+            needle = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: needle },
+                ty: string_ty,
+                span: self.span(needle_argument.span().start, needle_argument.span().end),
+            });
+        }
+        let coerced_haystack_ty = Self::expr_ty(body, haystack);
+        let coerced_needle_ty = Self::expr_ty(body, needle);
+        if self.ctx.krate.types.get(coerced_haystack_ty) != Some(&Type::String)
+            || self.ctx.krate.types.get(coerced_needle_ty) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -436,7 +493,7 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let item = self.argument(item_argument, body)?;
-        if Self::expr_ty(body, item) != item_ty {
+        if !self.array_item_type_compatible(Self::expr_ty(body, item), item_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array includes argument must match the array element type",
@@ -475,7 +532,7 @@ impl ModuleBuilder<'_> {
         };
         let element_ty = *set_element_ty;
         let item = self.argument(item_argument, body)?;
-        if Self::expr_ty(body, item) != element_ty {
+        if !self.array_item_type_compatible(Self::expr_ty(body, item), element_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "Set.has argument must match the set element type",
@@ -517,7 +574,7 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let item = self.argument(item_argument, body)?;
-                if Self::expr_ty(body, item) != element_ty {
+                if !self.array_item_type_compatible(Self::expr_ty(body, item), element_ty) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
                         "Set.add item must match the set element type",
@@ -537,7 +594,7 @@ impl ModuleBuilder<'_> {
                     ));
                 };
                 let item = self.argument(item_argument, body)?;
-                if Self::expr_ty(body, item) != element_ty {
+                if !self.array_item_type_compatible(Self::expr_ty(body, item), element_ty) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
                         "Set.delete item must match the set element type",

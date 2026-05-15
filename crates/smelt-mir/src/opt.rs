@@ -513,6 +513,7 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(separator, aliases, dest)
                 | rewrite_optional_operand_except(limit, aliases, dest)
         }
+        Rvalue::StringChars { haystack } => rewrite_operand_except(haystack, aliases, dest),
         Rvalue::StringJoin { items, separator } => {
             rewrite_operand_except(items, aliases, dest)
                 | rewrite_operand_except(separator, aliases, dest)

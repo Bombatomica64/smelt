@@ -410,6 +410,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn is_module_global_array_initializer(init: &Expression<'_>) -> bool {
         match init {
             Expression::ArrayExpression(_) => true,
+            Expression::NewExpression(new_expr) => matches!(
+                &new_expr.callee,
+                Expression::Identifier(callee) if matches!(callee.name.as_str(), "Set" | "Map")
+            ),
             Expression::TSAsExpression(as_expr) => {
                 Self::is_module_global_array_initializer(&as_expr.expression)
             }

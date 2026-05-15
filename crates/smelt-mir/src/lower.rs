@@ -2536,6 +2536,17 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringChars { haystack } => {
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringChars {
+                        haystack: haystack_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringJoin { items, separator } => {
                 let items_operand = self.lower_expr(*items)?;
                 let separator_operand = self.lower_expr(*separator)?;
@@ -3123,6 +3134,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::DictCopy { .. }
             | ExprKind::DictProjection { .. }
             | ExprKind::StringSplit { .. }
+            | ExprKind::StringChars { .. }
             | ExprKind::StringJoin { .. }
             | ExprKind::JsonStringify { .. }
             | ExprKind::JsonParse { .. }

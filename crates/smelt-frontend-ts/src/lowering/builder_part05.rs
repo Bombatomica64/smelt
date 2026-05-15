@@ -107,20 +107,18 @@ impl ModuleBuilder<'_> {
             if self.dynamic_test_alias_call(&expr_stmt.expression) {
                 continue;
             }
-            let Some(test_call) = self.test_case_call(&expr_stmt.expression) else {
-                return Err(SmeltError::unsupported(
-                    self.statement_span(statement),
-                    "describe blocks only support direct it/test/describe calls for now",
-                ));
-            };
-            items.push(self.test_case_declaration(
-                test_call,
-                Some(group_name),
-                &setup,
-                &before_each,
-                &after_each,
-                table_bindings,
-            )?);
+            if let Some(test_call) = self.test_case_call(&expr_stmt.expression) {
+                items.push(self.test_case_declaration(
+                    test_call,
+                    Some(group_name),
+                    &setup,
+                    &before_each,
+                    &after_each,
+                    table_bindings,
+                )?);
+                continue;
+            }
+            setup.push(statement);
         }
         Ok(items)
     }

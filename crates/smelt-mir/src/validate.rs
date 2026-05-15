@@ -589,6 +589,9 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, separator, errors);
             validate_optional_operand_exists(function, limit.as_ref(), errors);
         }
+        Rvalue::StringChars { haystack } => {
+            validate_operand_exists(function, haystack, errors);
+        }
         Rvalue::StringJoin { items, separator } => {
             validate_operand_exists(function, items, errors);
             validate_operand_exists(function, separator, errors);
@@ -1283,6 +1286,9 @@ fn validate_rvalue(
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, separator, errors);
             validate_optional_operand(function, definitions, limit.as_ref(), errors);
+        }
+        Rvalue::StringChars { haystack } => {
+            validate_operand(function, definitions, haystack, errors);
         }
         Rvalue::StringJoin { items, separator } => {
             validate_operand(function, definitions, items, errors);

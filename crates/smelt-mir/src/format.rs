@@ -895,6 +895,9 @@ fn rvalue_text(value: &Rvalue) -> String {
                 optional_operand_text(limit.as_ref())
             )
         }
+        Rvalue::StringChars { haystack } => {
+            format!("string_chars {}", operand_text(haystack))
+        }
         Rvalue::StringJoin { items, separator } => {
             format!(
                 "string_join {}, {}",

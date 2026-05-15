@@ -33,6 +33,43 @@ const trunc = Math.trunc(value);
 }
 
 #[test]
+fn narrows_unannotated_local_after_numeric_assignment() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function years(value: number): number {
+  let months;
+  if (value < 2) {
+    months = Math.round(value);
+    return months;
+  }
+  months = value;
+  return Math.trunc(months / 12);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(
+                expr.kind,
+                ExprKind::NumericRound {
+                    op: NumericRoundOp::Trunc,
+                    ..
+                }
+            )),
+        "expected Math.trunc to accept the assigned numeric local",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_math_extrema_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -334,6 +334,36 @@ impl ModuleBuilder<'_> {
                 (Vec::new(), ty)
             }
             [Argument::ArrayExpression(array)] => {
+                if array
+                    .elements
+                    .iter()
+                    .any(|element| matches!(element, ArrayExpressionElement::SpreadElement(_)))
+                {
+                    let list = self.array_expression(array, body, None)?;
+                    let list_ty = self.type_param_constraint_or_self(Self::expr_ty(body, list));
+                    let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+                        return Err(SmeltError::unsupported(
+                            self.span(array.span.start, array.span.end),
+                            "new Set([...spread]) requires an array literal argument",
+                        ));
+                    };
+                    let ty = if let Some(hint) = type_hint {
+                        if !matches!(self.ctx.krate.types.get(hint), Some(Type::Set(_))) {
+                            return Err(SmeltError::unsupported(
+                                self.span(new_expr.span.start, new_expr.span.end),
+                                "new Set([...]) requires a Set<T> type annotation when annotated",
+                            ));
+                        }
+                        hint
+                    } else {
+                        self.ctx.krate.types.intern(Type::Set(*item_ty))
+                    };
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::ListToSet { list },
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    })));
+                }
                 let items = array
                     .elements
                     .iter()
@@ -1251,6 +1281,7 @@ impl ModuleBuilder<'_> {
             let value_ty = self.type_param_constraint_or_self(Self::expr_ty(body, spread_value));
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
+                Some(Type::String) => self.ctx.krate.types.intern(Type::String),
                 Some(Type::TypeParam { .. }) => self.ctx.krate.types.intern(Type::Unknown),
                 _ => {
                     return Err(SmeltError::unsupported(
@@ -1364,6 +1395,11 @@ impl ModuleBuilder<'_> {
                     op: SetProjectionOp::Values,
                     set: value,
                 },
+                ty: list_ty,
+                span: self.span(span.start, span.end),
+            })),
+            Some(Type::String) => Ok(body.push_expr(Expr {
+                kind: ExprKind::StringChars { haystack: value },
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
