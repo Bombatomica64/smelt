@@ -421,7 +421,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             optional_expr_ref(*delete_count),
             items
                 .iter()
-                .map(|item| expr_ref(*item))
+                .map(|item| {
+                    if item.spread {
+                        format!("...{}", expr_ref(item.value))
+                    } else {
+                        expr_ref(item.value)
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", "),
             mutate
@@ -608,11 +614,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::StringSplit {
             haystack,
             separator,
+            limit,
         } => {
             format!(
-                "string_split {}, {}",
+                "string_split {}, {}, {}",
                 expr_ref(*haystack),
-                expr_ref(*separator)
+                expr_ref(*separator),
+                optional_expr_ref(*limit)
             )
         }
         ExprKind::StringJoin { items, separator } => {

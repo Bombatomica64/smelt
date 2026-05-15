@@ -181,29 +181,43 @@ impl ModuleBuilder<'_> {
         if member.property.name != "split" {
             return Ok(None);
         }
-        if call.arguments.len() != 1 {
+        if call.arguments.is_empty() || call.arguments.len() > 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string split requires exactly one separator argument",
+                "string split requires a separator and optional limit argument",
             ));
         }
         let haystack = self.expression(&member.object, body)?;
         let Some(separator_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "string split requires exactly one separator argument",
+                "string split requires a separator argument",
             ));
         };
         let separator = self.argument(separator_argument, body)?;
+        let limit = call
+            .arguments
+            .get(1)
+            .map(|argument| self.argument(argument, body))
+            .transpose()?;
         let haystack_ty = Self::expr_ty(body, haystack);
         let separator_ty = Self::expr_ty(body, separator);
         if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
-            || self.ctx.krate.types.get(separator_ty) != Some(&Type::String)
+            || !self.string_split_separator_type_is_supported(separator_ty)
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "string split requires string receiver and separator",
             ));
+        }
+        if let Some(limit) = limit {
+            let limit_ty = Self::expr_ty(body, limit);
+            if !self.string_split_limit_type_is_supported(limit_ty) {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string split limit must be numeric or undefined",
+                ));
+            }
         }
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let ty = self.ctx.krate.types.intern(Type::List(string_ty));
@@ -211,10 +225,55 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::StringSplit {
                 haystack,
                 separator,
+                limit,
             },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether a type can act as a JavaScript string split separator.
+    fn string_split_separator_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::String | Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Class { name, .. }) => self
+                .ctx
+                .krate
+                .symbols
+                .get(*name)
+                .is_some_and(|name| name == "RegExp"),
+            Some(Type::Optional(item)) => self.string_split_separator_type_is_supported(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.string_split_separator_type_is_supported(item)),
+            _ => false,
+        }
+    }
+
+    /// Return whether a type can act as a JavaScript string split limit.
+    fn string_split_limit_type_is_supported(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::Int | Type::Float | Type::None | Type::Unknown | Type::TypeParam { .. }) => {
+                true
+            }
+            Some(Type::Optional(item)) => self.string_split_limit_type_is_supported(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.string_split_limit_type_is_supported(item)),
+            _ => false,
+        }
     }
 
     /// Lower array entries passed to a `Promise.*` combinator.

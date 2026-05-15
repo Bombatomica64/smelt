@@ -236,10 +236,12 @@ fn emits_string_split_method() {
         r#"
 const word = "a,b,c";
 const parts = word.split(",");
+const limited = word.split(",", 2);
 "#,
     );
 
     assert!(source.contains(".split(&\",\".to_owned()).map(str::to_owned).collect::<Vec<_>>();"));
+    assert!(source.contains(".take((2.0 as f64).max(0.0) as usize)"));
 }
 
 #[test]
@@ -393,6 +395,7 @@ let values: number[] = [1, 2, 3, 4];
 let nested: number[][] = [[1], [2, 3]];
 const spliced = values.splice(1, 2, 9);
 const copiedSplice = values.toSpliced(1, 1, 8);
+const spreadSplice = values.toSpliced(1, 1, ...[10, 11]);
 const filled = values.fill(0, 1, 3);
 const copiedWithin = values.copyWithin(0, 1, 3);
 const replaced = values.with(1, 7);
@@ -409,6 +412,7 @@ const entries = values.entries();
     );
 
     assert!(source.contains(".splice("));
+    assert!(source.contains("splice_replacements.extend"));
     assert!(source.contains("copy_items"));
     assert!(source.contains("fill_index"));
     assert!(source.contains("with_items"));

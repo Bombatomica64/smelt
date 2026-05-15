@@ -387,6 +387,10 @@ impl ModuleBuilder<'_> {
                 self.computed_member(member, body)
             }
             Expression::CallExpression(call) => self.call_expression(call, body),
+            Expression::AssignmentExpression(assign) => {
+                let (_target, value) = self.assignment_parts(assign, body)?;
+                Ok(value)
+            }
             Expression::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)
             }

@@ -290,6 +290,7 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::StringSplit {
                 haystack,
                 separator,
+                limit: None,
             },
             ty,
             span,

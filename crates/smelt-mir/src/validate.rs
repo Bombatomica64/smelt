@@ -405,7 +405,7 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, start, errors);
             validate_optional_operand_exists(function, delete_count.as_ref(), errors);
             for item in items {
-                validate_operand_exists(function, item, errors);
+                validate_operand_exists(function, &item.value, errors);
             }
         }
         Rvalue::ListFill {
@@ -583,9 +583,11 @@ fn validate_rvalue_exists(
         Rvalue::StringSplit {
             haystack,
             separator,
+            limit,
         } => {
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, separator, errors);
+            validate_optional_operand_exists(function, limit.as_ref(), errors);
         }
         Rvalue::StringJoin { items, separator } => {
             validate_operand_exists(function, items, errors);
@@ -1098,7 +1100,7 @@ fn validate_rvalue(
             validate_operand(function, definitions, start, errors);
             validate_optional_operand(function, definitions, delete_count.as_ref(), errors);
             for item in items {
-                validate_operand(function, definitions, item, errors);
+                validate_operand(function, definitions, &item.value, errors);
             }
         }
         Rvalue::ListFill {
@@ -1276,9 +1278,11 @@ fn validate_rvalue(
         Rvalue::StringSplit {
             haystack,
             separator,
+            limit,
         } => {
             validate_operand(function, definitions, haystack, errors);
             validate_operand(function, definitions, separator, errors);
+            validate_optional_operand(function, definitions, limit.as_ref(), errors);
         }
         Rvalue::StringJoin { items, separator } => {
             validate_operand(function, definitions, items, errors);

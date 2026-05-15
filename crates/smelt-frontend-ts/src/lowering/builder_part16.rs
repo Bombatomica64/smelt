@@ -729,6 +729,17 @@ impl ModuleBuilder<'_> {
             TSTupleElement::TSIndexedAccessType(_) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
+            TSTupleElement::TSConditionalType(conditional) => {
+                let true_ty = self.ts_type_to_hir(&conditional.true_type)?;
+                let false_ty = self.ts_type_to_hir(&conditional.false_type)?;
+                if true_ty == false_ty {
+                    Ok(true_ty)
+                } else {
+                    Ok(self.ctx.krate.types.intern(Type::Union(vec![
+                        true_ty, false_ty,
+                    ])))
+                }
+            }
             TSTupleElement::TSTypeOperatorType(operator)
                 if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Readonly =>
             {

@@ -13,8 +13,8 @@ use smelt_hir::{
 
 use crate::{
     BasicBlock, BlockId, BuiltinFn, Callee, ClosureId, Constant, FuncId, HirOrigin, LocalDecl,
-    LocalId, LocalKind, Mir, MirClosure, MirClosureCapture, MirFunction, Operand, Place, Rvalue,
-    Statement, Terminator,
+    LocalId, LocalKind, Mir, MirClosure, MirClosureCapture, MirFunction, MirListSpliceItem,
+    Operand, Place, Rvalue, Statement, Terminator,
 };
 
 /// Converts a `usize` into `u32`, panicking if it does not fit.
@@ -1942,7 +1942,12 @@ impl<'hir> LoweringCtx<'hir> {
                     .transpose()?;
                 let item_operands = items
                     .iter()
-                    .map(|item| self.lower_expr(*item))
+                    .map(|item| {
+                        Ok(MirListSpliceItem {
+                            value: self.lower_expr(item.value)?,
+                            spread: item.spread,
+                        })
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
@@ -2513,15 +2518,20 @@ impl<'hir> LoweringCtx<'hir> {
             ExprKind::StringSplit {
                 haystack,
                 separator,
+                limit,
             } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let separator_operand = self.lower_expr(*separator)?;
+                let limit_operand = limit
+                    .map(|limit_expr| self.lower_expr(limit_expr))
+                    .transpose()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::StringSplit {
                         haystack: haystack_operand,
                         separator: separator_operand,
+                        limit: limit_operand,
                     },
                 });
                 Operand::Copy(Place::Local(dest))

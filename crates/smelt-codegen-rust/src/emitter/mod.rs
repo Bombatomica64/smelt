@@ -12,7 +12,7 @@ use crate::{EmitError, compact_index, id_index, sanitize_ident};
 use smelt_hir::{Symbol, Type, TypeId};
 use smelt_mir::{
     BasicBlock, BuiltinFn, Callee, Constant, HirOrigin, LocalId, LocalKind, Mir, MirFunction,
-    Operand, Place, Rvalue, Statement, Terminator,
+    MirListSpliceItem, Operand, Place, Rvalue, Statement, Terminator,
 };
 use std::collections::{HashMap, HashSet};
 

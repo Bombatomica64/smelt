@@ -351,7 +351,7 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(start, aliases, dest)
                 | rewrite_optional_operand_except(delete_count, aliases, dest);
             for item in items {
-                changed |= rewrite_operand_except(item, aliases, dest);
+                changed |= rewrite_operand_except(&mut item.value, aliases, dest);
             }
             changed
         }
@@ -507,9 +507,11 @@ fn rewrite_rvalue(
         Rvalue::StringSplit {
             haystack,
             separator,
+            limit,
         } => {
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(separator, aliases, dest)
+                | rewrite_optional_operand_except(limit, aliases, dest)
         }
         Rvalue::StringJoin { items, separator } => {
             rewrite_operand_except(items, aliases, dest)

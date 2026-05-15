@@ -28,10 +28,13 @@ pub(crate) enum SourceLang {
 impl SourceLang {
     /// Infers the source language from a path extension.
     pub(crate) fn from_path(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        if path.ends_with(".d.ts") {
+        if is_typescript_declaration_path(path) {
             return Ok(Self::TypeScriptDeclaration);
         }
-        if path.ends_with(".pyi") {
+        if Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pyi"))
+        {
             return Ok(Self::PythonDeclaration);
         }
         match Path::new(path).extension().and_then(|e| e.to_str()) {
@@ -45,16 +48,19 @@ impl SourceLang {
     pub(crate) const fn is_typescript(self) -> bool {
         matches!(self, Self::TypeScript | Self::TypeScriptDeclaration)
     }
+}
 
-    /// Returns whether this path kind is lowered by the Python frontend.
-    pub(crate) const fn is_python(self) -> bool {
-        matches!(self, Self::Python | Self::PythonDeclaration)
-    }
-
-    /// Returns whether this path kind carries declarations rather than runtime source.
-    pub(crate) const fn is_declaration(self) -> bool {
-        matches!(self, Self::TypeScriptDeclaration | Self::PythonDeclaration)
-    }
+/// Return whether a path names a TypeScript declaration file.
+fn is_typescript_declaration_path(path: &str) -> bool {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|file_name| {
+            let lower_name = file_name.to_ascii_lowercase();
+            lower_name.ends_with(".d.ts")
+                || lower_name.ends_with(".d.mts")
+                || lower_name.ends_with(".d.cts")
+        })
 }
 
 /// Represents a lowered crate with its modules.
@@ -145,7 +151,9 @@ pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std:
         SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
             lower_typescript_files(&[file.to_owned()])
         }
-        SourceLang::Python | SourceLang::PythonDeclaration => lower_python_files(&[file.to_owned()]),
+        SourceLang::Python | SourceLang::PythonDeclaration => {
+            lower_python_files(&[file.to_owned()])
+        }
     }
 }
 

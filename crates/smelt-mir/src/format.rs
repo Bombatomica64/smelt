@@ -662,7 +662,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             optional_operand_text(delete_count.as_ref()),
             items
                 .iter()
-                .map(operand_text)
+                .map(|item| {
+                    if item.spread {
+                        format!("...{}", operand_text(&item.value))
+                    } else {
+                        operand_text(&item.value)
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", "),
             mutate
@@ -880,11 +886,13 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::StringSplit {
             haystack,
             separator,
+            limit,
         } => {
             format!(
-                "string_split {}, {}",
+                "string_split {}, {}, {}",
                 operand_text(haystack),
-                operand_text(separator)
+                operand_text(separator),
+                optional_operand_text(limit.as_ref())
             )
         }
         Rvalue::StringJoin { items, separator } => {

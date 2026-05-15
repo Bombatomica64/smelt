@@ -8,6 +8,16 @@ use super::{
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
+
+/// A replacement argument passed to array splice-style operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ListSpliceItem {
+    /// Replacement value or array value when `spread` is true.
+    pub value: ExprId,
+    /// Whether the source argument used JavaScript spread syntax.
+    pub spread: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[expect(
     missing_docs,
@@ -260,7 +270,7 @@ pub enum ExprKind {
         list: ExprId,
         start: ExprId,
         delete_count: Option<ExprId>,
-        items: Vec<ExprId>,
+        items: Vec<ListSpliceItem>,
         mutate: bool,
     },
     ListFill {
@@ -421,6 +431,7 @@ pub enum ExprKind {
     StringSplit {
         haystack: ExprId,
         separator: ExprId,
+        limit: Option<ExprId>,
     },
     StringJoin {
         items: ExprId,

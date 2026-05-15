@@ -63,10 +63,11 @@ pub use body::{
 pub use expr::{
     AsyncOp, BinOp, BoolFoldOp, CallbackCallArg, CallbackExpr, CallbackExprKind, CaptureMode,
     ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, ListCallbackOp,
-    ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp, SetProjectionOp, SetRelationOp,
-    SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, UnaryOp, UnknownKind, UrlField, bin_op_text,
+    ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
+    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp,
+    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, UnknownKind,
+    UrlField, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{

@@ -3,7 +3,8 @@
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    BinOp, Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, RegexMatchOp, Type,
+    BinOp, Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, RegexMatchOp,
+    Type,
 };
 use smelt_stdlib::RuleId;
 
@@ -967,7 +968,7 @@ impl ModuleBuilder<'_> {
         let element_ty = *list_element_ty;
         let item = self.argument(item_argument, body)?;
         let item_ty = Self::expr_ty(body, item);
-        let compatible = item_ty == element_ty
+        let compatible = self.array_item_type_compatible(item_ty, element_ty)
             || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
             || self.type_contains_unknown(item_ty)
             || self.type_contains_unknown(element_ty)
@@ -1049,14 +1050,24 @@ impl ModuleBuilder<'_> {
                 };
                 let mut items = Vec::with_capacity(item_args.len());
                 for argument in item_args {
-                    let item = self.argument(argument, body)?;
-                    if Self::expr_ty(body, item) != element_ty {
+                    let (item, spread) = match argument {
+                        Argument::SpreadElement(spread) => {
+                            (self.expression(&spread.argument, body)?, true)
+                        }
+                        _ => (self.argument(argument, body)?, false),
+                    };
+                    let item_ty = Self::expr_ty(body, item);
+                    let expected_ty = if spread { list_ty } else { element_ty };
+                    if item_ty != expected_ty {
                         return Err(SmeltError::unsupported(
                             self.span(argument.span().start, argument.span().end),
                             "array splice replacement items must match the array element type",
                         ));
                     }
-                    items.push(item);
+                    items.push(ListSpliceItem {
+                        value: item,
+                        spread,
+                    });
                 }
                 Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ListSplice {
@@ -1433,7 +1444,10 @@ impl ModuleBuilder<'_> {
         let mut items = Vec::with_capacity(call.arguments.len());
         for argument in &call.arguments {
             let item = self.argument(argument, body)?;
-            if Self::expr_ty(body, item) != element_ty {
+            let item_ty = Self::expr_ty(body, item);
+            if !self.array_item_type_compatible(item_ty, element_ty)
+                && !self.numeric_type_compatible(element_ty, item_ty)
+            {
                 return Err(SmeltError::unsupported(
                     self.span(argument.span().start, argument.span().end),
                     "array unshift arguments must match the array element type",
@@ -1547,7 +1561,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a type can be used as a JavaScript slice index.
-    fn slice_index_type_is_number(&self, ty: smelt_hir::TypeId) -> bool {
+    pub(super) fn slice_index_type_is_number(&self, ty: smelt_hir::TypeId) -> bool {
         match self
             .ctx
             .krate
@@ -1561,6 +1575,50 @@ impl ModuleBuilder<'_> {
                 .copied()
                 .all(|item| self.slice_index_type_is_number(item)),
             _ => false,
+        }
+    }
+
+    /// Return whether a value type is compatible with an array element type.
+    fn array_item_type_compatible(
+        &mut self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+    ) -> bool {
+        if self.type_assignable_to(actual, expected) {
+            return true;
+        }
+        if matches!(
+            (
+                self.ctx.krate.types.get(actual),
+                self.ctx.krate.types.get(expected)
+            ),
+            (Some(Type::Union(_)), Some(Type::Union(_)))
+        ) {
+            return true;
+        }
+        let members = self.non_nullish_member_types(actual);
+        !members.is_empty()
+            && if matches!(self.ctx.krate.types.get(expected), Some(Type::Union(_))) {
+                members
+                    .into_iter()
+                    .any(|item| self.type_assignable_to(item, expected))
+            } else {
+                members
+                    .into_iter()
+                    .all(|item| self.type_assignable_to(item, expected))
+            }
+    }
+
+    /// Return union members after removing nullish wrappers from each member.
+    fn non_nullish_member_types(&mut self, ty: smelt_hir::TypeId) -> Vec<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(ty).cloned() {
+            Some(Type::Union(items)) => items
+                .into_iter()
+                .flat_map(|item| self.non_nullish_member_types(item))
+                .collect(),
+            Some(Type::Optional(item)) => vec![item],
+            Some(Type::None) => Vec::new(),
+            _ => vec![ty],
         }
     }
 }

@@ -494,6 +494,7 @@ impl FunctionEmitter<'_> {
         &self,
         haystack: &Operand,
         separator: &Operand,
+        limit: Option<&Operand>,
     ) -> Result<String, EmitError> {
         if !matches!(
             self.mir.types.get(self.operand_ty(haystack)?),
@@ -504,11 +505,29 @@ impl FunctionEmitter<'_> {
         ) {
             return Err(EmitError::new("string split operands must be strings"));
         }
-        Ok(format!(
-            "{}.split(&{}).map(str::to_owned).collect::<Vec<_>>()",
-            self.operand_text(haystack)?,
-            self.operand_text(separator)?
-        ))
+        let haystack_text = self.operand_text(haystack)?;
+        let separator_text = self.operand_text(separator)?;
+        let base = format!("{haystack_text}.split(&{separator_text}).map(str::to_owned)");
+        let Some(limit_operand) = limit else {
+            return Ok(format!("{base}.collect::<Vec<_>>()"));
+        };
+        let limit_text = self.operand_text(limit_operand)?;
+        match self.mir.types.get(self.operand_ty(limit_operand)?) {
+            Some(Type::None) => Ok(format!("{base}.collect::<Vec<_>>()")),
+            Some(Type::Int | Type::Float) => Ok(format!(
+                "{base}.take(({limit_text} as f64).max(0.0) as usize).collect::<Vec<_>>()"
+            )),
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float)) =>
+            {
+                Ok(format!(
+                    "if let Some(split_limit) = {limit_text} {{ {base}.take((split_limit as f64).max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
+                ))
+            }
+            _ => Err(EmitError::new(
+                "string split limit must be numeric or optional numeric",
+            )),
+        }
     }
 
     /// Converts a string join operation to Rust text.

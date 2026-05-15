@@ -480,6 +480,7 @@ let values: number[] = [1, 2, 3, 4];
 let nested: number[][] = [[1], [2, 3]];
 const spliced = values.splice(1, 2, 9);
 const copiedSplice = values.toSpliced(1, 1, 8);
+const spreadSplice = values.toSpliced(1, 1, ...[10, 11]);
 const filled = values.fill(0, 1, 3);
 const copiedWithin = values.copyWithin(0, 1, 3);
 const replaced = values.with(1, 7);
@@ -503,8 +504,14 @@ const entries = values.entries();
             .iter()
             .filter(|expr| matches!(expr.kind, ExprKind::ListSplice { .. }))
             .count(),
-        2
+        3
     );
+    ensure!(body.exprs.iter().any(|expr| {
+        matches!(
+            &expr.kind,
+            ExprKind::ListSplice { items, .. } if items.iter().any(|item| item.spread)
+        )
+    }));
     ensure!(
         body.exprs
             .iter()

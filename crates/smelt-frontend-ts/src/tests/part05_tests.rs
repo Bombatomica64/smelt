@@ -204,6 +204,7 @@ fn lowers_string_split_method() -> Result<(), String> {
         ts!(r#"
 const word = "a,b,c";
 const parts = word.split(",");
+const limited = word.split(",", 2);
 "#),
         &mut ctx,
     )?;
@@ -214,6 +215,11 @@ const parts = word.split(",");
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::StringSplit { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::StringSplit { limit: Some(_), .. }))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

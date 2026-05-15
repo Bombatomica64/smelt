@@ -22,6 +22,15 @@ pub struct LocalId(pub u32);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ClosureId(pub u32);
 
+/// A replacement argument passed to array splice-style MIR operations.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MirListSpliceItem {
+    /// Replacement operand or array operand when `spread` is true.
+    pub value: Operand,
+    /// Whether the source argument used JavaScript spread syntax.
+    pub spread: bool,
+}
+
 /// The MIR representation of a crate, containing all functions, classes, and interfaces.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mir {
@@ -860,7 +869,7 @@ pub enum Rvalue {
         /// Number of items to delete, or omitted to delete through the end.
         delete_count: Option<Operand>,
         /// Replacement items.
-        items: Vec<Operand>,
+        items: Vec<MirListSpliceItem>,
         /// Whether to mutate the source list and return removed items.
         mutate: bool,
     },
@@ -1170,6 +1179,8 @@ pub enum Rvalue {
         haystack: Operand,
         /// Separator string.
         separator: Operand,
+        /// Optional maximum number of pieces.
+        limit: Option<Operand>,
     },
     /// Join a list of strings with a separator string.
     StringJoin {

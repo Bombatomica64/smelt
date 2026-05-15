@@ -143,7 +143,7 @@ impl FunctionEmitter<'_> {
         list: &Operand,
         start: &Operand,
         delete_count: Option<&Operand>,
-        items: &[Operand],
+        items: &[MirListSpliceItem],
         mutate: bool,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
@@ -154,7 +154,8 @@ impl FunctionEmitter<'_> {
         self.validate_optional_numeric_index(Some(start), "array splice start index")?;
         self.validate_optional_numeric_index(delete_count, "array splice delete count")?;
         for item in items {
-            if self.operand_ty(item)? != *item_ty {
+            let expected_ty = if item.spread { list_ty } else { *item_ty };
+            if self.operand_ty(&item.value)? != expected_ty {
                 return Err(EmitError::new(
                     "array splice replacement items must match the array element type",
                 ));
@@ -169,11 +170,7 @@ impl FunctionEmitter<'_> {
             .map(|count| self.operand_text(count))
             .transpose()?
             .unwrap_or_else(|| "splice_len as f64".to_owned());
-        let items_text = items
-            .iter()
-            .map(|item| self.operand_text(item))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(", ");
+        let replacement_text = self.list_splice_replacement_text(items)?;
         let receiver_text = if mutate {
             let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list
             else {
@@ -187,13 +184,43 @@ impl FunctionEmitter<'_> {
         };
         if mutate {
             Ok(format!(
-                "{{ let splice_len = {receiver_text}.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); {receiver_text}.splice(splice_start..splice_start + splice_delete, vec![{items_text}]).collect::<Vec<_>>() }}"
+                "{{ let splice_len = {receiver_text}.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); {receiver_text}.splice(splice_start..splice_start + splice_delete, {replacement_text}).collect::<Vec<_>>() }}"
             ))
         } else {
             Ok(format!(
-                "{{ let mut spliced = {receiver_text}; let splice_len = spliced.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); spliced.splice(splice_start..splice_start + splice_delete, vec![{items_text}]).for_each(drop); spliced }}"
+                "{{ let mut spliced = {receiver_text}; let splice_len = spliced.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); spliced.splice(splice_start..splice_start + splice_delete, {replacement_text}).for_each(drop); spliced }}"
             ))
         }
+    }
+
+    /// Converts scalar and spread splice replacements into a Rust vector expression.
+    fn list_splice_replacement_text(
+        &self,
+        items: &[MirListSpliceItem],
+    ) -> Result<String, EmitError> {
+        if items.iter().all(|item| !item.spread) {
+            let items_text = items
+                .iter()
+                .map(|item| self.operand_text(&item.value))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            return Ok(format!("vec![{items_text}]"));
+        }
+        let mut statements = Vec::new();
+        for item in items {
+            let value_text = self.operand_text(&item.value)?;
+            if item.spread {
+                statements.push(format!(
+                    "splice_replacements.extend(({value_text}).iter().cloned());"
+                ));
+            } else {
+                statements.push(format!("splice_replacements.push({value_text});"));
+            }
+        }
+        Ok(format!(
+            "{{ let mut splice_replacements = Vec::new(); {} splice_replacements }}",
+            statements.join(" ")
+        ))
     }
 
     /// Converts an array fill operation to Rust text.

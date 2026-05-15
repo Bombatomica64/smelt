@@ -35,7 +35,18 @@ pub fn emit_type_declarations(
 
 /// Return whether a path is already a declaration/stub file.
 fn is_declaration_path(path: &str) -> bool {
-    path.ends_with(".d.ts") || path.ends_with(".pyi")
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|file_name| {
+            let lower_name = file_name.to_ascii_lowercase();
+            lower_name.ends_with(".d.ts")
+                || lower_name.ends_with(".d.mts")
+                || lower_name.ends_with(".d.cts")
+        })
+        || Path::new(path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("pyi"))
 }
 
 /// Format a TypeScript declaration file for one HIR module.
@@ -70,7 +81,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                     .map(|param| {
                         format!(
                             "{}: {}",
-                            ts_property_name(symbol_name(krate, param.name)),
+                            symbol_name(krate, param.name),
                             ts_type(krate, param.ty)
                         )
                     })
@@ -130,7 +141,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                         .map(|param| {
                             format!(
                                 "{}: {}",
-                                ts_property_name(symbol_name(krate, param.name)),
+                                symbol_name(krate, param.name),
                                 ts_type(krate, param.ty)
                             )
                         })
@@ -258,6 +269,64 @@ fn symbol_name(krate: &Crate, symbol: smelt_hir::Symbol) -> &str {
         .get(symbol)
         .or_else(|| krate.symbols.get(symbol))
         .unwrap_or("_")
+}
+
+/// Render a TypeScript class/interface member name safely.
+fn ts_property_name(name: &str) -> String {
+    if is_ts_identifier_name(name) && !is_ts_reserved_property_name(name) {
+        return name.to_owned();
+    }
+    format!("{name:?}")
+}
+
+/// Return whether text can be emitted as a bare TypeScript identifier.
+fn is_ts_identifier_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first == '_' || first == '$' || first.is_ascii_alphabetic())
+        && chars.all(|ch| ch == '_' || ch == '$' || ch.is_ascii_alphanumeric())
+}
+
+/// Return whether a property should be quoted in declaration output.
+fn is_ts_reserved_property_name(name: &str) -> bool {
+    matches!(
+        name,
+        "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "export"
+            | "extends"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "new"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
+    )
 }
 
 /// Render a HIR type as TypeScript.
