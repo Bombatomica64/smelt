@@ -75,6 +75,25 @@ describe("outer", () => {
 }
 
 #[test]
+fn vitest_it_accepts_function_expression_callbacks() -> Result<(), String> {
+    let source = ts!(r#"
+import { describe, it, expect } from "vitest";
+
+describe("suite", () => {
+  it("case", function () {
+    expect(1).toBe(1);
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/function-callback.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 1);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_callback_dynamic_function_table_lookup() -> Result<(), String> {
     let source = ts!(r#"
 type Formatter = (value: string) => string;

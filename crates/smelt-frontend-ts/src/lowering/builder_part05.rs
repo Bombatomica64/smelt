@@ -189,16 +189,30 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let test_name = self.test_case_name(name_arg, group_name)?;
-        let arrow = self.test_arrow_callback(body_arg, "test case callbacks")?;
-        self.test_function_from_arrow(
-            &test_name,
-            self.span(call.span.start, call.span.end),
-            arrow,
-            setup,
-            before_each,
-            after_each,
-            table_bindings,
-        )
+        match body_arg {
+            Argument::ArrowFunctionExpression(arrow) => self.test_function_from_arrow(
+                &test_name,
+                self.span(call.span.start, call.span.end),
+                arrow,
+                setup,
+                before_each,
+                after_each,
+                table_bindings,
+            ),
+            Argument::FunctionExpression(function) => self.test_function_from_function(
+                &test_name,
+                self.span(call.span.start, call.span.end),
+                function,
+                setup,
+                before_each,
+                after_each,
+                table_bindings,
+            ),
+            _ => Err(SmeltError::unsupported(
+                self.span(body_arg.span().start, body_arg.span().end),
+                "test case callbacks must be functions",
+            )),
+        }
     }
 
     /// Lower a prepared test callback into an HIR test function.
@@ -264,6 +278,93 @@ impl ModuleBuilder<'_> {
             params: Vec::new(),
             return_ty: none,
             is_async: arrow.r#async,
+            is_test: true,
+            body: Some(body_id),
+            owner: FunctionOwner::Module,
+        }));
+        self.items.insert(test_name.to_owned(), item);
+        Ok(item)
+    }
+
+    /// Lower a prepared `function () { ... }` test callback into an HIR test function.
+    fn test_function_from_function(
+        &mut self,
+        test_name: &str,
+        span: Span,
+        function: &oxc::ast::ast::Function<'_>,
+        setup: &[&Statement<'_>],
+        before_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        after_each: &[&oxc::ast::ast::ArrowFunctionExpression<'_>],
+        table_bindings: &[(&str, &ArrayExpressionElement<'_>)],
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let Some(function_body) = &function.body else {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "test case function callbacks must have a body",
+            ));
+        };
+        if !function.params.items.is_empty() || function.params.rest.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(function.params.span.start, function.params.span.end),
+                "test case function callbacks with parameters are not lowered yet",
+            ));
+        }
+
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_async = self.current_async;
+        self.current_async = function.r#async;
+        let mut body = Body::new(
+            None,
+            self.span(function_body.span.start, function_body.span.end),
+        );
+        let mut errors = Vec::new();
+        for (name, value) in table_bindings {
+            if let Err(error) = self.bind_table_value(name, value, &mut body) {
+                errors.push(error);
+            }
+        }
+        for statement in setup {
+            if let Err(error) = self.test_case_statement(statement, &mut body) {
+                errors.push(error);
+            }
+        }
+        for hook in before_each {
+            for statement in &hook.body.statements {
+                if let Err(error) = self.test_case_statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
+        }
+        for statement in &function_body.statements {
+            if let Err(error) = self.test_case_statement(statement, &mut body) {
+                errors.push(error);
+            }
+        }
+        for hook in after_each {
+            for statement in &hook.body.statements {
+                if let Err(error) = self.test_case_statement(statement, &mut body) {
+                    errors.push(error);
+                }
+            }
+        }
+        self.locals = saved_locals;
+        self.current_async = saved_async;
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+        if function.r#async {
+            body.build_async_state_machine();
+        }
+
+        let name = self.intern_source_name(test_name);
+        let body_id = self.ctx.krate.push_body(body);
+        let none = self.ctx.krate.types.intern(Type::None);
+        let item = self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span,
+            params: Vec::new(),
+            return_ty: none,
+            is_async: function.r#async,
             is_test: true,
             body: Some(body_id),
             owner: FunctionOwner::Module,
