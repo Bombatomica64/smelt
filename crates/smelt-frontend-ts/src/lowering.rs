@@ -187,7 +187,12 @@ pub fn to_hir_with_path(
     ctx: &mut HirCtx,
 ) -> Result<ModuleId, Vec<SmeltError>> {
     let allocator = Allocator::default();
-    let source_type = SourceType::default().with_typescript(true);
+    let source_type = if path.ends_with(".d.ts") || path.ends_with(".d.mts") || path.ends_with(".d.cts")
+    {
+        SourceType::d_ts()
+    } else {
+        SourceType::default().with_typescript(true)
+    };
     let parsed = Parser::new(&allocator, source, source_type)
         .with_options(ParseOptions::default())
         .parse();

@@ -18,6 +18,9 @@ pub fn emit_type_declarations(
     modules: &[(String, ModuleId)],
 ) -> Result<(), Box<dyn std::error::Error>> {
     for (path, module_id) in modules {
+        if is_declaration_path(path) {
+            continue;
+        }
         let source_path = Path::new(path);
         let mut typescript_path = source_path.to_path_buf();
         typescript_path.set_extension("d.ts");
@@ -28,6 +31,11 @@ pub fn emit_type_declarations(
         fs::write(python_path, python_declaration(krate, *module_id))?;
     }
     Ok(())
+}
+
+/// Return whether a path is already a declaration/stub file.
+fn is_declaration_path(path: &str) -> bool {
+    path.ends_with(".d.ts") || path.ends_with(".pyi")
 }
 
 /// Format a TypeScript declaration file for one HIR module.
@@ -62,7 +70,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                     .map(|param| {
                         format!(
                             "{}: {}",
-                            symbol_name(krate, param.name),
+                            ts_property_name(symbol_name(krate, param.name)),
                             ts_type(krate, param.ty)
                         )
                     })
@@ -90,7 +98,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                         &mut out,
                         format_args!(
                             "  {}: {};\n",
-                            symbol_name(krate, field.name),
+                            ts_property_name(symbol_name(krate, field.name)),
                             ts_type(krate, field.ty)
                         ),
                     );
@@ -110,7 +118,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                         &mut out,
                         format_args!(
                             "  {}: {};\n",
-                            symbol_name(krate, field.name),
+                            ts_property_name(symbol_name(krate, field.name)),
                             ts_type(krate, field.ty)
                         ),
                     );
@@ -122,7 +130,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                         .map(|param| {
                             format!(
                                 "{}: {}",
-                                symbol_name(krate, param.name),
+                                ts_property_name(symbol_name(krate, param.name)),
                                 ts_type(krate, param.ty)
                             )
                         })
@@ -132,7 +140,7 @@ fn typescript_declaration(krate: &Crate, module_id: ModuleId) -> String {
                         &mut out,
                         format_args!(
                             "  {}({params}): {};\n",
-                            symbol_name(krate, method.name),
+                            ts_property_name(symbol_name(krate, method.name)),
                             ts_type(krate, method.return_ty)
                         ),
                     );

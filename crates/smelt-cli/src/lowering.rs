@@ -17,18 +17,43 @@ use crate::manifest::{
 pub(crate) enum SourceLang {
     /// TypeScript source file.
     TypeScript,
+    /// TypeScript declaration file.
+    TypeScriptDeclaration,
     /// Python source file.
     Python,
+    /// Python stub declaration file.
+    PythonDeclaration,
 }
 
 impl SourceLang {
     /// Infers the source language from a path extension.
     pub(crate) fn from_path(path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        if path.ends_with(".d.ts") {
+            return Ok(Self::TypeScriptDeclaration);
+        }
+        if path.ends_with(".pyi") {
+            return Ok(Self::PythonDeclaration);
+        }
         match Path::new(path).extension().and_then(|e| e.to_str()) {
             Some("ts") => Ok(Self::TypeScript),
             Some("py") => Ok(Self::Python),
             _ => Err(format!("unsupported source extension: {path}").into()),
         }
+    }
+
+    /// Returns whether this path kind is lowered by the TypeScript frontend.
+    pub(crate) const fn is_typescript(self) -> bool {
+        matches!(self, Self::TypeScript | Self::TypeScriptDeclaration)
+    }
+
+    /// Returns whether this path kind is lowered by the Python frontend.
+    pub(crate) const fn is_python(self) -> bool {
+        matches!(self, Self::Python | Self::PythonDeclaration)
+    }
+
+    /// Returns whether this path kind carries declarations rather than runtime source.
+    pub(crate) const fn is_declaration(self) -> bool {
+        matches!(self, Self::TypeScriptDeclaration | Self::PythonDeclaration)
     }
 }
 
@@ -117,8 +142,10 @@ pub(crate) fn lower_python_files(
 /// Dispatches one source file to the matching frontend.
 pub(crate) fn lower_single_file(file: &str) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     match SourceLang::from_path(file)? {
-        SourceLang::TypeScript => lower_typescript_files(&[file.to_owned()]),
-        SourceLang::Python => lower_python_files(&[file.to_owned()]),
+        SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
+            lower_typescript_files(&[file.to_owned()])
+        }
+        SourceLang::Python | SourceLang::PythonDeclaration => lower_python_files(&[file.to_owned()]),
     }
 }
 
@@ -187,7 +214,7 @@ fn lower_manifest_source(
     let file = &source.path;
     let file_string = file.display().to_string();
     match SourceLang::from_path(&file_string)? {
-        SourceLang::TypeScript => {
+        SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
             let mut ctx = smelt_frontend_ts::HirCtx {
                 krate,
                 export_aliases: state.ts_export_aliases,
@@ -226,7 +253,7 @@ fn lower_manifest_source(
                 },
             ))
         }
-        SourceLang::Python => {
+        SourceLang::Python | SourceLang::PythonDeclaration => {
             let mut ctx = smelt_frontend_py::HirCtx {
                 krate,
                 module_namespaces: state.py_module_namespaces,

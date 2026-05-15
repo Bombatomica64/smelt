@@ -186,7 +186,7 @@ fn resolve_import_to_existing_sources(
     importer_lang: SourceLang,
     import: &ManifestImport,
 ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
-    if importer_lang == SourceLang::TypeScript {
+    if importer_lang.is_typescript() {
         return resolve_typescript_import_to_existing_sources(importer_path, import);
     }
 
@@ -241,7 +241,7 @@ fn resolve_typescript_import_to_existing_sources(
 /// Builds the resolver options used for TypeScript manifest dependency discovery.
 fn typescript_resolver() -> Resolver {
     Resolver::new(ResolveOptions {
-        extensions: vec![".ts".into(), ".py".into()],
+        extensions: vec![".ts".into(), ".d.ts".into(), ".py".into(), ".pyi".into()],
         main_files: vec!["index".into(), "__init__".into()],
         ..ResolveOptions::default()
     })
@@ -304,9 +304,13 @@ fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
     candidates.push(base.to_path_buf());
     if base.extension().is_none() {
         candidates.push(base.with_extension("ts"));
+        candidates.push(base.with_extension("d.ts"));
         candidates.push(base.with_extension("py"));
+        candidates.push(base.with_extension("pyi"));
         candidates.push(base.join("index.ts"));
+        candidates.push(base.join("index.d.ts"));
         candidates.push(base.join("__init__.py"));
+        candidates.push(base.join("__init__.pyi"));
     }
     candidates
 }
@@ -400,8 +404,10 @@ fn normalize_path_key(path: &Path) -> PathBuf {
 /// Scans TypeScript and Python source text for import module specifiers.
 fn scan_imports(source: &str, lang: SourceLang) -> Result<Vec<ManifestImport>, String> {
     match lang {
-        SourceLang::TypeScript => Ok(scan_typescript_imports(source)),
-        SourceLang::Python => scan_python_imports(source),
+        SourceLang::TypeScript | SourceLang::TypeScriptDeclaration => {
+            Ok(scan_typescript_imports(source))
+        }
+        SourceLang::Python | SourceLang::PythonDeclaration => scan_python_imports(source),
     }
 }
 
