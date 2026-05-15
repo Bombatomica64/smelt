@@ -3089,17 +3089,44 @@ impl ModuleBuilder<'_> {
                     });
                 }
                 if binary.operator == BinaryOperator::In {
-                    let Expression::StringLiteral(field) = &binary.left else {
+                    if let Expression::Identifier(receiver_ident) = &binary.right
+                        && let Some(namespace) = self.object_namespaces.get(receiver_ident.name.as_str())
+                    {
+                        let case_keys = namespace.keys().cloned().collect::<Vec<_>>();
+                        let key = self.callback_expression(&binary.left, params, body)?;
+                        if self.ctx.krate.types.get(key.ty) != Some(&Type::String) {
+                            return Err(SmeltError::unsupported(
+                                self.span(binary.left.span().start, binary.left.span().end),
+                                "callback namespace `in` checks require a string key",
+                            ));
+                        }
+                        return self.callback_function_table_has_key(
+                            &key,
+                            &case_keys,
+                            self.span(binary.span.start, binary.span.end),
+                        );
+                    }
+                    let receiver = self.callback_expression(&binary.right, params, body)?;
+                    if let Expression::StringLiteral(field) = &binary.left {
+                        return Ok(CallbackExpr {
+                            kind: CallbackExprKind::HasField {
+                                receiver: Box::new(receiver),
+                                field: self.ctx.krate.symbols.intern(field.value.as_str()),
+                            },
+                            ty: self.ctx.krate.types.intern(Type::Bool),
+                        });
+                    }
+                    let field = self.callback_expression(&binary.left, params, body)?;
+                    if self.ctx.krate.types.get(field.ty) != Some(&Type::String) {
                         return Err(SmeltError::unsupported(
                             self.span(binary.left.span().start, binary.left.span().end),
-                            "callback `in` checks require a static string key",
+                            "callback dynamic `in` checks require a string key",
                         ));
-                    };
-                    let receiver = self.callback_expression(&binary.right, params, body)?;
+                    }
                     return Ok(CallbackExpr {
-                        kind: CallbackExprKind::HasField {
+                        kind: CallbackExprKind::HasDynamicField {
                             receiver: Box::new(receiver),
-                            field: self.ctx.krate.symbols.intern(field.value.as_str()),
+                            field: Box::new(field),
                         },
                         ty: self.ctx.krate.types.intern(Type::Bool),
                     });
@@ -3488,6 +3515,12 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Multiplication => Ok(BinOp::Mul),
             BinaryOperator::Division => Ok(BinOp::Div),
             BinaryOperator::Remainder => Ok(BinOp::Rem),
+            BinaryOperator::Equality | BinaryOperator::Inequality => {
+                Err(SmeltError::unsupported(
+                    self.span(start, end),
+                    "coercive equality is not supported",
+                ))
+            }
             BinaryOperator::StrictEquality => Ok(BinOp::Eq),
             BinaryOperator::StrictInequality => Ok(BinOp::NotEq),
             BinaryOperator::LessThan => Ok(BinOp::Lt),

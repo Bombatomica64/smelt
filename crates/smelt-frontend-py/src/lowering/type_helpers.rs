@@ -7,24 +7,8 @@ impl ModuleBuilder<'_> {
     fn field_type(&self, receiver_ty: TypeId, field: Symbol) -> Result<TypeId, SmeltError> {
         match self.ctx.krate.types.get(receiver_ty) {
             Some(Type::Class { name, .. }) => self
-                .ctx
-                .krate
-                .items
-                .iter()
-                .find_map(|item| {
-                    let Item::Class(class) = item else {
-                        return None;
-                    };
-                    if class.name != *name {
-                        return None;
-                    }
-                    class
-                        .fields
-                        .iter()
-                        .find(|class_field| class_field.name == field)
-                        .map(|class_field| class_field.ty)
-                        .or_else(|| class.fields.is_empty().then_some(receiver_ty))
-                })
+                .field_type_on_class(*name, field)
+                .or_else(|| self.class_has_no_fields(*name).then_some(receiver_ty))
                 .ok_or_else(|| {
                     let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
                     SmeltError::unsupported(
@@ -37,6 +21,49 @@ impl ModuleBuilder<'_> {
                 "attribute access is only supported on class instances",
             )),
         }
+    }
+
+    /// Find a field on a class, walking its single base-class chain.
+    fn field_type_on_class(&self, class_name: Symbol, field: Symbol) -> Option<TypeId> {
+        if let Some(class_name_text) = self.ctx.krate.symbols.get(class_name)
+            && let Some(field_ty) = self
+                .class_fields
+                .get(class_name_text)
+                .and_then(|fields| fields.iter().find(|item| item.name == field))
+                .map(|item| item.ty)
+        {
+            return Some(field_ty);
+        }
+        self.ctx.krate.items.iter().find_map(|item| {
+            let Item::Class(class) = item else {
+                return None;
+            };
+            if class.name != class_name {
+                return None;
+            }
+            class
+                .fields
+                .iter()
+                .find(|class_field| class_field.name == field)
+                .map(|class_field| class_field.ty)
+                .or_else(|| class.base.and_then(|base| self.field_type_on_class(base, field)))
+        })
+    }
+
+    /// Return whether a class and its bases declare no instance fields.
+    fn class_has_no_fields(&self, class_name: Symbol) -> bool {
+        self.ctx.krate.items.iter().any(|item| {
+            let Item::Class(class) = item else {
+                return false;
+            };
+            class.name == class_name
+                && class.fields.is_empty()
+                && class.base.is_none_or(|base| {
+                    !self.ctx.krate.items.iter().any(|item| {
+                        matches!(item, Item::Class(base_class) if base_class.name == base)
+                    }) || self.class_has_no_fields(base)
+                })
+        })
     }
 
     /// Infer the element type of an index access on `receiver_ty`.

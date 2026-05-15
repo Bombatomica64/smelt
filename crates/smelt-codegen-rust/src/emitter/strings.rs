@@ -9,13 +9,7 @@ impl FunctionEmitter<'_> {
         op: smelt_hir::StringCaseOp,
         operand: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("string case operand must be a string"));
-        }
-        let receiver_text = self.len_operand_text(operand)?;
+        let receiver_text = self.string_like_operand_text(operand, "string case")?;
         let method_name = match op {
             smelt_hir::StringCaseOp::Lower => "to_lowercase",
             smelt_hir::StringCaseOp::Upper => "to_uppercase",
@@ -84,15 +78,6 @@ impl FunctionEmitter<'_> {
         needle: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(needle)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("string search operands must be strings"));
-        }
         let (missing, cast) = match self.mir.types.get(dest_ty) {
             Some(Type::Int) => ("-1", "i64"),
             Some(Type::Float) => ("-1.0", "f64"),
@@ -102,10 +87,10 @@ impl FunctionEmitter<'_> {
             smelt_hir::StringSearchOp::Find => "find",
             smelt_hir::StringSearchOp::RFind => "rfind",
         };
+        let haystack_text = self.string_like_operand_text(haystack, "string search")?;
+        let needle_text = self.string_like_operand_text(needle, "string search")?;
         Ok(format!(
-            "{}.{method_name}(&{}).map_or({missing}, |idx| idx as {cast})",
-            self.operand_text(haystack)?,
-            self.operand_text(needle)?
+            "{haystack_text}.{method_name}(&{needle_text}).map_or({missing}, |idx| idx as {cast})"
         ))
     }
 
@@ -277,19 +262,8 @@ impl FunctionEmitter<'_> {
         pattern: &Operand,
         haystack: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(pattern)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new(
-                "regex match requires string pattern and haystack operands",
-            ));
-        }
-        let pattern_text = self.operand_text(pattern)?;
-        let haystack_text = self.operand_text(haystack)?;
+        let pattern_text = self.string_like_operand_text(pattern, "regex match")?;
+        let haystack_text = self.string_like_operand_text(haystack, "regex match")?;
         let regex_text =
             format!("regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\")");
         Ok(match op {
@@ -398,13 +372,49 @@ impl FunctionEmitter<'_> {
             if !matches!(
                 self.mir.types.get(self.operand_ty(operand)?),
                 Some(Type::String)
-            ) {
+            ) && self.string_like_operand_text(operand, context).is_err()
+            {
                 return Err(EmitError::new(format!(
                     "{context} requires string operands"
                 )));
             }
         }
         Ok(())
+    }
+
+    /// Renders an operand as a Rust `String` expression for string methods.
+    ///
+    /// Statically known strings are emitted directly. Unknown values use the
+    /// same JavaScript-style primitive coercion as string joining; structured
+    /// unknown values use the platform object placeholder.
+    fn string_like_operand_text(
+        &self,
+        operand: &Operand,
+        _context: &str,
+    ) -> Result<String, EmitError> {
+        match self.mir.types.get(self.operand_ty(operand)?) {
+            Some(Type::String) => self.len_operand_text(operand),
+            Some(Type::Bool | Type::Int | Type::Float) => {
+                Ok(format!("{}.to_string()", self.operand_text(operand)?))
+            }
+            Some(Type::Unknown | Type::Union(_)) => {
+                let text = self.operand_text(operand)?;
+                Ok(format!(
+                    "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }}"
+                ))
+            }
+            Some(Type::None | Type::Never) => Ok("String::new()".to_owned()),
+            Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
+                Ok("\"[object Object]\".to_owned()".to_owned())
+            }
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => Ok(
+                format!("{}.unwrap_or_default()", self.operand_text(operand)?),
+            ),
+            Some(Type::Tuple(_) | Type::Optional(_) | Type::TypeParam { .. } | Type::Future(_)) => {
+                Ok("String::new()".to_owned())
+            }
+            Some(Type::Function(_)) | None => Ok("String::new()".to_owned()),
+        }
     }
 
     /// Converts a string character lookup operation to Rust text.
@@ -488,20 +498,27 @@ impl FunctionEmitter<'_> {
         start: Option<&Operand>,
         end: Option<&Operand>,
     ) -> Result<String, EmitError> {
-        if !matches!(
+        self.validate_optional_numeric_index(start, "string slice start index")?;
+        self.validate_optional_numeric_index(end, "string slice end index")?;
+        if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::String)
         ) {
-            return Err(EmitError::new("string slice receiver must be a string"));
+            let operand_text = self.operand_text(operand)?;
+            let len_source = format!("{operand_text}.chars().count()");
+            let start_text = self.slice_start_text(start, &len_source)?;
+            let len_text = self.slice_len_text(&operand_text, start, end, SliceLenKind::Chars)?;
+            return Ok(format!(
+                "{operand_text}.chars().skip({start_text}).take({len_text}).collect::<String>()"
+            ));
         }
-        self.validate_optional_numeric_index(start, "string slice start index")?;
-        self.validate_optional_numeric_index(end, "string slice end index")?;
-        let operand_text = self.operand_text(operand)?;
-        let len_source = format!("{operand_text}.chars().count()");
+        let operand_text = self.string_like_operand_text(operand, "string slice")?;
+        let receiver_text = "__smelt_string";
+        let len_source = format!("{receiver_text}.chars().count()");
         let start_text = self.slice_start_text(start, &len_source)?;
-        let len_text = self.slice_len_text(&operand_text, start, end, SliceLenKind::Chars)?;
+        let len_text = self.slice_len_text(receiver_text, start, end, SliceLenKind::Chars)?;
         Ok(format!(
-            "{operand_text}.chars().skip({start_text}).take({len_text}).collect::<String>()"
+            "{{ let {receiver_text} = {operand_text}; {receiver_text}.chars().skip({start_text}).take({len_text}).collect::<String>() }}"
         ))
     }
 
@@ -513,17 +530,8 @@ impl FunctionEmitter<'_> {
         separator: &Operand,
         limit: Option<&Operand>,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(separator)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("string split operands must be strings"));
-        }
-        let haystack_text = self.operand_text(haystack)?;
-        let separator_text = self.operand_text(separator)?;
+        let haystack_text = self.string_like_operand_text(haystack, "string split")?;
+        let separator_text = self.string_like_operand_text(separator, "string split")?;
         let base = format!("{haystack_text}.split(&{separator_text}).map(str::to_owned)");
         let Some(limit_operand) = limit else {
             return Ok(format!("{base}.collect::<Vec<_>>()"));
@@ -549,15 +557,9 @@ impl FunctionEmitter<'_> {
 
     /// Converts a string into a list of one-character strings.
     pub(super) fn string_chars_text(&self, haystack: &Operand) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("string chars operand must be a string"));
-        }
+        let haystack_text = self.string_like_operand_text(haystack, "string chars")?;
         Ok(format!(
-            "{}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()",
-            self.operand_text(haystack)?
+            "{haystack_text}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()"
         ))
     }
 
@@ -570,13 +572,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let items_ty = self.operand_ty(items)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(items_ty) else {
-            return Err(EmitError::new("string join items must be a list"));
+            return Ok("String::new()".to_owned());
         };
-        if self.mir.types.get(self.operand_ty(separator)?) != Some(&Type::String) {
-            return Err(EmitError::new("string join requires a string separator"));
-        }
+        let separator_text = self.string_like_operand_text(separator, "string join")?;
         let items_text = self.operand_text(items)?;
-        let separator_text = self.operand_text(separator)?;
         if self.mir.types.get(*item_ty) == Some(&Type::String) {
             return Ok(format!("{items_text}.join(&{separator_text})"));
         }

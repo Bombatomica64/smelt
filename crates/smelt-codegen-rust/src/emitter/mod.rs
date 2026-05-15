@@ -9,10 +9,10 @@
 )]
 
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
-use smelt_hir::{Symbol, Type, TypeId};
+use smelt_hir::{FileId, Span, Symbol, Type, TypeId};
 use smelt_mir::{
-    BasicBlock, BuiltinFn, Callee, Constant, HirOrigin, LocalId, LocalKind, Mir, MirFunction,
-    MirListSpliceItem, Operand, Place, Rvalue, Statement, Terminator,
+    BasicBlock, BuiltinFn, Callee, Constant, HirOrigin, LocalDecl, LocalId, LocalKind, Mir,
+    MirFunction, MirListSpliceItem, Operand, Place, Rvalue, Statement, Terminator,
 };
 use std::collections::{HashMap, HashSet};
 
@@ -36,9 +36,7 @@ mod tuple;
 mod types;
 mod unknown;
 
-use literals::{
-    assigned_locals, block_terminates, constant_text, hir_literal_text, method_mutates_this,
-};
+use literals::{assigned_locals, constant_text, hir_literal_text, method_mutates_this};
 
 /// Emits Rust source for one MIR function.
 pub(crate) struct FunctionEmitter<'mir> {
@@ -52,6 +50,8 @@ pub(crate) struct FunctionEmitter<'mir> {
     mutable_locals: HashSet<LocalId>,
     /// The type ID of the None type.
     none_ty: TypeId,
+    /// Synthetic unknown local used when malformed MIR references a missing local.
+    unknown_local: LocalDecl,
 }
 
 /// How to compute the default end bound for a slice.

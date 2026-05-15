@@ -86,21 +86,70 @@ impl ModuleBuilder<'_> {
                 format!("unresolved class `{}`", callee.name),
             ));
         };
-        let Item::Class(class) = self.item_ref(item) else {
+        let Item::Class(class) = self.item_ref(item).clone() else {
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
                 "new expressions require a class item",
             ));
         };
+        if matches!(class.kind, smelt_hir::ClassKind::Abstract) {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                format!("abstract class `{}` cannot be constructed", callee.name),
+            ));
+        }
         let class_name = class.name;
         let args = new_expr
             .arguments
             .iter()
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
+        let explicit_type_args = new_expr
+            .type_arguments
+            .as_ref()
+            .map(|type_args| {
+                type_args
+                    .params
+                    .iter()
+                    .map(|arg| self.ts_type_to_hir(arg))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
+        let class_args = if let Some(explicit_type_args) = explicit_type_args {
+            let substitutions = self.type_argument_substitution(
+                &class.type_params,
+                &explicit_type_args,
+                self.span(new_expr.span.start, new_expr.span.end),
+            )?;
+            class
+                .type_params
+                .iter()
+                .map(|param| {
+                    substitutions.get(&param.name).copied().unwrap_or_else(|| {
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::TypeParam { name: param.name })
+                    })
+                })
+                .collect()
+        } else {
+            class
+                .type_params
+                .iter()
+                .map(|param| {
+                    param.default.unwrap_or_else(|| {
+                        self.ctx
+                            .krate
+                            .types
+                            .intern(Type::TypeParam { name: param.name })
+                    })
+                })
+                .collect()
+        };
         let ty = self.ctx.krate.types.intern(Type::Class {
             name: class_name,
-            args: Vec::new(),
+            args: class_args,
         });
         Ok(body.push_expr(Expr {
             kind: ExprKind::New {
@@ -159,29 +208,33 @@ impl ModuleBuilder<'_> {
         )
     }
 
-    /// Lower a supported opaque builtin constructor to a class-like HIR value.
+    /// Lower a supported opaque builtin constructor to an unknown object value.
     fn opaque_builtin_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
         class_text: &str,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let class_name = self.intern_type_name(class_text);
-        let args = new_expr
+        let _class_name = self.intern_type_name(class_text);
+        let _args = new_expr
             .arguments
             .iter()
             .map(|arg| self.argument(arg, body))
             .collect::<Result<Vec<_>, _>>()?;
-        let ty = self.ctx.krate.types.intern(Type::Class {
-            name: class_name,
-            args: Vec::new(),
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown_ty));
+        let value = body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty: dict_ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
         });
         Ok(body.push_expr(Expr {
-            kind: ExprKind::New {
-                class: class_name,
-                args,
+            kind: ExprKind::UnknownCast {
+                value,
+                target: unknown_ty,
             },
-            ty,
+            ty: unknown_ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
     }

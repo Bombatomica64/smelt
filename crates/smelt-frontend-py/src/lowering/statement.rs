@@ -610,11 +610,6 @@ impl ModuleBuilder<'_> {
                 "pytest.raises lowering supports exactly one context manager",
             ));
         };
-        let catch_binding = item
-            .optional_vars
-            .as_ref()
-            .map(|vars| self.pytest_raises_context_binding(vars, body))
-            .transpose()?;
         let Some(raises_call) = Self::pytest_raises_call(&item.context_expr) else {
             return Err(SmeltError::unsupported(
                 self.span(item.range),
@@ -627,20 +622,17 @@ impl ModuleBuilder<'_> {
                 "pytest.raises requires an expected exception type",
             ));
         }
-        for keyword in &raises_call.arguments.keywords {
-            let Some(arg) = keyword.arg.as_ref().map(|arg| arg.as_str()) else {
-                return Err(SmeltError::unsupported(
-                    self.span(keyword.range),
-                    "pytest.raises **kwargs are not supported yet",
-                ));
-            };
-            if arg != "match" {
-                return Err(SmeltError::unsupported(
-                    self.span(keyword.range),
-                    format!("pytest.raises keyword argument '{arg}' is not supported yet"),
-                ));
-            }
-        }
+        let match_expr = self.pytest_raises_match_argument(raises_call, body)?;
+        let explicit_catch_binding = item
+            .optional_vars
+            .as_ref()
+            .map(|vars| self.pytest_raises_context_binding(vars, body))
+            .transpose()?;
+        let catch_binding = explicit_catch_binding.or_else(|| {
+            match_expr
+                .is_some()
+                .then(|| self.pytest_raises_hidden_exception_local(item.range, body))
+        });
 
         let bool_ty = self.intern_type(Type::Bool);
         let raised_sym = self.intern_name("__smelt_pytest_raised");
@@ -684,6 +676,14 @@ impl ModuleBuilder<'_> {
                 value: true_expr,
             },
         );
+        if let (Some(exception_local), Some(pattern)) = (catch_binding, match_expr) {
+            self.push_pytest_raises_match_assert(
+                (exception_local, pattern),
+                item.range,
+                body,
+                catch_body,
+            );
+        }
         body.push_stmt_to_block(
             block,
             HirStmt::TryCatch {

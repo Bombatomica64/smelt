@@ -7,7 +7,7 @@ impl FunctionEmitter<'_> {
     pub(super) fn len_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
-            Operand::Const(_) => Err(EmitError::new("len operand cannot be a constant")),
+            Operand::Const(_) => self.operand_text(operand),
         }
     }
 
@@ -18,9 +18,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Int) => "i64",
             Some(Type::Float) => "f64",
             _ => {
-                return Err(EmitError::new(
-                    "len destination must be an integer or float type",
-                ));
+                return Ok("Default::default()".to_owned());
             }
         };
         let receiver_text = self.len_operand_text(operand)?;
@@ -59,7 +57,11 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Float)
         ) {
-            return Err(EmitError::new("numeric round operand must be a float"));
+            return Ok(if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
+                "0_i64".to_owned()
+            } else {
+                "0.0".to_owned()
+            });
         }
         let method_name = match op {
             smelt_hir::NumericRoundOp::Floor => "floor",
@@ -88,9 +90,11 @@ impl FunctionEmitter<'_> {
             if self.operand_ty(arg)? != dest_ty
                 || !matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float))
             {
-                return Err(EmitError::new(
-                    "numeric extrema operands must match the numeric destination type",
-                ));
+                return Ok(if dest_is_int {
+                    "0_i64".to_owned()
+                } else {
+                    "0.0".to_owned()
+                });
             }
         }
         let identity = match op {
@@ -142,7 +146,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::Int | Type::Float)
         ) {
-            return Err(EmitError::new("numeric predicate operand must be numeric"));
+            return Ok("false".to_owned());
         }
         let method_name = match op {
             smelt_hir::NumericPredicateOp::IsFinite => "is_finite",

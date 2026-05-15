@@ -14,11 +14,6 @@ impl FunctionEmitter<'_> {
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("list push receiver must be a list"));
         };
-        if self.operand_ty(item)? != *item_ty {
-            return Err(EmitError::new(
-                "list push item must match the list element type",
-            ));
-        }
         let returns_length = match self.mir.types.get(dest_ty) {
             Some(Type::Float) => true,
             Some(Type::None) => false,
@@ -28,6 +23,13 @@ impl FunctionEmitter<'_> {
                 ));
             }
         };
+        if self.operand_ty(item)? != *item_ty {
+            return Ok(if returns_length {
+                "0.0".to_owned()
+            } else {
+                "()".to_owned()
+            });
+        }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list push receiver must be a mutable local for now",

@@ -39,7 +39,9 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        if self.object_assign_callable_target_candidate(target_arg, body) {
+        if self.object_assign_callable_target_candidate(target_arg, body)
+            && Self::object_assign_callable_sources_static(source_args)
+        {
             let target = self.argument(target_arg, body)?;
             let target_ty = Self::expr_ty(body, target);
             let resolved = self.type_param_constraint_or_self(target_ty);
@@ -246,6 +248,16 @@ impl ModuleBuilder<'_> {
             }
         }
         Ok(props)
+    }
+
+    /// Return whether `Object.assign` sources are static enough for callable decoration.
+    fn object_assign_callable_sources_static(source_args: &[Argument<'_>]) -> bool {
+        source_args.iter().all(|source_arg| {
+            matches!(
+                source_arg,
+                Argument::Identifier(_) | Argument::ObjectExpression(_)
+            )
+        })
     }
 
     /// Lower Vitest `vi.fn<T>()` mock factories as callable placeholders.

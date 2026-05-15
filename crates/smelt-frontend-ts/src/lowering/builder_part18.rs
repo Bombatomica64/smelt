@@ -79,6 +79,9 @@ impl ModuleBuilder<'_> {
         span: Span,
     ) -> Result<HashMap<smelt_hir::Symbol, smelt_hir::TypeId>, SmeltError> {
         if args.len() > type_params.len() {
+            if type_params.is_empty() {
+                return Ok(HashMap::new());
+            }
             return Err(SmeltError::unsupported(
                 span,
                 "too many generic type arguments",

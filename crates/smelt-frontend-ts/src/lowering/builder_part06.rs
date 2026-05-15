@@ -267,7 +267,7 @@ impl ModuleBuilder<'_> {
             try_block
         } else {
             let callee = self.argument(actual_arg, body)?;
-            let Some(Type::Function(function)) =
+            let Some(Type::Function(mut function)) =
                 self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
             else {
                 return Err(SmeltError::unsupported(
@@ -275,6 +275,9 @@ impl ModuleBuilder<'_> {
                     "expect(...).toThrow(...) requires a zero-argument callback",
                 ));
             };
+            if Self::is_bind_call_argument(actual_arg) {
+                function.params.clear();
+            }
             let try_block =
                 body.push_block(self.span(actual_arg.span().start, actual_arg.span().end));
             let mut args = Vec::new();
@@ -341,6 +344,17 @@ impl ModuleBuilder<'_> {
         };
         self.push_test_failure_if(failed, message, call.span, body);
         Ok(true)
+    }
+
+    /// Return whether an `expect(...).toThrow()` argument is a bound function call.
+    fn is_bind_call_argument(argument: &Argument<'_>) -> bool {
+        let Some(Expression::CallExpression(call)) = argument.as_expression() else {
+            return false;
+        };
+        matches!(
+            &call.callee,
+            Expression::StaticMemberExpression(member) if member.property.name == "bind"
+        )
     }
 
     /// Build the boolean expression that means a supported matcher has failed.
@@ -1213,6 +1227,7 @@ impl ModuleBuilder<'_> {
                     arrow,
                     annotated_ty,
                     body,
+                    block,
                 )?;
                 continue;
             }
@@ -1247,6 +1262,7 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
         body: &mut Body,
+        block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let result = (|| {
@@ -1346,11 +1362,14 @@ impl ModuleBuilder<'_> {
                     body,
                 );
                 let pat = body.push_pattern(Pattern::Binding(local));
-                body.push_stmt(Stmt::Let {
-                    pat,
-                    ty: fn_ty,
-                    value: Some(value),
-                });
+                body.push_stmt_to_block(
+                    block,
+                    Stmt::Let {
+                        pat,
+                        ty: fn_ty,
+                        value: Some(value),
+                    },
+                );
             }
             self.local_callbacks.insert(
                 name.to_owned(),
@@ -1368,11 +1387,14 @@ impl ModuleBuilder<'_> {
         let local = self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
         self.locals.insert(name.to_owned(), local);
         let pat = body.push_pattern(Pattern::Binding(local));
-        body.push_stmt(Stmt::Let {
-            pat,
-            ty: fn_ty,
-            value: Some(value),
-        });
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat,
+                ty: fn_ty,
+                value: Some(value),
+            },
+        );
         Ok(())
         })();
         self.pop_type_parameter_scope();

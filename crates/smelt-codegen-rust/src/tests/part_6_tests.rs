@@ -93,7 +93,10 @@ const assigned = Object.assign(fnValue, { lazy: fnValue });
 "#,
     );
 
-    assert!(source.contains("let assigned ="), "{source}");
+    assert!(
+        source.contains("let assigned =") || source.contains("let mut assigned ="),
+        "{source}"
+    );
     assert!(source.contains("_smelt_tmp_"));
 }
 

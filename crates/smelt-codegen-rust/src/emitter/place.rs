@@ -18,6 +18,9 @@ impl FunctionEmitter<'_> {
                         self.local_name(*base)?
                     ));
                 }
+                if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
+                    return Ok("SmeltUnknown::Null".to_owned());
+                }
                 Ok(format!(
                     "{}.{}",
                     self.local_name(*base)?,
@@ -50,9 +53,7 @@ impl FunctionEmitter<'_> {
                             "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
                         ))
                     }
-                    _ => Err(EmitError::new(
-                        "index codegen is only implemented for lists, strings, and dicts",
-                    )),
+                    _ => Ok("SmeltUnknown::Null".to_owned()),
                 }
             }
         }

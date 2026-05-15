@@ -114,7 +114,10 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                 mir.classes.push(crate::MirClass {
                     name: class.name,
                     kind: class.kind.clone(),
+                    type_params: class.type_params.clone(),
+                    is_abstract: matches!(class.kind, smelt_hir::ClassKind::Abstract),
                     base: class.base,
+                    base_args: class.base_args.clone(),
                     fields: class
                         .fields
                         .iter()
@@ -132,6 +135,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                         .iter()
                         .filter_map(|method_item| item_functions.get(method_item).copied())
                         .collect(),
+                    abstract_methods: class.abstract_methods.clone(),
                     implements: class.implements.clone(),
                 });
             }
@@ -1183,7 +1187,9 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::Field { receiver, field } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
-                let base = self.local_operand(receiver_operand, expr.span)?;
+                let receiver_ty = self.hir_expr(*receiver)?.ty;
+                let base =
+                    self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
                 Operand::Copy(Place::Field {
                     base,
                     field: *field,
@@ -1203,7 +1209,9 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::Index { receiver, index } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
-                let base = self.local_operand(receiver_operand, expr.span)?;
+                let receiver_ty = self.hir_expr(*receiver)?.ty;
+                let base =
+                    self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
                 let index_operand = self.lower_expr(*index)?;
                 Operand::Copy(Place::Index {
                     base,
@@ -2708,7 +2716,12 @@ impl<'hir> LoweringCtx<'hir> {
                 args,
             } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
-                let base = self.local_operand(receiver_operand.clone(), expr.span)?;
+                let receiver_ty = self.hir_expr(*receiver)?.ty;
+                let base = self.materialize_operand_local(
+                    receiver_operand.clone(),
+                    receiver_ty,
+                    expr.span,
+                )?;
                 let receiver_ty = self.mir_local(base)?.ty;
                 let callee_id = self.resolve_method(receiver_ty, *method, expr.span)?;
                 let mut lowered_args = vec![receiver_operand];
@@ -2962,10 +2975,19 @@ impl<'hir> LoweringCtx<'hir> {
         for item in &self.krate.items {
             if let smelt_hir::Item::Class(class_item) = item
                 && class_item.name == class
-                && let Some(constructor) = class_item.constructor
-                && let Some(func) = self.item_functions.get(&constructor)
             {
-                return Ok(*func);
+                if matches!(class_item.kind, smelt_hir::ClassKind::Abstract) {
+                    let name = self.krate.symbols.get(class).unwrap_or("<unknown>");
+                    return Err(self.error(
+                        format!("abstract class `{name}` cannot be constructed"),
+                        Some(span),
+                    ));
+                }
+                if let Some(constructor) = class_item.constructor
+                    && let Some(func) = self.item_functions.get(&constructor)
+                {
+                    return Ok(*func);
+                }
             }
         }
         let name = self.krate.symbols.get(class).unwrap_or("<unknown>");
@@ -2985,9 +3007,19 @@ impl<'hir> LoweringCtx<'hir> {
         let Some(Type::Class { name, .. }) = self.krate.types.get(receiver_ty) else {
             return Err(self.error("method receiver must be a class value", Some(span)));
         };
+        self.resolve_method_on_class(*name, method, span)
+    }
+
+    /// Resolves a method call by walking the single-inheritance chain.
+    fn resolve_method_on_class(
+        &self,
+        class: Symbol,
+        method: Symbol,
+        span: Span,
+    ) -> Result<FuncId, LowerError> {
         for item in &self.krate.items {
             if let smelt_hir::Item::Class(class_item) = item
-                && class_item.name == *name
+                && class_item.name == class
             {
                 for method_item in &class_item.methods {
                     if let smelt_hir::Item::Function(function) = self.hir_item(*method_item)?
@@ -2996,6 +3028,9 @@ impl<'hir> LoweringCtx<'hir> {
                     {
                         return Ok(*func);
                     }
+                }
+                if let Some(base) = class_item.base {
+                    return self.resolve_method_on_class(base, method, span);
                 }
             }
         }
@@ -3027,7 +3062,9 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::Field { receiver, field } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
-                let base = self.local_operand(receiver_operand, expr.span)?;
+                let receiver_ty = self.hir_expr(*receiver)?.ty;
+                let base =
+                    self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
                 Ok(Place::Field {
                     base,
                     field: *field,
@@ -3035,12 +3072,17 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::Index { receiver, index } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
-                let base = self.local_operand(receiver_operand, expr.span)?;
+                let receiver_ty = self.hir_expr(*receiver)?.ty;
+                let base =
+                    self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
                 let index_operand = self.lower_expr(*index)?;
                 Ok(Place::Index {
                     base,
                     index: Box::new(index_operand),
                 })
+            }
+            ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {
+                self.lower_place(*value)
             }
             ExprKind::Literal(_)
             | ExprKind::Item(_)
@@ -3051,7 +3093,6 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::OptionalIndex { .. }
             | ExprKind::OptionalMethod { .. }
             | ExprKind::OptionalCoalesce { .. }
-            | ExprKind::TypeAssert { .. }
             | ExprKind::Len { .. }
             | ExprKind::NumericAbs { .. }
             | ExprKind::NumericRound { .. }
@@ -3166,7 +3207,6 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::Conditional { .. }
             | ExprKind::InstanceOf { .. }
             | ExprKind::UnknownIs { .. }
-            | ExprKind::UnknownCast { .. }
             | ExprKind::Block(_)
             | ExprKind::Lambda { .. }
             | ExprKind::Closure(_)
@@ -3198,6 +3238,24 @@ impl<'hir> LoweringCtx<'hir> {
                 Some(span),
             )),
         }
+    }
+
+    /// Materializes an operand into a local so it can be used as a MIR place base.
+    fn materialize_operand_local(
+        &mut self,
+        operand: Operand,
+        ty: TypeId,
+        span: Span,
+    ) -> Result<LocalId, LowerError> {
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = operand {
+            return Ok(local);
+        }
+        let local = self.push_temp(ty, span);
+        self.block_mut()?.statements.push(Statement::Assign {
+            dest: local,
+            value: Rvalue::Use(operand),
+        });
+        Ok(local)
     }
 
     /// Returns a reference to the current block.
@@ -3293,10 +3351,13 @@ impl<'hir> LoweringCtx<'hir> {
 
     /// Creates a lowering error with optional span information.
     fn error(&self, message: impl Into<String>, span: Option<Span>) -> LowerError {
-        LowerError {
-            message: message.into(),
-            span,
+        let mut message = message.into();
+        if let Some(span) = span
+            && let Some(module) = self.krate.modules.get(span.file.0 as usize)
+        {
+            message = format!("{message} at {}", module.source.path);
         }
+        LowerError { message, span }
     }
 }
 

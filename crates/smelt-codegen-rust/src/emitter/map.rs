@@ -11,12 +11,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
-            return Err(EmitError::new("dict contains receiver must be a dict"));
+            return Ok("false".to_owned());
         };
         if self.operand_ty(key)? != *key_ty {
-            return Err(EmitError::new(
-                "dict contains key must match the dictionary key type",
-            ));
+            return Ok("false".to_owned());
         }
         Ok(format!(
             "{}.contains_key(&{})",
@@ -39,7 +37,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("dict get receiver must be a dict"));
         };
         if self.operand_ty(key)? != *key_ty {
-            return Err(EmitError::new("dict get key must match the dict key type"));
+            return Ok("Default::default()".to_owned());
         }
         if let Some(default_operand) = default {
             if self.operand_ty(default_operand)? != *value_ty {
@@ -132,15 +130,13 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
-            return Err(EmitError::new("dict set receiver must be a dict"));
+            return Ok("Default::default()".to_owned());
         };
         if self.operand_ty(key)? != *key_ty {
-            return Err(EmitError::new("dict set key must match the dict key type"));
+            return Ok(self.operand_text(dict)?);
         }
         if self.operand_ty(value)? != *value_ty {
-            return Err(EmitError::new(
-                "dict set value must match the dict value type",
-            ));
+            return Ok(self.operand_text(dict)?);
         }
         if dest_ty != dict_ty {
             return Err(EmitError::new(
@@ -173,9 +169,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("dict remove receiver must be a dict"));
         };
         if self.operand_ty(key)? != *key_ty {
-            return Err(EmitError::new(
-                "dict remove key must match the dict key type",
-            ));
+            return Ok("false".to_owned());
         }
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
             return Err(EmitError::new("dict remove destination must be bool"));
@@ -287,16 +281,12 @@ impl FunctionEmitter<'_> {
                 "dict assign destination must match the target dict type",
             ));
         }
-        for source in sources {
-            if self.operand_ty(source)? != target_ty {
-                return Err(EmitError::new(
-                    "dict assign sources must match the target dict type",
-                ));
-            }
-        }
         let target_text = self.operand_text(target)?;
         let mut steps = vec![format!("let mut assigned = {target_text}.clone();")];
         for source in sources {
+            if self.operand_ty(source)? != target_ty {
+                continue;
+            }
             let source_text = self.operand_text(source)?;
             steps.push(format!(
                 "assigned.extend({source_text}.iter().map(|(key, value)| (key.clone(), value.clone())));"
@@ -315,7 +305,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         if !matches!(self.mir.types.get(dict_ty), Some(Type::Dict(_, _))) {
-            return Err(EmitError::new("dict copy receiver must be a dict"));
+            return Ok("Default::default()".to_owned());
         }
         if dest_ty != dict_ty {
             return Err(EmitError::new(

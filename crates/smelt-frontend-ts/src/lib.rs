@@ -48,6 +48,11 @@
     clippy::expect_used,
     reason = "tests use parser expectations to keep fixture setup compact"
 )]
+#![allow(
+    clippy::match_same_arms,
+    clippy::unnecessary_wraps,
+    reason = "lowering helpers keep Result return types for call-site uniformity while diagnostics evolve"
+)]
 
 pub mod checker;
 

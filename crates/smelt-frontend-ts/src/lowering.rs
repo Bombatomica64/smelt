@@ -15,9 +15,9 @@ use oxc::allocator::Allocator;
 use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, ClassElement,
     Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
-    ImportOrExportKind, MethodDefinitionKind, ModuleExportName, ObjectPropertyKind, Program,
-    PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility, TSSignature, TSTupleElement,
-    TSType, TSTypeName, TSTypeQueryExprName,
+    ImportOrExportKind, MethodDefinitionKind, MethodDefinitionType, ModuleExportName,
+    ObjectPropertyKind, Program, PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility,
+    TSSignature, TSTupleElement, TSType, TSTypeName, TSTypeQueryExprName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -275,6 +275,10 @@ struct ModuleBuilder<'ctx> {
     interfaces: HashMap<String, smelt_hir::ItemId>,
     /// Fields for each class.
     class_fields: HashMap<String, Vec<Field>>,
+    /// Method signatures for classes that are visible before their item is fully emitted.
+    class_methods: HashMap<String, Vec<MethodSig>>,
+    /// Base class metadata for the class currently being lowered.
+    class_bases: HashMap<String, (smelt_hir::Symbol, Vec<smelt_hir::TypeId>)>,
     /// Fields carried by structural type aliases.
     type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses for resolving fields after cyclic type imports settle.

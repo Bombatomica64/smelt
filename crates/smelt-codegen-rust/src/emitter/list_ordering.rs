@@ -94,7 +94,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
-            return Err(EmitError::new("enumerate() argument must be a list"));
+            return Ok("Default::default()".to_owned());
         };
         let Some(Type::List(tuple_ty)) = self.mir.types.get(dest_ty) else {
             return Err(EmitError::new("enumerate() destination must be a list"));

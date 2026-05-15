@@ -9,20 +9,7 @@ impl ModuleBuilder<'_> {
         if !Self::is_pytest_raises_call(call) || call.arguments.args.len() < 2 {
             return Ok(false);
         }
-        for keyword in &call.arguments.keywords {
-            let Some(arg) = keyword.arg.as_ref().map(|arg| arg.as_str()) else {
-                return Err(SmeltError::unsupported(
-                    self.span(keyword.range),
-                    "pytest.raises **kwargs are not supported yet",
-                ));
-            };
-            if arg != "match" {
-                return Err(SmeltError::unsupported(
-                    self.span(keyword.range),
-                    format!("pytest.raises keyword argument '{arg}' is not supported yet"),
-                ));
-            }
-        }
+        let match_expr = self.pytest_raises_match_argument(call, body)?;
 
         let bool_ty = self.intern_type(Type::Bool);
         let raised_sym = self.intern_name("__smelt_pytest_raised");
@@ -63,6 +50,9 @@ impl ModuleBuilder<'_> {
         });
         body.push_stmt_to_block(try_body, HirStmt::Expr(value));
 
+        let catch_binding = match_expr
+            .is_some()
+            .then(|| self.pytest_raises_hidden_exception_local(call.range, body));
         let catch_body = body.push_block(self.span(call.range));
         let raised_target = body.push_expr(HirExpr {
             kind: ExprKind::Local(raised_local),
@@ -81,11 +71,19 @@ impl ModuleBuilder<'_> {
                 value: true_expr,
             },
         );
+        if let (Some(exception_local), Some(pattern)) = (catch_binding, match_expr) {
+            self.push_pytest_raises_match_assert(
+                (exception_local, pattern),
+                call.range,
+                body,
+                catch_body,
+            );
+        }
         body.push_stmt_to_block(
             block,
             HirStmt::TryCatch {
                 body: try_body,
-                catch_binding: None,
+                catch_binding,
                 catch_body: Some(catch_body),
                 finally_body: None,
             },
@@ -117,6 +115,106 @@ impl ModuleBuilder<'_> {
             },
         );
         Ok(true)
+    }
+
+    /// Lower the optional `match=` keyword from `pytest.raises`.
+    fn pytest_raises_match_argument(
+        &mut self,
+        call: &ruff_python_ast::ExprCall,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let mut match_expr = None;
+        for keyword in &call.arguments.keywords {
+            let Some(arg) = keyword.arg.as_ref().map(|arg| arg.as_str()) else {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "pytest.raises **kwargs are not supported yet",
+                ));
+            };
+            if arg != "match" {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    format!("pytest.raises keyword argument '{arg}' is not supported yet"),
+                ));
+            }
+            if match_expr.is_some() {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.range),
+                    "pytest.raises match keyword may only be provided once",
+                ));
+            }
+            let pattern = self.expression(&keyword.value, body)?;
+            if self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String) {
+                return Err(SmeltError::unsupported(
+                    self.span(keyword.value.range()),
+                    "pytest.raises match keyword must lower to a string regex pattern",
+                ));
+            }
+            match_expr = Some(pattern);
+        }
+        Ok(match_expr)
+    }
+
+    /// Create the synthetic catch local used for `pytest.raises(match=...)`.
+    fn pytest_raises_hidden_exception_local(
+        &mut self,
+        range: TextRange,
+        body: &mut Body,
+    ) -> smelt_hir::LocalId {
+        let ty = self.intern_type(Type::String);
+        let symbol = self.intern_name("__smelt_pytest_exception");
+        body.push_local(LocalDecl {
+            name: Some(symbol),
+            ty,
+            mutable: false,
+            span: self.span(range),
+        })
+    }
+
+    /// Add a pytest `match=` regex assertion against a caught exception string.
+    fn push_pytest_raises_match_assert(
+        &mut self,
+        match_values: (smelt_hir::LocalId, smelt_hir::ExprId),
+        range: TextRange,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) {
+        let (exception_local, pattern) = match_values;
+        let string_ty = self.intern_type(Type::String);
+        let bool_ty = self.intern_type(Type::Bool);
+        let caught = body.push_expr(HirExpr {
+            kind: ExprKind::Local(exception_local),
+            ty: string_ty,
+            span: self.span(range),
+        });
+        let matched = body.push_expr(HirExpr {
+            kind: ExprKind::RegexIsMatch {
+                op: RegexMatchOp::Search,
+                pattern,
+                haystack: caught,
+            },
+            ty: bool_ty,
+            span: self.span(range),
+        });
+        let mismatch = body.push_expr(HirExpr {
+            kind: ExprKind::UnaryOp {
+                op: UnaryOp::Not,
+                operand: matched,
+            },
+            ty: bool_ty,
+            span: self.span(range),
+        });
+        let failure_block = body.push_block(self.span(range));
+        let message = self.string_literal_expr("pytest.raises(...) match failed", range, body);
+        body.push_stmt_to_block(failure_block, HirStmt::Throw(message));
+        body.push_stmt_to_block(
+            block,
+            HirStmt::If {
+                cond: mismatch,
+                then_block: failure_block,
+                else_block: None,
+            },
+        );
     }
 
     /// Return the call expression for a supported `pytest.raises(...)` call.

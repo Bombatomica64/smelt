@@ -522,59 +522,31 @@ impl ModuleBuilder<'_> {
                 "decorators are not lowered yet",
             ));
         }
-        if class.r#abstract {
-            return Err(SmeltError::unsupported(
-                self.span(class.span.start, class.span.end),
-                "abstract classes are not lowered yet",
-            ));
-        }
-        if class.type_parameters.is_some() {
-            return Err(SmeltError::unsupported(
-                self.span(class.span.start, class.span.end),
-                "generic classes are not lowered yet",
-            ));
-        }
-        if class.super_class.as_ref().is_some_and(|super_class| {
-            !matches!(
-                super_class,
-                Expression::Identifier(identifier)
-                    if matches!(
-                        identifier.name.as_str(),
-                        "Date"
-                            | "Error"
-                            | "EvalError"
-                            | "RangeError"
-                            | "ReferenceError"
-                            | "SyntaxError"
-                            | "TypeError"
-                            | "URIError"
-                            | "AggregateError"
-                    ) || self.classes.contains_key(identifier.name.as_str())
-            )
-        })
-        {
-            return Err(SmeltError::unsupported(
-                self.span(class.span.start, class.span.end),
-                "class extends is not lowered yet",
-            ));
-        }
-
         let class_text = id.name.as_str();
         let class_name = self.intern_type_name(class_text);
+        let type_params = self.push_type_parameter_scope(class.type_parameters.as_deref())?;
+        let class_type_args = type_params
+            .iter()
+            .map(|param| {
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::TypeParam { name: param.name })
+            })
+            .collect::<Vec<_>>();
         let class_ty = self.ctx.krate.types.intern(Type::Class {
             name: class_name,
-            args: Vec::new(),
+            args: class_type_args,
         });
-        let base = class.super_class.as_ref().and_then(|super_class| {
-            let Expression::Identifier(identifier) = super_class else {
-                return None;
-            };
-            Some(self.intern_type_name(identifier.name.as_str()))
-        });
+        let (base, base_args) = self.class_extends_clause(class)?;
+        if let Some(base_name) = base {
+            self.class_bases
+                .insert(class_text.to_owned(), (base_name, base_args.clone()));
+        }
         let mut fields = Vec::new();
         let mut constructor = None;
         let mut methods = Vec::new();
-        let mut has_required_storage_fields = false;
+        let mut abstract_methods = Vec::new();
 
         for element in &class.body.body {
             match element {
@@ -591,15 +563,8 @@ impl ModuleBuilder<'_> {
                             "static fields are not lowered yet",
                         ));
                     }
-                    if property.optional {
-                        return Err(SmeltError::unsupported(
-                            self.span(property.span.start, property.span.end),
-                            "optional class fields are not lowered yet",
-                        ));
-                    }
                     let name = self.property_key_symbol(&property.key)?;
-                    has_required_storage_fields |= property.value.is_none();
-                    let ty = if let Some(annotation) = &property.type_annotation {
+                    let mut ty = if let Some(annotation) = &property.type_annotation {
                         self.ts_type_to_hir(&annotation.type_annotation)?
                     } else if let Some(value) = &property.value {
                         let mut field_body =
@@ -612,11 +577,14 @@ impl ModuleBuilder<'_> {
                             "class fields require explicit type annotations",
                         ));
                     };
+                    if property.optional {
+                        ty = self.field_type_with_optional(ty, true);
+                    }
                     fields.push(Field {
                         name,
                         ty,
                         visibility: visibility(property.accessibility),
-                        optional: false,
+                        optional: property.optional,
                         span: self.span(property.span.start, property.span.end),
                     });
                 }
@@ -667,6 +635,9 @@ impl ModuleBuilder<'_> {
         }
         self.class_fields
             .insert(class_text.to_owned(), fields.clone());
+        let method_sigs = self.class_method_signatures(&class.body.body)?;
+        self.class_methods
+            .insert(class_text.to_owned(), method_sigs);
 
         for element in &class.body.body {
             match element {
@@ -692,6 +663,17 @@ impl ModuleBuilder<'_> {
                             self.span(method.span.start, method.span.end),
                             "static methods are not lowered yet",
                         ));
+                    }
+                    if method.r#type == MethodDefinitionType::TSAbstractMethodDefinition {
+                        if !matches!(method.kind, MethodDefinitionKind::Method) {
+                            return Err(SmeltError::unsupported(
+                                self.span(method.span.start, method.span.end),
+                                "abstract constructors are not lowered yet",
+                            ));
+                        }
+                        let sig = self.abstract_class_method_sig(method)?;
+                        abstract_methods.push(sig);
+                        continue;
                     }
                     if !matches!(
                         method.kind,
@@ -742,10 +724,11 @@ impl ModuleBuilder<'_> {
             }
         }
 
-        if has_required_storage_fields && constructor.is_none() {
-            return Err(SmeltError::unsupported(
+        if constructor.is_none() {
+            constructor = Some(self.synthesize_default_class_constructor(
+                class_name,
+                class_ty,
                 self.span(class.span.start, class.span.end),
-                "classes with required fields must declare a constructor",
             ));
         }
 
@@ -757,16 +740,186 @@ impl ModuleBuilder<'_> {
         let item = self.ctx.krate.push_item(Item::Class(Class {
             name: class_name,
             span: self.span(class.span.start, class.span.end),
-            kind: smelt_hir::ClassKind::Plain,
+            kind: if class.r#abstract {
+                smelt_hir::ClassKind::Abstract
+            } else {
+                smelt_hir::ClassKind::Plain
+            },
+            type_params,
             base,
+            base_args,
             fields,
             constructor,
             methods,
+            abstract_methods,
             implements,
         }));
+        self.pop_type_parameter_scope();
         self.classes.insert(class_text.to_owned(), item);
         self.validate_implements(item)?;
         Ok(item)
+    }
+
+    /// Collect class method signatures before lowering method bodies.
+    ///
+    /// The final class item is emitted after method bodies are lowered, so
+    /// same-class calls need this metadata to resolve return types during the
+    /// class lowering pass. The collected signatures are metadata only; method
+    /// bodies still lower into regular HIR function items.
+    fn class_method_signatures(
+        &mut self,
+        elements: &[ClassElement<'_>],
+    ) -> Result<Vec<MethodSig>, SmeltError> {
+        let mut methods = Vec::new();
+        for element in elements {
+            let ClassElement::MethodDefinition(method) = element else {
+                continue;
+            };
+            if method.kind != MethodDefinitionKind::Method {
+                continue;
+            }
+            methods.push(self.abstract_class_method_sig(method)?);
+        }
+        Ok(methods)
+    }
+
+    /// Synthesize the implicit zero-argument constructor for a TypeScript class.
+    fn synthesize_default_class_constructor(
+        &mut self,
+        class_name: smelt_hir::Symbol,
+        class_ty: smelt_hir::TypeId,
+        span: Span,
+    ) -> smelt_hir::ItemId {
+        let mut body = Body::new(None, span);
+        let this_symbol = self.ctx.krate.symbols.intern("this");
+        body.push_local(LocalDecl {
+            name: Some(this_symbol),
+            ty: class_ty,
+            mutable: true,
+            span,
+        });
+        let body_id = self.ctx.krate.push_body(body);
+        let name = self.ctx.krate.symbols.intern("new");
+        self.ctx.krate.push_item(Item::Function(Function {
+            name,
+            span,
+            params: Vec::new(),
+            return_ty: class_ty,
+            is_async: false,
+            is_test: false,
+            body: Some(body_id),
+            owner: FunctionOwner::Constructor { class: class_name },
+        }))
+    }
+
+    /// Lower the single supported TypeScript `extends` shape for class declarations.
+    fn class_extends_clause(
+        &mut self,
+        class: &oxc::ast::ast::Class<'_>,
+    ) -> Result<(Option<smelt_hir::Symbol>, Vec<smelt_hir::TypeId>), SmeltError> {
+        let Some(super_class) = &class.super_class else {
+            return Ok((None, Vec::new()));
+        };
+        let Expression::Identifier(identifier) = super_class else {
+            return Err(SmeltError::unsupported(
+                self.span(super_class.span().start, super_class.span().end),
+                "class extends currently requires a direct base class identifier",
+            ));
+        };
+        let name = identifier.name.as_str();
+        let base = self.intern_type_name(name);
+        let allowed_builtin = matches!(
+            name,
+            "Date"
+                | "Error"
+                | "EvalError"
+                | "RangeError"
+                | "ReferenceError"
+                | "SyntaxError"
+                | "TypeError"
+                | "URIError"
+                | "AggregateError"
+        );
+        if !allowed_builtin && !self.classes.contains_key(name) {
+            return Err(SmeltError::unsupported(
+                self.span(super_class.span().start, super_class.span().end),
+                format!("base class `{name}` is not declared"),
+            ));
+        }
+        let args = class
+            .super_type_arguments
+            .as_ref()
+            .map(|type_args| {
+                type_args
+                    .params
+                    .iter()
+                    .map(|arg| self.ts_type_to_hir(arg))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+        Ok((Some(base), args))
+    }
+
+    /// Lower an abstract TypeScript method declaration to a HIR method signature.
+    fn abstract_class_method_sig(
+        &mut self,
+        method: &oxc::ast::ast::MethodDefinition<'_>,
+    ) -> Result<MethodSig, SmeltError> {
+        if method.value.this_param.is_some() {
+            return Err(SmeltError::unsupported(
+                self.span(method.span.start, method.span.end),
+                "this-parameter abstract methods are not lowered yet",
+            ));
+        }
+        let _type_params = self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
+        let return_ty = method
+            .value
+            .return_type
+            .as_ref()
+            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+            .transpose()?
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(method.span.start, method.span.end),
+                    "abstract methods require explicit return types",
+                )
+            })?;
+        let mut params = Vec::new();
+        for param in &method.value.params.items {
+            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "destructured abstract method parameters are not lowered yet",
+                ));
+            };
+            let ty = param
+                .type_annotation
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "abstract method parameters require explicit types",
+                    )
+                })?;
+            params.push(ParamSig {
+                name: self.intern_source_name(binding.name.as_str()),
+                ty,
+                span: self.span(binding.span.start, binding.span.end),
+            });
+        }
+        let sig = MethodSig {
+            name: self.property_key_symbol(&method.key)?,
+            params,
+            return_ty,
+            visibility: visibility(method.accessibility),
+            is_async: matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))),
+            span: self.span(method.span.start, method.span.end),
+        };
+        self.pop_type_parameter_scope();
+        Ok(sig)
     }
 
     /// Lower a class method or constructor to HIR.
@@ -789,6 +942,8 @@ impl ModuleBuilder<'_> {
         } else {
             self.property_key_symbol(&method.key)?
         };
+        let _method_type_params =
+            self.push_type_parameter_scope(method.value.type_parameters.as_deref())?;
         let return_ty = if is_constructor {
             if method.value.return_type.is_some() {
                 return Err(SmeltError::unsupported(
@@ -921,6 +1076,7 @@ impl ModuleBuilder<'_> {
         self.current_class = saved_class;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.pop_type_parameter_scope();
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }

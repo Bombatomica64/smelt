@@ -21,6 +21,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             classes,
             interfaces,
             class_fields: HashMap::new(),
+            class_methods: HashMap::new(),
+            class_bases: HashMap::new(),
             type_alias_fields,
             interface_extends,
             callable_fields,

@@ -150,14 +150,22 @@ pub struct MirClass {
     /// Propagated from HIR for codegen (e.g. emit `#[derive(PartialEq, Eq)]`
     /// for frozen dataclasses).
     pub kind: smelt_hir::ClassKind,
+    /// Generic type parameters declared by the class.
+    pub type_params: Vec<smelt_hir::TypeParamDef>,
+    /// Whether this class is abstract and therefore non-constructible.
+    pub is_abstract: bool,
     /// Single base class, if any (multiple inheritance is rejected upstream).
     pub base: Option<Symbol>,
+    /// Type arguments applied to the base class.
+    pub base_args: Vec<TypeId>,
     /// Fields defined in the class.
     pub fields: Vec<MirField>,
     /// Constructor function ID, if any.
     pub constructor: Option<FuncId>,
     /// Method function IDs.
     pub methods: Vec<FuncId>,
+    /// Abstract method signatures required by this class.
+    pub abstract_methods: Vec<smelt_hir::MethodSig>,
     /// Interfaces this class implements.
     pub implements: Vec<Symbol>,
 }

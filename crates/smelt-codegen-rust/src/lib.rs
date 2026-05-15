@@ -51,6 +51,15 @@
     clippy::needless_pass_by_ref_mut,
     reason = "emitter entrypoints reserve mutability for incremental generation state"
 )]
+#![allow(
+    clippy::manual_let_else,
+    clippy::match_same_arms,
+    clippy::needless_question_mark,
+    clippy::option_if_let_else,
+    clippy::unnested_or_patterns,
+    clippy::unnecessary_wraps,
+    reason = "Remeda fallback emission currently favors explicit conservative branches over stylistic rewrites"
+)]
 #![cfg_attr(
     test,
     expect(
@@ -66,12 +75,17 @@ use std::{fs, path::Path};
 
 use smelt_mir::{HirOrigin, Mir};
 
+pub(crate) mod classes;
 pub(crate) mod deps;
 pub mod rust;
 pub(crate) mod stdlib;
 
 use deps::GeneratedDep;
 mod emitter;
+use classes::{
+    class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
+    effective_class_fields, inherited_trait_methods,
+};
 use emitter::FunctionEmitter;
 use rust::{CodeWriter, RustIdent};
 
@@ -176,17 +190,88 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             unknown_writer.line("Object(::std::collections::HashMap<String, SmeltUnknown>),");
         });
         writer.blank_line();
+        writer.block("impl Default for SmeltUnknown", |impl_writer| {
+            impl_writer.block("fn default() -> Self", |fn_writer| {
+                fn_writer.line("Self::Null");
+            });
+        });
+        writer.blank_line();
+        writer.line("impl Eq for SmeltUnknown {}");
+        writer.blank_line();
+        writer.block("impl ::std::hash::Hash for SmeltUnknown", |impl_writer| {
+            impl_writer.block(
+                "fn hash<H: ::std::hash::Hasher>(&self, state: &mut H)",
+                |fn_writer| {
+                    fn_writer.block("match self", |match_writer| {
+                        match_writer.line("Self::Null => 0_u8.hash(state),");
+                        match_writer.line("Self::Bool(value) => { 1_u8.hash(state); value.hash(state); }");
+                        match_writer.line("Self::Number(value) => { 2_u8.hash(state); value.to_bits().hash(state); }");
+                        match_writer.line("Self::String(value) => { 3_u8.hash(state); value.hash(state); }");
+                        match_writer.line("Self::Array(values) => { 4_u8.hash(state); values.hash(state); }");
+                        match_writer.line("Self::Object(values) => { 5_u8.hash(state); let mut entries = values.iter().collect::<Vec<_>>(); entries.sort_by(|left, right| left.0.cmp(right.0)); for (key, value) in entries { key.hash(state); value.hash(state); } }");
+                    });
+                },
+            );
+        });
+        writer.blank_line();
+        writer.block("trait IntoSmeltUnknown", |trait_writer| {
+            trait_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown;");
+        });
+        writer.blank_line();
+        writer.block("impl IntoSmeltUnknown for SmeltUnknown", |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("self");
+            });
+        });
+        writer.blank_line();
+        writer.block("impl IntoSmeltUnknown for bool", |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("SmeltUnknown::Bool(self)");
+            });
+        });
+        writer.blank_line();
+        writer.block("impl IntoSmeltUnknown for f64", |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("SmeltUnknown::Number(self)");
+            });
+        });
+        writer.blank_line();
+        writer.block("impl IntoSmeltUnknown for i64", |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("SmeltUnknown::Number(self as f64)");
+            });
+        });
+        writer.blank_line();
+        writer.block("impl IntoSmeltUnknown for String", |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("SmeltUnknown::String(self)");
+            });
+        });
+        writer.blank_line();
+        writer.block("impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T>", |impl_writer| {
+            impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                fn_writer.line("SmeltUnknown::Array(self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())");
+            });
+        });
+        writer.blank_line();
+        writer.block(
+            "impl<T: IntoSmeltUnknown> IntoSmeltUnknown for ::std::collections::HashMap<String, T>",
+            |impl_writer| {
+                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line("SmeltUnknown::Object(self.into_iter().map(|(key, value)| (key, value.into_smelt_unknown())).collect())");
+                });
+            },
+        );
+        writer.blank_line();
     }
 
     for class in &mir.classes {
-        let name = sanitize_ident(
-            mir.symbols
-                .get(class.name)
-                .ok_or_else(|| EmitError::new("class has unknown symbol"))?,
-        );
+        let name = class_name_text(mir, class)?;
+        let type_params = class_type_params_text(mir, class)?;
+        let _inherited_trait_methods = inherited_trait_methods(mir, class);
         writer.line("#[derive(Clone, Debug)]");
         let mut field_lines = Vec::new();
-        for field in &class.fields {
+        for field in effective_class_fields(mir, class) {
             field_lines.push(format!(
                 "{}: {},",
                 RustIdent::new(
@@ -197,7 +282,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                 FunctionEmitter::type_text_for(mir, field.ty)?
             ));
         }
-        writer.block(format!("struct {name}"), |block_writer| {
+        writer.block(format!("struct {name}{type_params}"), |block_writer| {
             for field_line in field_lines {
                 block_writer.line(field_line);
             }
@@ -222,13 +307,12 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
     }
 
     for class in &mir.classes {
-        let name = sanitize_ident(
-            mir.symbols
-                .get(class.name)
-                .ok_or_else(|| EmitError::new("class has unknown symbol"))?,
-        );
-        out.push_str(&format!("\nimpl {name} {{\n"));
-        if let Some(constructor) = class.constructor
+        let name = class_name_text(mir, class)?;
+        let impl_generics = class_impl_generics_text(mir, class)?;
+        let type_args = class_type_args_text(mir, class)?;
+        out.push_str(&format!("\nimpl{impl_generics} {name}{type_args} {{\n"));
+        if !class.is_abstract
+            && let Some(constructor) = class.constructor
             && let Some(function) = mir.functions.get(id_index(
                 constructor.0,
                 "constructor index does not fit usize",
@@ -249,7 +333,32 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         out.push_str("}\n");
     }
 
+    if !mir.functions.iter().any(|function| function.is_test) && !has_main_function(mir)? {
+        out.push_str("\nfn main() {}\n");
+    }
+
     Ok(out)
+}
+
+/// Return whether the MIR already contains a Rust entrypoint.
+fn has_main_function(mir: &Mir) -> Result<bool, EmitError> {
+    let none_ty = mir
+        .types
+        .all()
+        .iter()
+        .enumerate()
+        .find_map(|(id, ty)| {
+            (*ty == smelt_hir::Type::None)
+                .then(|| compact_index(id, "type index does not fit u32").map(smelt_hir::TypeId))
+        })
+        .transpose()?
+        .unwrap_or(smelt_hir::TypeId(u32::MAX));
+    Ok(mir.functions.iter().any(|function| {
+        mir.symbols
+            .get(function.name)
+            .is_some_and(|name| name == "main")
+            && function.return_ty == none_ty
+    }))
 }
 
 /// Collects the dependency list required by generated Rust code.

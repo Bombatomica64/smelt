@@ -64,7 +64,10 @@ impl ModuleBuilder<'_> {
         let mut before_each = inherited_before_each;
         let mut after_each = inherited_after_each;
         for statement in statements {
-            if matches!(statement, Statement::VariableDeclaration(_)) {
+            if matches!(
+                statement,
+                Statement::VariableDeclaration(_) | Statement::FunctionDeclaration(_)
+            ) {
                 setup.push(statement);
                 continue;
             }
@@ -660,6 +663,11 @@ impl ModuleBuilder<'_> {
         match argument {
             Argument::StringLiteral(name) => Ok(name.value.to_string()),
             Argument::Identifier(identifier) => Ok(identifier.name.to_string()),
+            Argument::TemplateLiteral(template) if template.expressions.is_empty() => Ok(template
+                .quasis
+                .iter()
+                .map(|quasi| quasi.value.raw.as_str())
+                .collect::<String>()),
             _ => Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "test case names must be string literals or identifiers",

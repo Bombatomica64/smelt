@@ -92,15 +92,13 @@ class MyModel(models.Model):
 }
 
 #[test]
-fn metaclass_rejected() -> TestResult {
+fn abcmeta_metaclass_lowers_as_abstract_metadata() -> TestResult {
     let source = py!(r#"
 class Meta(metaclass=ABCMeta):
     pass
 "#);
     let mut ctx = HirCtx::new();
-    let errors = lower_errors(source, &mut ctx)?;
-    let error = first_error(&errors)?;
-    ensure_eq(&error.code, &"smelt::no-metaclass", "error code")?;
+    lower_module(source, &mut ctx)?;
     Ok(())
 }
 

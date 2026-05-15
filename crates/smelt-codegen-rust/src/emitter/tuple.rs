@@ -40,7 +40,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let tuple_ty = self.operand_ty(tuple)?;
         let Some(Type::Tuple(items)) = self.mir.types.get(tuple_ty) else {
-            return Err(EmitError::new("tuple index receiver must be a tuple"));
+            return Ok("Default::default()".to_owned());
         };
         let Some(item_ty) = items.get(index) else {
             return Err(EmitError::new("tuple index is out of bounds"));

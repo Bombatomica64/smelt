@@ -472,6 +472,9 @@ impl ModuleBuilder<'_> {
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
+            Argument::FunctionExpression(function) => {
+                self.function_expression_value(function, None, function.span, body)
+            }
             Argument::TSInstantiationExpression(instantiation) => {
                 self.expression(&instantiation.expression, body)
             }
@@ -1249,7 +1252,7 @@ impl ModuleBuilder<'_> {
             let value = self.argument(argument, body)?;
             if !matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, value)),
-                Some(Type::Int | Type::Float)
+                Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. })
             ) {
                 return Err(SmeltError::unsupported(
                     self.span(argument.span().start, argument.span().end),

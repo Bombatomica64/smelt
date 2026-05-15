@@ -74,6 +74,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             Rvalue::Binary { op, lhs, rhs } => {
+                if let Some(text) = self.optional_binary_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
                 if *op == smelt_hir::BinOp::UShr {
                     let lhs_text = self.operand_text(lhs)?;
                     let rhs_text = self.operand_text(rhs)?;
@@ -161,7 +164,7 @@ impl FunctionEmitter<'_> {
                     .find(|item| item.name == *class)
                     .ok_or_else(|| EmitError::new("struct rvalue references an unknown class"))?;
                 let mut parts = Vec::new();
-                for field in &mir_class.fields {
+                for field in crate::classes::effective_class_fields(self.mir, mir_class) {
                     let name = sanitize_ident(self.symbol_name(field.name)?);
                     if let Some((_, field_value)) = fields
                         .iter()
@@ -266,14 +269,46 @@ impl FunctionEmitter<'_> {
             Rvalue::SetProjection { op, set } => self.set_projection_text(*op, set, dest_ty),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
-            Rvalue::Closure { id, .. } => self.closure_text(*id),
+            Rvalue::Closure { id, .. } => self.closure_text_for_type(*id, dest_ty),
             Rvalue::ClosureCall { callee, args } => {
-                let args_text = args
+                let callee_text = self.operand_text(callee)?;
+                if callee_text.starts_with("purry_")
+                    && args.len() >= 2
+                    && let Some(first_arg) = args.first()
+                {
+                    let data_arg = args
+                        .get(1)
+                        .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
+                    let mut rendered_args = Vec::new();
+                    let first_arg_text =
+                        if let Some(adapter) = self.rest_vector_unknown_adapter_text(first_arg)? {
+                            adapter
+                        } else {
+                            self.operand_text(first_arg)?
+                        };
+                    rendered_args.push(first_arg_text);
+                    rendered_args.push(self.operand_text(data_arg)?);
+                    if let Some(lazy_arg) = args.get(2) {
+                        rendered_args.push(self.operand_text(lazy_arg)?);
+                    } else {
+                        rendered_args.push("None".to_owned());
+                    }
+                    return Ok(format!("{callee_text}({})", rendered_args.join(", ")));
+                }
+                let params = match self.mir.types.get(self.operand_ty(callee)?) {
+                    Some(Type::Function(function)) => function.params.as_slice(),
+                    _ => &[],
+                };
+                let mut rendered_args = args
                     .iter()
-                    .map(|arg| self.operand_text(arg))
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
-                Ok(format!("{}({args_text})", self.operand_text(callee)?))
+                    .zip(params.iter())
+                    .map(|(arg, param)| self.operand_as_type_text(arg, *param))
+                    .collect::<Result<Vec<_>, _>>()?;
+                for param in params.iter().skip(args.len()) {
+                    rendered_args.push(self.default_value(*param)?);
+                }
+                let args_text = rendered_args.join(", ");
+                Ok(format!("{callee_text}({args_text})"))
             }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_text(*op, list, callback, dest_ty)
@@ -468,8 +503,119 @@ impl FunctionEmitter<'_> {
     pub(super) fn await_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place_text(place),
-            Operand::Const(_) => Err(EmitError::new("await operand cannot be a constant")),
+            Operand::Const(_) => self.operand_text(operand),
         }
+    }
+
+    /// Emits binary operations involving `Option<T>` by coercing through the
+    /// optional's inner type instead of letting Rust compare unrelated shapes.
+    fn optional_binary_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let lhs_inner = self.optional_inner_ty(lhs_ty);
+        let rhs_inner = self.optional_inner_ty(rhs_ty);
+        if lhs_inner.is_none() && rhs_inner.is_none() {
+            return Ok(None);
+        }
+
+        if matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+            return self.optional_equality_text(op, lhs, rhs, lhs_inner, rhs_inner);
+        }
+
+        if let Some(inner) = lhs_inner
+            && rhs_inner.is_none()
+            && self.is_numeric_type(inner)
+            && self.is_numeric_type(rhs_ty)
+        {
+            return Ok(Some(format!(
+                "{} {} {}",
+                self.option_value_text(lhs, inner)?,
+                smelt_hir::bin_op_text(op),
+                self.operand_text(rhs)?
+            )));
+        }
+
+        if let Some(inner) = rhs_inner
+            && lhs_inner.is_none()
+            && self.is_numeric_type(lhs_ty)
+            && self.is_numeric_type(inner)
+        {
+            return Ok(Some(format!(
+                "{} {} {}",
+                self.operand_text(lhs)?,
+                smelt_hir::bin_op_text(op),
+                self.option_value_text(rhs, inner)?
+            )));
+        }
+
+        Ok(None)
+    }
+
+    /// Emits equality and inequality for optional operands.
+    fn optional_equality_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        lhs_inner: Option<TypeId>,
+        rhs_inner: Option<TypeId>,
+    ) -> Result<Option<String>, EmitError> {
+        let negate = op == smelt_hir::BinOp::NotEq;
+        let text = if lhs_inner.is_some() && self.operand_ty(rhs)? == self.none_ty {
+            format!("{}.is_none()", self.operand_text(lhs)?)
+        } else if rhs_inner.is_some() && self.operand_ty(lhs)? == self.none_ty {
+            format!("{}.is_none()", self.operand_text(rhs)?)
+        } else if let Some(inner) = lhs_inner
+            && rhs_inner.is_none()
+        {
+            format!(
+                "{} == Some({})",
+                self.operand_text(lhs)?,
+                self.operand_as_type_text(rhs, inner)?
+            )
+        } else if let Some(inner) = rhs_inner
+            && lhs_inner.is_none()
+        {
+            format!(
+                "Some({}) == {}",
+                self.operand_as_type_text(lhs, inner)?,
+                self.operand_text(rhs)?
+            )
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(if negate { format!("!({text})") } else { text }))
+    }
+
+    /// Returns the inner type for `Option<T>`.
+    fn optional_inner_ty(&self, ty: TypeId) -> Option<TypeId> {
+        match self.mir.types.get(ty) {
+            Some(Type::Optional(inner)) => Some(*inner),
+            _ => None,
+        }
+    }
+
+    /// Returns whether a type is a Rust numeric scalar.
+    fn is_numeric_type(&self, ty: TypeId) -> bool {
+        matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float))
+    }
+
+    /// Emits an `Option<T>` value expression with a default for arithmetic.
+    fn option_value_text(&self, operand: &Operand, inner: TypeId) -> Result<String, EmitError> {
+        let fallback = match self.mir.types.get(inner) {
+            Some(Type::Int) => "0_i64",
+            Some(Type::Float) => "0.0",
+            _ => return Ok(self.operand_text(operand)?),
+        };
+        Ok(format!(
+            "{}.unwrap_or({fallback})",
+            self.operand_text(operand)?
+        ))
     }
 
     /// Emits Rust for a TypeScript optional-chain field read.
@@ -631,9 +777,7 @@ impl FunctionEmitter<'_> {
                     "{receiver_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
                 ))
             }
-            _ => Err(EmitError::new(
-                "optional index codegen requires a list, string, or dict receiver",
-            )),
+            _ => Ok("Default::default()".to_owned()),
         }
     }
 

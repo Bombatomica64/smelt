@@ -39,6 +39,9 @@ pub enum Visibility {
 pub enum ClassKind {
     /// A plain class with an explicit constructor (`__init__` / `constructor`).
     Plain,
+    /// An abstract class. It may contribute fields and method signatures, but
+    /// cannot be constructed directly.
+    Abstract,
     /// A `@dataclass`-annotated class (or any class whose metaclass implements
     /// PEP 681 `dataclass_transform`).  The frontend synthesizes an explicit
     /// `__init__` into HIR so MIR sees no difference from a plain class.
@@ -111,15 +114,21 @@ pub struct Class {
     pub span: Span,
     /// Whether this is a plain or dataclass-like class.
     pub kind: ClassKind,
+    /// Generic type parameters declared by the class.
+    pub type_params: Vec<TypeParamDef>,
     /// Single base class (Python `class C(B):` / TS `class C extends B`).
     /// Multiple inheritance is rejected by both frontends.
     pub base: Option<Symbol>,
+    /// Type arguments applied to the base class.
+    pub base_args: Vec<TypeId>,
     /// Fields of the class.
     pub fields: Vec<Field>,
     /// Optional constructor method ID.
     pub constructor: Option<ItemId>,
     /// Method IDs of the class.
     pub methods: Vec<ItemId>,
+    /// Abstract method signatures required by this class.
+    pub abstract_methods: Vec<MethodSig>,
     /// Interfaces implemented by this class.
     pub implements: Vec<Symbol>,
 }

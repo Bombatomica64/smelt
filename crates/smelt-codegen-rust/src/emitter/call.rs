@@ -187,19 +187,48 @@ impl FunctionEmitter<'_> {
                         ))
                     };
                 }
-                let name = self.symbol_name(function.name)?;
-                let arg_values = args
+                let function_name = self.symbol_name(function.name)?;
+                if function_name == "purry" && args.len() >= 2 {
+                    let mut rendered_args = Vec::new();
+                    let first_arg = args
+                        .first()
+                        .ok_or_else(|| EmitError::new("purry call is missing callback"))?;
+                    let data_arg = args
+                        .get(1)
+                        .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
+                    rendered_args.push(
+                        self.rest_vector_unknown_adapter_text(first_arg)?
+                            .unwrap_or(self.operand_text(first_arg)?),
+                    );
+                    rendered_args.push(self.operand_text(data_arg)?);
+                    if let Some(lazy_arg) = args.get(2) {
+                        rendered_args.push(self.operand_text(lazy_arg)?);
+                    } else {
+                        rendered_args.push("None".to_owned());
+                    }
+                    return Ok(format!(
+                        "{}({}){}",
+                        self.function_rust_name(function)?,
+                        rendered_args.join(", "),
+                        self.throwing_call_suffix(function)
+                    ));
+                }
+                let mut rendered_args = args
                     .iter()
                     .zip(function.params.iter())
                     .map(|(arg, param)| {
                         let local = self.local_decl(*param)?;
                         self.operand_as_type_text(arg, local.ty)
                     })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                    .collect::<Result<Vec<_>, _>>()?;
+                for param in function.params.iter().skip(args.len()) {
+                    let local = self.local_decl(*param)?;
+                    rendered_args.push(self.default_value(local.ty)?);
+                }
+                let arg_values = rendered_args.join(", ");
                 Ok(format!(
                     "{}({arg_values}){}",
-                    sanitize_ident(name),
+                    self.function_rust_name(function)?,
                     self.throwing_call_suffix(function)
                 ))
             }

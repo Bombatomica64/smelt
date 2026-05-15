@@ -49,7 +49,7 @@ fn main (FuncId(2)) -> None
     %10 = copy %7?.field2
     %11 = copy %10?.[0.0]
     %4 = copy %11
-    %12 = copy %7?.method5()
+    %12 = copy %7?.method3()
     %5 = copy %12
     %13 = call @console_log(copy %8) -> bb2
   bb2:

@@ -1118,23 +1118,11 @@ impl ModuleBuilder<'_> {
                         Some(Type::Union(_))
                     );
                     let substituted_alias_ty = self.substitute_type_params(alias.ty, &substitutions);
-                    if !alias_is_union
-                        && let Some(function_ty) = self.function_member_type(substituted_alias_ty)
-                    {
-                        if let Some(fields) = self.type_alias_fields.get(&symbol).cloned()
-                            && !fields.is_empty()
-                        {
-                            let fields = self.substituted_fields(&fields, &substitutions);
-                            self.callable_fields.insert(function_ty, fields.clone());
-                            self.ctx.callable_fields.insert(function_ty, fields);
-                        }
-                        return Ok(function_ty);
-                    }
-                    if self
+                    let alias_has_fields = self
                         .type_alias_fields
                         .get(&symbol)
-                        .is_some_and(|fields| !fields.is_empty())
-                        && self.function_member_type(substituted_alias_ty).is_none()
+                        .is_some_and(|fields| !fields.is_empty());
+                    if alias_has_fields && self.function_member_type(substituted_alias_ty).is_none()
                     {
                         let instantiated_args = alias
                             .type_params
@@ -1151,6 +1139,18 @@ impl ModuleBuilder<'_> {
                             name: symbol,
                             args: instantiated_args,
                         }));
+                    }
+                    if !alias_is_union
+                        && let Some(function_ty) = self.function_member_type(substituted_alias_ty)
+                    {
+                        if let Some(fields) = self.type_alias_fields.get(&symbol).cloned()
+                            && !fields.is_empty()
+                        {
+                            let fields = self.substituted_fields(&fields, &substitutions);
+                            self.callable_fields.insert(function_ty, fields.clone());
+                            self.ctx.callable_fields.insert(function_ty, fields);
+                        }
+                        return Ok(function_ty);
                     }
                     return Ok(substituted_alias_ty);
                 }
@@ -1386,14 +1386,23 @@ impl ModuleBuilder<'_> {
                 if self.ctx.krate.symbols.get(field) == Some("constructor") {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 }
-                let class_field = self.class_by_symbol(name).and_then(|class| {
+                let class_item = self.class_by_symbol(name).cloned();
+                if class_item.is_none()
+                    && let Some(ty) = self.in_progress_class_method_member_type(name, field)
+                {
+                    return Ok(ty);
+                }
+                let class_field = if let Some(class) = &class_item {
+                    let substitutions =
+                        self.type_argument_substitution(&class.type_params, &args, self.span(0, 0))?;
                     class
                         .fields
                         .iter()
                         .find(|item| item.name == field)
-                        .map(|item| item.ty)
-                });
-                let class_base = self.class_by_symbol(name).and_then(|class| class.base);
+                        .map(|item| self.substitute_type_params(item.ty, &substitutions))
+                } else {
+                    None
+                };
                 let class_name = self
                     .ctx
                     .krate
@@ -1463,10 +1472,29 @@ impl ModuleBuilder<'_> {
                 if let Some(ty) = self.builtin_class_field_type(name, field) {
                     return Ok(ty);
                 }
-                if let Some(base) = class_base {
+                if let Some((base, base_args)) =
+                    class_item.and_then(|class| class.base.map(|base| (base, class.base_args)))
+                    .or_else(|| {
+                        class_name
+                            .as_deref()
+                            .and_then(|class_name| self.class_bases.get(class_name).cloned())
+                    })
+                {
+                    let substitutions = self.type_argument_substitution(
+                        &self
+                            .class_by_symbol(name)
+                            .map(|class| class.type_params.clone())
+                            .unwrap_or_default(),
+                        &args,
+                        self.span(0, 0),
+                    )?;
+                    let base_args = base_args
+                        .into_iter()
+                        .map(|arg| self.substitute_type_params(arg, &substitutions))
+                        .collect();
                     let base_ty = self.ctx.krate.types.intern(Type::Class {
                         name: base,
-                        args: Vec::new(),
+                        args: base_args,
                     });
                     if let Ok(ty) = self.class_field_type(base_ty, field) {
                         return Ok(ty);
@@ -1487,9 +1515,10 @@ impl ModuleBuilder<'_> {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 }
                 let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
+                let receiver_name = self.ctx.krate.symbols.get(name).unwrap_or("<unknown>");
                 Err(SmeltError::unsupported(
                     self.span(0, 0),
-                    format!("unknown class or interface field `{field_name}`"),
+                    format!("unknown class or interface field `{field_name}` on `{receiver_name}`"),
                 ))
             }
             _ => Err(SmeltError::unsupported(
@@ -1499,6 +1528,29 @@ impl ModuleBuilder<'_> {
                 ),
             )),
         }
+    }
+
+    /// Resolve an in-progress class method reference as a function-valued member type.
+    fn in_progress_class_method_member_type(
+        &mut self,
+        class_name: smelt_hir::Symbol,
+        method_name: smelt_hir::Symbol,
+    ) -> Option<smelt_hir::TypeId> {
+        let class_text = self
+            .ctx
+            .krate
+            .names
+            .get(class_name)
+            .or_else(|| self.ctx.krate.symbols.get(class_name))
+            .map(str::to_owned)?;
+        let methods = self.class_methods.get(&class_text).cloned()?;
+        let method = methods.into_iter().find(|item| item.name == method_name)?;
+        let params = method.params.iter().map(|param| param.ty).collect();
+        Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            return_ty: method.return_ty,
+            is_async: method.is_async,
+        })))
     }
 
     /// Resolve a field through stored interface heritage edges.
@@ -1707,18 +1759,23 @@ impl ModuleBuilder<'_> {
 
     /// Resolve a method call on a type.
     fn resolve_method(
-        &self,
+        &mut self,
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
-        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(receiver_ty) else {
+        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "method calls are only lowered for class values for now",
             ));
         };
-        let Some(class) = self.class_by_symbol(*name) else {
+        let Some(class) = self.class_by_symbol(name).cloned() else {
+            if let Some(return_ty) =
+                self.in_progress_class_method_return(name, &args, method, span)?
+            {
+                return Ok((return_ty, smelt_hir::ItemId(u32::MAX)));
+            }
             return Ok((receiver_ty, smelt_hir::ItemId(u32::MAX)));
         };
         for item in &class.methods {
@@ -1728,11 +1785,62 @@ impl ModuleBuilder<'_> {
                 return Ok((function.return_ty, *item));
             }
         }
+        for abstract_method in &class.abstract_methods {
+            if abstract_method.name == method {
+                return Ok((abstract_method.return_ty, smelt_hir::ItemId(u32::MAX)));
+            }
+        }
+        if let Some(base) = class.base {
+            let substitutions = self.type_argument_substitution(
+                &class.type_params,
+                &args,
+                self.span(span.start, span.end),
+            )?;
+            let base_args = class
+                .base_args
+                .clone()
+                .into_iter()
+                .map(|arg| self.substitute_type_params(arg, &substitutions))
+                .collect();
+            let base_ty = self.ctx.krate.types.intern(Type::Class {
+                name: base,
+                args: base_args,
+            });
+            return self.resolve_method(base_ty, method, span);
+        }
         let method_name = self.ctx.krate.symbols.get(method).unwrap_or("<unknown>");
         Err(SmeltError::unsupported(
             self.span(0, 0),
             format!("unknown class method `{method_name}`"),
         ))
+    }
+
+    /// Resolve a method return type from metadata collected before a class item exists.
+    fn in_progress_class_method_return(
+        &self,
+        class: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+        method: smelt_hir::Symbol,
+        span: oxc::span::Span,
+    ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        let Some(class_name) = self
+            .ctx
+            .krate
+            .names
+            .get(class)
+            .or_else(|| self.ctx.krate.symbols.get(class))
+            .map(str::to_owned)
+        else {
+            return Ok(None);
+        };
+        let Some(methods) = self.class_methods.get(&class_name).cloned() else {
+            return Ok(None);
+        };
+        let Some(signature) = methods.into_iter().find(|item| item.name == method) else {
+            return Ok(None);
+        };
+        let _ = (args, span);
+        Ok(Some(signature.return_ty))
     }
 
     /// Get the element type of an indexable type.

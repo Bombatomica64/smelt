@@ -102,9 +102,9 @@ class User implements Named {
 }
 
 #[test]
-fn rejects_optional_class_fields() -> Result<(), String> {
+fn lowers_optional_class_fields() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    lower_ok(
         ts!("class User {
   name?: string;
   constructor() {}
@@ -112,13 +112,13 @@ fn rejects_optional_class_fields() -> Result<(), String> {
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "optional class fields")
+    Ok(())
 }
 
 #[test]
-fn rejects_generic_classes() -> Result<(), String> {
-    let mut class_ctx = HirCtx::new();
-    let class_errors = lowering_errors(
+fn lowers_generic_classes() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
         ts!("class Box<T> {
   value: T;
   constructor(value: T) {
@@ -126,10 +126,8 @@ fn rejects_generic_classes() -> Result<(), String> {
   }
 }
 "),
-        &mut class_ctx,
+        &mut ctx,
     )?;
-    assert_unsupported_ts(&class_errors, "generic classes")?;
-
     Ok(())
 }
 
@@ -158,7 +156,7 @@ fn rejects_static_members() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_setters_decorators_and_abstract_classes() -> Result<(), String> {
+fn rejects_setters_and_decorators_and_lowers_abstract_classes() -> Result<(), String> {
     let mut setter_ctx = HirCtx::new();
     let setter_errors = lowering_errors(
         ts!("class User {
@@ -181,14 +179,93 @@ class User {
     assert_unsupported_ts(&decorator_errors, "decorators")?;
 
     let mut abstract_ctx = HirCtx::new();
-    let abstract_errors = lowering_errors(
+    lower_ok(
         ts!("abstract class User {
   abstract name(): string;
 }
 "),
         &mut abstract_ctx,
     )?;
-    assert_unsupported_ts(&abstract_errors, "abstract classes")
+    Ok(())
+}
+
+#[test]
+fn rejects_direct_abstract_class_construction() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let errors = lowering_errors(
+        ts!("abstract class User {
+  abstract name(): string;
+}
+const user = new User();
+"),
+        &mut ctx,
+    )?;
+    assert_unsupported_ts(&errors, "cannot be constructed")
+}
+
+#[test]
+fn lowers_same_class_abstract_method_calls_and_method_references() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("type ParseResult<T> = { value: T; rest: string } | null;
+class ValueSetter<T> {
+  value: T;
+  validateValue: (value: T) => boolean;
+  constructor(value: T, validateValue: (value: T) => boolean) {
+    this.value = value;
+    this.validateValue = validateValue;
+  }
+}
+abstract class Parser<Value> {
+  public run(): { setter: ValueSetter<Value>; rest: string } | null {
+    const result = this.parse();
+    if (!result) {
+      return null;
+    }
+    return {
+      setter: new ValueSetter<Value>(result.value, this.validate),
+      rest: result.rest,
+    };
+  }
+  protected validate(value: Value): boolean {
+    return true;
+  }
+  protected abstract parse(): ParseResult<Value>;
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_class_extends_inherited_fields_and_methods() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("class Base<T> {
+  x: T;
+  constructor(x: T) {
+    this.x = x;
+  }
+  pick(): T {
+    return this.x;
+  }
+}
+class Child<T> extends Base<T> {
+  y: T;
+  constructor(x: T, y: T) {
+    super(x);
+    this.y = y;
+  }
+  value(): T {
+    return this.pick();
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    Ok(())
 }
 
 #[test]
@@ -301,7 +378,6 @@ fn rejects_coercive_equality() -> Result<(), String> {
 "),
         &mut ctx,
     )?;
-
     assert_unsupported_ts(&errors, "coercive equality")
 }
 
@@ -538,7 +614,7 @@ fn rejects_async_functions_without_promise_return_type() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_switch_fallthrough_until_it_is_modeled() -> Result<(), String> {
+fn rejects_switch_fallthrough_until_it_is_modelled() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(
         ts!(
@@ -554,14 +630,7 @@ fn rejects_switch_fallthrough_until_it_is_modeled() -> Result<(), String> {
         ),
         &mut ctx,
     )?;
-
-    ensure!(
-        errors
-            .iter()
-            .any(|error| error.message.contains("switch fallthrough")),
-        "expected switch fallthrough error, got {errors:?}"
-    );
-    Ok(())
+    assert_unsupported_ts(&errors, "switch fallthrough")
 }
 
 #[test]

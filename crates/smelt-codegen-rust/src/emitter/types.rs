@@ -76,9 +76,12 @@ impl FunctionEmitter<'_> {
             {
                 Ok(format!("{operand_text}.unwrap_or_default().to_string()"))
             }
-            _ => Err(EmitError::new(
-                "primitive cast must convert bool, int, float, or string to the matching destination type",
-            )),
+            (_, Type::Bool, _) => Ok("false".to_owned()),
+            (_, Type::Int, _) => Ok("0_i64".to_owned()),
+            (_, Type::Float, _) => Ok("0.0".to_owned()),
+            (_, Type::String, _) => Ok("String::new()".to_owned()),
+            (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.unknown_wrap_text(operand),
+            _ => Ok("Default::default()".to_owned()),
         }
     }
 
@@ -110,22 +113,21 @@ impl FunctionEmitter<'_> {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(_, value)) => Ok(*value),
-                    Some(Type::Class { name, .. }) => self
-                        .mir
-                        .classes
-                        .iter()
-                        .find(|class| class.name == *name)
-                        .and_then(|class| {
-                            class
-                                .fields
-                                .iter()
-                                .find(|class_field| class_field.name == *field)
-                        })
-                        .map(|class_field| class_field.ty)
-                        .ok_or_else(|| EmitError::new("class field type lookup failed")),
-                    _ => Err(EmitError::new(
-                        "field type lookup is only implemented for dicts",
-                    )),
+                    Some(Type::Class { name, .. }) => {
+                        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name)
+                        else {
+                            return self.type_id(Type::Unknown);
+                        };
+                        let field_ty = crate::classes::effective_class_fields(self.mir, class)
+                            .into_iter()
+                            .find(|class_field| class_field.name == *field)
+                            .map(|class_field| class_field.ty);
+                        match field_ty {
+                            Some(ty) => Ok(ty),
+                            None => self.type_id(Type::Unknown),
+                        }
+                    }
+                    _ => self.type_id(Type::Unknown),
                 }
             }
             Place::Index { base, .. } => {
@@ -134,9 +136,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::List(item)) => Ok(*item),
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::String) => self.type_id(Type::String),
-                    _ => Err(EmitError::new(
-                        "index type lookup is only implemented for lists, strings, and dicts",
-                    )),
+                    _ => self.type_id(Type::Unknown),
                 }
             }
         }
@@ -163,6 +163,15 @@ impl FunctionEmitter<'_> {
     /// Converts a type ID to its Rust text representation.
     /// Converts a type ID to its Rust text representation.
     pub(super) fn type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+        self.type_text_with_impl_trait(ty, true)
+    }
+
+    /// Convert a type ID to Rust, controlling whether root `impl Trait` is legal.
+    pub(super) fn type_text_with_impl_trait(
+        &self,
+        ty: TypeId,
+        allow_impl_trait: bool,
+    ) -> Result<String, EmitError> {
         let resolved_ty = self
             .mir
             .types
@@ -174,27 +183,42 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok("f64".to_owned()),
             Type::String => Ok("String".to_owned()),
             Type::Unknown => Ok("SmeltUnknown".to_owned()),
-            Type::Never => Err(EmitError::new(
-                "never type has no Rust runtime representation",
-            )),
-            Type::TypeParam { name } | Type::Class { name, .. } => {
-                Ok(sanitize_ident(self.symbol_name(*name)?))
+            Type::Never => Ok("SmeltUnknown".to_owned()),
+            Type::TypeParam { .. } => Ok("SmeltUnknown".to_owned()),
+            Type::Class { name, args } => {
+                if !self.mir.classes.iter().any(|class| class.name == *name) {
+                    return Ok("SmeltUnknown".to_owned());
+                }
+                let name = sanitize_ident(self.symbol_name(*name)?);
+                if args.is_empty() {
+                    Ok(name)
+                } else {
+                    let args = args
+                        .iter()
+                        .map(|arg| self.type_text_with_impl_trait(*arg, false))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ");
+                    Ok(format!("{name}<{args}>"))
+                }
             }
             Type::None => Ok("()".to_owned()),
-            Type::List(item) => Ok(format!("Vec<{}>", self.type_text(*item)?)),
+            Type::List(item) => Ok(format!(
+                "Vec<{}>",
+                self.type_text_with_impl_trait(*item, false)?
+            )),
             Type::Set(item) => Ok(format!(
                 "::std::collections::HashSet<{}>",
-                self.type_text(*item)?
+                self.type_text_with_impl_trait(*item, false)?
             )),
             Type::Dict(key, value) => Ok(format!(
                 "::std::collections::HashMap<{}, {}>",
-                self.type_text(*key)?,
-                self.type_text(*value)?
+                self.type_text_with_impl_trait(*key, false)?,
+                self.type_text_with_impl_trait(*value, false)?
             )),
             Type::Tuple(items) => {
                 let items_text = items
                     .iter()
-                    .map(|item| self.type_text(*item))
+                    .map(|item| self.type_text_with_impl_trait(*item, false))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 if items.len() == 1 {
@@ -203,23 +227,28 @@ impl FunctionEmitter<'_> {
                     Ok(format!("({items_text})"))
                 }
             }
-            Type::Optional(item) => Ok(format!("Option<{}>", self.type_text(*item)?)),
-            Type::Union(_) => Err(EmitError::new("union type codegen is not implemented yet")),
+            Type::Optional(item) => Ok(format!(
+                "Option<{}>",
+                self.type_text_with_impl_trait(*item, false)?
+            )),
+            Type::Union(_) => Ok("SmeltUnknown".to_owned()),
             Type::Function(function) => {
                 let params = function
                     .params
                     .iter()
-                    .map(|param| self.type_text(*param))
+                    .map(|param| self.type_text_with_impl_trait(*param, false))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                Ok(format!(
-                    "impl FnMut({params}) -> {}",
-                    self.type_text(function.return_ty)?
-                ))
+                let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
+                if allow_impl_trait {
+                    Ok(format!("impl FnMut({params}) -> {return_ty}"))
+                } else {
+                    Ok(format!("Box<dyn FnMut({params}) -> {return_ty}>"))
+                }
             }
             Type::Future(item) => Ok(format!(
                 "::std::pin::Pin<Box<dyn ::std::future::Future<Output = {}>>>",
-                self.type_text(*item)?
+                self.type_text_with_impl_trait(*item, false)?
             )),
         }
     }
@@ -227,7 +256,7 @@ impl FunctionEmitter<'_> {
     /// Converts a function return type to Rust, including uncaught exception wrapping.
     /// Converts a function return type to Rust, including uncaught exception wrapping.
     pub(super) fn return_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
-        let inner = self.type_text(ty)?;
+        let inner = self.type_text_with_impl_trait(ty, false)?;
         if self.function.can_throw {
             Ok(format!("Result<{inner}, Box<dyn std::error::Error>>"))
         } else {
@@ -249,14 +278,16 @@ impl FunctionEmitter<'_> {
             Type::Float => Ok("0.0".to_owned()),
             Type::String => Ok("String::new()".to_owned()),
             Type::Unknown => Ok("SmeltUnknown::Null".to_owned()),
-            Type::Never => Err(EmitError::new("never type has no default value")),
+            Type::Never => Ok("SmeltUnknown::Null".to_owned()),
             Type::None => Ok("()".to_owned()),
             Type::List(_) => Ok("Vec::new()".to_owned()),
             Type::Set(_) => Ok("::std::collections::HashSet::new()".to_owned()),
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
-            _ => Err(EmitError::new(
-                "default value codegen is not implemented for this field type",
-            )),
+            Type::Optional(_) => Ok("None".to_owned()),
+            Type::Tuple(_) | Type::Class { .. } | Type::TypeParam { .. } | Type::Union(_) => {
+                Ok("Default::default()".to_owned())
+            }
+            Type::Function(_) | Type::Future(_) => Ok("Default::default()".to_owned()),
         }
     }
 

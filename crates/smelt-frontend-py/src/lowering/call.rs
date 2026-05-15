@@ -252,6 +252,12 @@ impl ModuleBuilder<'_> {
                 match item {
                     Item::Class(c) => {
                         // Constructor call: `MyClass(args...)`
+                        if matches!(c.kind, ClassKind::Abstract) {
+                            return Err(SmeltError::unsupported(
+                                span,
+                                format!("abstract class '{name_str}' cannot be constructed"),
+                            ));
+                        }
                         let class_sym = c.name;
                         let class_ty = self.intern_type(Type::Class {
                             name: class_sym,

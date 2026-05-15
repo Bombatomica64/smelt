@@ -59,14 +59,6 @@ pub(super) fn hir_literal_text(literal: &smelt_hir::Literal) -> String {
     }
 }
 
-/// Checks if a block terminates with return or unreachable.
-pub(super) fn block_terminates(block: &BasicBlock) -> bool {
-    matches!(
-        block.terminator,
-        Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable)
-    )
-}
-
 /// Computes the set of locals that are assigned after their initial declaration.
 pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
     let mut locals = HashSet::new();

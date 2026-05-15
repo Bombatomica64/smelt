@@ -25,6 +25,24 @@ def test_raises():
 }
 
 #[test]
+fn emits_python_pytest_raises_match_as_regex_check() {
+    let source = source_for_py_path(
+        r#"
+import pytest
+
+def test_raises_match():
+    with pytest.raises(Exception, match="bo+m"):
+        raise "booom"
+"#,
+        "tests/test_raises_match.py",
+    );
+
+    assert!(source.contains("regex::Regex::new(&"));
+    assert!(source.contains("pytest.raises(...) match failed"));
+    assert!(source.contains("__smelt_pytest_exception"));
+}
+
+#[test]
 fn emits_typescript_vitest_test_case_as_rust_test() {
     let source = source_for(
         r#"

@@ -1845,4 +1845,5 @@ impl ModuleBuilder<'_> {
                     && test_support::is_type_test_builtin_name(ident.name.as_str())
         )
     }
+
 }

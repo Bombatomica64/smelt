@@ -42,17 +42,47 @@ impl ModuleBuilder<'_> {
         }
 
         // --- Metaclass check ---
+        let mut is_abstract_class = false;
         if let Some(args) = class.arguments.as_deref() {
             for kw in args.keywords.iter() {
                 if kw.arg.as_ref().map(|a| a.as_str()) == Some("metaclass") {
-                    return Err(SmeltError::no_metaclass(span, class_name_str));
+                    if matches!(expr_simple_name(&kw.value), Some("ABCMeta" | "abc.ABCMeta")) {
+                        is_abstract_class = true;
+                    } else {
+                        return Err(SmeltError::no_metaclass(span, class_name_str));
+                    }
                 }
             }
         }
 
         // --- Base classes ---
+        let mut type_params: Vec<TypeParamDef> = Vec::new();
         let base: Option<Symbol> = if let Some(args) = class.arguments.as_deref() {
-            let positional: Vec<&Expr> = args.args.iter().collect();
+            let positional: Vec<&Expr> = args
+                .args
+                .iter()
+                .filter(|base_expr| {
+                    let base_name = base_class_name(base_expr);
+                    if matches!(base_name, Some("ABC" | "abc.ABC")) {
+                        is_abstract_class = true;
+                    }
+                    if matches!(base_name, Some("Generic" | "typing.Generic")) {
+                        type_params = self.generic_marker_type_params(base_expr);
+                    }
+                    !matches!(
+                        base_name,
+                        Some(
+                            "object"
+                                | "ABC"
+                                | "abc.ABC"
+                                | "Generic"
+                                | "typing.Generic"
+                                | "Protocol"
+                                | "typing.Protocol"
+                        )
+                    )
+                })
+                .collect();
             match positional.len() {
                 0 => None,
                 1 => {
@@ -85,6 +115,9 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
+        if is_abstract_class {
+            kind = ClassKind::Abstract;
+        }
 
         // --- Fields and methods ---
         let mut fields: Vec<Field> = Vec::new();
@@ -97,14 +130,18 @@ impl ModuleBuilder<'_> {
             name: class_sym,
             span,
             kind: kind.clone(),
+            type_params: type_params.clone(),
             base,
+            base_args: Vec::new(),
             fields: Vec::new(),
             constructor: None,
             methods: Vec::new(),
+            abstract_methods: Vec::new(),
             implements: vec![],
         }));
         self.items.insert(class_name_str.to_owned(), class_item_id);
         let mut enum_members = HashMap::new();
+        let mut abstract_methods = Vec::new();
 
         for body_stmt in &class.body {
             match body_stmt {
@@ -118,19 +155,29 @@ impl ModuleBuilder<'_> {
                     let field_name_str = target_name.id.as_str();
                     let field_ty = self.annotation_to_hir(&ann.annotation)?;
                     let field_sym = self.intern_name(field_name_str);
-                    fields.push(Field {
+                    let field = Field {
                         name: field_sym,
                         ty: field_ty,
                         visibility: Visibility::Public,
                         optional: false,
                         span: self.span(ann.range),
-                    });
+                    };
+                    self.class_fields
+                        .entry(class_name_str.to_owned())
+                        .or_default()
+                        .push(field.clone());
+                    fields.push(field);
                 }
                 Stmt::Assign(assign) if is_int_enum => {
                     self.int_enum_member_assign(class_name_str, assign, &mut enum_members)?;
                 }
                 Stmt::FunctionDef(func) => {
                     let method_name = func.name.as_str();
+                    if Self::is_abstractmethod(func) {
+                        kind = ClassKind::Abstract;
+                        abstract_methods.push(self.abstract_method_sig(func)?);
+                        continue;
+                    }
                     if method_name == "__init__" {
                         if matches!(kind, ClassKind::DataclassLike { .. }) {
                             return Err(SmeltError::unsupported(
@@ -225,10 +272,13 @@ impl ModuleBuilder<'_> {
             name: class_sym,
             span,
             kind,
+            type_params,
             base,
+            base_args: Vec::new(),
             fields,
             constructor: constructor_id,
             methods: method_ids,
+            abstract_methods,
             implements: vec![],
         });
         let class_index = usize::try_from(class_item_id.0).map_err(|err| {
@@ -372,6 +422,78 @@ impl ModuleBuilder<'_> {
         };
         attr.attr.as_str() == "__new__"
             && matches!(attr.value.as_ref(), Expr::Name(receiver) if receiver.id.as_str() == class_name)
+    }
+
+    /// Return whether a Python method is decorated with `@abstractmethod`.
+    fn is_abstractmethod(func: &StmtFunctionDef) -> bool {
+        func.decorator_list.iter().any(|decorator| {
+            matches!(
+                decorator_simple_name(decorator),
+                Some("abstractmethod" | "abc.abstractmethod")
+            )
+        })
+    }
+
+    /// Lower an abstract Python method declaration to a HIR method signature.
+    fn abstract_method_sig(&mut self, func: &StmtFunctionDef) -> Result<MethodSig, SmeltError> {
+        let span = self.span(func.range);
+        let mut params = Vec::new();
+        for param in func.parameters.args.iter().skip(1) {
+            let annotation = param.parameter.annotation.as_deref().ok_or_else(|| {
+                SmeltError::unsupported(
+                    span,
+                    format!("abstract method '{}': parameters require annotations", func.name),
+                )
+            })?;
+            params.push(ParamSig {
+                name: self.intern_name(param.parameter.name.as_str()),
+                ty: self.annotation_to_hir(annotation)?,
+                span: self.span(param.parameter.range),
+            });
+        }
+        let return_ty = func
+            .returns
+            .as_deref()
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    span,
+                    format!("abstract method '{}': return type annotation required", func.name),
+                )
+            })
+            .and_then(|annotation| self.annotation_to_hir(annotation))?;
+        Ok(MethodSig {
+            name: self.intern_name(func.name.as_str()),
+            params,
+            return_ty,
+            visibility: Visibility::Public,
+            is_async: false,
+            span,
+        })
+    }
+
+    /// Extract type parameters from a `Generic[T, U]` marker base.
+    fn generic_marker_type_params(&mut self, base_expr: &Expr) -> Vec<TypeParamDef> {
+        let Expr::Subscript(subscript) = base_expr else {
+            return Vec::new();
+        };
+        let items = if let Expr::Tuple(tuple) = subscript.slice.as_ref() {
+            tuple.elts.iter().collect::<Vec<_>>()
+        } else {
+            vec![subscript.slice.as_ref()]
+        };
+        let mut params = Vec::new();
+        for item in items {
+            if let Expr::Name(name) = item {
+                let symbol = self.intern_name(name.id.as_str());
+                params.push(TypeParamDef {
+                    name: symbol,
+                    constraint: None,
+                    default: None,
+                    span: self.span(item.range()),
+                });
+            }
+        }
+        params
     }
 
     /// Lower a method or constructor inside a class body.

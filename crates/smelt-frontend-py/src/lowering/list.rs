@@ -16,6 +16,11 @@ impl ModuleBuilder<'_> {
                     return Some(*method_item);
                 }
             }
+            if let Some(base) = class.base
+                && let Some(base_name) = self.ctx.krate.symbols.get(base)
+            {
+                return self.class_method_item_by_name(base_name, method);
+            }
         }
         None
     }

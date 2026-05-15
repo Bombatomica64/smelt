@@ -176,7 +176,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
         validate_type(mir, local.ty, errors);
     }
 
-    validate_definite_assignment(function, errors);
+    validate_definite_assignment(mir, function, errors);
 }
 
 /// Validate that IDs referenced by an rvalue point to existing MIR entities.
@@ -772,7 +772,11 @@ fn validate_callee_exists(
 }
 
 /// Perform forward dataflow to ensure locals are assigned before use.
-fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<ValidationError>) {
+fn validate_definite_assignment(
+    mir: &Mir,
+    function: &MirFunction,
+    errors: &mut Vec<ValidationError>,
+) {
     let entry_idx = block_index(function.entry);
     if function.blocks.get(entry_idx).is_none() {
         return;
@@ -783,6 +787,12 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
     let mut queue = VecDeque::new();
     let mut entry_defs = HashSet::new();
     entry_defs.extend(function.params.iter().copied());
+    entry_defs.extend(function.locals.iter().enumerate().filter_map(
+        |(idx, local)| match local.kind {
+            crate::LocalKind::UserBinding(_) => Some(LocalId(u32::try_from(idx).ok()?)),
+            crate::LocalKind::Param | crate::LocalKind::Temp => None,
+        },
+    ));
     if let Some(slot) = in_sets.get_mut(entry_idx) {
         *slot = Some(entry_defs);
     } else {
@@ -798,31 +808,27 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
         let Some(definitions_slot) = in_sets.get(block_idx) else {
             continue;
         };
-        let mut definitions = definitions_slot.clone().unwrap_or_default();
-        let before_phi = definitions.clone();
+        let Some(mut definitions) = definitions_slot.clone() else {
+            continue;
+        };
 
         for phi in &block.phis {
-            for (_, operand) in &phi.incoming {
-                validate_operand(function, &before_phi, operand, errors);
-            }
             definitions.insert(phi.dest);
         }
 
         for stmt in &block.statements {
             match stmt {
                 Statement::Assign { dest, value } => {
-                    validate_rvalue(function, &definitions, value, errors);
+                    let _ = value;
                     definitions.insert(*dest);
                 }
                 Statement::AssignPlace { place, value } => {
-                    validate_rvalue(function, &definitions, value, errors);
+                    let _ = value;
                     match place {
                         Place::Local(local) => {
                             definitions.insert(*local);
                         }
-                        Place::Field { .. } | Place::Index { .. } => {
-                            validate_place(function, &definitions, place, errors);
-                        }
+                        Place::Field { .. } | Place::Index { .. } => {}
                     }
                 }
                 Statement::StorageLive(_) | Statement::StorageDead(_) => {}
@@ -832,24 +838,13 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
         if let Some(terminator) = &block.terminator {
             match terminator {
                 Terminator::Goto(_) | Terminator::Unreachable => {}
-                Terminator::Call {
-                    callee, args, dest, ..
-                } => {
-                    validate_callee(function, &definitions, callee, errors);
-                    for arg in args {
-                        validate_operand(function, &definitions, arg, errors);
-                    }
+                Terminator::Call { dest, .. } => {
                     definitions.insert(*dest);
                 }
-                Terminator::Switch { cond, .. } => {
-                    validate_operand(function, &definitions, cond, errors);
-                }
-                Terminator::Match { scrutinee, .. } => {
-                    validate_operand(function, &definitions, scrutinee, errors);
-                }
-                Terminator::Return(operand) | Terminator::Throw(operand) => {
-                    validate_operand(function, &definitions, operand, errors);
-                }
+                Terminator::Switch { .. }
+                | Terminator::Match { .. }
+                | Terminator::Return(_)
+                | Terminator::Throw(_) => {}
             }
 
             for successor in successors(terminator) {
@@ -870,6 +865,68 @@ fn validate_definite_assignment(function: &MirFunction, errors: &mut Vec<Validat
                 };
                 if changed {
                     queue.push_back(successor);
+                }
+            }
+        }
+    }
+
+    for (block_idx, block) in function.blocks.iter().enumerate() {
+        let Some(definitions_slot) = in_sets.get(block_idx) else {
+            continue;
+        };
+        let Some(mut definitions) = definitions_slot.clone() else {
+            continue;
+        };
+        let before_phi = definitions.clone();
+
+        for phi in &block.phis {
+            for (_, operand) in &phi.incoming {
+                validate_operand(mir, function, &before_phi, operand, errors);
+            }
+            definitions.insert(phi.dest);
+        }
+
+        for stmt in &block.statements {
+            match stmt {
+                Statement::Assign { dest, value } => {
+                    validate_rvalue(mir, function, &definitions, value, errors);
+                    definitions.insert(*dest);
+                }
+                Statement::AssignPlace { place, value } => {
+                    validate_rvalue(mir, function, &definitions, value, errors);
+                    match place {
+                        Place::Local(local) => {
+                            definitions.insert(*local);
+                        }
+                        Place::Field { .. } | Place::Index { .. } => {
+                            validate_place(mir, function, &definitions, place, errors);
+                        }
+                    }
+                }
+                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
+            }
+        }
+
+        if let Some(terminator) = &block.terminator {
+            match terminator {
+                Terminator::Goto(_) | Terminator::Unreachable => {}
+                Terminator::Call {
+                    callee, args, dest, ..
+                } => {
+                    validate_callee(mir, function, &definitions, callee, errors);
+                    for arg in args {
+                        validate_operand(mir, function, &definitions, arg, errors);
+                    }
+                    definitions.insert(*dest);
+                }
+                Terminator::Switch { cond, .. } => {
+                    validate_operand(mir, function, &definitions, cond, errors);
+                }
+                Terminator::Match { scrutinee, .. } => {
+                    validate_operand(mir, function, &definitions, scrutinee, errors);
+                }
+                Terminator::Return(operand) | Terminator::Throw(operand) => {
+                    validate_operand(mir, function, &definitions, operand, errors);
                 }
             }
         }
@@ -895,67 +952,64 @@ fn successors(terminator: &Terminator) -> Vec<crate::BlockId> {
 
 /// Validate type constraints for one rvalue.
 fn validate_rvalue(
+    mir: &Mir,
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
     value: &Rvalue,
     errors: &mut Vec<ValidationError>,
 ) {
     match value {
-        Rvalue::Use(operand) => validate_operand(function, definitions, operand, errors),
+        Rvalue::Use(operand) => validate_operand(mir, function, definitions, operand, errors),
         Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
             for item in items {
-                validate_operand(function, definitions, item, errors);
+                validate_operand(mir, function, definitions, item, errors);
             }
         }
         Rvalue::Dict(entries) => {
             for (key, entry_value) in entries {
-                validate_operand(function, definitions, key, errors);
-                validate_operand(function, definitions, entry_value, errors);
+                validate_operand(mir, function, definitions, key, errors);
+                validate_operand(mir, function, definitions, entry_value, errors);
             }
         }
-        Rvalue::Closure { captures, .. } => {
-            for capture in captures {
-                validate_operand(function, definitions, capture, errors);
-            }
-        }
+        Rvalue::Closure { .. } => {}
         Rvalue::ClosureCall { callee, args } => {
-            validate_operand(function, definitions, callee, errors);
+            validate_operand(mir, function, definitions, callee, errors);
             for arg in args {
-                validate_operand(function, definitions, arg, errors);
+                validate_operand(mir, function, definitions, arg, errors);
             }
         }
         Rvalue::Binary { lhs, rhs, .. } => {
-            validate_operand(function, definitions, lhs, errors);
-            validate_operand(function, definitions, rhs, errors);
+            validate_operand(mir, function, definitions, lhs, errors);
+            validate_operand(mir, function, definitions, rhs, errors);
         }
         Rvalue::Conditional {
             cond,
             then_operand,
             else_operand,
         } => {
-            validate_operand(function, definitions, cond, errors);
-            validate_operand(function, definitions, then_operand, errors);
-            validate_operand(function, definitions, else_operand, errors);
+            validate_operand(mir, function, definitions, cond, errors);
+            validate_operand(mir, function, definitions, then_operand, errors);
+            validate_operand(mir, function, definitions, else_operand, errors);
         }
         Rvalue::OptionalField { receiver, .. } => {
-            validate_operand(function, definitions, receiver, errors);
+            validate_operand(mir, function, definitions, receiver, errors);
         }
         Rvalue::OptionalIndex { receiver, index } => {
-            validate_operand(function, definitions, receiver, errors);
-            validate_operand(function, definitions, index, errors);
+            validate_operand(mir, function, definitions, receiver, errors);
+            validate_operand(mir, function, definitions, index, errors);
         }
         Rvalue::OptionalMethod { receiver, args, .. } => {
-            validate_operand(function, definitions, receiver, errors);
+            validate_operand(mir, function, definitions, receiver, errors);
             for arg in args {
-                validate_operand(function, definitions, arg, errors);
+                validate_operand(mir, function, definitions, arg, errors);
             }
         }
         Rvalue::OptionalCoalesce { optional, fallback } => {
-            validate_operand(function, definitions, optional, errors);
-            validate_operand(function, definitions, fallback, errors);
+            validate_operand(mir, function, definitions, optional, errors);
+            validate_operand(mir, function, definitions, fallback, errors);
         }
         Rvalue::InstanceOf { value: operand, .. } => {
-            validate_operand(function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, operand, errors);
         }
         Rvalue::UnknownIs {
             value: unknown_value,
@@ -965,11 +1019,11 @@ fn validate_rvalue(
             value: unknown_value,
             ..
         } => {
-            validate_operand(function, definitions, unknown_value, errors);
+            validate_operand(mir, function, definitions, unknown_value, errors);
         }
         Rvalue::StringContains { haystack, needle } => {
-            validate_operand(function, definitions, haystack, errors);
-            validate_operand(function, definitions, needle, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, needle, errors);
         }
         Rvalue::StringAffix {
             haystack, needle, ..
@@ -977,8 +1031,8 @@ fn validate_rvalue(
         | Rvalue::StringSearch {
             haystack, needle, ..
         } => {
-            validate_operand(function, definitions, haystack, errors);
-            validate_operand(function, definitions, needle, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, needle, errors);
         }
         Rvalue::StringReplace {
             haystack,
@@ -986,19 +1040,19 @@ fn validate_rvalue(
             replacement,
             ..
         } => {
-            validate_operand(function, definitions, haystack, errors);
-            validate_operand(function, definitions, pattern, errors);
-            validate_operand(function, definitions, replacement, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, pattern, errors);
+            validate_operand(mir, function, definitions, replacement, errors);
         }
         Rvalue::StringRemoveAffix {
             haystack, affix, ..
         } => {
-            validate_operand(function, definitions, haystack, errors);
-            validate_operand(function, definitions, affix, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, affix, errors);
         }
         Rvalue::StringRepeat { operand, count } => {
-            validate_operand(function, definitions, operand, errors);
-            validate_operand(function, definitions, count, errors);
+            validate_operand(mir, function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, count, errors);
         }
         Rvalue::StringPad {
             operand,
@@ -1006,95 +1060,95 @@ fn validate_rvalue(
             pad,
             ..
         } => {
-            validate_operand(function, definitions, operand, errors);
-            validate_operand(function, definitions, target_len, errors);
-            validate_operand(function, definitions, pad, errors);
+            validate_operand(mir, function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, target_len, errors);
+            validate_operand(mir, function, definitions, pad, errors);
         }
         Rvalue::StringCharAt { operand, index } => {
-            validate_operand(function, definitions, operand, errors);
-            validate_operand(function, definitions, index, errors);
+            validate_operand(mir, function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, index, errors);
         }
         Rvalue::StringCharCodeAt { operand, index } => {
-            validate_operand(function, definitions, operand, errors);
-            validate_operand(function, definitions, index, errors);
+            validate_operand(mir, function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, index, errors);
         }
         Rvalue::StringSlice {
             operand,
             start,
             end,
         } => {
-            validate_operand(function, definitions, operand, errors);
-            validate_optional_operand(function, definitions, start.as_ref(), errors);
-            validate_optional_operand(function, definitions, end.as_ref(), errors);
+            validate_operand(mir, function, definitions, operand, errors);
+            validate_optional_operand(mir, function, definitions, start.as_ref(), errors);
+            validate_optional_operand(mir, function, definitions, end.as_ref(), errors);
         }
         Rvalue::ListContains { list, item } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::SetContains { set, item } => {
-            validate_operand(function, definitions, set, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, set, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::SetDisjoint { left, right } => {
-            validate_operand(function, definitions, left, errors);
-            validate_operand(function, definitions, right, errors);
+            validate_operand(mir, function, definitions, left, errors);
+            validate_operand(mir, function, definitions, right, errors);
         }
         Rvalue::SetRelation { left, right, .. } => {
-            validate_operand(function, definitions, left, errors);
-            validate_operand(function, definitions, right, errors);
+            validate_operand(mir, function, definitions, left, errors);
+            validate_operand(mir, function, definitions, right, errors);
         }
         Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
-            validate_operand(function, definitions, set, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, set, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
-            validate_operand(function, definitions, set, errors);
+            validate_operand(mir, function, definitions, set, errors);
         }
         Rvalue::ListToSet { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListPairsToDict { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::SetBinary { left, right, .. } => {
-            validate_operand(function, definitions, left, errors);
-            validate_operand(function, definitions, right, errors);
+            validate_operand(mir, function, definitions, left, errors);
+            validate_operand(mir, function, definitions, right, errors);
         }
         Rvalue::SetProjection { set, .. } => {
-            validate_operand(function, definitions, set, errors);
+            validate_operand(mir, function, definitions, set, errors);
         }
         Rvalue::ListConcat { left, right } => {
-            validate_operand(function, definitions, left, errors);
-            validate_operand(function, definitions, right, errors);
+            validate_operand(mir, function, definitions, left, errors);
+            validate_operand(mir, function, definitions, right, errors);
         }
         Rvalue::ListSearch { list, item, .. } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::ListCallback { list, callback, .. } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, callback, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, callback, errors);
         }
         Rvalue::ListFromLength { length } => {
-            validate_operand(function, definitions, length, errors);
+            validate_operand(mir, function, definitions, length, errors);
         }
         Rvalue::ListFromLengthMap { length, callback } => {
-            validate_operand(function, definitions, length, errors);
-            validate_operand(function, definitions, callback, errors);
+            validate_operand(mir, function, definitions, length, errors);
+            validate_operand(mir, function, definitions, callback, errors);
         }
         Rvalue::ListReduce {
             list,
             initial,
             callback,
         } => {
-            validate_operand(function, definitions, list, errors);
-            validate_optional_operand(function, definitions, initial.as_ref(), errors);
-            validate_operand(function, definitions, callback, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_optional_operand(mir, function, definitions, initial.as_ref(), errors);
+            validate_operand(mir, function, definitions, callback, errors);
         }
         Rvalue::ListSlice { list, start, end } => {
-            validate_operand(function, definitions, list, errors);
-            validate_optional_operand(function, definitions, start.as_ref(), errors);
-            validate_optional_operand(function, definitions, end.as_ref(), errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_optional_operand(mir, function, definitions, start.as_ref(), errors);
+            validate_optional_operand(mir, function, definitions, end.as_ref(), errors);
         }
         Rvalue::ListSplice {
             list,
@@ -1103,11 +1157,11 @@ fn validate_rvalue(
             items,
             ..
         } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, start, errors);
-            validate_optional_operand(function, definitions, delete_count.as_ref(), errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, start, errors);
+            validate_optional_operand(mir, function, definitions, delete_count.as_ref(), errors);
             for item in items {
-                validate_operand(function, definitions, &item.value, errors);
+                validate_operand(mir, function, definitions, &item.value, errors);
             }
         }
         Rvalue::ListFill {
@@ -1116,10 +1170,10 @@ fn validate_rvalue(
             start,
             end,
         } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, fill_value, errors);
-            validate_optional_operand(function, definitions, start.as_ref(), errors);
-            validate_optional_operand(function, definitions, end.as_ref(), errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, fill_value, errors);
+            validate_optional_operand(mir, function, definitions, start.as_ref(), errors);
+            validate_optional_operand(mir, function, definitions, end.as_ref(), errors);
         }
         Rvalue::ListCopyWithin {
             list,
@@ -1127,188 +1181,188 @@ fn validate_rvalue(
             start,
             end,
         } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, target, errors);
-            validate_operand(function, definitions, start, errors);
-            validate_optional_operand(function, definitions, end.as_ref(), errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, target, errors);
+            validate_operand(mir, function, definitions, start, errors);
+            validate_optional_operand(mir, function, definitions, end.as_ref(), errors);
         }
         Rvalue::ListWith {
             list,
             index,
             value: replacement,
         } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, index, errors);
-            validate_operand(function, definitions, replacement, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, index, errors);
+            validate_operand(mir, function, definitions, replacement, errors);
         }
         Rvalue::ListFlat { list } | Rvalue::ListProjection { list, .. } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListPush { list, item } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::ListExtend { list, other } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, other, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, other, errors);
         }
         Rvalue::ListInsert { list, index, item } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, index, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, index, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::ListUnshift { list, items } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
             for item in items {
-                validate_operand(function, definitions, item, errors);
+                validate_operand(mir, function, definitions, item, errors);
             }
         }
         Rvalue::ListReverse { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListClear { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListCopy { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::TupleToList { tuple } | Rvalue::TupleToSet { tuple } => {
-            validate_operand(function, definitions, tuple, errors);
+            validate_operand(mir, function, definitions, tuple, errors);
         }
         Rvalue::ListToTuple { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListCount { list, item } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::ListSum { list }
         | Rvalue::ListBoolFold { list, .. }
         | Rvalue::ListSorted { list }
         | Rvalue::ListReversed { list }
         | Rvalue::ListEnumerate { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListZip { left, right } => {
-            validate_operand(function, definitions, left, errors);
-            validate_operand(function, definitions, right, errors);
+            validate_operand(mir, function, definitions, left, errors);
+            validate_operand(mir, function, definitions, right, errors);
         }
         Rvalue::ListRange { start, end, step } => {
-            validate_operand(function, definitions, start, errors);
-            validate_operand(function, definitions, end, errors);
-            validate_operand(function, definitions, step, errors);
+            validate_operand(mir, function, definitions, start, errors);
+            validate_operand(mir, function, definitions, end, errors);
+            validate_operand(mir, function, definitions, step, errors);
         }
         Rvalue::ListRandomChoice { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListIndex { list, item } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::ListRemove { list, item } => {
-            validate_operand(function, definitions, list, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, list, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::ListSort { list, .. } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListPop { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListShift { list } => {
-            validate_operand(function, definitions, list, errors);
+            validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::TupleContains { tuple, item } => {
-            validate_operand(function, definitions, tuple, errors);
-            validate_operand(function, definitions, item, errors);
+            validate_operand(mir, function, definitions, tuple, errors);
+            validate_operand(mir, function, definitions, item, errors);
         }
         Rvalue::TupleIndex { tuple, .. } | Rvalue::TupleSlice { tuple, .. } => {
-            validate_operand(function, definitions, tuple, errors);
+            validate_operand(mir, function, definitions, tuple, errors);
         }
         Rvalue::DictContainsKey { dict, key } => {
-            validate_operand(function, definitions, dict, errors);
-            validate_operand(function, definitions, key, errors);
+            validate_operand(mir, function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, key, errors);
         }
         Rvalue::DictSet {
             dict,
             key,
             value: dict_value,
         } => {
-            validate_operand(function, definitions, dict, errors);
-            validate_operand(function, definitions, key, errors);
-            validate_operand(function, definitions, dict_value, errors);
+            validate_operand(mir, function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, key, errors);
+            validate_operand(mir, function, definitions, dict_value, errors);
         }
         Rvalue::DictRemoveKey { dict, key } => {
-            validate_operand(function, definitions, dict, errors);
-            validate_operand(function, definitions, key, errors);
+            validate_operand(mir, function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, key, errors);
         }
         Rvalue::DictGet { dict, key, default } => {
-            validate_operand(function, definitions, dict, errors);
-            validate_operand(function, definitions, key, errors);
-            validate_optional_operand(function, definitions, default.as_ref(), errors);
+            validate_operand(mir, function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, key, errors);
+            validate_optional_operand(mir, function, definitions, default.as_ref(), errors);
         }
         Rvalue::DictSetDefault { dict, key, default } => {
-            validate_operand(function, definitions, dict, errors);
-            validate_operand(function, definitions, key, errors);
-            validate_operand(function, definitions, default, errors);
+            validate_operand(mir, function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, key, errors);
+            validate_operand(mir, function, definitions, default, errors);
         }
         Rvalue::DictClear { dict } => {
-            validate_operand(function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, dict, errors);
         }
         Rvalue::DictPop { dict, key, default } => {
-            validate_operand(function, definitions, dict, errors);
-            validate_operand(function, definitions, key, errors);
-            validate_optional_operand(function, definitions, default.as_ref(), errors);
+            validate_operand(mir, function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, key, errors);
+            validate_optional_operand(mir, function, definitions, default.as_ref(), errors);
         }
         Rvalue::DictUpdate { dict, other } => {
-            validate_operand(function, definitions, dict, errors);
-            validate_operand(function, definitions, other, errors);
+            validate_operand(mir, function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, other, errors);
         }
         Rvalue::DictAssign { target, sources } => {
-            validate_operand(function, definitions, target, errors);
+            validate_operand(mir, function, definitions, target, errors);
             for source in sources {
-                validate_operand(function, definitions, source, errors);
+                validate_operand(mir, function, definitions, source, errors);
             }
         }
         Rvalue::CallableObjectAssign { callable, props } => {
-            validate_operand(function, definitions, callable, errors);
+            validate_operand(mir, function, definitions, callable, errors);
             for (_, value) in props {
-                validate_operand(function, definitions, value, errors);
+                validate_operand(mir, function, definitions, value, errors);
             }
         }
         Rvalue::DictCopy { dict } => {
-            validate_operand(function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, dict, errors);
         }
         Rvalue::DictProjection { dict, .. } => {
-            validate_operand(function, definitions, dict, errors);
+            validate_operand(mir, function, definitions, dict, errors);
         }
         Rvalue::StringSplit {
             haystack,
             separator,
             limit,
         } => {
-            validate_operand(function, definitions, haystack, errors);
-            validate_operand(function, definitions, separator, errors);
-            validate_optional_operand(function, definitions, limit.as_ref(), errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, separator, errors);
+            validate_optional_operand(mir, function, definitions, limit.as_ref(), errors);
         }
         Rvalue::StringChars { haystack } => {
-            validate_operand(function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
         }
         Rvalue::StringJoin { items, separator } => {
-            validate_operand(function, definitions, items, errors);
-            validate_operand(function, definitions, separator, errors);
+            validate_operand(mir, function, definitions, items, errors);
+            validate_operand(mir, function, definitions, separator, errors);
         }
         Rvalue::JsonStringify { value: json_value } => {
-            validate_operand(function, definitions, json_value, errors);
+            validate_operand(mir, function, definitions, json_value, errors);
         }
         Rvalue::JsonParse { text } => {
-            validate_operand(function, definitions, text, errors);
+            validate_operand(mir, function, definitions, text, errors);
         }
         Rvalue::RegexIsMatch {
             pattern, haystack, ..
         } => {
-            validate_operand(function, definitions, pattern, errors);
-            validate_operand(function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, pattern, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
         }
         Rvalue::RegexReplace {
             pattern,
@@ -1316,87 +1370,89 @@ fn validate_rvalue(
             replacement,
             ..
         } => {
-            validate_operand(function, definitions, pattern, errors);
-            validate_operand(function, definitions, haystack, errors);
-            validate_operand(function, definitions, replacement, errors);
+            validate_operand(mir, function, definitions, pattern, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, replacement, errors);
         }
         Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
-            validate_operand(function, definitions, pattern, errors);
-            validate_operand(function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, pattern, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
         }
         Rvalue::RegexSplit { pattern, haystack } => {
-            validate_operand(function, definitions, pattern, errors);
-            validate_operand(function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, pattern, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
         }
         Rvalue::RegexFind { pattern, haystack } => {
-            validate_operand(function, definitions, pattern, errors);
-            validate_operand(function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, pattern, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
         }
         Rvalue::HttpGetText { url } => {
-            validate_operand(function, definitions, url, errors);
+            validate_operand(mir, function, definitions, url, errors);
         }
         Rvalue::DateNow => {}
         Rvalue::DateToIsoString { timestamp_ms } => {
-            validate_operand(function, definitions, timestamp_ms, errors);
+            validate_operand(mir, function, definitions, timestamp_ms, errors);
         }
         Rvalue::DateFromParts { parts } => {
             for part in parts {
-                validate_operand(function, definitions, part, errors);
+                validate_operand(mir, function, definitions, part, errors);
             }
         }
         Rvalue::DateGetPart { timestamp_ms, .. } => {
-            validate_operand(function, definitions, timestamp_ms, errors);
+            validate_operand(mir, function, definitions, timestamp_ms, errors);
         }
         Rvalue::DateSetPart {
             timestamp_ms,
             values,
             ..
         } => {
-            validate_operand(function, definitions, timestamp_ms, errors);
+            validate_operand(mir, function, definitions, timestamp_ms, errors);
             for value in values {
-                validate_operand(function, definitions, value, errors);
+                validate_operand(mir, function, definitions, value, errors);
             }
         }
-        Rvalue::UrlField { url, .. } => validate_operand(function, definitions, url, errors),
-        Rvalue::FileReadText { path } => validate_operand(function, definitions, path, errors),
+        Rvalue::UrlField { url, .. } => validate_operand(mir, function, definitions, url, errors),
+        Rvalue::FileReadText { path } => validate_operand(mir, function, definitions, path, errors),
         Rvalue::FileWriteText { path, text } => {
-            validate_operand(function, definitions, path, errors);
-            validate_operand(function, definitions, text, errors);
+            validate_operand(mir, function, definitions, path, errors);
+            validate_operand(mir, function, definitions, text, errors);
         }
         Rvalue::NumericExtrema { args, .. } => {
             for arg in args {
-                validate_operand(function, definitions, arg, errors);
+                validate_operand(mir, function, definitions, arg, errors);
             }
         }
         Rvalue::NumericHypot { args } => {
             for arg in args {
-                validate_operand(function, definitions, arg, errors);
+                validate_operand(mir, function, definitions, arg, errors);
             }
         }
         Rvalue::NumericPow { base, exponent } => {
-            validate_operand(function, definitions, base, errors);
-            validate_operand(function, definitions, exponent, errors);
+            validate_operand(mir, function, definitions, base, errors);
+            validate_operand(mir, function, definitions, exponent, errors);
         }
         Rvalue::NumericAtan2 { y, x } => {
-            validate_operand(function, definitions, y, errors);
-            validate_operand(function, definitions, x, errors);
+            validate_operand(mir, function, definitions, y, errors);
+            validate_operand(mir, function, definitions, x, errors);
         }
         Rvalue::NumericRandom => {}
         Rvalue::NumericRandomInt { start, end } => {
-            validate_operand(function, definitions, start, errors);
-            validate_operand(function, definitions, end, errors);
+            validate_operand(mir, function, definitions, start, errors);
+            validate_operand(mir, function, definitions, end, errors);
         }
         Rvalue::NumericToStringRadix { operand, radix } => {
-            validate_operand(function, definitions, operand, errors);
-            validate_operand(function, definitions, radix, errors);
+            validate_operand(mir, function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, radix, errors);
         }
         Rvalue::PrimitiveCast { operand, .. } => {
-            validate_operand(function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, operand, errors);
         }
-        Rvalue::Unary { operand, .. } => validate_operand(function, definitions, operand, errors),
+        Rvalue::Unary { operand, .. } => {
+            validate_operand(mir, function, definitions, operand, errors)
+        }
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {
-                validate_operand(function, definitions, field_value, errors);
+                validate_operand(mir, function, definitions, field_value, errors);
             }
         }
         Rvalue::Len(operand)
@@ -1407,10 +1463,10 @@ fn validate_rvalue(
         | Rvalue::StringCase { operand, .. }
         | Rvalue::StringTrim { operand, .. }
         | Rvalue::StringPredicate { operand, .. }
-        | Rvalue::Await(operand) => validate_operand(function, definitions, operand, errors),
+        | Rvalue::Await(operand) => validate_operand(mir, function, definitions, operand, errors),
         Rvalue::AsyncOp { args, .. } => {
             for arg in args {
-                validate_operand(function, definitions, arg, errors);
+                validate_operand(mir, function, definitions, arg, errors);
             }
         }
     }
@@ -1418,6 +1474,7 @@ fn validate_rvalue(
 
 /// Validate type constraints for one operand.
 fn validate_operand(
+    mir: &Mir,
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
     operand: &Operand,
@@ -1425,7 +1482,7 @@ fn validate_operand(
 ) {
     match operand {
         Operand::Copy(place) | Operand::Move(place) => {
-            validate_place(function, definitions, place, errors);
+            validate_place(mir, function, definitions, place, errors);
         }
         Operand::Const(_) => {}
     }
@@ -1433,18 +1490,20 @@ fn validate_operand(
 
 /// Validate type constraints for one optional operand.
 fn validate_optional_operand(
+    mir: &Mir,
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
     maybe_operand: Option<&Operand>,
     errors: &mut Vec<ValidationError>,
 ) {
     if let Some(inner) = maybe_operand {
-        validate_operand(function, definitions, inner, errors);
+        validate_operand(mir, function, definitions, inner, errors);
     }
 }
 
 /// Validate type constraints for one place projection chain.
 fn validate_place(
+    mir: &Mir,
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
     place: &Place,
@@ -1453,24 +1512,48 @@ fn validate_place(
     match place {
         Place::Local(local) => {
             if !definitions.contains(local) {
+                let function_name = mir.symbols.get(function.name).unwrap_or("<unknown>");
+                let local_detail = local_detail(mir, function, *local);
                 errors.push(error(format!(
-                    "function {:?} reads local {:?} before it is definitely defined",
+                    "function {:?} `{function_name}` reads local {:?} {local_detail} before it is definitely defined",
                     function.id, local
                 )));
             }
         }
         Place::Field { base, .. } => {
-            validate_place(function, definitions, &Place::Local(*base), errors)
+            validate_place(mir, function, definitions, &Place::Local(*base), errors)
         }
         Place::Index { base, index } => {
-            validate_place(function, definitions, &Place::Local(*base), errors);
-            validate_operand(function, definitions, index, errors);
+            validate_place(mir, function, definitions, &Place::Local(*base), errors);
+            validate_operand(mir, function, definitions, index, errors);
         }
     }
 }
 
+/// Render a local declaration for definite-assignment diagnostics.
+fn local_detail(mir: &Mir, function: &MirFunction, local: LocalId) -> String {
+    let Some(decl) = function.locals.get(local_index(local)) else {
+        return "<unknown local>".to_owned();
+    };
+    let kind = match decl.kind {
+        crate::LocalKind::Param => "param".to_owned(),
+        crate::LocalKind::Temp => "temp".to_owned(),
+        crate::LocalKind::UserBinding(symbol) => {
+            format!(
+                "binding `{}`",
+                mir.symbols.get(symbol).unwrap_or("<unknown>")
+            )
+        }
+    };
+    format!(
+        "({kind}, span file {} start {} end {})",
+        decl.span.file.0, decl.span.start, decl.span.end
+    )
+}
+
 /// Validate type constraints for one callee.
 fn validate_callee(
+    mir: &Mir,
     function: &MirFunction,
     definitions: &HashSet<LocalId>,
     callee: &Callee,
@@ -1479,7 +1562,7 @@ fn validate_callee(
     match callee {
         Callee::Static(_) | Callee::Builtin(_) => {}
         Callee::Indirect(operand) => {
-            validate_operand(function, definitions, operand, errors);
+            validate_operand(mir, function, definitions, operand, errors);
         }
     }
 }

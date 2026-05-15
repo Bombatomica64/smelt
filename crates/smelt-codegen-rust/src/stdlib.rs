@@ -44,7 +44,7 @@ fn any_rvalue_needs(mir: &Mir, needs_dependency: fn(&Rvalue) -> bool) -> bool {
 
 /// Iterates over all rvalues that can require generated backend dependencies.
 fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
-    mir.functions.iter().flat_map(|function| {
+    let function_rvalues = mir.functions.iter().flat_map(|function| {
         function.blocks.iter().flat_map(|block| {
             block
                 .statements
@@ -56,7 +56,21 @@ fn rvalues(mir: &Mir) -> impl Iterator<Item = &Rvalue> {
                     Statement::StorageLive(_) | Statement::StorageDead(_) => None,
                 })
         })
-    })
+    });
+    let closure_rvalues = mir.closures.iter().flat_map(|closure| {
+        closure.blocks.iter().flat_map(|block| {
+            block
+                .statements
+                .iter()
+                .filter_map(|statement| match statement {
+                    Statement::Assign { value, .. } | Statement::AssignPlace { value, .. } => {
+                        Some(value)
+                    }
+                    Statement::StorageLive(_) | Statement::StorageDead(_) => None,
+                })
+        })
+    });
+    function_rvalues.chain(closure_rvalues)
 }
 
 /// Returns true when a MIR rvalue uses Regex APIs.
@@ -193,7 +207,26 @@ fn rvalue_needs_reqwest(rvalue: &Rvalue) -> bool {
 /// Returns true when generated Rust needs the opaque `unknown` carrier type.
 #[must_use]
 pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
-    mir.types.all().iter().any(|ty| matches!(ty, Type::Unknown))
+    mir.types
+        .all()
+        .iter()
+        .any(|ty| matches!(ty, Type::Unknown | Type::Never))
+        || mir.functions.iter().any(|function| {
+            function.blocks.iter().any(|block| {
+                block.statements.iter().any(|statement| {
+                    matches!(
+                        statement,
+                        Statement::Assign {
+                            value: Rvalue::UnknownCast { .. } | Rvalue::UnknownIs { .. },
+                            ..
+                        } | Statement::AssignPlace {
+                            value: Rvalue::UnknownCast { .. } | Rvalue::UnknownIs { .. },
+                            ..
+                        }
+                    )
+                })
+            })
+        })
 }
 
 /// Returns true when generated Rust uses Tokio APIs.

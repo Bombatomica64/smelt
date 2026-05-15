@@ -1,6 +1,58 @@
 use super::*;
 
 #[test]
+fn class_single_inheritance_fields_and_methods_lower() -> TestResult {
+    let source = py!(r#"
+class Base:
+    x: int
+    def value(self) -> int:
+        return self.x
+
+class Child(Base):
+    y: int
+    def total(self) -> int:
+        return self.value() + self.y
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+#[test]
+fn abstract_base_class_method_implementation_lowers() -> TestResult {
+    let source = py!(r#"
+from abc import ABC, abstractmethod
+
+class Base(ABC):
+    @abstractmethod
+    def value(self) -> int:
+        pass
+
+class Child(Base):
+    def value(self) -> int:
+        return 1
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+#[test]
+fn generic_marker_base_lowers_class_type_params() -> TestResult {
+    let source = py!(r#"
+from typing import Generic
+
+class Box(Generic[T]):
+    value: T
+    def __init__(self, value: T) -> None:
+        self.value = value
+"#);
+    let mut ctx = HirCtx::new();
+    lower_module(source, &mut ctx)?;
+    Ok(())
+}
+
+#[test]
 fn set_mutation_methods_lower() -> TestResult {
     let source = py!(r#"
 values: set[int] = {1, 2}

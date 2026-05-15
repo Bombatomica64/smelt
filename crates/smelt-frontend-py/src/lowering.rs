@@ -22,10 +22,11 @@ use smelt_hir::{
     AsyncOp, BinOp, Body, CallbackExpr, CallbackExprKind, CaptureMode, Class, ClassKind,
     ClosureCapture, ConstItem, DictProjectionOp, Expr as HirExpr, ExprKind, Field, FileId,
     Function, FunctionOwner, FunctionType, Import, Item, ItemId, Language, ListCallbackOp, Literal,
-    LocalDecl, MatchArm, Module, ModuleId, NumericExtremaOp, NumericPredicateOp, NumericRoundOp,
-    NumericUnaryFuncOp, Param, Pattern as HirPattern, PrimitiveCastOp, SetProjectionOp, SourceFile,
-    Span, Stmt as HirStmt, StringAffixOp, StringCaseOp, StringPredicateOp, StringReplaceOp,
-    StringSearchOp, StringTrimSide, Symbol, Type, TypeId, UnaryOp, Visibility,
+    LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp, NumericPredicateOp,
+    NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern as HirPattern, PrimitiveCastOp,
+    RegexMatchOp, SetProjectionOp, SourceFile, Span, Stmt as HirStmt, StringAffixOp, StringCaseOp,
+    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, Symbol, Type, TypeId,
+    TypeParamDef, UnaryOp, Visibility,
 };
 use smelt_stdlib::RuleId;
 
@@ -54,6 +55,8 @@ pub(crate) struct ModuleBuilder<'ctx> {
     enum_members: HashMap<String, HashMap<String, i64>>,
     /// Class method items keyed by class name, then method name.
     class_methods: HashMap<String, HashMap<String, ItemId>>,
+    /// Class fields keyed by class name while a class body is being lowered.
+    class_fields: HashMap<String, Vec<Field>>,
     /// Imported module/package namespaces available by local module name.
     module_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Pytest fixture functions available to tests in this module.
@@ -187,6 +190,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             exports: HashMap::new(),
             enum_members,
             class_methods,
+            class_fields: HashMap::new(),
             module_namespaces,
             pytest_fixtures: HashMap::new(),
             current_async: false,

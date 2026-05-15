@@ -1,10 +1,39 @@
 //! Control Flow emission helpers.
 
 use super::*;
+use std::cell::Cell;
+
+thread_local! {
+    /// Per-thread recursion depth for structurally recursive block emission.
+    static EMIT_BLOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
 
 impl FunctionEmitter<'_> {
     /// Emits a basic block's statements and terminator.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
+        let limit = self.function.blocks.len().saturating_mul(8).max(128);
+        let too_deep = EMIT_BLOCK_DEPTH.with(|depth| {
+            let current = depth.get();
+            if current > limit {
+                true
+            } else {
+                depth.set(current + 1);
+                false
+            }
+        });
+        if too_deep {
+            out.push_str(
+                "    panic!(\"unstructured recursive control flow is not emitted yet\");\n",
+            );
+            return Ok(());
+        }
+        let result = self.emit_block_body(block, out);
+        EMIT_BLOCK_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        result
+    }
+
+    /// Emits a basic block after recursion-depth accounting has been applied.
+    fn emit_block_body(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
@@ -64,8 +93,10 @@ impl FunctionEmitter<'_> {
                 let name = self.local_name(*dest)?;
                 let rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
                 let mutability = if self.mutable_locals.contains(dest)
-                    || matches!(self.mir.types.get(local.ty), Some(Type::Class { .. }))
-                {
+                    || matches!(
+                        self.mir.types.get(local.ty),
+                        Some(Type::Class { .. } | Type::Function(_))
+                    ) {
                     "mut "
                 } else {
                     ""
@@ -130,7 +161,10 @@ impl FunctionEmitter<'_> {
                         ));
                         return Ok(());
                     }
-                    _ => {}
+                    _ => {
+                        out.push_str(&format!("    let _ = {rendered_value};\n"));
+                        return Ok(());
+                    }
                 }
             }
             Place::Local(_) => {}
@@ -161,8 +195,10 @@ impl FunctionEmitter<'_> {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
                 let mutability = if self.mutable_locals.contains(dest)
-                    || matches!(self.mir.types.get(local.ty), Some(Type::Class { .. }))
-                {
+                    || matches!(
+                        self.mir.types.get(local.ty),
+                        Some(Type::Class { .. } | Type::Function(_))
+                    ) {
                     "mut "
                 } else {
                     ""
@@ -308,7 +344,9 @@ impl FunctionEmitter<'_> {
             return self.emit_block(else_, out);
         }
 
-        if block_terminates(then) && block_terminates(else_) {
+        if self.block_eventually_terminates(then.id, &mut HashSet::new())?
+            && self.block_eventually_terminates(else_.id, &mut HashSet::new())?
+        {
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
@@ -317,16 +355,87 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
 
-        if block_terminates(then) {
+        if self.block_eventually_terminates(then.id, &mut HashSet::new())? {
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    }\n");
+            if else_.id.0 <= current.0 {
+                out.push_str("    loop { break; }\n");
+                return Ok(());
+            }
             return self.emit_block(else_, out);
         }
 
-        Err(EmitError::new(
-            "if/else codegen requires structured branches with a shared join or terminating arms",
-        ))
+        if self.block_eventually_terminates(else_.id, &mut HashSet::new())? {
+            out.push_str(&format!("    if !({}) {{\n", self.operand_text(cond)?));
+            self.emit_block(else_, out)?;
+            out.push_str("    }\n");
+            if then.id.0 <= current.0 {
+                out.push_str("    loop { break; }\n");
+                return Ok(());
+            }
+            return self.emit_block(then, out);
+        }
+
+        out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+        for statement in &then.statements {
+            self.emit_statement(statement, out)?;
+        }
+        out.push_str("    } else {\n");
+        for statement in &else_.statements {
+            self.emit_statement(statement, out)?;
+        }
+        out.push_str("    }\n");
+        Ok(())
+    }
+
+    /// Returns whether every straight-line successor from `block_id` ends in a
+    /// return, throw, or unreachable terminator before it can fall through.
+    pub(super) fn block_eventually_terminates(
+        &self,
+        block_id: smelt_mir::BlockId,
+        visiting: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<bool, EmitError> {
+        if !visiting.insert(block_id) {
+            return Ok(false);
+        }
+
+        let block = self.block(block_id)?;
+        let result = match &block.terminator {
+            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => true,
+            Some(Terminator::Goto(target)) => {
+                self.block_eventually_terminates(*target, visiting)?
+            }
+            Some(Terminator::Call { target, .. }) => {
+                self.block_eventually_terminates(*target, visiting)?
+            }
+            Some(Terminator::Switch {
+                then_block,
+                else_block,
+                ..
+            }) => {
+                self.block_eventually_terminates(*then_block, visiting)?
+                    && self.block_eventually_terminates(*else_block, visiting)?
+            }
+            Some(Terminator::Match { arms, default, .. }) => {
+                let default_terminates = if let Some(target) = default {
+                    self.block_eventually_terminates(*target, visiting)?
+                } else {
+                    false
+                };
+                default_terminates
+                    && arms.iter().try_fold(true, |all_terminate, arm| {
+                        Ok::<bool, EmitError>(
+                            all_terminate
+                                && self.block_eventually_terminates(arm.target, visiting)?,
+                        )
+                    })?
+            }
+            None => false,
+        };
+
+        visiting.remove(&block_id);
+        Ok(result)
     }
 
     /// Checks if a block starts a while loop and returns loop details.

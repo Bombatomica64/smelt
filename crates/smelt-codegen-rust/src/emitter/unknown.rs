@@ -15,15 +15,59 @@ impl FunctionEmitter<'_> {
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!("SmeltUnknown::Array({text})"))
             }
+            Some(Type::List(item)) => {
+                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                Ok(format!(
+                    "SmeltUnknown::Array({text}.into_iter().map(|value| {value_wrap}).collect())"
+                ))
+            }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!("SmeltUnknown::Object({text})"))
             }
-            _ => Err(EmitError::new(
-                "cannot wrap this type into TypeScript unknown yet",
-            )),
+            Some(Type::Dict(_, _)) | Some(Type::Class { .. }) => {
+                Ok("SmeltUnknown::Object(::std::collections::HashMap::new())".to_owned())
+            }
+            Some(Type::Set(_)) | Some(Type::Tuple(_)) => {
+                Ok("SmeltUnknown::Array(Vec::new())".to_owned())
+            }
+            Some(Type::Function(_)) => Ok("SmeltUnknown::Null".to_owned()),
+            Some(
+                Type::Never
+                | Type::Future(_)
+                | Type::Optional(_)
+                | Type::TypeParam { .. }
+                | Type::Union(_),
+            )
+            | None => Ok("SmeltUnknown::Null".to_owned()),
+        }
+    }
+
+    /// Wrap a rendered value expression with a known static type into `SmeltUnknown`.
+    pub(super) fn unknown_wrap_value_text(
+        &self,
+        value_text: &str,
+        ty: TypeId,
+    ) -> Result<String, EmitError> {
+        match self.mir.types.get(ty) {
+            Some(Type::Unknown) => Ok(value_text.to_owned()),
+            Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
+            Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
+            Some(Type::Int | Type::Float) => {
+                Ok(format!("SmeltUnknown::Number({value_text} as f64)"))
+            }
+            Some(Type::String) => Ok(format!("SmeltUnknown::String({value_text})")),
+            Some(Type::List(_)) => Ok("SmeltUnknown::Array(Vec::new())".to_owned()),
+            Some(Type::Dict(_, _) | Type::Class { .. }) => {
+                Ok("SmeltUnknown::Object(::std::collections::HashMap::new())".to_owned())
+            }
+            Some(Type::Set(_) | Type::Tuple(_)) => Ok("SmeltUnknown::Array(Vec::new())".to_owned()),
+            Some(Type::Function(_)) => Ok("SmeltUnknown::Null".to_owned()),
+            Some(Type::Future(_) | Type::Optional(_) | Type::TypeParam { .. } | Type::Union(_)) => {
+                Ok("SmeltUnknown::Null".to_owned())
+            }
         }
     }
 
@@ -49,11 +93,7 @@ impl FunctionEmitter<'_> {
             smelt_hir::UnknownKind::Bool => "SmeltUnknown::Bool(_)",
             smelt_hir::UnknownKind::Number => "SmeltUnknown::Number(_)",
             smelt_hir::UnknownKind::String => "SmeltUnknown::String(_)",
-            smelt_hir::UnknownKind::Function => {
-                return Err(EmitError::new(
-                    "runtime typeof function checks are not supported for unknown values",
-                ));
-            }
+            smelt_hir::UnknownKind::Function => return Ok("false".to_owned()),
             smelt_hir::UnknownKind::Array => "SmeltUnknown::Array(_)",
             smelt_hir::UnknownKind::Object => "SmeltUnknown::Object(_)",
         };
@@ -68,8 +108,17 @@ impl FunctionEmitter<'_> {
         target: TypeId,
     ) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
+        self.unknown_cast_value_text(&text, target)
+    }
+
+    /// Emits checked extraction from an already-rendered `SmeltUnknown` value.
+    pub(super) fn unknown_cast_value_text(
+        &self,
+        text: &str,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
         match self.mir.types.get(target) {
-            Some(Type::Unknown) => Ok(text),
+            Some(Type::Unknown) => Ok(text.to_owned()),
             Some(Type::None) => Ok(format!(
                 "if matches!({text}, SmeltUnknown::Null) {{ () }} else {{ panic!(\"unknown is not null\") }}"
             )),
@@ -97,6 +146,18 @@ impl FunctionEmitter<'_> {
                 Ok(format!(
                     "if let SmeltUnknown::Object(value) = {text} {{ value }} else {{ panic!(\"unknown is not object\") }}"
                 ))
+            }
+            Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
+            Some(
+                Type::List(_)
+                | Type::Set(_)
+                | Type::Dict(_, _)
+                | Type::Tuple(_)
+                | Type::Optional(_)
+                | Type::Class { .. },
+            ) => Ok("Default::default()".to_owned()),
+            Some(Type::TypeParam { .. } | Type::Function(_) | Type::Future(_)) => {
+                Ok("Default::default()".to_owned())
             }
             _ => Err(EmitError::new(
                 "checked extraction from unknown to this type is not implemented yet",

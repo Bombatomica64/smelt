@@ -104,13 +104,15 @@ pub fn validate(krate: &Crate) -> Vec<ValidationError> {
                         });
                         continue;
                     };
-                    if !matches!(
-                        callback_expr.kind,
-                        ExprKind::Closure(_) | ExprKind::Local(_) | ExprKind::Item(_)
-                    ) {
+                    if !matches!(krate.types.get(callback_expr.ty), Some(Type::Function(_))) {
+                        let callback_path = krate
+                            .modules
+                            .get(callback_expr.span.file.0 as usize)
+                            .map_or("<unknown>", |module| module.source.path.as_str());
                         errors.push(ValidationError {
                             message: format!(
-                                "body {body_idx} expr {expr_idx} callback must be a closure or callable value"
+                                "body {body_idx} expr {expr_idx} callback must have function type, got {:?} at {callback_path} {:?}",
+                                callback_expr.ty, callback_expr.span
                             ),
                         });
                     }

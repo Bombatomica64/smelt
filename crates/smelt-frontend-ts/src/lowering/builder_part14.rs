@@ -703,6 +703,12 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let op = match binary.operator {
+            BinaryOperator::Equality | BinaryOperator::Inequality => {
+                return Err(SmeltError::unsupported(
+                    self.span(binary.span.start, binary.span.end),
+                    "coercive equality is not supported",
+                ));
+            }
             BinaryOperator::Addition => BinOp::Add,
             BinaryOperator::Subtraction => BinOp::Sub,
             BinaryOperator::Multiplication => BinOp::Mul,
@@ -710,12 +716,6 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Remainder => BinOp::Rem,
             BinaryOperator::StrictEquality => BinOp::Eq,
             BinaryOperator::StrictInequality => BinOp::NotEq,
-            BinaryOperator::Equality | BinaryOperator::Inequality => {
-                return Err(SmeltError::unsupported(
-                    self.span(binary.span.start, binary.span.end),
-                    "coercive equality is not lowered; use === or !==",
-                ));
-            }
             BinaryOperator::LessThan => BinOp::Lt,
             BinaryOperator::LessEqualThan => BinOp::Lte,
             BinaryOperator::GreaterThan => BinOp::Gt,

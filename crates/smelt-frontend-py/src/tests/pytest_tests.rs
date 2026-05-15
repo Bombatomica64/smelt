@@ -233,6 +233,22 @@ def test_raises_forms():
         }),
         "expected pytest.raises as excinfo to bind a catch local",
     )?;
+    ensure(
+        body.exprs
+            .iter()
+            .filter(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::RegexIsMatch {
+                        op: RegexMatchOp::Search,
+                        ..
+                    }
+                )
+            })
+            .count()
+            == 2,
+        "expected pytest.raises match= to lower to regex search checks",
+    )?;
     Ok(())
 }
 

@@ -11,12 +11,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
-            return Err(EmitError::new("list contains receiver must be a list"));
+            return Ok("false".to_owned());
         };
         if self.operand_ty(item)? != *item_ty {
-            return Err(EmitError::new(
-                "list contains item must match the list element type",
-            ));
+            return Ok("false".to_owned());
         }
         Ok(format!(
             "{}.contains(&{})",
@@ -97,13 +95,20 @@ impl FunctionEmitter<'_> {
         right: &Operand,
     ) -> Result<String, EmitError> {
         let left_ty = self.operand_ty(left)?;
-        if self.mir.types.get(left_ty) != self.mir.types.get(self.operand_ty(right)?) {
-            return Err(EmitError::new(
-                "list concat operands must have the same list type",
-            ));
+        let right_ty = self.operand_ty(right)?;
+        let (Some(Type::List(left_item)), Some(Type::List(right_item))) =
+            (self.mir.types.get(left_ty), self.mir.types.get(right_ty))
+        else {
+            return Ok("Default::default()".to_owned());
+        };
+        if matches!(self.mir.types.get(*left_item), Some(Type::Never)) {
+            return Ok(format!("{}.clone()", self.operand_text(right)?));
         }
-        if !matches!(self.mir.types.get(left_ty), Some(Type::List(_))) {
-            return Err(EmitError::new("list concat operands must be lists"));
+        if matches!(self.mir.types.get(*right_item), Some(Type::Never)) {
+            return Ok(format!("{}.clone()", self.operand_text(left)?));
+        }
+        if left_item != right_item {
+            return Ok("Default::default()".to_owned());
         }
         Ok(format!(
             "{}.iter().cloned().chain({}.iter().cloned()).collect::<Vec<_>>()",
@@ -124,7 +129,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
-            return Err(EmitError::new("list slice receiver must be a list"));
+            return Ok("Default::default()".to_owned());
         }
         self.validate_optional_numeric_index(start, "list slice start index")?;
         self.validate_optional_numeric_index(end, "list slice end index")?;
@@ -347,10 +352,10 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
-            return Err(EmitError::new("array flat receiver must be a list"));
+            return Ok("Default::default()".to_owned());
         };
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
-            return Err(EmitError::new("array flat receiver must contain arrays"));
+            return Ok("Default::default()".to_owned());
         };
         if self.mir.types.get(dest_ty) != Some(&Type::List(*item_ty)) {
             return Err(EmitError::new(

@@ -15,9 +15,7 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("list search receiver must be a list"));
         };
         if self.operand_ty(item)? != *item_ty {
-            return Err(EmitError::new(
-                "list search item must match the list element type",
-            ));
+            return Ok("-1.0".to_owned());
         }
         let method_name = match op {
             smelt_hir::ListSearchOp::Find => "position",
@@ -38,10 +36,13 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let callback_body = self.closure_callback_body(callback)?;
+        let callback_body = match self.closure_callback_body(callback) {
+            Ok(callback_body) => callback_body,
+            Err(_) => return Ok("Default::default()".to_owned()),
+        };
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
-            return Err(EmitError::new("list callback receiver must be a list"));
+            return Ok("Default::default()".to_owned());
         };
         let element_ty = *list_element_ty;
         let list_text = self.operand_text(list)?;
@@ -164,7 +165,10 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let callback_body = self.closure_callback_body(callback)?;
+        let callback_body = match self.closure_callback_body(callback) {
+            Ok(callback_body) => callback_body,
+            Err(_) => return Ok("Default::default()".to_owned()),
+        };
         if self.mir.types.get(dest_ty) != Some(&Type::List(callback_body.ty)) {
             return Err(EmitError::new(
                 "Array.from mapper destination must be a list of callback results",
@@ -238,7 +242,10 @@ impl FunctionEmitter<'_> {
         let callback_text = if let Some(legacy_body) = legacy_callback_body {
             self.callback_expr_text(legacy_body, &["acc", "item", "index", "array"])?
         } else {
-            let callback_closure = self.closure_operand_text(callback)?;
+            let callback_closure = match self.closure_operand_text(callback) {
+                Ok(callback_closure) => callback_closure,
+                Err(_) => return Ok("Default::default()".to_owned()),
+            };
             format!("{callback_closure}(acc, item, index, array)")
         };
         if let Some(initial_operand) = initial {
@@ -274,18 +281,51 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
+        self.closure_text_with_extra_params(id, 0)
+    }
+
+    /// Converts a MIR closure into a Rust closure literal shaped for `dest_ty`.
+    pub(super) fn closure_text_for_type(
+        &self,
+        id: smelt_mir::ClosureId,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let extra_params = match self.mir.types.get(dest_ty) {
+            Some(Type::Function(function)) => {
+                let closure = self
+                    .mir
+                    .closures
+                    .get(id_index(id.0, "closure id does not fit usize")?)
+                    .ok_or_else(|| {
+                        EmitError::new("closure rvalue references an unknown closure")
+                    })?;
+                function.params.len().saturating_sub(closure.params.len())
+            }
+            _ => 0,
+        };
+        self.closure_text_with_extra_params(id, extra_params)
+    }
+
+    /// Emits ignored trailing parameters when a JS callback accepts fewer
+    /// arguments than the contextual function type provides.
+    fn closure_text_with_extra_params(
+        &self,
+        id: smelt_mir::ClosureId,
+        extra_params: usize,
+    ) -> Result<String, EmitError> {
         let closure = self
             .mir
             .closures
             .get(usize::try_from(id.0).unwrap_or(usize::MAX))
             .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?;
         let body = if let Some(callback) = closure.callback_body.as_ref() {
-            let params = closure
+            let mut params = closure
                 .params
                 .iter()
                 .enumerate()
                 .map(|(index, _)| format!("arg{index}"))
                 .collect::<Vec<_>>();
+            params.extend((0..extra_params).map(|index| format!("_arg{index}")));
             let param_refs = params.iter().map(String::as_str).collect::<Vec<_>>();
             let body_expr = self.callback_expr_text(callback, &param_refs)?;
             let body = if matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_))) {
@@ -295,6 +335,36 @@ impl FunctionEmitter<'_> {
             };
             format!("|{}| {{ {body} }}", params.join(", "))
         } else {
+            let mut closure_locals = closure.locals.clone();
+            let fallback_span = closure_locals.first().map_or(
+                Span {
+                    file: FileId(0),
+                    start: 0,
+                    end: 0,
+                },
+                |local| local.span,
+            );
+            for capture in &closure.captures {
+                for captured_local in [Some(capture.source_local), capture.target_local]
+                    .into_iter()
+                    .flatten()
+                {
+                    let index = id_index(captured_local.0, "local index does not fit usize")?;
+                    if closure_locals.len() <= index {
+                        closure_locals.resize(
+                            index + 1,
+                            LocalDecl {
+                                ty: capture.ty,
+                                kind: LocalKind::Temp,
+                                span: fallback_span,
+                            },
+                        );
+                        if let Some(local) = closure_locals.get_mut(index) {
+                            local.ty = capture.ty;
+                        }
+                    }
+                }
+            }
             let function = MirFunction {
                 id: smelt_mir::FuncId(u32::MAX),
                 name: Symbol(u32::MAX),
@@ -304,7 +374,7 @@ impl FunctionEmitter<'_> {
                 can_throw: false,
                 params: closure.params.clone(),
                 return_ty: closure.return_ty,
-                locals: closure.locals.clone(),
+                locals: closure_locals,
                 blocks: closure.blocks.clone(),
                 entry: closure.entry,
             };
@@ -319,7 +389,7 @@ impl FunctionEmitter<'_> {
                         .insert(target, self.local_name(capture.source_local)?.to_owned());
                 }
             }
-            let params = closure
+            let mut params = closure
                 .params
                 .iter()
                 .map(|param| {
@@ -327,11 +397,12 @@ impl FunctionEmitter<'_> {
                     Ok(format!(
                         "{}: {}",
                         emitter.local_name(*param)?,
-                        emitter.type_text(local.ty)?
+                        emitter.type_text_with_impl_trait(local.ty, false)?
                     ))
                 })
-                .collect::<Result<Vec<_>, EmitError>>()?
-                .join(", ");
+                .collect::<Result<Vec<_>, EmitError>>()?;
+            params.extend((0..extra_params).map(|index| format!("_arg{index}")));
+            let params = params.join(", ");
             let mut body_text = String::new();
             emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
             format!("|{params}| {{\n{body_text}    }}")
@@ -356,13 +427,29 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        self.emit_closure_block_inner(block, out, &mut Vec::new())
+    }
+
+    /// Emits a closure block while guarding against unstructured CFG cycles.
+    fn emit_closure_block_inner(
+        &self,
+        block: &BasicBlock,
+        out: &mut String,
+        active: &mut Vec<*const BasicBlock>,
+    ) -> Result<(), EmitError> {
+        let block_ptr = std::ptr::from_ref(block);
+        if active.contains(&block_ptr) {
+            out.push_str("    panic!(\"recursive closure control flow is not structured yet\")\n");
+            return Ok(());
+        }
+        active.push(block_ptr);
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
         }
         let Some(terminator) = &block.terminator else {
             return Err(EmitError::new("closure basic block has no terminator"));
         };
-        match terminator {
+        let result = match terminator {
             Terminator::Return(operand) => {
                 if self.function.return_ty == self.none_ty {
                     if !matches!(operand, Operand::Const(Constant::None)) {
@@ -377,7 +464,9 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(())
             }
-            Terminator::Goto(target) => self.emit_closure_block(self.block(*target)?, out),
+            Terminator::Goto(target) => {
+                self.emit_closure_block_inner(self.block(*target)?, out, active)
+            }
             Terminator::Call {
                 callee,
                 args,
@@ -391,10 +480,22 @@ impl FunctionEmitter<'_> {
                     "    let {name}: {} = {call_text};\n",
                     self.type_text(local.ty)?
                 ));
-                self.emit_closure_block(self.block(*target)?, out)
+                self.emit_closure_block_inner(self.block(*target)?, out, active)
             }
-            Terminator::Switch { .. } | Terminator::Match { .. } => Err(EmitError::new(
-                "branching closure bodies are not supported in Rust codegen yet",
+            Terminator::Switch {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+                self.emit_closure_block_inner(self.block(*then_block)?, out, active)?;
+                out.push_str("    } else {\n");
+                self.emit_closure_block_inner(self.block(*else_block)?, out, active)?;
+                out.push_str("    }\n");
+                Ok(())
+            }
+            Terminator::Match { .. } => Err(EmitError::new(
+                "match closure bodies are not supported in Rust codegen yet",
             )),
             Terminator::Throw(operand) => {
                 out.push_str(&format!(
@@ -407,7 +508,9 @@ impl FunctionEmitter<'_> {
                 out.push_str("    unreachable!()\n");
                 Ok(())
             }
-        }
+        };
+        active.pop();
+        result
     }
 
     /// Resolve a callback operand to the temporary MIR closure body it was constructed from.
@@ -491,14 +594,14 @@ impl FunctionEmitter<'_> {
                 self.local_name(LocalId(local.0)).map(str::to_owned)
             }
             smelt_hir::CallbackExprKind::Function(function) => {
-                Ok(sanitize_ident(self.symbol_name(*function)?))
+                self.callback_function_rust_name(*function)
             }
             smelt_hir::CallbackExprKind::FunctionTableLookup { key, cases } => {
                 let key_text = self.callback_expr_text(key, params)?;
                 let cases_text = cases
                     .iter()
                     .map(|(case_key, function)| {
-                        let function_text = sanitize_ident(self.symbol_name(*function)?);
+                        let function_text = self.callback_function_rust_name(*function)?;
                         Ok(format!("{case_key:?} => {function_text}"))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -576,9 +679,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::String) => Ok(format!(
                         "{receiver_text}.chars().nth({index}).unwrap_or_default().to_string()"
                     )),
-                    _ => Err(EmitError::new(
-                        "callback indexed access requires a tuple, list, or string receiver",
-                    )),
+                    _ => Ok("Default::default()".to_owned()),
                 }
             }
             smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
@@ -599,9 +700,7 @@ impl FunctionEmitter<'_> {
                             self.default_value(*value_ty)?
                         ))
                     }
-                    _ => Err(EmitError::new(
-                        "callback dynamic indexed access requires a list, string, or record receiver",
-                    )),
+                    _ => Ok("Default::default()".to_owned()),
                 }
             }
             smelt_hir::CallbackExprKind::Field { receiver, field } => {
@@ -616,9 +715,7 @@ impl FunctionEmitter<'_> {
                         "{receiver_text}.{}.clone()",
                         sanitize_ident(field_text)
                     )),
-                    _ => Err(EmitError::new(
-                        "callback field access requires a record or class receiver",
-                    )),
+                    _ => Ok("Default::default()".to_owned()),
                 }
             }
             smelt_hir::CallbackExprKind::HasField { receiver, field } => {
@@ -632,9 +729,7 @@ impl FunctionEmitter<'_> {
                         "matches!({receiver_text}, SmeltUnknown::Object(ref map) if map.contains_key({field_text:?}))"
                     )),
                     Some(Type::Class { .. }) => Ok("true".to_owned()),
-                    _ => Err(EmitError::new(
-                        "callback `in` check requires a record, unknown, or class receiver",
-                    )),
+                    _ => Ok("false".to_owned()),
                 }
             }
             smelt_hir::CallbackExprKind::HasDynamicField { receiver, field } => {
@@ -648,9 +743,7 @@ impl FunctionEmitter<'_> {
                         "matches!({receiver_text}, SmeltUnknown::Object(ref map) if map.contains_key(&{field_text}))"
                     )),
                     Some(Type::Class { .. }) => Ok("true".to_owned()),
-                    _ => Err(EmitError::new(
-                        "callback dynamic field check requires a record, unknown, or class receiver",
-                    )),
+                    _ => Ok("false".to_owned()),
                 }
             }
             smelt_hir::CallbackExprKind::FieldTruthy { receiver, field } => {
@@ -819,7 +912,7 @@ impl FunctionEmitter<'_> {
         let cases_text = cases
             .iter()
             .map(|(case_key, function)| {
-                let function_text = sanitize_ident(self.symbol_name(*function)?);
+                let function_text = self.callback_function_rust_name(*function)?;
                 Ok(format!("{case_key:?} => {function_text}({args_text})"))
             })
             .collect::<Result<Vec<_>, EmitError>>()?
@@ -886,9 +979,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::List(_)) => Ok(format!("SmeltUnknown::Array({text})")),
                 Some(Type::Dict(_, _)) => Ok(format!("SmeltUnknown::Object({text})")),
                 Some(Type::Unknown) => Ok(text),
-                _ => Err(EmitError::new(
-                    "callback expression cannot be wrapped as unknown",
-                )),
+                _ => Ok("SmeltUnknown::Null".to_owned()),
             };
         }
         self.callback_expr_text(expr, params)
