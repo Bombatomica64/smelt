@@ -111,6 +111,21 @@ impl ModuleBuilder<'_> {
                 span: self.span(target_arg.span().start, target_arg.span().end),
             });
         }
+        if Self::expr_ty(body, target) != record_ty
+            && matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, target)),
+                Some(Type::Dict(_, _))
+            )
+        {
+            target = body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: target,
+                    target: record_ty,
+                },
+                ty: record_ty,
+                span: self.span(target_arg.span().start, target_arg.span().end),
+            });
+        }
         if Self::expr_ty(body, target) != record_ty {
             return Err(SmeltError::unsupported(
                 self.span(target_arg.span().start, target_arg.span().end),

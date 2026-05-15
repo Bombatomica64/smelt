@@ -426,7 +426,7 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
         mut dict: smelt_hir::ExprId,
-        key: smelt_hir::ExprId,
+        mut key: smelt_hir::ExprId,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let dict_ty = Self::expr_ty(body, dict);
         let dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
@@ -473,6 +473,13 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        if Self::expr_ty(body, key) != key_ty && self.is_string_compatible_type(Self::expr_ty(body, key)) {
+            key = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: key },
+                ty: key_ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+        }
         if Self::expr_ty(body, key) != key_ty {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),

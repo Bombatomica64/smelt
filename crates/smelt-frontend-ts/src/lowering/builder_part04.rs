@@ -57,6 +57,7 @@ impl ModuleBuilder<'_> {
                         .get(parent_name)
                         .unwrap_or("<unknown>");
                     if parent_name_text == "ContextOptions"
+                        || parent_name_text.starts_with("Intl.")
                         || self.type_only_imports.contains(parent_name_text)
                     {
                         continue;

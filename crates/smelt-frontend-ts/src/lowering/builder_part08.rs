@@ -16,6 +16,9 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         let Expression::Identifier(callee) = &new_expr.callee else {
+            if let Some(expr) = self.intl_date_time_format_constructor_expression(new_expr, body)? {
+                return Ok(expr);
+            }
             if let Some(expr) = self.dynamic_date_constructor_expression(new_expr, body)? {
                 return Ok(expr);
             }
@@ -47,6 +50,9 @@ impl ModuleBuilder<'_> {
         }
         if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
             return self.error_constructor_expression(new_expr, body);
+        }
+        if let Some(expr) = self.dynamic_identifier_constructor_expression(new_expr, body)? {
+            return Ok(expr);
         }
         if callee.name == "URL" {
             return Err(SmeltError::unsupported(
@@ -419,6 +425,10 @@ impl ModuleBuilder<'_> {
                     (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
                 ) {
                     then_ty
+                } else if self.date_runtime_float_matches_type_param(then_ty, else_ty) {
+                    else_ty
+                } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
+                    then_ty
                 } else if Self::is_empty_list_expr(body, then_expr) {
                     else_ty
                 } else if Self::is_empty_list_expr(body, else_expr) {
@@ -740,6 +750,10 @@ impl ModuleBuilder<'_> {
             (Some(Type::TypeParam { .. }), Some(Type::TypeParam { .. }))
         ) {
             Ok(then_ty)
+        } else if self.date_runtime_float_matches_type_param(then_ty, else_ty) {
+            Ok(else_ty)
+        } else if self.date_runtime_float_matches_type_param(else_ty, then_ty) {
+            Ok(then_ty)
         } else if self.ctx.krate.types.get(then_ty) == Some(&Type::None) {
             Ok(self.ctx.krate.types.intern(Type::Optional(else_ty)))
         } else if self.ctx.krate.types.get(else_ty) == Some(&Type::None) {
@@ -770,6 +784,19 @@ impl ModuleBuilder<'_> {
                 ),
             ))
         }
+    }
+
+    /// Return whether a timestamp-backed Date branch can flow into a generic date type.
+    fn date_runtime_float_matches_type_param(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+    ) -> bool {
+        self.ctx.krate.types.get(actual) == Some(&Type::Float)
+            && matches!(
+                self.ctx.krate.types.get(expected),
+                Some(Type::TypeParam { .. })
+            )
     }
 
     /// Return true when an expression is an uninhabited empty array literal.

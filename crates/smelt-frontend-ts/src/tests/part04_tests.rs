@@ -667,6 +667,82 @@ const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone || process.env.t
 }
 
 #[test]
+fn lowers_new_intl_date_time_format_format_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function formatDate(date: Date, locale?: string): string {
+  return new Intl.DateTimeFormat(locale, { year: "numeric" }).format(date);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateToIsoString { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_new_intl_relative_time_format_format_call() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Options extends Intl.RelativeTimeFormatOptions {
+  unit?: string;
+  locale?: string;
+}
+
+function formatDistance(value: number, unit: string, options?: Options): string {
+  const rtf = new Intl.RelativeTimeFormat(options?.locale, {
+    numeric: "auto",
+    ...options,
+  });
+  return rtf.format(value, unit);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(body.exprs.iter().any(
+        |expr| matches!(expr.kind, ExprKind::Literal(Literal::String(ref value)) if value.is_empty())
+    ));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_guarded_dynamic_date_constructor_identifier() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function transpose(constructor: unknown): Date {
+  return new constructor(0);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(0.0))))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_local_arrow_defaults_referencing_prior_params() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

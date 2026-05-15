@@ -403,6 +403,7 @@ impl ModuleBuilder<'_> {
                     .params
                     .iter()
                     .any(|param| self.concrete_type_requires_never_value(*param))
+                    && !Self::call_has_spread_arguments(call)
                 {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
@@ -462,6 +463,7 @@ impl ModuleBuilder<'_> {
             if params
                 .iter()
                 .any(|param| self.concrete_type_requires_never_value(*param))
+                && !Self::call_has_spread_arguments(call)
             {
                 return Err(SmeltError::unsupported(
                     self.span(call.span.start, call.span.end),
@@ -613,6 +615,7 @@ impl ModuleBuilder<'_> {
             .params
             .iter()
             .any(|param| self.concrete_type_requires_never_value(*param))
+            && !Self::call_has_spread_arguments(call)
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -1640,6 +1643,13 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether a call uses JavaScript spread arguments.
+    fn call_has_spread_arguments(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+        call.arguments
+            .iter()
+            .any(|argument| matches!(argument, Argument::SpreadElement(_)))
     }
 
     /// Lower Remeda's `$typed<T>()` declaration-test helper to an opaque value.

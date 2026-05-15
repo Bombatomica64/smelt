@@ -1037,6 +1037,27 @@ impl ModuleBuilder<'_> {
         Ok(Some(self.argument(value, body)?))
     }
 
+    /// Lower guarded dynamic Date constructor identifiers such as `new constructor(0)`.
+    fn dynamic_identifier_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if callee.name != "constructor" || !self.locals.contains_key(callee.name.as_str()) {
+            return Ok(None);
+        }
+        let [value] = new_expr.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "dynamic Date constructor identifiers require exactly one value argument",
+            ));
+        };
+        Ok(Some(self.argument(value, body)?))
+    }
+
     /// Return true for expressions that reference a `.constructor` member.
     fn is_constructor_member_reference(expression: &Expression<'_>) -> bool {
         match expression {

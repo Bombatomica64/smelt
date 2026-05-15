@@ -96,11 +96,22 @@ impl ModuleBuilder<'_> {
         &mut self,
         item: &oxc::ast::ast::TSInterfaceHeritage<'_>,
     ) -> Result<(smelt_hir::Symbol, Vec<smelt_hir::TypeId>), SmeltError> {
-        let Expression::Identifier(name) = &item.expression else {
-            return Err(SmeltError::unsupported(
-                self.span(item.span.start, item.span.end),
-                "qualified interface inheritance is not lowered yet",
-            ));
+        let name_text = match &item.expression {
+            Expression::Identifier(name) => name.name.to_string(),
+            Expression::StaticMemberExpression(member)
+                if matches!(
+                    &member.object,
+                    Expression::Identifier(object) if object.name == "Intl"
+                ) =>
+            {
+                format!("Intl.{}", member.property.name)
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(item.span.start, item.span.end),
+                    "qualified interface inheritance is not lowered yet",
+                ));
+            }
         };
         let args = item
             .type_arguments
@@ -113,7 +124,7 @@ impl ModuleBuilder<'_> {
             })
             .transpose()?
             .unwrap_or_default();
-        Ok((self.intern_type_name(name.name.as_str()), args))
+        Ok((self.intern_type_name(&name_text), args))
     }
 
     /// Find the latest previously lowered interface by symbol.

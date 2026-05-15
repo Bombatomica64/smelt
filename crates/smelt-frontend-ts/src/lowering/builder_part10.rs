@@ -678,57 +678,176 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if Self::is_intl_date_time_format_call(call) {
-            if !call.arguments.is_empty() {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "Intl.DateTimeFormat() arguments are not lowered yet",
-                ));
-            }
-            let key = self.ctx.krate.types.intern(Type::String);
-            let value = self.ctx.krate.types.intern(Type::Unknown);
-            let ty = self.ctx.krate.types.intern(Type::Dict(key, value));
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::DictLit(Vec::new()),
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+        if let Some(expr) = self.intl_format_method_call(call, body)? {
+            return Ok(Some(expr));
         }
-        if Self::is_intl_resolved_options_call(call) {
-            if !call.arguments.is_empty() {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "Intl.DateTimeFormat().resolvedOptions() does not accept arguments",
-                ));
+        if Self::is_intl_formatter_call(call) {
+            for arg in &call.arguments {
+                let _ = self.argument(arg, body)?;
             }
-            let string_ty = self.ctx.krate.types.intern(Type::String);
-            let key = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("timeZone".to_owned())),
-                ty: string_ty,
-                span: self.span(call.span.start, call.span.end),
-            });
-            let value = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
-                ty: string_ty,
-                span: self.span(call.span.start, call.span.end),
-            });
-            let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, string_ty));
-            return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::DictLit(vec![(key, value)]),
-                ty,
-                span: self.span(call.span.start, call.span.end),
-            })));
+            return Ok(Some(self.intl_date_time_format_object_expr(
+                body,
+                self.span(call.span.start, call.span.end),
+            )));
+        }
+        if let Some(expr) = self.intl_resolved_options_call(call, body)? {
+            return Ok(Some(expr));
         }
         Ok(None)
     }
 
+    /// Lower `new Intl.DateTimeFormat(...)` and related Intl constructors as opaque formatter objects.
+    fn intl_date_time_format_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !Self::is_intl_formatter_callee(&new_expr.callee) {
+            return Ok(None);
+        }
+        for arg in &new_expr.arguments {
+            let _ = self.argument(arg, body)?;
+        }
+        Ok(Some(self.intl_date_time_format_object_expr(
+            body,
+            self.span(new_expr.span.start, new_expr.span.end),
+        )))
+    }
+
+    /// Lower calls to the supported opaque `Intl.*Format#format` formatter surface.
+    fn intl_format_method_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "format" {
+            return Ok(None);
+        }
+        let receiver = self.expression(&member.object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        if !Self::is_intl_formatter_receiver(&member.object)
+            && !matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Dict(key, value))
+                    if self.ctx.krate.types.get(*key) == Some(&Type::String)
+                        && self.ctx.krate.types.get(*value) == Some(&Type::Unknown)
+            )
+        {
+            return Ok(None);
+        }
+        if let [timestamp_arg] = call.arguments.as_slice() {
+            let timestamp_ms = self.argument(timestamp_arg, body)?;
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateToIsoString { timestamp_ms },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        if call.arguments.len() == 2 {
+            for arg in &call.arguments {
+                let _ = self.argument(arg, body)?;
+            }
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(String::new())),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        Err(SmeltError::unsupported(
+            self.span(call.span.start, call.span.end),
+            "Intl formatter format(...) requires one or two arguments",
+        ))
+    }
+
+    /// Lower `Intl.DateTimeFormat().resolvedOptions()` to a small options record.
+    fn intl_resolved_options_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !Self::is_intl_resolved_options_call(call) {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Intl.DateTimeFormat().resolvedOptions() does not accept arguments",
+            ));
+        }
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("timeZone".to_owned())),
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        });
+        let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, string_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(key, value)]),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Build the opaque object used for the supported `Intl.DateTimeFormat` surface.
+    fn intl_date_time_format_object_expr(&mut self, body: &mut Body, span: Span) -> smelt_hir::ExprId {
+        let key = self.ctx.krate.types.intern(Type::String);
+        let value = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::Dict(key, value));
+        body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty,
+            span,
+        })
+    }
+
     /// Return whether this call is `Intl.DateTimeFormat()`.
     fn is_intl_date_time_format_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
-        let Expression::StaticMemberExpression(member) = &call.callee else {
+        Self::is_intl_date_time_format_callee(&call.callee)
+    }
+
+    /// Return whether this call is a supported `Intl.*Format()` constructor-style call.
+    fn is_intl_formatter_call(call: &oxc::ast::ast::CallExpression<'_>) -> bool {
+        Self::is_intl_formatter_callee(&call.callee)
+    }
+
+    /// Return whether this expression names `Intl.DateTimeFormat`.
+    fn is_intl_date_time_format_callee(callee: &Expression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = callee else {
             return false;
         };
         matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "Intl")
             && member.property.name == "DateTimeFormat"
+    }
+
+    /// Return whether this expression names a supported `Intl.*Format` constructor.
+    fn is_intl_formatter_callee(callee: &Expression<'_>) -> bool {
+        let Expression::StaticMemberExpression(member) = callee else {
+            return false;
+        };
+        matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "Intl")
+            && matches!(
+                member.property.name.as_str(),
+                "DateTimeFormat" | "RelativeTimeFormat"
+            )
+    }
+
+    /// Return whether this expression constructs/calls `Intl.DateTimeFormat`.
+    fn is_intl_formatter_receiver(receiver: &Expression<'_>) -> bool {
+        match receiver {
+            Expression::CallExpression(call) => Self::is_intl_formatter_call(call),
+            Expression::NewExpression(new_expr) => Self::is_intl_formatter_callee(&new_expr.callee),
+            _ => false,
+        }
     }
 
     /// Return whether this call is `Intl.DateTimeFormat().resolvedOptions()`.
