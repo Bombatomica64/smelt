@@ -1,0 +1,14 @@
+[package]
+name = "smelt-mir"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+smelt-hir = { path = "../smelt-hir" }
+
+[dev-dependencies]
+smelt-frontend-ts = { path = "../smelt-frontend-ts" }

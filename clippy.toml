@@ -1,0 +1,35 @@
+# Strictest possible Clippy configuration.
+# Thresholds are tightened well below the defaults.
+
+# Minimum Supported Rust Version — kept in sync with workspace edition 2024 (MSRV 1.85).
+msrv = "1.85.0"
+
+# Lower the cognitive-complexity ceiling (default: 25).
+cognitive-complexity-threshold = 10
+
+# Fewer arguments per function (default: 7).
+too-many-arguments-threshold = 5
+
+# Shorter function bodies (default: 100).
+too-many-lines-threshold = 60
+
+# Tighter type-complexity budget (default: 250).
+type-complexity-threshold = 100
+
+# Require `#[must_use]` on any function that returns a value that is not `()`.
+# (Pairs with clippy::must_use_candidate from pedantic.)
+
+# Warn on any single-char binding names — lower than default (2).
+single-char-binding-names-threshold = 1
+
+# Disallow large enum variants above this byte size (default: 200).
+enum-variant-size-threshold = 200
+
+# Require every public item to have a `/// # Errors` section when it can return Err.
+# (Enforced via clippy::missing_errors_doc from pedantic.)
+
+# Stack size after which clippy warns about large stack frames.
+stack-size-threshold = 512000
+
+# Treat every `todo!()` / `unimplemented!()` as a hard error in this config
+# (the lint itself is set to deny in Cargo.toml workspace lints).

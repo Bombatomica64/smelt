@@ -1,0 +1,28 @@
+[project]
+name = "py-boolean"
+version = "0.1.0"
+description = "Python boolean logic smelted into Rust"
+
+[sources]
+entries = ["input.py"]
+
+[output]
+target = "./dist"
+crate-name = "py_boolean"
+build = false
+
+[rust]
+edition = "2024"
+
+[rust.dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[strict]
+typescript = true
+python = true
+
+[runtime]
+clone-strategy = "aggressive"

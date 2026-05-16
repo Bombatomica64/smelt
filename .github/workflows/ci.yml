@@ -1,0 +1,77 @@
+name: CI
+
+permissions:
+  contents: write
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-test-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install coverage tool
+        run: |
+          rustup component add llvm-tools-preview
+          rustup toolchain install nightly --component llvm-tools-preview
+          cargo install cargo-llvm-cov --locked || echo "already installed"
+
+      - name: Test with coverage
+        run: |
+          cargo +nightly llvm-cov --workspace --branch --lcov --output-path lcov.info
+
+      - name: Coverage summary (JSON)
+        run: |
+          cargo +nightly llvm-cov report --branch --json --summary-only --output-path coverage-summary.json
+
+      - name: Generate badge
+        run: |
+          bash scripts/coverage_badge.sh lcov.info coverage.svg
+
+      - name: Update README coverage tables
+        run: |
+          python3 scripts/update_readme_coverage.py coverage-summary.json README.md lcov.info
+
+      - name: Commit coverage updates
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md coverage-summary.json coverage.svg lcov.info coverage-functions.svg coverage-lines.svg coverage-regions.svg coverage-branches.svg
+          git diff --quiet --cached && echo "No coverage updates to commit." || git commit -m "chore(ci): update coverage report"
+
+      - name: Push coverage updates
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        run: |
+          git push
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            lcov.info
+            coverage.svg
+            coverage-summary.json
+            coverage-functions.svg
+            coverage-lines.svg
+            coverage-regions.svg
+            coverage-branches.svg

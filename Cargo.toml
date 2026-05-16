@@ -1,0 +1,112 @@
+[workspace]
+members = [
+    "crates/smelt-frontend-ts",
+    "crates/smelt-frontend-py",
+    "crates/smelt-hir",
+    "crates/smelt-mir",
+    "crates/smelt-codegen-rust",
+    "crates/smelt-stdlib",
+    "crates/smelt-asyncio",
+    "crates/smelt-runtime",
+    "crates/smelt-test",
+    "crates/smelt-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+# Deps used by more than one crate — pin version here, reference with { workspace = true } in members
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "1.1.2"
+
+# ---------------------------------------------------------------------------
+# Workspace-wide lint policy
+# ---------------------------------------------------------------------------
+# priority = -1 enables the whole group first; individual overrides sit at
+# priority = 0 (the default) and therefore win.
+# ---------------------------------------------------------------------------
+
+[workspace.lints.rust]
+# Hard errors for soundness / correctness.
+unsafe_code          = "deny"
+unused               = { level = "deny", priority = -1 }
+missing_docs         = "warn"
+# Catches common footguns.
+elided_lifetimes_in_paths          = "warn"
+explicit_outlives_requirements     = "warn"
+keyword_idents                     = { level = "deny", priority = -1 }
+let_underscore_drop                = "warn"
+macro_use_extern_crate             = "warn"
+meta_variable_misuse               = "deny"
+non_ascii_idents                   = "deny"
+noop_method_call                   = "warn"
+single_use_lifetimes               = "warn"
+trivial_casts                      = "warn"
+trivial_numeric_casts              = "warn"
+unit_bindings                      = "warn"
+unreachable_pub                    = "warn"
+unused_extern_crates               = "warn"
+unused_import_braces               = "warn"
+unused_lifetimes                   = "warn"
+unused_qualifications              = "warn"
+variant_size_differences           = "warn"
+
+[workspace.lints.clippy]
+# ---- Core groups (deny everything, then selectively allow below) ----------
+all      = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+nursery  = { level = "deny", priority = -1 }
+
+# ---- Restriction lints (opt-in; each one is intentional) -----------------
+# Style / hygiene
+allow_attributes               = "deny"   # prefer #[expect] over #[allow]
+allow_attributes_without_reason = "deny"  # every suppression must be justified
+dbg_macro                      = "deny"
+print_stdout                   = "warn"   # warn — examples legitimately use it
+print_stderr                   = "warn"
+todo                           = "deny"
+unimplemented                  = "deny"
+unreachable                    = "warn"   # sometimes necessary, so warn only
+
+# Panicking / fallibility
+arithmetic_side_effects        = "warn"   # overflow / underflow
+as_conversions                 = "warn"   # prefer safe cast traits
+expect_used                    = "warn"
+get_unwrap                     = "deny"
+indexing_slicing               = "warn"
+integer_division               = "warn"
+panic                          = "warn"
+panic_in_result_fn             = "deny"
+unwrap_in_result               = "deny"
+unwrap_used                    = "warn"
+
+# Documentation
+missing_assert_message         = "deny"
+missing_errors_doc             = "deny"
+missing_panics_doc             = "deny"
+missing_docs_in_private_items  = "warn"
+
+# Naming / API surface
+exhaustive_enums               = "warn"   # forces callers to handle new variants
+exhaustive_structs             = "warn"
+multiple_inherent_impl         = "deny"
+pub_without_shorthand          = "deny"
+
+# Miscellaneous code quality
+clone_on_ref_ptr               = "deny"
+default_numeric_fallback       = "deny"
+exit                           = "deny"
+if_then_some_else_none         = "warn"
+map_err_ignore                 = "deny"
+same_name_method               = "warn"
+shadow_reuse                   = "warn"
+shadow_same                    = "warn"
+shadow_unrelated               = "warn"
+str_to_string                  = "deny"
+string_add                     = "deny"
+implicit_clone                 = "deny"
+use_debug                      = "warn"
+wildcard_enum_match_arm        = "warn"

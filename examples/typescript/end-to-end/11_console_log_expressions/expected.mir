@@ -1,0 +1,24 @@
+fn add (FuncId(0)) -> Float
+  locals
+    %0 param a: Float
+    %1 param b: Float
+    %2 temp: Float
+  bb0:
+    %2 = copy %0 + copy %1
+    return copy %2
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user value: Float
+    %1 temp: Float
+    %2 temp: Float
+    %3 temp: None
+  bb0:
+    %0 = 4.0
+    %1 = copy %0 + 1.0
+    %2 = call fn0(2.0, 3.0) -> bb1
+  bb1:
+    %3 = call @console_log("sum", copy %1, copy %2) -> bb2
+  bb2:
+    return none
+
