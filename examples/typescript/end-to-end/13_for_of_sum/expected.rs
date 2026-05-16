@@ -2,14 +2,18 @@
 #![allow(dead_code, unused_variables)]
 
 fn main() {
+    let mut x: f64 = 0.0;
+    let mut _smelt_tmp_5: f64 = 0.0;
+    let mut _smelt_tmp_6: bool = false;
+    let mut _smelt_tmp_7: f64 = 0.0;
     let _smelt_tmp_3: Vec<f64> = vec![1.0, 2.0, 3.0];
     let xs: Vec<f64> = _smelt_tmp_3.clone();
     let mut sum: f64 = 0.0;
     let mut _smelt_tmp_4: f64 = 0.0;
-    let _smelt_tmp_5: f64 = xs.len() as f64;
+    _smelt_tmp_5 = xs.len() as f64;
     while _smelt_tmp_4.clone() < _smelt_tmp_5.clone() {
-    let x: f64 = xs.get({ let len = xs.len() as i64; let index = _smelt_tmp_4.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds").clone();
-    let _smelt_tmp_7: f64 = sum.clone() + x.clone();
+    x = xs.get({ let len = xs.len() as i64; let index = _smelt_tmp_4.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds").clone();
+    _smelt_tmp_7 = sum.clone() + x.clone();
     sum = _smelt_tmp_7.clone();
     _smelt_tmp_4 = _smelt_tmp_4.clone() + 1.0;
     }

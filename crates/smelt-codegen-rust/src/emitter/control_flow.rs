@@ -44,9 +44,11 @@ impl FunctionEmitter<'_> {
             }
             let then = self.block(then_block)?;
             let else_ = self.block(else_block)?;
+            let loop_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    while {cond} {{\n"));
             self.emit_block_until_goto(then, block.id, Some(else_block), out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(loop_declared);
             return self.emit_block(else_, out);
         }
 
@@ -61,12 +63,14 @@ impl FunctionEmitter<'_> {
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let else_ = self.block(else_block)?;
+            let loop_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    while {cond} {{\n"));
             self.emit_block_until_goto(then, latch_block, Some(else_block), out)?;
             for statement in &latch.statements {
                 self.emit_statement(statement, out)?;
             }
             out.push_str("    }\n");
+            self.restore_declared_locals(loop_declared);
             return self.emit_block(else_, out);
         }
 
@@ -92,15 +96,19 @@ impl FunctionEmitter<'_> {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
                 let rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
-                if self.is_local_declared(*dest) {
+                if self.is_local_declared(*dest)
+                    && (!matches!(local.kind, LocalKind::Temp)
+                        || self.mutable_locals.contains(dest))
+                {
                     out.push_str(&format!("    {name} = {rendered_value};\n"));
                     return Ok(());
                 }
-                let mutability = if self.mutable_locals.contains(dest)
-                    || matches!(
-                        self.mir.types.get(local.ty),
-                        Some(Type::Class { .. } | Type::Function(_))
-                    ) {
+                let mutability = if name != "_"
+                    && (self.local_binding_needs_mut(*dest)
+                        || matches!(
+                            self.mir.types.get(local.ty),
+                            Some(Type::Class { .. } | Type::Function(_))
+                        )) {
                     "mut "
                 } else {
                     ""
@@ -181,7 +189,9 @@ impl FunctionEmitter<'_> {
 
         let rendered_value = self.rvalue_text_for_dest(value, self.place_ty(place)?)?;
         if let Place::Local(local) = place
-            && !self.is_local_declared(*local)
+            && (!self.is_local_declared(*local)
+                || (matches!(self.local_decl(*local)?.kind, LocalKind::Temp)
+                    && !self.mutable_locals.contains(local)))
         {
             let decl = self.local_decl(*local)?;
             let name = self.local_name(*local)?;
@@ -245,6 +255,7 @@ impl FunctionEmitter<'_> {
                         self.type_text(local.ty)?
                     ));
                 }
+                self.mark_local_declared(*dest);
                 self.emit_block(self.block(*target)?, out)
             }
             Terminator::Switch {
@@ -321,18 +332,29 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let then = self.block(then_block)?;
         let else_ = self.block(else_block)?;
+        if let Operand::Const(Constant::Bool(value)) = cond {
+            return if *value {
+                self.emit_block(then, out)
+            } else {
+                self.emit_block(else_, out)
+            };
+        }
 
         if matches!(then.terminator, Some(Terminator::Goto(target)) if target == current) {
+            let loop_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    while {} {{\n", self.operand_text(cond)?));
             self.emit_block_until_goto(then, current, Some(else_block), out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(loop_declared);
             return self.emit_block(else_, out);
         }
 
         if matches!(then.terminator, Some(Terminator::Goto(target)) if target == else_block) {
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             self.emit_block_until_goto(then, else_block, None, out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
             return self.emit_block(else_, out);
         }
 
@@ -365,6 +387,7 @@ impl FunctionEmitter<'_> {
                     self.type_text(local.ty)?,
                     self.operand_text(cond)?
                 ));
+                self.mark_local_declared(*then_dest);
                 return self.emit_block(self.block(*then_target)?, out);
             }
             if let (
@@ -382,6 +405,8 @@ impl FunctionEmitter<'_> {
                     "    let mut {name}: {} = {default_text};\n",
                     self.type_text_with_impl_trait(local.ty, false)?
                 ));
+                self.mark_local_declared(then_dest);
+                let branch_declared = self.declared_locals_snapshot();
                 out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
                 for statement in then_prefix {
                     self.emit_statement(statement, out)?;
@@ -389,19 +414,24 @@ impl FunctionEmitter<'_> {
                 let then_text = self.rvalue_text_for_dest(then_value, local.ty)?;
                 out.push_str(&format!("    {name} = {then_text};\n"));
                 out.push_str("    } else {\n");
+                self.restore_declared_locals(branch_declared.clone());
                 for statement in else_prefix {
                     self.emit_statement(statement, out)?;
                 }
                 let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
                 out.push_str(&format!("    {name} = {else_text};\n"));
                 out.push_str("    }\n");
+                self.restore_declared_locals(branch_declared);
                 return self.emit_block(self.block(*then_target)?, out);
             }
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             self.emit_block_until_goto(then, *then_target, None, out)?;
             out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
             self.emit_block_until_goto(else_, *else_target, None, out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
             return self.emit_block(self.block(*then_target)?, out);
         }
 
@@ -416,6 +446,7 @@ impl FunctionEmitter<'_> {
                 else_block.0,
                 out.len()
             );
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    {branch_label}: {{\n"));
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             for statement in &then.statements {
@@ -423,8 +454,10 @@ impl FunctionEmitter<'_> {
             }
             out.push_str(&format!("    break {branch_label};\n"));
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared.clone());
             self.emit_block_until_goto(else_, *else_target, None, out)?;
             out.push_str("    };\n");
+            self.restore_declared_locals(branch_declared);
             return self.emit_block(self.block(*else_target)?, out);
         }
 
@@ -436,14 +469,17 @@ impl FunctionEmitter<'_> {
                     .while_header_with_latch(self.block(then_target)?)?
                     .is_some())
         {
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             for statement in &then.statements {
                 self.emit_statement(statement, out)?;
             }
             self.emit_block(self.block(then_target)?, out)?;
             out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
             return Ok(());
         }
 
@@ -455,6 +491,7 @@ impl FunctionEmitter<'_> {
                 else_block.0,
                 out.len()
             );
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    {branch_label}: {{\n"));
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             for statement in &then.statements {
@@ -463,32 +500,41 @@ impl FunctionEmitter<'_> {
             if then_target.0 <= current.0 {
                 out.push_str(&format!("    break {branch_label};\n"));
                 out.push_str("    }\n");
+                self.restore_declared_locals(branch_declared.clone());
                 self.emit_block_until_goto(else_, then_target, None, out)?;
                 out.push_str("    };\n");
+                self.restore_declared_locals(branch_declared);
                 return Ok(());
             }
             out.push_str(&format!("    break {branch_label};\n"));
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared.clone());
             self.emit_block(else_, out)?;
             out.push_str("    };\n");
+            self.restore_declared_locals(branch_declared);
             return Ok(());
         }
 
         if self.block_eventually_terminates(then.id, &mut HashSet::new())?
             && self.block_eventually_terminates(else_.id, &mut HashSet::new())?
         {
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
             return Ok(());
         }
 
         if self.block_eventually_terminates(then.id, &mut HashSet::new())? {
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
             self.emit_block(then, out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
             if else_.id.0 <= current.0 {
                 out.push_str("    loop { break; }\n");
                 return Ok(());
@@ -497,9 +543,11 @@ impl FunctionEmitter<'_> {
         }
 
         if self.block_eventually_terminates(else_.id, &mut HashSet::new())? {
+            let branch_declared = self.declared_locals_snapshot();
             out.push_str(&format!("    if !({}) {{\n", self.operand_text(cond)?));
             self.emit_block(else_, out)?;
             out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
             if then.id.0 <= current.0 {
                 out.push_str("    loop { break; }\n");
                 return Ok(());
@@ -507,15 +555,18 @@ impl FunctionEmitter<'_> {
             return self.emit_block(then, out);
         }
 
+        let branch_declared = self.declared_locals_snapshot();
         out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
         for statement in &then.statements {
             self.emit_statement(statement, out)?;
         }
         out.push_str("    } else {\n");
+        self.restore_declared_locals(branch_declared.clone());
         for statement in &else_.statements {
             self.emit_statement(statement, out)?;
         }
         out.push_str("    }\n");
+        self.restore_declared_locals(branch_declared);
         Ok(())
     }
 

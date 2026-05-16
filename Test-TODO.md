@@ -59,7 +59,7 @@ Current build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission. | After match closure body emission, release emission-only `smelt build` completes in about `3.0s`. |
-| Full manifest, `[output] build = true` | Generated Rust crate compile errors. | First visible Rust syntax blocker is erased external calls with no arguments emitting `let _smelt_external_args = (,);`; the same generated crate also exposes many follow-on type errors that need triage after the syntax blocker is fixed. |
+| Full manifest, `[output] build = true` | Generated Rust crate compile errors. | Empty external-call args, Date setter side-effect ordering, duplicate inherited class fields, generic class `PhantomData`, storage-position `impl Trait`, temp shadowing, callback bind capture, dummy `main`, callable-field derives, constant-false branch emission, and bool-result truthiness lowering are now cleared. Current first visible errors are type-shape mismatches around optional callable contexts and Date setter return casts. |
 
 Probe commands:
 
@@ -603,7 +603,7 @@ Compatibility numbers:
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
 | Full `src/**/*.ts(x)` manifest `smelt check` | pass | Latest 2026-05-15 full manifest check passes at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml`. |
 | Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = false` | pass | Latest release emission-only full manifest build completes after match closure body Rust emission was added. |
-| Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = true` | fail | Generated crate reaches `cargo build` and fails first on invalid empty external-call argument tuple text: `let _smelt_external_args = (,);`. |
+| Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = true` | fail | Generated crate reaches `cargo build`; latest probe path is `/tmp/smelt_date_fns_build_true_J42g8B/Smelt.toml`. First visible generated Rust errors are now type-shape mismatches around optional callable contexts and Date setter return casts. |
 | Full manifest with shared type files forced first `smelt check` | fail | Superseded by the sorted full-manifest rerun above; the locale type-surface blockers are now cleared. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
@@ -627,12 +627,15 @@ Latest rerun status: the full sorted manifest now passes `smelt check`. It gets 
 `src/locale/_lib/buildMatchFn/index.ts`.
 
 Current full-build blocker: source emission completes for the full sorted manifest. With
-`[output] build = true`, generated crate compilation fails first on erased external calls with no
-arguments emitting invalid Rust tuple syntax: `let _smelt_external_args = (,);`. The previous match
-closure body, Date timestamp, Date setter, erased object deletion, and string affix emission
-blockers are cleared. Release `target/release/smelt ... check` for the full date-fns manifest takes
-about `1.8s`; release emission-only `build` completes in about `3.0s`; build-enabled generated
-crate compilation fails after about `31s` in `rust.cargo_build`.
+`[output] build = true`, generated crate compilation now gets past the invalid empty external-call
+tuple, Date setter side-effect ordering, duplicate inherited class fields, generic class
+`PhantomData`, storage-position `impl Trait`, temp shadowing, callback bind capture, dummy `main`,
+callable-field derives, constant-false branch emission, and bool-result truthiness lowering
+blockers. The current first visible generated Rust errors are type-shape mismatches around optional
+callable contexts and Date setter return casts. Release
+`target/release/smelt ... check` for the full date-fns manifest takes about `1.8s`; release
+emission-only `build` completes in about `3.0s`; build-enabled generated crate compilation fails
+after about `50s` in `rust.cargo_build`.
 
 `src/types.ts`, `src/locale/types.ts`, `src/fp/types.ts`, `src/addBusinessDays/index.ts`,
 `src/_lib/addBusinessDays/basic.ts`, and `src/locale/en-US/_lib/formatDistance/index.ts` pass
@@ -685,6 +688,23 @@ Shared type-file status:
 - [x] Full date-fns gets past DateArg-compatible Date ISO/getter/setter Rust emission, erased
   object deletion, and string affix coercion for erased operands.
 - [x] Full date-fns gets past match closure body Rust emission.
+- [x] Full date-fns gets past no-arg erased external constructor syntax in generated Rust.
+- [x] Full date-fns keeps Date setter side effects inside their source HIR block instead of moving
+  branch-local setter assignments to the body root.
+- [x] Full date-fns generated class storage dedupes inherited fields redeclared by subclasses.
+- [x] Full date-fns generated generic class storage uses `PhantomData` for type-only class
+  parameters.
+- [x] Full date-fns no longer emits root `impl Trait` in class field storage positions.
+- [x] Full date-fns MIR temp assignments shadow with fresh Rust `let` bindings instead of leaking
+  declaration state across sibling branch/loop scopes.
+- [x] Full date-fns `.bind(...)` capture lets inside `forEach` callback blocks instead of moving
+  callback-local captures to the function root.
+- [x] Full date-fns generated crate always emits a dummy `fn main()` when no source `main` exists,
+  even when native `#[test]` functions are present.
+- [x] Full date-fns class structs with callable fields no longer derive invalid `Clone` / `Debug`.
+- [x] Full date-fns generated Rust no longer type-checks constant-false branch bodies.
+- [x] Full date-fns boolean-result `&&` / `||` lowering uses source truthiness for unknown,
+  optional, and function operands.
 - [ ] Full date-fns generated crate still needs to compile before generated full-crate `cargo test`
   can be attempted.
 
@@ -693,16 +713,17 @@ Full manifest build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full manifest, `[output] build = true` | Empty erased external-call argument tuple syntax | Latest build-enabled full build reaches generated crate compilation and first fails on `let _smelt_external_args = (,);`. |
+| Full manifest, `[output] build = true` | Generated Rust crate compile errors | Latest build-enabled full build reaches generated crate compilation and first fails on optional callable context and Date setter return-cast type mismatches. |
 
 Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Empty external-call args | Full manifest generated crate compile | Erased external calls with no arguments emit `let _smelt_external_args = (,);`; generate `()` or an empty collection shape instead. |
-| 2 | Full generated crate type errors | After blocker 1 | Build-enabled full manifest reports thousands of follow-on Rust type errors after parsing, including duplicate struct fields, Date setter numeric return mismatches, unknown field access on `SmeltUnknown`, and arithmetic between `SmeltUnknown` and numbers. Triage once syntax errors are gone. |
-| 3 | Runtime invalid-date parity | Known from `isExists` sibling slice | One generated invalid-date test previously panicked at runtime. Recheck after full Date emission succeeds, because this may share the same Date representation surface. |
-| 4 | Broader test-slice coverage | Sibling test slices | Current pessimistic direct coverage remains `23 / 250` sibling slices with `src/types.ts` included. Full manifest build should replace this as the primary date-fns signal once source emission succeeds. |
+| 1 | Optional callable context shape | Full manifest generated crate compile, e.g. `src/main.rs:394`, `395`, `406`, `407`, `421`, `422` in `/tmp/smelt_date_fns_build_true_J42g8B/dist/src/main.rs` | `options?.in` and `constructFrom.bind(...)` still produce incompatible nested `Option<Option<Box<dyn FnMut...>>>`, `Option<SmeltUnknown>`, and `Box<dyn FnMut...>` shapes. This needs a coherent representation for optional callable values flowing through erased option objects. |
+| 2 | Date setter return casts | Full manifest generated crate compile, repeated early errors such as `src/main.rs:516`, `542`, `558`, `561`, `566` in `/tmp/smelt_date_fns_build_true_J42g8B/dist/src/main.rs` | Date setter helper expressions return `i64` timestamps but are assigned to `f64` temps. Cast or destination typing must be consistent for generated Date mutation helpers. |
+| 3 | Full generated crate type errors | After blockers 1-2 | Build-enabled full manifest still reports thousands of follow-on Rust type errors, including unknown field access on `SmeltUnknown`, boolean/arithmetic operations on erased values, callback trait-object mismatches, and parser class method surface mismatches. |
+| 4 | Runtime invalid-date parity | Known from `isExists` sibling slice | One generated invalid-date test previously panicked at runtime. Recheck after full Date emission succeeds, because this may share the same Date representation surface. |
+| 5 | Broader test-slice coverage | Sibling test slices | Current pessimistic direct coverage remains `23 / 250` sibling slices with `src/types.ts` included. Full manifest build should replace this as the primary date-fns signal once source emission succeeds. |
 
 Optional chaining surface in date-fns:
 

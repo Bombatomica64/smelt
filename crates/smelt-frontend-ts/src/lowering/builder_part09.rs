@@ -1310,7 +1310,11 @@ impl ModuleBuilder<'_> {
                 ty,
                 span: self.span(identifier.span.start, identifier.span.end),
             });
-            body.push_stmt(Stmt::Assign { target, value });
+            if let Some(block) = self.current_statement_block {
+                body.push_stmt_to_block(block, Stmt::Assign { target, value });
+            } else {
+                body.push_stmt(Stmt::Assign { target, value });
+            }
         }
         Ok(Some(value))
     }

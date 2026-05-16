@@ -31,6 +31,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_class: None,
             current_async: false,
             current_return_ty: None,
+            current_statement_block: None,
             allow_unknown_index_access,
             test_builtins: HashSet::new(),
             namespace_imports: HashSet::new(),

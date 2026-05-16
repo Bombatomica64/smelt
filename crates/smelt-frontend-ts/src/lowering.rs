@@ -293,6 +293,8 @@ struct ModuleBuilder<'ctx> {
     current_async: bool,
     /// Declared return type for the current lowered function body.
     current_return_ty: Option<smelt_hir::TypeId>,
+    /// HIR block that owns side-effect statements emitted while lowering an expression.
+    current_statement_block: Option<smelt_hir::BlockId>,
     /// Whether type-test-only lowering may index erased unknown metadata.
     allow_unknown_index_access: bool,
     /// Test-framework API names imported from Vitest-compatible modules.

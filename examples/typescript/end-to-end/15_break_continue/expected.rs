@@ -2,16 +2,19 @@
 #![allow(dead_code, unused_variables)]
 
 fn main() {
+    let mut _smelt_tmp_3: f64 = 0.0;
+    let mut _smelt_tmp_4: bool = false;
+    let mut _smelt_tmp_5: f64 = 0.0;
     let mut i: f64 = 0.0;
     let mut sum: f64 = 0.0;
     while i.clone() < 6.0 {
-    let _smelt_tmp_3: f64 = i.clone() + 1.0;
+    _smelt_tmp_3 = i.clone() + 1.0;
     i = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: bool = i.clone() == 2.0;
+    _smelt_tmp_4 = i.clone() == 2.0;
     if _smelt_tmp_4.clone() {
     continue;
     } else {
-    let _smelt_tmp_5: f64 = sum.clone() + i.clone();
+    _smelt_tmp_5 = sum.clone() + i.clone();
     sum = _smelt_tmp_5.clone();
     continue;
     }

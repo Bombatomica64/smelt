@@ -9,19 +9,30 @@ struct User {
 
 
 fn main() {
+    let mut present: Option<User> = None;
+    let mut missing: Option<User> = None;
+    let mut name: Option<String> = None;
+    let mut absent_name: Option<String> = None;
+    let mut score: Option<f64> = None;
+    let mut label: Option<String> = None;
+    let mut _smelt_tmp_8: Option<String> = None;
+    let mut _smelt_tmp_9: Option<String> = None;
+    let mut _smelt_tmp_10: Option<Vec<f64>> = None;
+    let mut _smelt_tmp_11: Option<f64> = None;
+    let mut _smelt_tmp_12: Option<String> = None;
     let _smelt_tmp_6: Vec<f64> = vec![3.0];
     let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6.clone());
-    let present: Option<User> = Some(_smelt_tmp_7.clone());
-    let missing: Option<User> = None;
-    let _smelt_tmp_8: Option<String> = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
-    let name: Option<String> = _smelt_tmp_8.clone();
-    let _smelt_tmp_9: Option<String> = missing.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
-    let absent_name: Option<String> = _smelt_tmp_9.clone();
-    let _smelt_tmp_10: Option<Vec<f64>> = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
-    let _smelt_tmp_11: Option<f64> = _smelt_tmp_10.clone().as_ref().map(|_smelt_value| _smelt_value.get({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds"));
-    let score: Option<f64> = _smelt_tmp_11.clone();
-    let _smelt_tmp_12: Option<String> = present.clone().as_ref().map(|_smelt_value| _smelt_value.label());
-    let label: Option<String> = _smelt_tmp_12.clone();
+    present = Some(_smelt_tmp_7.clone());
+    missing = None;
+    _smelt_tmp_8 = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
+    name = _smelt_tmp_8.clone();
+    _smelt_tmp_9 = missing.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
+    absent_name = _smelt_tmp_9.clone();
+    _smelt_tmp_10 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
+    _smelt_tmp_11 = _smelt_tmp_10.clone().as_ref().map(|_smelt_value| _smelt_value.get({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds"));
+    score = _smelt_tmp_11.clone();
+    _smelt_tmp_12 = present.clone().as_ref().map(|_smelt_value| _smelt_value.label());
+    label = _smelt_tmp_12.clone();
     let _smelt_tmp_13: () = { println!("{:?}", name.clone()); };
     let _smelt_tmp_14: () = { println!("{:?}", absent_name.clone()); };
     let _smelt_tmp_15: () = { println!("{:?}", score.clone()); };

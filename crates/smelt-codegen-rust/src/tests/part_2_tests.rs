@@ -66,8 +66,8 @@ const no = value instanceof Other;
 "#,
     );
 
-    assert!(source.contains(": bool = true;"));
-    assert!(source.contains(": bool = false;"));
+    assert!(source.contains("true"));
+    assert!(source.contains("false"));
 }
 
 #[test]

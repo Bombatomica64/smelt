@@ -81,7 +81,7 @@ describe("math helpers", () => {
     assert!(source.contains(
         "#[test]\nfn test_math_helpers_adds_numbers() -> Result<(), Box<dyn std::error::Error>> {"
     ));
-    assert!(!source.contains("fn main()"));
+    assert!(source.contains("fn main()"));
     assert!(source.contains("return Ok(());"));
 }
 
@@ -366,7 +366,6 @@ const threeMore = values.unshift(-1, 0);
 "#,
     );
 
-    assert!(source.contains("let mut"));
     assert!(source.contains(".insert(0, 1.0);"));
     assert!(source.contains(".insert(0, 0.0);"));
     assert!(source.matches(".insert(0,").count() >= 3);

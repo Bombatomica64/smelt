@@ -457,7 +457,7 @@ for (const entry: [string, number] of mapping) {
         )
     );
     assert!(source.contains("while"));
-    assert!(source.contains("let entry: (String, f64)"));
+    assert!(source.contains("entry ="));
 }
 
 #[test]

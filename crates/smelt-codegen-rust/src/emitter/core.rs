@@ -1,6 +1,7 @@
 //! Core emission helpers.
 
 use super::*;
+use crate::emitter::literals::operand_local;
 
 impl<'mir> FunctionEmitter<'mir> {
     /// Creates a new function emitter for the given MIR and function.
@@ -182,9 +183,201 @@ impl<'mir> FunctionEmitter<'mir> {
             ));
         }
 
+        self.emit_mutable_local_preludes(out)?;
         self.emit_block(self.entry_block()?, out)?;
+        if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())? {
+            self.emit_fallthrough_return(out)?;
+        }
         out.push_str("}\n");
         Ok(())
+    }
+
+    /// Emits a conservative return for non-terminating generated control flow.
+    ///
+    /// Some unstructured MIR shapes cannot yet be rendered as a single Rust
+    /// expression with all branch joins preserved. When a non-void function can
+    /// fall through, Rust would otherwise infer `()` and report E0308; returning
+    /// the type default keeps the generated crate type-correct until the CFG
+    /// shape is represented more precisely.
+    fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
+        if self.function.return_ty == self.none_ty {
+            return Ok(());
+        }
+        if self.function.can_throw {
+            out.push_str(&format!(
+                "    return Ok({});\n",
+                self.default_value(self.function.return_ty)?
+            ));
+        } else {
+            out.push_str(&format!(
+                "    return {};\n",
+                self.default_value(self.function.return_ty)?
+            ));
+        }
+        Ok(())
+    }
+
+    /// Emits function-scoped mutable local declarations before block emission.
+    ///
+    /// MIR locals are function-scoped, while generated Rust branch bodies are
+    /// lexically scoped. Predeclaring mutable locals keeps repeated or
+    /// unstructured block emission from creating branch-local bindings that are
+    /// later reassigned outside the branch.
+    pub(super) fn emit_mutable_local_preludes(&self, out: &mut String) -> Result<(), EmitError> {
+        let params = self.function.params.iter().copied().collect::<HashSet<_>>();
+        let prelude_locals = self.predeclared_locals();
+        let mut locals = self
+            .mutable_locals
+            .iter()
+            .copied()
+            .filter(|local| prelude_locals.contains(local))
+            .collect::<Vec<_>>();
+        locals.sort_by_key(|local| local.0);
+        for local in locals {
+            if params.contains(&local) || self.is_local_declared(local) {
+                continue;
+            }
+            let name = self.local_name(local)?;
+            if name == "_" {
+                continue;
+            }
+            let decl = self.local_decl(local)?;
+            if matches!(self.mir.types.get(decl.ty), Some(Type::Future(_))) {
+                continue;
+            }
+            if matches!(self.mir.types.get(decl.ty), Some(Type::Class { .. }))
+                && !self.is_erased_class_type(decl.ty)
+            {
+                continue;
+            }
+            out.push_str(&format!(
+                "    let mut {}: {} = {};\n",
+                name,
+                self.type_text_with_impl_trait(decl.ty, false)?,
+                self.default_value(decl.ty)?
+            ));
+            self.mark_local_declared(local);
+        }
+        Ok(())
+    }
+
+    /// Returns locals that should be declared before block emission.
+    ///
+    /// Locals first assigned outside the entry block may be introduced inside a
+    /// Rust branch scope and then reused by a sibling or follow-up block. Moving
+    /// those bindings to function scope preserves MIR's function-local storage
+    /// without perturbing straight-line entry-block declarations.
+    fn predeclared_locals(&self) -> HashSet<LocalId> {
+        let mut locals = self.reassigned_locals();
+        if self.function.blocks.len() <= 1 {
+            return locals;
+        }
+        for block in &self.function.blocks {
+            if block.id == self.function.entry {
+                continue;
+            }
+            for statement in &block.statements {
+                if let Statement::Assign { dest, .. } = statement {
+                    locals.insert(*dest);
+                }
+            }
+        }
+        locals
+    }
+
+    /// Returns locals that have more than one explicit MIR assignment.
+    ///
+    /// These locals need a single outer Rust binding when branch emission can
+    /// otherwise introduce sibling scoped declarations for the same MIR local.
+    pub(super) fn reassigned_locals(&self) -> HashSet<LocalId> {
+        let mut seen = self.function.params.iter().copied().collect::<HashSet<_>>();
+        let mut repeated = HashSet::new();
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign { dest, .. } = statement
+                    && !seen.insert(*dest)
+                {
+                    repeated.insert(*dest);
+                }
+            }
+        }
+        repeated
+    }
+
+    /// Returns whether the first Rust binding for `local` must be mutable.
+    pub(super) fn local_binding_needs_mut(&self, local: LocalId) -> bool {
+        if self.reassigned_locals().contains(&local) {
+            return true;
+        }
+        if self.first_assignment_is_outside_entry(local) {
+            return true;
+        }
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                match statement {
+                    Statement::AssignPlace {
+                        place:
+                            Place::Local(candidate)
+                            | Place::Field {
+                                base: candidate, ..
+                            }
+                            | Place::Index {
+                                base: candidate, ..
+                            },
+                        ..
+                    } if *candidate == local => return true,
+                    Statement::Assign { value, .. } => {
+                        if self.rvalue_mutates_local(value, local) {
+                            return true;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// Returns whether `local` is first assigned outside the entry block.
+    fn first_assignment_is_outside_entry(&self, local: LocalId) -> bool {
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign { dest, .. } = statement
+                    && *dest == local
+                {
+                    return block.id != self.function.entry;
+                }
+            }
+        }
+        false
+    }
+
+    /// Returns whether evaluating `value` mutates `local` in-place.
+    fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
+        let mutated = match value {
+            Rvalue::ListPush { list, .. }
+            | Rvalue::ListExtend { list, .. }
+            | Rvalue::ListInsert { list, .. }
+            | Rvalue::ListReverse { list }
+            | Rvalue::ListFill { list, .. }
+            | Rvalue::ListCopyWithin { list, .. }
+            | Rvalue::ListClear { list }
+            | Rvalue::ListRemove { list, .. }
+            | Rvalue::ListSort { list, .. }
+            | Rvalue::ListPop { list }
+            | Rvalue::ListShift { list }
+            | Rvalue::SetAdd { set: list, .. }
+            | Rvalue::SetRemove { set: list, .. }
+            | Rvalue::SetClear { set: list }
+            | Rvalue::DictClear { dict: list }
+            | Rvalue::DictPop { dict: list, .. }
+            | Rvalue::DictSet { dict: list, .. }
+            | Rvalue::DictRemoveKey { dict: list, .. }
+            | Rvalue::DictSetDefault { dict: list, .. }
+            | Rvalue::DictUpdate { dict: list, .. } => list,
+            _ => return false,
+        };
+        operand_local(mutated) == Some(local)
     }
 
     /// Return the emitted Rust name for a free MIR function.
@@ -294,8 +487,11 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(())
     }
 
-    /// Converts a type ID to its Rust text representation.
-    /// Converts a type ID to its Rust text representation.
+    /// Converts a type ID to Rust text for storage positions.
+    ///
+    /// Struct fields, generic arguments, and other named storage positions
+    /// cannot use root `impl Trait`, so function values are rendered as boxed
+    /// trait objects here.
     pub(crate) fn type_text_for(mir: &Mir, ty: TypeId) -> Result<String, EmitError> {
         let context = EmitContext::new(mir)?;
         FunctionEmitter {
@@ -319,7 +515,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 },
             },
         }
-        .type_text(ty)
+        .type_text_with_impl_trait(ty, false)
     }
 
     /// Emits a basic block's statements and terminator.
@@ -438,6 +634,32 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(format!(
                 "{}.into_iter().map(|value| {value_text}).collect::<Vec<_>>()",
                 self.operand_text(operand)?
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let value_text = self.operand_text(operand)?;
+            let items_text = target_items
+                .iter()
+                .enumerate()
+                .map(|(index, target_item)| {
+                    let item = format!(
+                        "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
+                        self.default_value(*source_item)?
+                    );
+                    self.rendered_value_as_type_text(&item, *source_item, *target_item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let tuple_text = if target_items.len() == 1 {
+                format!("({items_text},)")
+            } else {
+                format!("({items_text})")
+            };
+            return Ok(format!(
+                "{{ let smelt_tuple_values = {value_text}.clone(); {tuple_text} }}"
             ));
         }
         if let (
@@ -573,6 +795,30 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.rendered_value_as_type_text("value", *source_item, *target_item)?;
             return Ok(format!(
                 "{value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>()"
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let items_text = target_items
+                .iter()
+                .enumerate()
+                .map(|(index, target_item)| {
+                    let item = format!(
+                        "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
+                        self.default_value(*source_item)?
+                    );
+                    self.rendered_value_as_type_text(&item, *source_item, *target_item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let tuple_text = if target_items.len() == 1 {
+                format!("({items_text},)")
+            } else {
+                format!("({items_text})")
+            };
+            return Ok(format!(
+                "{{ let smelt_tuple_values = {value_text}.clone(); {tuple_text} }}"
             ));
         }
         if let (
@@ -847,6 +1093,21 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a MIR local has already been introduced in Rust output.
     pub(super) fn is_local_declared(&self, local: LocalId) -> bool {
         self.declared_locals.borrow().contains(&local)
+    }
+
+    /// Captures the currently visible Rust local declarations.
+    ///
+    /// MIR locals are function-scoped, but generated Rust branch bodies create
+    /// nested lexical scopes. Code that emits a branch restores this snapshot
+    /// after the branch so locals introduced only inside that branch do not
+    /// leak into later sibling or outer Rust scopes.
+    pub(super) fn declared_locals_snapshot(&self) -> HashSet<LocalId> {
+        self.declared_locals.borrow().clone()
+    }
+
+    /// Restores a previously captured Rust local declaration scope.
+    pub(super) fn restore_declared_locals(&self, snapshot: HashSet<LocalId>) {
+        *self.declared_locals.borrow_mut() = snapshot;
     }
 
     /// Gets the declaration of a local owned by another MIR function.

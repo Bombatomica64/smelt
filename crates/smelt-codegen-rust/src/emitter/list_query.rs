@@ -357,7 +357,11 @@ impl FunctionEmitter<'_> {
             }
             _ => 0,
         };
-        self.closure_text_with_extra_params(id, extra_params)
+        let closure = self.closure_text_with_extra_params(id, extra_params)?;
+        if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
+            return Ok(format!("Box::new({closure})"));
+        }
+        Ok(closure)
     }
 
     /// Emits ignored trailing parameters when a JS callback accepts fewer
@@ -464,6 +468,7 @@ impl FunctionEmitter<'_> {
             params.extend((0..extra_params).map(|index| format!("_arg{index}")));
             let params = params.join(", ");
             let mut body_text = String::new();
+            emitter.emit_mutable_local_preludes(&mut body_text)?;
             emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
             format!("|{params}| {{\n{body_text}    }}")
         };
@@ -548,6 +553,7 @@ impl FunctionEmitter<'_> {
                     "    let {name}: {} = {call_text};\n",
                     self.type_text(local.ty)?
                 ));
+                self.mark_local_declared(*dest);
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop)
             }
             Terminator::Switch {
@@ -555,11 +561,14 @@ impl FunctionEmitter<'_> {
                 then_block,
                 else_block,
             } => {
+                let branch_declared = self.declared_locals_snapshot();
                 out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
                 self.emit_closure_block_inner(self.block(*then_block)?, out, active, stop)?;
                 out.push_str("    } else {\n");
+                self.restore_declared_locals(branch_declared.clone());
                 self.emit_closure_block_inner(self.block(*else_block)?, out, active, stop)?;
                 out.push_str("    }\n");
+                self.restore_declared_locals(branch_declared);
                 Ok(())
             }
             Terminator::Match {
@@ -601,6 +610,7 @@ impl FunctionEmitter<'_> {
         let join = self.match_join(arms, default)?;
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        let match_declared = self.declared_locals_snapshot();
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
@@ -608,11 +618,13 @@ impl FunctionEmitter<'_> {
             ));
             self.emit_closure_block_inner(self.block(arm.target)?, out, active, join)?;
             out.push_str("        }\n");
+            self.restore_declared_locals(match_declared.clone());
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
             self.emit_closure_block_inner(self.block(default_block)?, out, active, join)?;
             out.push_str("        }\n");
+            self.restore_declared_locals(match_declared);
         } else {
             out.push_str("        _ => unreachable!(),\n");
         }
@@ -909,6 +921,28 @@ impl FunctionEmitter<'_> {
                 ))
             }
             smelt_hir::CallbackExprKind::Binary { op, lhs, rhs } => {
+                if matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+                    if matches!(self.mir.types.get(lhs.ty), Some(Type::Optional(_)))
+                        && self.mir.types.get(rhs.ty) == Some(&Type::None)
+                    {
+                        let lhs_text = self.callback_expr_text(lhs, params)?;
+                        return Ok(match op {
+                            smelt_hir::BinOp::Eq => format!("{lhs_text}.is_none()"),
+                            smelt_hir::BinOp::NotEq => format!("{lhs_text}.is_some()"),
+                            _ => unreachable!(),
+                        });
+                    }
+                    if self.mir.types.get(lhs.ty) == Some(&Type::None)
+                        && matches!(self.mir.types.get(rhs.ty), Some(Type::Optional(_)))
+                    {
+                        let rhs_text = self.callback_expr_text(rhs, params)?;
+                        return Ok(match op {
+                            smelt_hir::BinOp::Eq => format!("{rhs_text}.is_none()"),
+                            smelt_hir::BinOp::NotEq => format!("{rhs_text}.is_some()"),
+                            _ => unreachable!(),
+                        });
+                    }
+                }
                 let lhs_text = self.callback_expr_text(lhs, params)?;
                 let rhs_text = self.callback_expr_text(rhs, params)?;
                 if *op == smelt_hir::BinOp::UShr {
@@ -976,18 +1010,25 @@ impl FunctionEmitter<'_> {
                     return self.callback_function_table_call_text(key, cases, args, params);
                 }
                 let callee_text = self.callback_expr_text(callee, params)?;
+                let callee_params = match self.mir.types.get(callee.ty) {
+                    Some(Type::Function(function)) => function.params.as_slice(),
+                    _ => &[],
+                };
                 let args_text = args
                     .iter()
-                    .map(|arg| {
-                        let text = self.callback_expr_text(&arg.expr, params)?;
+                    .enumerate()
+                    .map(|(index, arg)| {
                         if arg.spread {
+                            let text = self.callback_expr_text(&arg.expr, params)?;
                             if self.type_contains_function(arg.expr.ty) {
                                 Ok(format!("{text}.drain(..).collect::<Vec<_>>()"))
                             } else {
                                 Ok(format!("{text}.clone()"))
                             }
+                        } else if let Some(target) = callee_params.get(index) {
+                            self.callback_expr_as_type_text(&arg.expr, *target, params)
                         } else {
-                            Ok(text)
+                            self.callback_expr_text(&arg.expr, params)
                         }
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?

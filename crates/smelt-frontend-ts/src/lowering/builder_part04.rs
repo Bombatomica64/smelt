@@ -226,7 +226,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        match statement {
+        let previous_statement_block = self.current_statement_block.replace(block);
+        let result = match statement {
             Statement::VariableDeclaration(decl) => self.variable_declaration(decl, body, block),
             Statement::FunctionDeclaration(function) => {
                 self.local_function_declaration(function, body, block)
@@ -622,7 +623,9 @@ impl ModuleBuilder<'_> {
                 self.statement_span(statement),
                 format!("statement kind is not lowered yet: {statement:?}"),
             )),
-        }
+        };
+        self.current_statement_block = previous_statement_block;
+        result
     }
 
     /// Lower side-effecting `array.forEach((item) => { ... })` as a normal loop.
@@ -808,7 +811,8 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
-        match statement {
+        let previous_statement_block = self.current_statement_block.replace(block);
+        let result = match statement {
             Statement::ExpressionStatement(expr_stmt) => {
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
                     let (target, value) = self.assignment_parts(assign, body)?;
@@ -868,7 +872,9 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             _ => self.statement_in_block(statement, body, block),
-        }
+        };
+        self.current_statement_block = previous_statement_block;
+        result
     }
 
     /// Lower writes to known module-level variables without requiring a local target.

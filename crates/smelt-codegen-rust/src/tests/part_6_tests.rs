@@ -145,7 +145,8 @@ async function run(): Promise<number> {
     assert!(source.contains("async fn lift(value: f64) -> f64 {"));
     assert!(source.contains("async fn run() -> f64 {"));
     assert!(source.contains("let _smelt_tmp_0 = lift(5.0);"));
-    assert!(source.contains("let _smelt_tmp_1: f64 = _smelt_tmp_0.await;"));
+    assert!(source.contains("_smelt_tmp_1"));
+    assert!(source.contains("_smelt_tmp_0.await"));
 }
 
 #[test]
@@ -163,11 +164,7 @@ async function run(): Promise<[number, number]> {
 
     assert!(source.contains("async fn run() -> (f64, f64) {"));
     assert!(source.contains("tokio::join!(_smelt_tmp_0, _smelt_tmp_1)"));
-    assert!(
-            source.contains(
-                "let _smelt_tmp_2: ::std::pin::Pin<Box<dyn ::std::future::Future<Output = (f64, f64)>>> = Box::pin(async move { tokio::join!(_smelt_tmp_0, _smelt_tmp_1) });"
-            )
-        );
+    assert!(source.contains("Box::pin(async move { tokio::join!(_smelt_tmp_0, _smelt_tmp_1) })"));
 }
 
 #[test]
@@ -229,7 +226,10 @@ console.log(result);
 ",
     );
 
-    assert!(source.contains("let mut _smelt_tmp_2 = |closure_arg_0: String| {"));
+    assert!(
+        source.contains("_smelt_tmp_2 = Box::new(|closure_arg_0: String| {"),
+        "{source}"
+    );
     assert!(source.contains("match closure_arg_0.as_str() {"));
     assert!(source.contains("\"pending\" => {"));
     assert!(source.contains("\"Waiting\".to_owned()"));

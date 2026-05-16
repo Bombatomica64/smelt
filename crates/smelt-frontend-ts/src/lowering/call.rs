@@ -711,14 +711,14 @@ impl ModuleBuilder<'_> {
         let span = self.span(call.span.start, call.span.end);
         let callee_symbol = self.intern_source_name("__smelt_bind_callee");
         let callee_local =
-            Self::capture_bind_value(receiver, function_ty, callee_symbol, span, outer_body);
+            self.capture_bind_value(receiver, function_ty, callee_symbol, span, outer_body);
         let mut bound_captures = Vec::new();
         for (index, argument) in bound_source_args.iter().enumerate() {
             let param_ty = function.params.get(index).copied();
             let value = self.argument_with_hint(argument, outer_body, param_ty)?;
             let value_ty = Self::expr_ty(outer_body, value);
             let symbol = self.intern_source_name(&format!("__smelt_bind_arg_{index}"));
-            let local = Self::capture_bind_value(value, value_ty, symbol, span, outer_body);
+            let local = self.capture_bind_value(value, value_ty, symbol, span, outer_body);
             bound_captures.push((local, symbol, value_ty));
         }
 
@@ -814,6 +814,7 @@ impl ModuleBuilder<'_> {
 
     /// Store a bind component in an outer local so a generated closure can capture it.
     fn capture_bind_value(
+        &self,
         value: smelt_hir::ExprId,
         ty: smelt_hir::TypeId,
         symbol: smelt_hir::Symbol,
@@ -827,11 +828,16 @@ impl ModuleBuilder<'_> {
             span,
         });
         let pat = body.push_pattern(Pattern::Binding(local));
-        body.push_stmt(Stmt::Let {
+        let stmt = Stmt::Let {
             pat,
             ty,
             value: Some(value),
-        });
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, stmt);
+        } else {
+            body.push_stmt(stmt);
+        }
         local
     }
 

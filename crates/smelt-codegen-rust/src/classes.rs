@@ -95,14 +95,25 @@ pub(crate) fn class_trait_object_type_text(
 /// Smelt stores subclass values with inherited fields first and own fields
 /// after them. This helper follows the single-inheritance chain and leaves type
 /// substitution to earlier lowering phases until MIR grows canonical layout
-/// substitution metadata.
+/// substitution metadata. When a subclass redeclares a field from its base
+/// class, the subclass field replaces the inherited slot so Rust struct storage
+/// stays valid and matches the effective source member surface.
 pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirField> {
     let mut fields = class
         .base
         .and_then(|base| mir.classes.iter().find(|candidate| candidate.name == base))
         .map(|base| effective_class_fields(mir, base))
         .unwrap_or_default();
-    fields.extend(class.fields.clone());
+    for field in &class.fields {
+        if let Some(existing) = fields
+            .iter_mut()
+            .find(|candidate| candidate.name == field.name)
+        {
+            *existing = field.clone();
+        } else {
+            fields.push(field.clone());
+        }
+    }
     fields
 }
 

@@ -41,6 +41,12 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Unknown) => Ok(format!(
                 "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => true }}"
             )),
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(_)) => {
+                Ok(format!("{operand_text}.is_some()"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Function(_)) => {
+                Ok("true".to_owned())
+            }
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Bool) => {
                 Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
             }
@@ -83,6 +89,12 @@ impl FunctionEmitter<'_> {
             (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.unknown_wrap_text(operand),
             _ => Ok("Default::default()".to_owned()),
         }
+    }
+
+    /// Convert an operand to a Rust boolean using source-language truthiness.
+    pub(super) fn truthy_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let bool_ty = self.type_id(Type::Bool)?;
+        self.primitive_cast_text(smelt_hir::PrimitiveCastOp::ToBool, operand, bool_ty)
     }
 
     /// Converts a string trim operation to Rust text.

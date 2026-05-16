@@ -73,6 +73,7 @@
 
 use std::{fs, path::Path};
 
+use smelt_hir::{Type, TypeId};
 use smelt_mir::{HirOrigin, Mir};
 
 pub(crate) mod classes;
@@ -324,9 +325,17 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         }
         let type_params = class_type_params_text(mir, class)?;
         let _inherited_trait_methods = inherited_trait_methods(mir, class);
-        writer.line("#[derive(Clone, Debug)]");
         let mut field_lines = Vec::new();
-        for field in effective_class_fields(mir, class) {
+        let fields = effective_class_fields(mir, class);
+        let has_function_field = fields
+            .iter()
+            .any(|field| type_contains_function(mir, field.ty));
+        if has_function_field {
+            writer.line("#[allow(dead_code)]");
+        } else {
+            writer.line("#[derive(Clone, Debug)]");
+        }
+        for field in fields {
             field_lines.push(format!(
                 "{}: {},",
                 RustIdent::new(
@@ -335,6 +344,22 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                         .ok_or_else(|| EmitError::new("field has unknown symbol"))?
                 ),
                 FunctionEmitter::type_text_for(mir, field.ty)?
+            ));
+        }
+        if !class.type_params.is_empty() {
+            let phantom_args = class
+                .type_params
+                .iter()
+                .map(|param| {
+                    mir.symbols
+                        .get(param.name)
+                        .map(|name| RustIdent::new(name).into_string())
+                        .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            field_lines.push(format!(
+                "_smelt_phantom: ::std::marker::PhantomData<({phantom_args})>,"
             ));
         }
         writer.block(format!("struct {name}{type_params}"), |block_writer| {
@@ -393,11 +418,43 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         out.push_str("}\n");
     }
 
-    if !mir.functions.iter().any(|function| function.is_test) && !has_main_function(mir)? {
+    if !has_main_function(mir)? {
         out.push_str("\nfn main() {}\n");
     }
 
     Ok(out)
+}
+
+/// Return whether a type contains a callable value in a stored position.
+///
+/// Rust cannot derive `Clone` or `Debug` for `dyn FnMut` trait objects. Class
+/// structs that store function fields therefore opt out of those derives until
+/// callable storage grows an explicit cloneable wrapper.
+fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Function(_)) => true,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            type_contains_function(mir, *item)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_contains_function(mir, *key) || type_contains_function(mir, *value)
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => {
+            items.iter().any(|item| type_contains_function(mir, *item))
+        }
+        Some(
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::None
+            | Type::Unknown
+            | Type::Never
+            | Type::TypeParam { .. }
+            | Type::Class { .. },
+        )
+        | None => false,
+    }
 }
 
 /// Return whether the MIR already contains a Rust entrypoint.
@@ -408,11 +465,11 @@ fn has_main_function(mir: &Mir) -> Result<bool, EmitError> {
         .iter()
         .enumerate()
         .find_map(|(id, ty)| {
-            (*ty == smelt_hir::Type::None)
-                .then(|| compact_index(id, "type index does not fit u32").map(smelt_hir::TypeId))
+            (*ty == Type::None)
+                .then(|| compact_index(id, "type index does not fit u32").map(TypeId))
         })
         .transpose()?
-        .unwrap_or(smelt_hir::TypeId(u32::MAX));
+        .unwrap_or(TypeId(u32::MAX));
     Ok(mir.functions.iter().any(|function| {
         mir.symbols
             .get(function.name)

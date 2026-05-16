@@ -13,6 +13,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<(), EmitError> {
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        let match_declared = self.declared_locals_snapshot();
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
@@ -20,11 +21,13 @@ impl FunctionEmitter<'_> {
             ));
             self.emit_block_as_match_arm(self.block(arm.target)?, out)?;
             out.push_str("        }\n");
+            self.restore_declared_locals(match_declared.clone());
         }
         if let Some(default_block) = default {
             out.push_str("        _ => {\n");
             self.emit_block_as_match_arm(self.block(default_block)?, out)?;
             out.push_str("        }\n");
+            self.restore_declared_locals(match_declared);
         } else {
             out.push_str("        _ => unreachable!(),\n");
         }

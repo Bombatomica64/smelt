@@ -108,6 +108,30 @@ date.setFullYear(value);
 }
 
 #[test]
+fn keeps_date_setter_side_effects_inside_branch_blocks() {
+    let source = source_for(
+        r#"
+function apply(isTwoDigitYear: boolean, year: number, date: number): number {
+  if (isTwoDigitYear) {
+    const normalizedTwoDigitYear = year + 2000;
+    date.setFullYear(normalizedTwoDigitYear, 0, 1);
+    return date;
+  }
+  return date;
+}
+"#,
+    );
+
+    let normalized = source
+        .find("normalized_two_digit_year: f64 =")
+        .unwrap_or_else(|| panic!("{source}"));
+    let setter = source
+        .find("date.with_year(normalized_two_digit_year.clone()")
+        .unwrap_or_else(|| panic!("{source}"));
+    assert!(normalized < setter, "{source}");
+}
+
+#[test]
 fn emits_delete_on_erased_object_surfaces() {
     let source = source_for(
         r#"
@@ -563,7 +587,7 @@ fn emits_caught_throw_without_result_signature() {
 
     assert!(source.contains("fn main() {"));
     assert!(!source.contains("Box<dyn std::error::Error>"));
-    assert!(source.contains("let err: String = \"boom\".to_owned();"));
+    assert!(source.contains("err = \"boom\".to_owned();"));
 }
 
 #[test]
@@ -799,4 +823,25 @@ function matchUnknown(value: unknown): string[] | undefined {
         "{source}"
     );
     assert!(source.contains(".find(&match "), "{source}");
+}
+
+#[test]
+fn coerces_rendered_list_values_to_tuple_destinations() {
+    let source = source_for(
+        r#"
+function invoke(
+  values: unknown[],
+  callback: (pair: [unknown, unknown]) => unknown,
+): unknown {
+  return callback(values);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let smelt_tuple_values = values.clone()"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_tuple_values.get(0)"), "{source}");
+    assert!(source.contains("smelt_tuple_values.get(1)"), "{source}");
 }

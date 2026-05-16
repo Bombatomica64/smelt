@@ -62,8 +62,17 @@ pub(super) fn hir_literal_text(literal: &smelt_hir::Literal) -> String {
 /// Computes the set of locals that are assigned after their initial declaration.
 pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<LocalId> {
     let mut locals = HashSet::new();
+    let mut assigned_once = function.params.iter().copied().collect::<HashSet<_>>();
     for block in &function.blocks {
         for statement in &block.statements {
+            if let Statement::Assign { dest, .. } = statement
+                && !assigned_once.insert(*dest)
+            {
+                locals.insert(*dest);
+            }
+            if let Statement::Assign { dest, .. } = statement {
+                locals.insert(*dest);
+            }
             if let Statement::Assign {
                 value: Rvalue::Closure { id, .. },
                 ..

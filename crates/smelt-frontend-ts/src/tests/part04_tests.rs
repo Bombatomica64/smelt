@@ -1489,6 +1489,69 @@ function shift(values: number[]): number[] {
 }
 
 #[test]
+fn lowers_bind_captures_inside_for_each_callback_blocks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function constructFrom(context: unknown, value: unknown): unknown {
+  return value;
+}
+
+function max(dates: unknown[]): unknown {
+  let context: ((value: unknown) => unknown) | undefined;
+  dates.forEach((date) => {
+    if (!context && typeof date === "object") {
+      context = constructFrom.bind(null, date) as (value: unknown) => unknown;
+    }
+  });
+  return context;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    let mut saw_nested_bind_capture = false;
+    let mut saw_root_bind_arg_capture = false;
+    for body in &ctx.krate.bodies {
+        for block in &body.blocks {
+            for stmt_id in &block.stmts {
+                let stmt = &body.stmts[stmt_id.0 as usize];
+                let Stmt::Let { pat, .. } = stmt else {
+                    continue;
+                };
+                let smelt_hir::Pattern::Binding(local) = body.patterns[pat.0 as usize] else {
+                    continue;
+                };
+                let Some(name) = body.locals[local.0 as usize]
+                    .name
+                    .and_then(|symbol| ctx.krate.symbols.get(symbol))
+                else {
+                    continue;
+                };
+                if name == "__smelt_bind_arg_0" {
+                    if block.stmts == body.blocks[body.root.0 as usize].stmts {
+                        saw_root_bind_arg_capture = true;
+                    } else {
+                        saw_nested_bind_capture = true;
+                    }
+                }
+            }
+        }
+    }
+
+    ensure!(
+        saw_nested_bind_capture,
+        "expected bound callback argument capture to be emitted inside the callback block"
+    );
+    ensure!(
+        !saw_root_bind_arg_capture,
+        "expected callback-local bind argument capture not to leak to the function root"
+    );
+    Ok(())
+}
+
+#[test]
 fn selects_tuple_rest_overload_from_source_arguments() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

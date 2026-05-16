@@ -93,7 +93,13 @@ impl FunctionEmitter<'_> {
                             self.operand_text(key)?
                         };
                         let value_text = if let Some((_, value_ty)) = dict_types {
-                            self.operand_as_type_text(entry_value, value_ty)?
+                            if matches!(self.mir.types.get(value_ty), Some(Type::Function(_)))
+                                && self.operand_ty(entry_value)? == value_ty
+                            {
+                                self.operand_text(entry_value)?
+                            } else {
+                                self.operand_as_type_text(entry_value, value_ty)?
+                            }
                         } else {
                             self.operand_text(entry_value)?
                         };
@@ -140,6 +146,16 @@ impl FunctionEmitter<'_> {
                         self.operand_as_type_text(lhs, dest_ty)?,
                         smelt_hir::bin_op_text(*op),
                         self.operand_as_type_text(rhs, dest_ty)?
+                    ));
+                }
+                if matches!(*op, smelt_hir::BinOp::And | smelt_hir::BinOp::Or)
+                    && matches!(self.mir.types.get(dest_ty), Some(Type::Bool))
+                {
+                    return Ok(format!(
+                        "{} {} {}",
+                        self.truthy_operand_text(lhs)?,
+                        smelt_hir::bin_op_text(*op),
+                        self.truthy_operand_text(rhs)?
                     ));
                 }
                 if *op == smelt_hir::BinOp::UShr {
@@ -255,6 +271,9 @@ impl FunctionEmitter<'_> {
                     } else {
                         parts.push(format!("{name}: {}", self.default_value(field.ty)?));
                     }
+                }
+                if !mir_class.type_params.is_empty() {
+                    parts.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
                 }
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
             }
