@@ -1,0 +1,12 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user source_value: Float
+    %1 user copied_value: Float
+    %2 temp: None
+  bb0:
+    %0 = 7.0
+    %1 = copy %0
+    %2 = call @console_log(copy %0) -> bb1
+  bb1:
+    return none
+

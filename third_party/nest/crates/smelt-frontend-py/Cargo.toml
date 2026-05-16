@@ -1,0 +1,36 @@
+[package]
+name = "smelt-frontend-py"
+version.workspace = true
+edition.workspace = true
+autoexamples = false
+
+[lints]
+workspace = true
+
+[dependencies]
+smelt-asyncio = { path = "../smelt-asyncio" }
+smelt-hir = { path = "../smelt-hir" }
+smelt-stdlib = { path = "../smelt-stdlib" }
+
+# Python parsing via Astral's Ruff parser. Not published to crates.io, so we
+# pull it from the upstream git repo — the same approach `ty` (Astral's type
+# checker) takes. Type-checking is deferred to a later milestone; here we only
+# need the parser + AST + text-size primitives.
+#
+# TODO: pin to a specific `rev = "<sha>"` once we settle on a baseline. Using
+# `branch = "main"` lets Cargo's lockfile record the SHA at first build, but
+# rebuilds may pick up upstream churn until pinned.
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", branch = "main" }
+ruff_python_ast    = { git = "https://github.com/astral-sh/ruff", branch = "main" }
+ruff_text_size     = { git = "https://github.com/astral-sh/ruff", branch = "main" }
+
+[dev-dependencies]
+pico-args = "0.5"
+
+[[example]]
+name = "py_parser"
+path = "examples/parser.rs"
+
+[[example]]
+name = "py_print_hir"
+path = "examples/print_hir.rs"

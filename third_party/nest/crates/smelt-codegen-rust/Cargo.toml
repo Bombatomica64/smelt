@@ -1,0 +1,16 @@
+[package]
+name = "smelt-codegen-rust"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+smelt-mir = { path = "../smelt-mir" }
+smelt-hir = { path = "../smelt-hir" }
+smelt-stdlib = { path = "../smelt-stdlib" }
+
+[dev-dependencies]
+smelt-frontend-py = { path = "../smelt-frontend-py" }
+smelt-frontend-ts = { path = "../smelt-frontend-ts" }

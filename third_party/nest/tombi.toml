@@ -1,0 +1,3 @@
+[[schemas]]
+url = "https://raw.githubusercontent.com/Bombatomica64/smelt/main/smelt-schema.json"
+include = ["Smelt.toml"]

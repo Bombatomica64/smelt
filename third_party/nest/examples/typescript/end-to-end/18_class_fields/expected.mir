@@ -1,0 +1,26 @@
+class Point fields [Public x: Float, Private y: Float] constructor Some(FuncId(0)) methods []
+
+fn new (FuncId(0)) -> Point
+  locals
+    %0 user this: Point
+    %1 param x: Float
+    %2 param y: Float
+  bb0:
+    %0 = struct0 {}
+    %0.field1 = copy %1
+    %0.field2 = copy %2
+    return move %0
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user p: Point
+    %1 temp: Point
+    %2 temp: None
+  bb0:
+    %1 = call fn0(2.0, 3.0) -> bb1
+  bb1:
+    %0 = copy %1
+    %2 = call @console_log(copy %0.field1) -> bb2
+  bb2:
+    return none
+

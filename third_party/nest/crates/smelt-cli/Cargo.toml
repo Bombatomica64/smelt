@@ -1,0 +1,24 @@
+[package]
+name = "smelt-cli"
+version.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "smelt"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+oxc_resolver = "11.19.1"
+schemars = "1.2.1"
+serde = { workspace = true }
+serde_json = "1.0.149"
+smelt-codegen-rust = { path = "../smelt-codegen-rust" }
+smelt-frontend-py = { path = "../smelt-frontend-py" }
+smelt-frontend-ts = { path = "../smelt-frontend-ts" }
+smelt-hir = { path = "../smelt-hir" }
+smelt-mir = { path = "../smelt-mir" }
+toml = { workspace = true }

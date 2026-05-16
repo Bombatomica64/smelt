@@ -1,0 +1,2966 @@
+warning: missing documentation for the crate
+  --> crates/smelt-hir/src/lib.rs:1:1
+   |
+ 1 | / mod body;
+ 2 | | mod expr;
+ 3 | | mod format;
+ 4 | | mod ids;
+...  |
+24 | | pub use ty::{FunctionType, Type, TypeInterner};
+25 | | pub use validate::{ValidationError, validate};
+   | |______________________________________________^
+   |
+   = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct
+ --> crates/smelt-hir/src/body.rs:9:1
+  |
+9 | pub struct Body {
+  | ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:10:5
+   |
+10 |     pub id: BodyId,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:11:5
+   |
+11 |     pub owner: Option<ItemId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:12:5
+   |
+12 |     pub locals: Vec<LocalDecl>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:13:5
+   |
+13 |     pub params: Vec<LocalId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:14:5
+   |
+14 |     pub exprs: Vec<Expr>,
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:15:5
+   |
+15 |     pub stmts: Vec<Stmt>,
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:16:5
+   |
+16 |     pub blocks: Vec<Block>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:17:5
+   |
+17 |     pub patterns: Vec<Pattern>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:18:5
+   |
+18 |     pub root: BlockId,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/smelt-hir/src/body.rs:23:5
+   |
+23 |     pub fn new(owner: Option<ItemId>, span: Span) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/body.rs:41:5
+   |
+41 |     pub fn push_local(&mut self, local: LocalDecl) -> LocalId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/body.rs:47:5
+   |
+47 |     pub fn push_expr(&mut self, expr: Expr) -> ExprId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/body.rs:53:5
+   |
+53 |     pub fn push_stmt(&mut self, stmt: Stmt) -> StmtId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/body.rs:57:5
+   |
+57 |     pub fn push_stmt_to_block(&mut self, block: BlockId, stmt: Stmt) -> StmtId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/body.rs:64:5
+   |
+64 |     pub fn push_block(&mut self, span: Span) -> BlockId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/body.rs:74:5
+   |
+74 |     pub fn push_pattern(&mut self, pattern: Pattern) -> PatternId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/body.rs:82:1
+   |
+82 | pub struct LocalDecl {
+   | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:83:5
+   |
+83 |     pub name: Option<Symbol>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:84:5
+   |
+84 |     pub ty: TypeId,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:85:5
+   |
+85 |     pub mutable: bool,
+   |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:86:5
+   |
+86 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/body.rs:90:1
+   |
+90 | pub struct Block {
+   | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:91:5
+   |
+91 |     pub stmts: Vec<StmtId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:92:5
+   |
+92 |     pub tail: Option<ExprId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:93:5
+   |
+93 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+  --> crates/smelt-hir/src/body.rs:97:1
+   |
+97 | pub enum Stmt {
+   | ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/body.rs:98:5
+   |
+98 |     Let {
+   |     ^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/body.rs:99:9
+   |
+99 |         pat: PatternId,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:100:9
+    |
+100 |         ty: TypeId,
+    |         ^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:101:9
+    |
+101 |         value: Option<ExprId>,
+    |         ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:103:5
+    |
+103 |     Assign {
+    |     ^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:104:9
+    |
+104 |         target: ExprId,
+    |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:105:9
+    |
+105 |         value: ExprId,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:107:5
+    |
+107 |     Expr(ExprId),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:108:5
+    |
+108 |     Return(Option<ExprId>),
+    |     ^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:109:5
+    |
+109 |     If {
+    |     ^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:110:9
+    |
+110 |         cond: ExprId,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:111:9
+    |
+111 |         then_block: BlockId,
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:112:9
+    |
+112 |         else_block: Option<BlockId>,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:114:5
+    |
+114 |     While {
+    |     ^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:115:9
+    |
+115 |         cond: ExprId,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:116:9
+    |
+116 |         body: BlockId,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:118:5
+    |
+118 |     For {
+    |     ^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:119:9
+    |
+119 |         pat: PatternId,
+    |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:120:9
+    |
+120 |         iter: ExprId,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:121:9
+    |
+121 |         body: BlockId,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:123:5
+    |
+123 |     Match {
+    |     ^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:124:9
+    |
+124 |         scrutinee: ExprId,
+    |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:125:9
+    |
+125 |         arms: Vec<MatchArm>,
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:126:9
+    |
+126 |         default: Option<BlockId>,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:128:5
+    |
+128 |     Throw(ExprId),
+    |     ^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:129:5
+    |
+129 |     Break,
+    |     ^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:130:5
+    |
+130 |     Continue,
+    |     ^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-hir/src/body.rs:134:1
+    |
+134 | pub struct MatchArm {
+    | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:135:5
+    |
+135 |     pub label: Literal,
+    |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/body.rs:136:5
+    |
+136 |     pub body: BlockId,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-hir/src/body.rs:140:1
+    |
+140 | pub enum Pattern {
+    | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:141:5
+    |
+141 |     Wildcard,
+    |     ^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:142:5
+    |
+142 |     Binding(LocalId),
+    |     ^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:143:5
+    |
+143 |     Tuple(Vec<PatternId>),
+    |     ^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/body.rs:144:5
+    |
+144 |     Literal(Literal),
+    |     ^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-hir/src/expr.rs:6:1
+  |
+6 | pub struct Expr {
+  | ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/smelt-hir/src/expr.rs:7:5
+  |
+7 |     pub kind: ExprKind,
+  |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/smelt-hir/src/expr.rs:8:5
+  |
+8 |     pub ty: TypeId,
+  |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/smelt-hir/src/expr.rs:9:5
+  |
+9 |     pub span: Span,
+  |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+  --> crates/smelt-hir/src/expr.rs:13:1
+   |
+13 | pub enum ExprKind {
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:14:5
+   |
+14 |     Literal(Literal),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:15:5
+   |
+15 |     Local(LocalId),
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:16:5
+   |
+16 |     Item(ItemId),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:17:5
+   |
+17 |     Call {
+   |     ^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:18:9
+   |
+18 |         callee: ExprId,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:19:9
+   |
+19 |         args: Vec<ExprId>,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:21:5
+   |
+21 |     Method {
+   |     ^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:22:9
+   |
+22 |         receiver: ExprId,
+   |         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:23:9
+   |
+23 |         method: Symbol,
+   |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:24:9
+   |
+24 |         args: Vec<ExprId>,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:26:5
+   |
+26 |     Field {
+   |     ^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:27:9
+   |
+27 |         receiver: ExprId,
+   |         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:28:9
+   |
+28 |         field: Symbol,
+   |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:30:5
+   |
+30 |     Index {
+   |     ^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:31:9
+   |
+31 |         receiver: ExprId,
+   |         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:32:9
+   |
+32 |         index: ExprId,
+   |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:34:5
+   |
+34 |     BinOp {
+   |     ^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:35:9
+   |
+35 |         op: BinOp,
+   |         ^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:36:9
+   |
+36 |         lhs: ExprId,
+   |         ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:37:9
+   |
+37 |         rhs: ExprId,
+   |         ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:39:5
+   |
+39 |     UnaryOp {
+   |     ^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:40:9
+   |
+40 |         op: UnaryOp,
+   |         ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:41:9
+   |
+41 |         operand: ExprId,
+   |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:43:5
+   |
+43 |     Block(BlockId),
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:44:5
+   |
+44 |     Lambda {
+   |     ^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:45:9
+   |
+45 |         body: BodyId,
+   |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:46:9
+   |
+46 |         return_ty: TypeId,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:48:5
+   |
+48 |     ListLit(Vec<ExprId>),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:49:5
+   |
+49 |     SetLit(Vec<ExprId>),
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:50:5
+   |
+50 |     DictLit(Vec<(ExprId, ExprId)>),
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:51:5
+   |
+51 |     TupleLit(Vec<ExprId>),
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:52:5
+   |
+52 |     New {
+   |     ^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:53:9
+   |
+53 |         class: Symbol,
+   |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/expr.rs:54:9
+   |
+54 |         args: Vec<ExprId>,
+   |         ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+  --> crates/smelt-hir/src/expr.rs:59:1
+   |
+59 | pub enum Literal {
+   | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:60:5
+   |
+60 |     Bool(bool),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:61:5
+   |
+61 |     Int(i64),
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:62:5
+   |
+62 |     Float(f64),
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:63:5
+   |
+63 |     String(String),
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:64:5
+   |
+64 |     None,
+   |     ^^^^
+
+warning: missing documentation for an enum
+  --> crates/smelt-hir/src/expr.rs:68:1
+   |
+68 | pub enum BinOp {
+   | ^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:69:5
+   |
+69 |     Add,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:70:5
+   |
+70 |     Sub,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:71:5
+   |
+71 |     Mul,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:72:5
+   |
+72 |     Div,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:73:5
+   |
+73 |     Eq,
+   |     ^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:74:5
+   |
+74 |     NotEq,
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:75:5
+   |
+75 |     Lt,
+   |     ^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:76:5
+   |
+76 |     Lte,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:77:5
+   |
+77 |     Gt,
+   |     ^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:78:5
+   |
+78 |     Gte,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:79:5
+   |
+79 |     And,
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/expr.rs:80:5
+   |
+80 |     Or,
+   |     ^^
+
+warning: missing documentation for a function
+  --> crates/smelt-hir/src/expr.rs:84:1
+   |
+84 | pub fn bin_op_text(op: BinOp) -> &'static str {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-hir/src/expr.rs:102:1
+    |
+102 | pub enum UnaryOp {
+    | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/expr.rs:103:5
+    |
+103 |     Not,
+    |     ^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-hir/src/expr.rs:104:5
+    |
+104 |     Neg,
+    |     ^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-hir/src/ids.rs:4:1
+  |
+4 | pub struct FileId(pub u32);
+  | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-hir/src/ids.rs:7:1
+  |
+7 | pub struct ModuleId(pub u32);
+  | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:10:1
+   |
+10 | pub struct ItemId(pub u32);
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:13:1
+   |
+13 | pub struct BodyId(pub u32);
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:16:1
+   |
+16 | pub struct LocalId(pub u32);
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:19:1
+   |
+19 | pub struct ExprId(pub u32);
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:22:1
+   |
+22 | pub struct StmtId(pub u32);
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:25:1
+   |
+25 | pub struct BlockId(pub u32);
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:28:1
+   |
+28 | pub struct PatternId(pub u32);
+   | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:31:1
+   |
+31 | pub struct Symbol(pub u32);
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:34:1
+   |
+34 | pub struct TypeId(pub u32);
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ids.rs:37:1
+   |
+37 | pub struct Span {
+   | ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ids.rs:38:5
+   |
+38 |     pub file: FileId,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ids.rs:39:5
+   |
+39 |     pub start: u32,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ids.rs:40:5
+   |
+40 |     pub end: u32,
+   |     ^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/smelt-hir/src/ids.rs:45:5
+   |
+45 |     pub fn new(file: FileId, start: u32, end: u32) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+ --> crates/smelt-hir/src/item.rs:6:1
+  |
+6 | pub enum Item {
+  | ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+ --> crates/smelt-hir/src/item.rs:7:5
+  |
+7 |     Function(Function),
+  |     ^^^^^^^^
+
+warning: missing documentation for a variant
+ --> crates/smelt-hir/src/item.rs:8:5
+  |
+8 |     Class(Class),
+  |     ^^^^^
+
+warning: missing documentation for a variant
+ --> crates/smelt-hir/src/item.rs:9:5
+  |
+9 |     Interface(Interface),
+  |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:10:5
+   |
+10 |     TypeAlias(TypeAlias),
+   |     ^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:11:5
+   |
+11 |     Const(ConstItem),
+   |     ^^^^^
+
+warning: missing documentation for an enum
+  --> crates/smelt-hir/src/item.rs:15:1
+   |
+15 | pub enum Visibility {
+   | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:16:5
+   |
+16 |     Public,
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:17:5
+   |
+17 |     Private,
+   |     ^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:18:5
+   |
+18 |     Protected,
+   |     ^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:34:21
+   |
+34 |     DataclassLike { frozen: bool },
+   |                     ^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/item.rs:38:1
+   |
+38 | pub struct Function {
+   | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:39:5
+   |
+39 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:40:5
+   |
+40 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:41:5
+   |
+41 |     pub params: Vec<Param>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:42:5
+   |
+42 |     pub return_ty: TypeId,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:43:5
+   |
+43 |     pub is_async: bool,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:44:5
+   |
+44 |     pub body: Option<BodyId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:45:5
+   |
+45 |     pub owner: FunctionOwner,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+  --> crates/smelt-hir/src/item.rs:49:1
+   |
+49 | pub enum FunctionOwner {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:50:5
+   |
+50 |     Module,
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:51:5
+   |
+51 |     ClassMethod { class: Symbol, method: Symbol },
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:51:19
+   |
+51 |     ClassMethod { class: Symbol, method: Symbol },
+   |                   ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:51:34
+   |
+51 |     ClassMethod { class: Symbol, method: Symbol },
+   |                                  ^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/item.rs:52:5
+   |
+52 |     Constructor { class: Symbol },
+   |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:52:19
+   |
+52 |     Constructor { class: Symbol },
+   |                   ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/item.rs:56:1
+   |
+56 | pub struct Param {
+   | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:57:5
+   |
+57 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:58:5
+   |
+58 |     pub local: LocalId,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:59:5
+   |
+59 |     pub ty: TypeId,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:60:5
+   |
+60 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/item.rs:64:1
+   |
+64 | pub struct Class {
+   | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:65:5
+   |
+65 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:66:5
+   |
+66 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:72:5
+   |
+72 |     pub fields: Vec<Field>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:73:5
+   |
+73 |     pub constructor: Option<ItemId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:74:5
+   |
+74 |     pub methods: Vec<ItemId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:75:5
+   |
+75 |     pub implements: Vec<Symbol>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/item.rs:79:1
+   |
+79 | pub struct Interface {
+   | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:80:5
+   |
+80 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:81:5
+   |
+81 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:82:5
+   |
+82 |     pub fields: Vec<Field>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:83:5
+   |
+83 |     pub methods: Vec<MethodSig>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/item.rs:87:1
+   |
+87 | pub struct Field {
+   | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:88:5
+   |
+88 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:89:5
+   |
+89 |     pub ty: TypeId,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:90:5
+   |
+90 |     pub visibility: Visibility,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:91:5
+   |
+91 |     pub optional: bool,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:92:5
+   |
+92 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/item.rs:96:1
+   |
+96 | pub struct MethodSig {
+   | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:97:5
+   |
+97 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:98:5
+   |
+98 |     pub params: Vec<ParamSig>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/item.rs:99:5
+   |
+99 |     pub return_ty: TypeId,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:100:5
+    |
+100 |     pub visibility: Visibility,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:101:5
+    |
+101 |     pub is_async: bool,
+    |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:102:5
+    |
+102 |     pub span: Span,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-hir/src/item.rs:106:1
+    |
+106 | pub struct ParamSig {
+    | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:107:5
+    |
+107 |     pub name: Symbol,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:108:5
+    |
+108 |     pub ty: TypeId,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:109:5
+    |
+109 |     pub span: Span,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-hir/src/item.rs:113:1
+    |
+113 | pub struct TypeAlias {
+    | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:114:5
+    |
+114 |     pub name: Symbol,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:115:5
+    |
+115 |     pub ty: TypeId,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:116:5
+    |
+116 |     pub span: Span,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-hir/src/item.rs:120:1
+    |
+120 | pub struct ConstItem {
+    | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:121:5
+    |
+121 |     pub name: Symbol,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:122:5
+    |
+122 |     pub ty: TypeId,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:123:5
+    |
+123 |     pub value: ExprId,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:124:5
+    |
+124 |     pub body: BodyId,
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-hir/src/item.rs:125:5
+    |
+125 |     pub span: Span,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+ --> crates/smelt-hir/src/krate.rs:9:1
+  |
+9 | pub const CONSOLE_LOG_SYMBOL: &str = "console_log";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/krate.rs:12:1
+   |
+12 | pub struct Crate {
+   | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:13:5
+   |
+13 |     pub modules: Vec<Module>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:14:5
+   |
+14 |     pub items: Vec<Item>,
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:15:5
+   |
+15 |     pub bodies: Vec<Body>,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:16:5
+   |
+16 |     pub types: TypeInterner,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:17:5
+   |
+17 |     pub symbols: SymbolInterner,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:18:5
+   |
+18 |     pub names: OriginalNameTable,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/smelt-hir/src/krate.rs:23:5
+   |
+23 |     pub fn new() -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/krate.rs:27:5
+   |
+27 |     pub fn push_module(&mut self, module: Module) -> ModuleId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/krate.rs:33:5
+   |
+33 |     pub fn push_item(&mut self, item: Item) -> ItemId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/krate.rs:39:5
+   |
+39 |     pub fn push_body(&mut self, body: Body) -> BodyId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/krate.rs:47:1
+   |
+47 | pub struct Module {
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:48:5
+   |
+48 |     pub id: ModuleId,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:49:5
+   |
+49 |     pub name: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:50:5
+   |
+50 |     pub source: SourceFile,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:51:5
+   |
+51 |     pub imports: Vec<Import>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:52:5
+   |
+52 |     pub items: Vec<ItemId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:53:5
+   |
+53 |     pub body: Option<BodyId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/smelt-hir/src/krate.rs:58:5
+   |
+58 |     pub fn new(name: impl Into<String>, source: SourceFile) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/krate.rs:71:1
+   |
+71 | pub struct SourceFile {
+   | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:72:5
+   |
+72 |     pub path: String,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:73:5
+   |
+73 |     pub language: Language,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+  --> crates/smelt-hir/src/krate.rs:77:1
+   |
+77 | pub enum Language {
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/krate.rs:78:5
+   |
+78 |     TypeScript,
+   |     ^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/krate.rs:79:5
+   |
+79 |     Python,
+   |     ^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/krate.rs:83:1
+   |
+83 | pub struct Import {
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:84:5
+   |
+84 |     pub module: String,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:85:5
+   |
+85 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:86:5
+   |
+86 |     pub alias: Option<Symbol>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/krate.rs:87:5
+   |
+87 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-hir/src/symbol.rs:6:1
+  |
+6 | pub struct SymbolInterner {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/symbol.rs:11:5
+   |
+11 |     pub fn intern(&mut self, value: &str) -> Symbol {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/symbol.rs:26:5
+   |
+26 |     pub fn get(&self, symbol: Symbol) -> Option<&str> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/symbol.rs:32:1
+   |
+32 | pub struct OriginalNameTable {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/symbol.rs:37:5
+   |
+37 |     pub fn record(&mut self, symbol: Symbol, original: impl Into<String>) {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/symbol.rs:46:5
+   |
+46 |     pub fn get(&self, symbol: Symbol) -> Option<&str> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+ --> crates/smelt-hir/src/ty.rs:6:1
+  |
+6 | pub enum Type {
+  | ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+ --> crates/smelt-hir/src/ty.rs:7:5
+  |
+7 |     Bool,
+  |     ^^^^
+
+warning: missing documentation for a variant
+ --> crates/smelt-hir/src/ty.rs:8:5
+  |
+8 |     Int,
+  |     ^^^
+
+warning: missing documentation for a variant
+ --> crates/smelt-hir/src/ty.rs:9:5
+  |
+9 |     Float,
+  |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:10:5
+   |
+10 |     String,
+   |     ^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:11:5
+   |
+11 |     None,
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:12:5
+   |
+12 |     List(TypeId),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:13:5
+   |
+13 |     Set(TypeId),
+   |     ^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:14:5
+   |
+14 |     Dict(TypeId, TypeId),
+   |     ^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:15:5
+   |
+15 |     Tuple(Vec<TypeId>),
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:16:5
+   |
+16 |     Optional(TypeId),
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:17:5
+   |
+17 |     Union(Vec<TypeId>),
+   |     ^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:18:5
+   |
+18 |     Class { name: Symbol, args: Vec<TypeId> },
+   |     ^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ty.rs:18:13
+   |
+18 |     Class { name: Symbol, args: Vec<TypeId> },
+   |             ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ty.rs:18:27
+   |
+18 |     Class { name: Symbol, args: Vec<TypeId> },
+   |                           ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:19:5
+   |
+19 |     Function(FunctionType),
+   |     ^^^^^^^^
+
+warning: missing documentation for a variant
+  --> crates/smelt-hir/src/ty.rs:20:5
+   |
+20 |     Future(TypeId),
+   |     ^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ty.rs:24:1
+   |
+24 | pub struct FunctionType {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ty.rs:25:5
+   |
+25 |     pub params: Vec<TypeId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ty.rs:26:5
+   |
+26 |     pub return_ty: TypeId,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-hir/src/ty.rs:27:5
+   |
+27 |     pub is_async: bool,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-hir/src/ty.rs:31:1
+   |
+31 | pub struct TypeInterner {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/ty.rs:36:5
+   |
+36 |     pub fn intern(&mut self, ty: Type) -> TypeId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/ty.rs:51:5
+   |
+51 |     pub fn get(&self, id: TypeId) -> Option<&Type> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-hir/src/ty.rs:56:5
+   |
+56 |     pub fn all(&self) -> &[Type] {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-hir/src/validate.rs:7:1
+  |
+7 | pub struct ValidationError {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/smelt-hir/src/validate.rs:8:5
+  |
+8 |     pub message: String,
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-hir/src/validate.rs:12:1
+   |
+12 | pub fn validate(krate: &Crate) -> Vec<ValidationError> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for the crate
+   --> crates/smelt-mir/src/lib.rs:1:1
+    |
+  1 | / mod format;
+  2 | | mod lower;
+  3 | | pub mod opt;
+  4 | | mod types;
+...   |
+149 | | }
+    | |_^
+    |
+    = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a module
+ --> crates/smelt-mir/src/lib.rs:3:1
+  |
+3 | pub mod opt;
+  | ^^^^^^^^^^^
+
+warning: missing documentation for a function
+ --> crates/smelt-mir/src/format.rs:9:1
+  |
+9 | pub fn format_compact(mir: &Mir) -> String {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/lower.rs:14:1
+   |
+14 | pub struct LowerError {
+   | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/lower.rs:15:5
+   |
+15 |     pub message: String,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/lower.rs:16:5
+   |
+16 |     pub span: Option<Span>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-mir/src/lower.rs:19:1
+   |
+19 | pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a trait
+ --> crates/smelt-mir/src/opt.rs:5:1
+  |
+5 | pub trait Pass {
+  | ^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates/smelt-mir/src/opt.rs:6:5
+  |
+6 |     fn name(&self) -> &'static str;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+ --> crates/smelt-mir/src/opt.rs:7:5
+  |
+7 |     fn run(&self, mir: &mut Mir) -> bool;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/opt.rs:11:1
+   |
+11 | pub struct CopyPropagation;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-mir/src/opt.rs:28:1
+   |
+28 | pub fn default_passes() -> Vec<Box<dyn Pass>> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-mir/src/opt.rs:32:1
+   |
+32 | pub fn optimize(mir: &mut Mir) {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-mir/src/types.rs:5:1
+  |
+5 | pub struct FuncId(pub u32);
+  | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-mir/src/types.rs:8:1
+  |
+8 | pub struct BlockId(pub u32);
+  | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/types.rs:11:1
+   |
+11 | pub struct LocalId(pub u32);
+   | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/types.rs:14:1
+   |
+14 | pub struct Mir {
+   | ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:15:5
+   |
+15 |     pub functions: Vec<MirFunction>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:16:5
+   |
+16 |     pub classes: Vec<MirClass>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:17:5
+   |
+17 |     pub interfaces: Vec<MirInterface>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:18:5
+   |
+18 |     pub types: smelt_hir::TypeInterner,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:19:5
+   |
+19 |     pub symbols: smelt_hir::SymbolInterner,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/smelt-mir/src/types.rs:24:5
+   |
+24 |     pub fn new(types: smelt_hir::TypeInterner, symbols: smelt_hir::SymbolInterner) -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-mir/src/types.rs:35:5
+   |
+35 |     pub fn next_function_id(&self) -> FuncId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a method
+  --> crates/smelt-mir/src/types.rs:39:5
+   |
+39 |     pub fn push_function(&mut self, function: MirFunction) -> FuncId {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/types.rs:48:1
+   |
+48 | pub struct MirClass {
+   | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:49:5
+   |
+49 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:55:5
+   |
+55 |     pub fields: Vec<MirField>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:56:5
+   |
+56 |     pub constructor: Option<FuncId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:57:5
+   |
+57 |     pub methods: Vec<FuncId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:58:5
+   |
+58 |     pub implements: Vec<Symbol>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/types.rs:62:1
+   |
+62 | pub struct MirInterface {
+   | ^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:63:5
+   |
+63 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:64:5
+   |
+64 |     pub fields: Vec<MirField>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:65:5
+   |
+65 |     pub methods: Vec<smelt_hir::MethodSig>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/types.rs:69:1
+   |
+69 | pub struct MirField {
+   | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:70:5
+   |
+70 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:71:5
+   |
+71 |     pub ty: TypeId,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:72:5
+   |
+72 |     pub visibility: Visibility,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-mir/src/types.rs:76:1
+   |
+76 | pub struct MirFunction {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:77:5
+   |
+77 |     pub id: FuncId,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:78:5
+   |
+78 |     pub name: Symbol,
+   |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:79:5
+   |
+79 |     pub origin: HirOrigin,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:80:5
+   |
+80 |     pub is_async: bool,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:81:5
+   |
+81 |     pub params: Vec<LocalId>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:82:5
+   |
+82 |     pub return_ty: TypeId,
+   |     ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:83:5
+   |
+83 |     pub locals: Vec<LocalDecl>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:84:5
+   |
+84 |     pub blocks: Vec<BasicBlock>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-mir/src/types.rs:85:5
+   |
+85 |     pub entry: BlockId,
+   |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:135:1
+    |
+135 | pub enum HirOrigin {
+    | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:136:5
+    |
+136 |     Body(BodyId),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:137:5
+    |
+137 |     ClassConstructor {
+    |     ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:138:9
+    |
+138 |         class: Symbol,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:139:9
+    |
+139 |         body: BodyId,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:141:5
+    |
+141 |     ClassMethod {
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:142:9
+    |
+142 |         class: Symbol,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:143:9
+    |
+143 |         method: Symbol,
+    |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:144:9
+    |
+144 |         body: BodyId,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-mir/src/types.rs:149:1
+    |
+149 | pub struct LocalDecl {
+    | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:150:5
+    |
+150 |     pub ty: TypeId,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:151:5
+    |
+151 |     pub kind: LocalKind,
+    |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:152:5
+    |
+152 |     pub span: Span,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:156:1
+    |
+156 | pub enum LocalKind {
+    | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:157:5
+    |
+157 |     Param,
+    |     ^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:158:5
+    |
+158 |     Temp,
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:159:5
+    |
+159 |     UserBinding(Symbol),
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-mir/src/types.rs:163:1
+    |
+163 | pub struct BasicBlock {
+    | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:164:5
+    |
+164 |     pub id: BlockId,
+    |     ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:165:5
+    |
+165 |     pub phis: Vec<Phi>,
+    |     ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:166:5
+    |
+166 |     pub statements: Vec<Statement>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:167:5
+    |
+167 |     pub terminator: Option<Terminator>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:168:5
+    |
+168 |     pub span: Span,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-mir/src/types.rs:172:1
+    |
+172 | pub struct Phi {
+    | ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:173:5
+    |
+173 |     pub dest: LocalId,
+    |     ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:174:5
+    |
+174 |     pub ty: TypeId,
+    |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:175:5
+    |
+175 |     pub incoming: Vec<(BlockId, Operand)>,
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:179:1
+    |
+179 | pub enum Place {
+    | ^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:180:5
+    |
+180 |     Local(LocalId),
+    |     ^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:181:5
+    |
+181 |     Field { base: LocalId, field: Symbol },
+    |     ^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:181:13
+    |
+181 |     Field { base: LocalId, field: Symbol },
+    |             ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:181:28
+    |
+181 |     Field { base: LocalId, field: Symbol },
+    |                            ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:182:5
+    |
+182 |     Index { base: LocalId, index: Box<Operand> },
+    |     ^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:182:13
+    |
+182 |     Index { base: LocalId, index: Box<Operand> },
+    |             ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:182:28
+    |
+182 |     Index { base: LocalId, index: Box<Operand> },
+    |                            ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:186:1
+    |
+186 | pub enum Operand {
+    | ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:187:5
+    |
+187 |     Copy(Place),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:188:5
+    |
+188 |     Move(Place),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:189:5
+    |
+189 |     Const(Constant),
+    |     ^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:193:1
+    |
+193 | pub enum Constant {
+    | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:194:5
+    |
+194 |     Bool(bool),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:195:5
+    |
+195 |     Int(i64),
+    |     ^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:196:5
+    |
+196 |     Float(f64),
+    |     ^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:197:5
+    |
+197 |     String(String),
+    |     ^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:198:5
+    |
+198 |     None,
+    |     ^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:202:1
+    |
+202 | pub enum Rvalue {
+    | ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:203:5
+    |
+203 |     Use(Operand),
+    |     ^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:204:5
+    |
+204 |     List(Vec<Operand>),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:205:5
+    |
+205 |     Dict(Vec<(Operand, Operand)>),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:206:5
+    |
+206 |     Tuple(Vec<Operand>),
+    |     ^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:207:5
+    |
+207 |     Binary {
+    |     ^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:208:9
+    |
+208 |         op: smelt_hir::BinOp,
+    |         ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:209:9
+    |
+209 |         lhs: Operand,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:210:9
+    |
+210 |         rhs: Operand,
+    |         ^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:212:5
+    |
+212 |     Unary {
+    |     ^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:213:9
+    |
+213 |         op: smelt_hir::UnaryOp,
+    |         ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:214:9
+    |
+214 |         operand: Operand,
+    |         ^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:216:5
+    |
+216 |     Struct {
+    |     ^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:217:9
+    |
+217 |         class: Symbol,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:218:9
+    |
+218 |         fields: Vec<(Symbol, Operand)>,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:220:5
+    |
+220 |     Len(Operand),
+    |     ^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:224:1
+    |
+224 | pub enum Statement {
+    | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:225:5
+    |
+225 |     Assign { dest: LocalId, value: Rvalue },
+    |     ^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:225:14
+    |
+225 |     Assign { dest: LocalId, value: Rvalue },
+    |              ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:225:29
+    |
+225 |     Assign { dest: LocalId, value: Rvalue },
+    |                             ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:226:5
+    |
+226 |     AssignPlace { place: Place, value: Rvalue },
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:226:19
+    |
+226 |     AssignPlace { place: Place, value: Rvalue },
+    |                   ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:226:33
+    |
+226 |     AssignPlace { place: Place, value: Rvalue },
+    |                                 ^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:227:5
+    |
+227 |     StorageLive(LocalId),
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:228:5
+    |
+228 |     StorageDead(LocalId),
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:232:1
+    |
+232 | pub enum Terminator {
+    | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:233:5
+    |
+233 |     Goto(BlockId),
+    |     ^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:234:5
+    |
+234 |     Call {
+    |     ^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:235:9
+    |
+235 |         callee: Callee,
+    |         ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:236:9
+    |
+236 |         args: Vec<Operand>,
+    |         ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:237:9
+    |
+237 |         dest: LocalId,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:238:9
+    |
+238 |         target: BlockId,
+    |         ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:240:5
+    |
+240 |     Switch {
+    |     ^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:241:9
+    |
+241 |         cond: Operand,
+    |         ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:242:9
+    |
+242 |         then_block: BlockId,
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:243:9
+    |
+243 |         else_block: BlockId,
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:245:5
+    |
+245 |     Match {
+    |     ^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:246:9
+    |
+246 |         scrutinee: Operand,
+    |         ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:247:9
+    |
+247 |         arms: Vec<MatchArm>,
+    |         ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:248:9
+    |
+248 |         default: Option<BlockId>,
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:250:5
+    |
+250 |     Return(Operand),
+    |     ^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:251:5
+    |
+251 |     Unreachable,
+    |     ^^^^^^^^^^^
+
+warning: missing documentation for a struct
+   --> crates/smelt-mir/src/types.rs:255:1
+    |
+255 | pub struct MatchArm {
+    | ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:256:5
+    |
+256 |     pub label: Constant,
+    |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+   --> crates/smelt-mir/src/types.rs:257:5
+    |
+257 |     pub target: BlockId,
+    |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:261:1
+    |
+261 | pub enum Callee {
+    | ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:262:5
+    |
+262 |     Static(FuncId),
+    |     ^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:263:5
+    |
+263 |     Indirect(Operand),
+    |     ^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:264:5
+    |
+264 |     Builtin(BuiltinFn),
+    |     ^^^^^^^
+
+warning: missing documentation for an enum
+   --> crates/smelt-mir/src/types.rs:268:1
+    |
+268 | pub enum BuiltinFn {
+    | ^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a variant
+   --> crates/smelt-mir/src/types.rs:269:5
+    |
+269 |     ConsoleLog,
+    |     ^^^^^^^^^^
+
+warning: missing documentation for a struct
+ --> crates/smelt-mir/src/validate.rs:8:1
+  |
+8 | pub struct ValidationError {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+ --> crates/smelt-mir/src/validate.rs:9:5
+  |
+9 |     pub message: String,
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-mir/src/validate.rs:13:1
+   |
+13 | pub fn validate(mir: &Mir) -> Vec<ValidationError> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unnecessary qualification
+   --> crates/smelt-frontend-py/src/lib.rs:767:20
+    |
+767 |             owner: smelt_hir::FunctionOwner::Module,
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: requested on the command line with `-W unused-qualifications`
+help: remove the unnecessary path segments
+    |
+767 -             owner: smelt_hir::FunctionOwner::Module,
+767 +             owner: FunctionOwner::Module,
+    |
+
+warning: unnecessary qualification
+    --> crates/smelt-frontend-py/src/lib.rs:1982:20
+     |
+1982 |             owner: smelt_hir::FunctionOwner::Module,
+     |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+help: remove the unnecessary path segments
+     |
+1982 -             owner: smelt_hir::FunctionOwner::Module,
+1982 +             owner: FunctionOwner::Module,
+     |
+
+warning: unnecessary qualification
+    --> crates/smelt-frontend-py/src/lib.rs:1994:46
+     |
+1994 |     fn intern_name(&mut self, name: &str) -> smelt_hir::Symbol {
+     |                                              ^^^^^^^^^^^^^^^^^
+     |
+help: remove the unnecessary path segments
+     |
+1994 -     fn intern_name(&mut self, name: &str) -> smelt_hir::Symbol {
+1994 +     fn intern_name(&mut self, name: &str) -> Symbol {
+     |
+
+warning: missing documentation for the crate
+    --> crates/smelt-codegen-rust/src/lib.rs:1:1
+     |
+   1 | / use std::{
+   2 | |     collections::{HashMap, HashSet},
+   3 | |     fs,
+   4 | |     path::Path,
+...    |
+1455 | | }
+     | |_^
+     |
+     = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a struct
+  --> crates/smelt-codegen-rust/src/lib.rs:14:1
+   |
+14 | pub struct EmitOptions {
+   | ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-codegen-rust/src/lib.rs:15:5
+   |
+15 |     pub crate_name: String,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-codegen-rust/src/lib.rs:27:1
+   |
+27 | pub struct EmitError {
+   | ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-codegen-rust/src/lib.rs:28:5
+   |
+28 |     pub message: String,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-codegen-rust/src/lib.rs:47:1
+   |
+47 | / pub fn emit_crate(
+48 | |     mir: &Mir,
+49 | |     output_dir: impl AsRef<Path>,
+50 | |     options: &EmitOptions,
+51 | | ) -> Result<(), Box<dyn std::error::Error>> {
+   | |___________________________________________^
+
+warning: missing documentation for a function
+  --> crates/smelt-codegen-rust/src/lib.rs:60:1
+   |
+60 | pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unnecessary qualification
+    --> crates/smelt-frontend-ts/src/lib.rs:2459:24
+     |
+2459 |             .push_item(smelt_hir::Item::Function(smelt_hir::Function {
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: requested on the command line with `-W unused-qualifications`
+help: remove the unnecessary path segments
+     |
+2459 -             .push_item(smelt_hir::Item::Function(smelt_hir::Function {
+2459 +             .push_item(Item::Function(smelt_hir::Function {
+     |
+
+warning: unnecessary qualification
+    --> crates/smelt-frontend-ts/src/lib.rs:2459:50
+     |
+2459 |             .push_item(smelt_hir::Item::Function(smelt_hir::Function {
+     |                                                  ^^^^^^^^^^^^^^^^^^^
+     |
+help: remove the unnecessary path segments
+     |
+2459 -             .push_item(smelt_hir::Item::Function(smelt_hir::Function {
+2459 +             .push_item(smelt_hir::Item::Function(Function {
+     |
+
+warning: missing documentation for the crate
+    --> crates/smelt-frontend-ts/src/lib.rs:1:1
+     |
+   1 | / pub mod checker;
+   2 | |
+   3 | | use std::collections::HashMap;
+...    |
+2986 | | }
+     | |_^
+     |
+     = note: requested on the command line with `-W missing-docs`
+
+warning: missing documentation for a module
+ --> crates/smelt-frontend-ts/src/lib.rs:1:1
+  |
+1 | pub mod checker;
+  | ^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-frontend-ts/src/lib.rs:24:1
+   |
+24 | pub struct SmeltError {
+   | ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-frontend-ts/src/lib.rs:25:5
+   |
+25 |     pub code: &'static str,
+   |     ^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-frontend-ts/src/lib.rs:26:5
+   |
+26 |     pub span: Span,
+   |     ^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-frontend-ts/src/lib.rs:27:5
+   |
+27 |     pub message: String,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-frontend-ts/src/lib.rs:28:5
+   |
+28 |     pub note: Option<String>,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct
+  --> crates/smelt-frontend-ts/src/lib.rs:52:1
+   |
+52 | pub struct HirCtx {
+   | ^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> crates/smelt-frontend-ts/src/lib.rs:53:5
+   |
+53 |     pub krate: HirCrate,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for an associated function
+  --> crates/smelt-frontend-ts/src/lib.rs:58:5
+   |
+58 |     pub fn new() -> Self {
+   |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-frontend-ts/src/lib.rs:71:1
+   |
+71 | / pub fn to_hir(
+72 | |     source: &str,
+73 | |     file_id: FileId,
+74 | |     ctx: &mut HirCtx,
+75 | | ) -> Result<ModuleId, Vec<SmeltError>> {
+   | |______________________________________^
+
+warning: missing documentation for a function
+    --> crates/smelt-frontend-ts/src/lib.rs:2638:1
+     |
+2638 | pub fn camel_to_snake(name: &str) -> String {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a function
+  --> crates/smelt-frontend-ts/src/checker.rs:30:1
+   |
+30 | pub fn check(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unnecessary qualification
+   --> crates/smelt-cli/src/main.rs:215:44
+    |
+215 |         let schema = schemars::schema_for!(config::Config);
+    |                                            ^^^^^^^^^^^^^^
+    |
+    = note: requested on the command line with `-W unused-qualifications`
+help: remove the unnecessary path segments
+    |
+215 -         let schema = schemars::schema_for!(config::Config);
+215 +         let schema = schemars::schema_for!(Config);
+    |
+
+warning: missing documentation for the crate
+   --> crates/smelt-cli/src/main.rs:1:1
+    |
+  1 | / mod cli_parser;
+  2 | | mod config;
+  3 | | mod config_parser;
+...   |
+260 | |     Ok(())
+261 | | }
+    | |_^
+    |
+    = note: requested on the command line with `-W missing-docs`
+
+warning: unreachable `pub` item
+ --> crates/smelt-cli/src/cli_parser.rs:9:1
+  |
+9 | pub struct Args {
+  | ---^^^^^^^^^^^^
+  | |
+  | help: consider restricting its visibility: `pub(crate)`
+  |
+  = help: or consider exporting it for use by other crates
+  = note: requested on the command line with `-W unreachable-pub`
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/cli_parser.rs:19:1
+   |
+19 | pub enum Command {
+   | ---^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+ --> crates/smelt-cli/src/config.rs:6:1
+  |
+6 | pub enum Pipeline {
+  | ---^^^^^^^^^^^^^^
+  | |
+  | help: consider restricting its visibility: `pub(crate)`
+  |
+  = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:13:1
+   |
+13 | pub struct Project {
+   | ---^^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:21:1
+   |
+21 | pub struct Config {
+   | ---^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:30:5
+   |
+30 |     pub fn project_name(&self) -> &str {
+   |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:34:5
+   |
+34 |     pub fn entries(&self) -> &[PathBuf] {
+   |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:38:5
+   |
+38 |     pub fn output_target(&self) -> &PathBuf {
+   |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:42:5
+   |
+42 |     pub fn output_crate_name(&self) -> Option<&str> {
+   |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:46:5
+   |
+46 |     pub fn should_build_output(&self) -> bool {
+   |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:50:5
+   |
+50 |     pub fn pipelines(&self) -> Vec<Pipeline> {
+   |     ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |     |
+   |     help: consider restricting its visibility: `pub(crate)`
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:74:1
+   |
+74 | pub struct Source {
+   | ---^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:80:1
+   |
+80 | pub struct Output {
+   | ---^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:89:1
+   |
+89 | pub enum CloneStrategy {
+   | ---^^^^^^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+  --> crates/smelt-cli/src/config.rs:97:1
+   |
+97 | pub struct Runtime {
+   | ---^^^^^^^^^^^^^^^
+   | |
+   | help: consider restricting its visibility: `pub(crate)`
+   |
+   = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+   --> crates/smelt-cli/src/config.rs:104:1
+    |
+104 | pub struct Strict {
+    | ---^^^^^^^^^^^^^^
+    | |
+    | help: consider restricting its visibility: `pub(crate)`
+    |
+    = help: or consider exporting it for use by other crates
+
+warning: unreachable `pub` item
+ --> crates/smelt-cli/src/config_parser.rs:5:1
+  |
+5 | pub fn parse(path: &str) -> Result<Config, Box<dyn std::error::Error>> {
+  | ---^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | |
+  | help: consider restricting its visibility: `pub(crate)`
+  |
+  = help: or consider exporting it for use by other crates
+
+Smelt your TypeScript and Python into Rust
+
+Usage: smelt [OPTIONS] <COMMAND>
+
+Commands:
+  build        Read manifest, transpile, and emit a Rust crate
+  check        Type-check and validate without emitting any output
+  new          Scaffold a new smelt project
+  dump-hir     Print compact HIR for a single source file
+  dump-mir     Print the MIR for a single source file (debug)
+  dump-ast     Print the raw parser AST for a single source file (Python only for now)
+  clean        Remove the output target directory
+  dump-schema  Print the JSON Schema for Smelt.toml
+  help         Print this message or the help of the given subcommand(s)
+
+Options:
+      --manifest-path <MANIFEST_PATH>  Path to Smelt.toml (defaults to ./)
+  -h, --help                           Print help
+  -V, --version                        Print version

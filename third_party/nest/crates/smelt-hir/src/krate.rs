@@ -1,0 +1,121 @@
+//! Crate and module representation for HIR.
+
+use serde::{Deserialize, Serialize};
+
+use crate::body::Body;
+use crate::ids::{BodyId, ItemId, ModuleId, Span, Symbol, id_index};
+use crate::item::Item;
+use crate::symbol::{OriginalNameTable, SymbolInterner};
+use crate::ty::TypeInterner;
+
+/// Symbol name used for console.log function.
+pub const CONSOLE_LOG_SYMBOL: &str = "console_log";
+
+/// A crate containing all HIR data structures.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct Crate {
+    /// All modules in this crate.
+    pub modules: Vec<Module>,
+    /// All items (functions, classes, etc.) in this crate.
+    pub items: Vec<Item>,
+    /// All function/constant bodies in this crate.
+    pub bodies: Vec<Body>,
+    /// Type interner for managing interned types.
+    pub types: TypeInterner,
+    /// Symbol interner for managing interned strings.
+    pub symbols: SymbolInterner,
+    /// Table of original names before any transformations.
+    pub names: OriginalNameTable,
+}
+
+impl Crate {
+    /// Creates a new empty crate.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds a module to the crate and returns its ID.
+    pub fn push_module(&mut self, module: Module) -> ModuleId {
+        let id = ModuleId(id_index(self.modules.len()));
+        self.modules.push(Module { id, ..module });
+        id
+    }
+
+    /// Adds an item to the crate and returns its ID.
+    pub fn push_item(&mut self, item: Item) -> ItemId {
+        let id = ItemId(id_index(self.items.len()));
+        self.items.push(item);
+        id
+    }
+
+    /// Adds a body to the crate and returns its ID.
+    pub fn push_body(&mut self, body: Body) -> BodyId {
+        let id = BodyId(id_index(self.bodies.len()));
+        self.bodies.push(Body { id, ..body });
+        id
+    }
+}
+
+/// A module in a crate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Module {
+    /// The module ID.
+    pub id: ModuleId,
+    /// The module name.
+    pub name: String,
+    /// Source file information.
+    pub source: SourceFile,
+    /// Imports in this module.
+    pub imports: Vec<Import>,
+    /// Item IDs defined in this module.
+    pub items: Vec<ItemId>,
+    /// Optional module-level body.
+    pub body: Option<BodyId>,
+}
+
+impl Module {
+    /// Creates a new module with the given name and source file.
+    #[must_use]
+    pub fn new(name: impl Into<String>, source: SourceFile) -> Self {
+        Self {
+            id: ModuleId(u32::MAX),
+            name: name.into(),
+            source,
+            imports: Vec::new(),
+            items: Vec::new(),
+            body: None,
+        }
+    }
+}
+
+/// Source file information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceFile {
+    /// The file path.
+    pub path: String,
+    /// The programming language of the source file.
+    pub language: Language,
+}
+
+/// Programming language for a source file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Language {
+    /// TypeScript source file.
+    TypeScript,
+    /// Python source file.
+    Python,
+}
+
+/// An import statement in a module.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Import {
+    /// The module being imported from.
+    pub module: String,
+    /// The name being imported.
+    pub name: Symbol,
+    /// Optional alias for the imported name.
+    pub alias: Option<Symbol>,
+    /// Source location of the import.
+    pub span: Span,
+}

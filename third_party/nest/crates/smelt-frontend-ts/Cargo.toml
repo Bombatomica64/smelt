@@ -1,0 +1,24 @@
+[package]
+name = "smelt-frontend-ts"
+version.workspace = true
+edition.workspace = true
+autoexamples = false
+
+[lints]
+workspace = true
+
+[dependencies]
+smelt-hir = { path = "../smelt-hir" }
+smelt-stdlib = { path = "../smelt-stdlib" }
+oxc = { version = "0.124.0", features = ["semantic"] }
+
+[dev-dependencies]
+pico-args = "0.5"
+
+[[example]]
+name = "ts_parser"
+path = "examples/parser.rs"
+
+[[example]]
+name = "ts_print_hir"
+path = "examples/print_hir.rs"

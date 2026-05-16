@@ -1,0 +1,10 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user empty: None
+    %1 temp: None
+  bb0:
+    %0 = none
+    %1 = call @console_log(copy %0) -> bb1
+  bb1:
+    return none
+

@@ -1,0 +1,22 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user ready: Bool
+    %1 user blocked: Bool
+    %2 user value: Float
+    %3 temp: Float
+    %4 temp: Bool
+    %5 temp: Bool
+    %6 temp: Bool
+    %7 temp: None
+  bb0:
+    %0 = true
+    %1 = false
+    %3 = -3.0
+    %2 = copy %3
+    %4 = !copy %1
+    %5 = copy %4 && copy %0
+    %6 = copy %5 || false
+    %7 = call @console_log(copy %6, copy %2) -> bb1
+  bb1:
+    return none
+
