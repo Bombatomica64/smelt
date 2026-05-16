@@ -263,6 +263,23 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*replacement)
             )
         }
+        ExprKind::RegexReplaceCallback {
+            op,
+            pattern,
+            haystack,
+            callback,
+        } => {
+            let op_name = match op {
+                crate::expr::StringReplaceOp::First => "replace_first_callback",
+                crate::expr::StringReplaceOp::All => "replace_all_callback",
+            };
+            format!(
+                "regex_{op_name} {}, {}, {}",
+                expr_ref(*pattern),
+                expr_ref(*haystack),
+                expr_ref(*callback)
+            )
+        }
         ExprKind::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
             format!(
                 "regex_replace_first_upper {}, {}",

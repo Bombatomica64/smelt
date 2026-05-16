@@ -18,6 +18,29 @@ impl FunctionEmitter<'_> {
         match value {
             Rvalue::Use(operand) => self.operand_as_type_text(operand, dest_ty),
             Rvalue::List(items) => {
+                if matches!(
+                    self.mir.types.get(dest_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(dest_ty)
+                {
+                    let items_text = items
+                        .iter()
+                        .map(|item| self.operand_as_type_text(item, self.type_id(Type::Unknown)?))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ");
+                    return Ok(format!("SmeltUnknown::Array(vec![{items_text}])"));
+                }
+                if matches!(
+                    self.mir.types.get(dest_ty),
+                    Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                ) {
+                    let items_text = items
+                        .iter()
+                        .map(|item| self.operand_as_type_text(item, self.type_id(Type::Unknown)?))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ");
+                    return Ok(format!("vec![{items_text}]"));
+                }
                 let items_text = items
                     .iter()
                     .map(|item| self.operand_text(item))
@@ -34,6 +57,29 @@ impl FunctionEmitter<'_> {
                 Ok(format!("::std::collections::HashSet::from([{items_text}])"))
             }
             Rvalue::Dict(entries) => {
+                if matches!(
+                    self.mir.types.get(dest_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(dest_ty)
+                {
+                    let entries_text = entries
+                        .iter()
+                        .map(|(key, entry_value)| {
+                            Ok(format!(
+                                "({}, {})",
+                                self.operand_as_type_text(key, self.type_id(Type::String)?)?,
+                                self.operand_as_type_text(
+                                    entry_value,
+                                    self.type_id(Type::Unknown)?
+                                )?
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                        .join(", ");
+                    return Ok(format!(
+                        "SmeltUnknown::Object(::std::collections::HashMap::from([{entries_text}]))"
+                    ));
+                }
                 let dict_types = match self.mir.types.get(dest_ty) {
                     Some(Type::Dict(key_ty, value_ty)) => Some((*key_ty, *value_ty)),
                     _ => None,
@@ -77,19 +123,47 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.optional_binary_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
+                if let Some(text) = self.unknown_binary_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
+                if matches!(
+                    *op,
+                    smelt_hir::BinOp::Add
+                        | smelt_hir::BinOp::Sub
+                        | smelt_hir::BinOp::Mul
+                        | smelt_hir::BinOp::Div
+                        | smelt_hir::BinOp::Rem
+                ) && matches!(self.mir.types.get(dest_ty), Some(Type::Int | Type::Float))
+                {
+                    return Ok(format!(
+                        "{} {} {}",
+                        self.operand_as_type_text(lhs, dest_ty)?,
+                        smelt_hir::bin_op_text(*op),
+                        self.operand_as_type_text(rhs, dest_ty)?
+                    ));
+                }
                 if *op == smelt_hir::BinOp::UShr {
                     let lhs_text = self.operand_text(lhs)?;
                     let rhs_text = self.operand_text(rhs)?;
+                    let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
+                    let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     return Ok(format!(
-                        "{{ let smelt_shift_value = ({lhs_text}).trunc(); let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = ({rhs_text}).trunc(); let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
+                        "{{ let smelt_shift_value = {lhs_trunc_text}; let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = {rhs_trunc_text}; let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
                     ));
                 }
                 if matches!(*op, smelt_hir::BinOp::Shl | smelt_hir::BinOp::Shr) {
                     let lhs_text = self.operand_text(lhs)?;
                     let rhs_text = self.operand_text(rhs)?;
+                    let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
+                    let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     let op_text = smelt_hir::bin_op_text(*op);
+                    let result_cast = if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
+                        "i64"
+                    } else {
+                        "f64"
+                    };
                     return Ok(format!(
-                        "((({lhs_text}).trunc() as i128) {op_text} ((({rhs_text}).trunc() as u32).min(127))) as f64"
+                        "(({lhs_trunc_text} as i128) {op_text} (({rhs_trunc_text} as u32).min(127))) as {result_cast}"
                     ));
                 }
                 if *op == smelt_hir::BinOp::Add
@@ -99,13 +173,17 @@ impl FunctionEmitter<'_> {
                     )
                 {
                     let rhs_text = self.operand_text(rhs)?;
-                    let rhs_expr = if matches!(
-                        self.mir.types.get(self.operand_ty(rhs)?),
-                        Some(Type::String)
-                    ) {
-                        format!("&{rhs_text}")
-                    } else {
-                        format!("&{rhs_text}.to_string()")
+                    let rhs_expr = match self.mir.types.get(self.operand_ty(rhs)?) {
+                        Some(Type::String) => format!("&{rhs_text}"),
+                        Some(Type::Optional(inner))
+                            if matches!(
+                                self.mir.types.get(*inner),
+                                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                            ) =>
+                        {
+                            format!("&{rhs_text}.unwrap_or_default().to_string()")
+                        }
+                        _ => format!("&{rhs_text}.to_string()"),
                     };
                     return Ok(format!("{} + {rhs_expr}", self.operand_text(lhs)?));
                 }
@@ -141,7 +219,7 @@ impl FunctionEmitter<'_> {
                 args,
             } => self.optional_method_text(receiver, *method, args),
             Rvalue::OptionalCoalesce { optional, fallback } => {
-                self.optional_coalesce_text(optional, fallback)
+                self.optional_coalesce_text(optional, fallback, dest_ty)
             }
             Rvalue::InstanceOf {
                 value: operand,
@@ -154,7 +232,10 @@ impl FunctionEmitter<'_> {
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,
-            } => self.unknown_cast_text(unknown_value, *target),
+            } => {
+                let cast_text = self.unknown_cast_text(unknown_value, *target)?;
+                self.rendered_value_as_type_text(&cast_text, *target, dest_ty)
+            }
             Rvalue::Struct { class, fields } => {
                 let class_name = sanitize_ident(self.symbol_name(*class)?);
                 let mir_class = self
@@ -176,6 +257,9 @@ impl FunctionEmitter<'_> {
                     }
                 }
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
+            }
+            Rvalue::ExternalClassInstance { class, args } => {
+                self.external_class_instance_text(*class, args)
             }
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
             Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
@@ -236,6 +320,12 @@ impl FunctionEmitter<'_> {
                 haystack,
                 replacement,
             } => self.regex_replace_text(*op, pattern, haystack, replacement),
+            Rvalue::RegexReplaceCallback {
+                op,
+                pattern,
+                haystack,
+                callback,
+            } => self.regex_replace_callback_text(*op, pattern, haystack, callback),
             Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
                 self.regex_replace_first_match_uppercase_text(pattern, haystack)
             }
@@ -295,10 +385,12 @@ impl FunctionEmitter<'_> {
                     }
                     return Ok(format!("{callee_text}({})", rendered_args.join(", ")));
                 }
-                let params = match self.mir.types.get(self.operand_ty(callee)?) {
+                let emitted_params = self.emitted_function_param_types(&callee_text)?;
+                let inferred_params = match self.mir.types.get(self.operand_ty(callee)?) {
                     Some(Type::Function(function)) => function.params.as_slice(),
                     _ => &[],
                 };
+                let params = emitted_params.as_deref().unwrap_or(inferred_params);
                 let mut rendered_args = args
                     .iter()
                     .zip(params.iter())
@@ -308,7 +400,12 @@ impl FunctionEmitter<'_> {
                     rendered_args.push(self.default_value(*param)?);
                 }
                 let args_text = rendered_args.join(", ");
-                Ok(format!("{callee_text}({args_text})"))
+                let call_text = format!("{callee_text}({args_text})");
+                let source_ty = match self.mir.types.get(self.operand_ty(callee)?) {
+                    Some(Type::Function(function)) => function.return_ty,
+                    _ => dest_ty,
+                };
+                self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
             }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_text(*op, list, callback, dest_ty)
@@ -417,7 +514,7 @@ impl FunctionEmitter<'_> {
                 separator,
                 limit,
             } => self.string_split_text(haystack, separator, limit.as_ref()),
-            Rvalue::StringChars { haystack } => self.string_chars_text(haystack),
+            Rvalue::StringChars { haystack } => self.string_chars_text(haystack, dest_ty),
             Rvalue::StringJoin { items, separator } => self.string_join_text(items, separator),
             Rvalue::JsonStringify { value: json_value } => {
                 self.json_stringify_text(json_value, dest_ty)
@@ -554,6 +651,56 @@ impl FunctionEmitter<'_> {
         }
 
         Ok(None)
+    }
+
+    /// Emits equality checks for erased `SmeltUnknown` operands.
+    fn unknown_binary_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let lhs_is_erased = matches!(
+            self.mir.types.get(lhs_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(lhs_ty);
+        let rhs_is_erased = matches!(
+            self.mir.types.get(rhs_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(rhs_ty);
+        let lhs_is_none = self.mir.types.get(lhs_ty) == Some(&Type::None);
+        let rhs_is_none = self.mir.types.get(rhs_ty) == Some(&Type::None);
+        let text = if lhs_is_erased && rhs_is_none {
+            format!("matches!({}, SmeltUnknown::Null)", self.operand_text(lhs)?)
+        } else if rhs_is_erased && lhs_is_none {
+            format!("matches!({}, SmeltUnknown::Null)", self.operand_text(rhs)?)
+        } else if lhs_is_none || rhs_is_none {
+            "false".to_owned()
+        } else if lhs_is_erased || rhs_is_erased {
+            let lhs_text = if lhs_is_erased {
+                self.operand_text(lhs)?
+            } else {
+                self.unknown_wrap_text(lhs)?
+            };
+            let rhs_text = if rhs_is_erased {
+                self.operand_text(rhs)?
+            } else {
+                self.unknown_wrap_text(rhs)?
+            };
+            format!("{lhs_text} == {rhs_text}")
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(if op == smelt_hir::BinOp::NotEq {
+            format!("!({text})")
+        } else {
+            text
+        }))
     }
 
     /// Emits equality and inequality for optional operands.
@@ -696,8 +843,37 @@ impl FunctionEmitter<'_> {
         &self,
         optional: &Operand,
         fallback: &Operand,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let optional_ty = self.operand_ty(optional)?;
+        if matches!(
+            self.mir.types.get(optional_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(optional_ty)
+        {
+            let optional_text = self.operand_as_type_text(optional, optional_ty)?;
+            let fallback_text = self.operand_as_type_text(fallback, optional_ty)?;
+            let coalesced = format!(
+                "match {optional_text} {{ SmeltUnknown::Null => {fallback_text}, value => value }}"
+            );
+            if matches!(
+                self.mir.types.get(dest_ty),
+                Some(Type::Optional(inner)) if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(*inner)
+            ) {
+                return Ok(format!("Some({coalesced})"));
+            }
+            if !matches!(
+                self.mir.types.get(dest_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) && !self.is_erased_class_type(dest_ty)
+            {
+                return self.rendered_value_as_type_text(&coalesced, optional_ty, dest_ty);
+            }
+            return Ok(coalesced);
+        }
         match self.mir.types.get(optional_ty) {
             Some(Type::Optional(inner)) => Ok(format!(
                 "{}.clone().unwrap_or({})",
@@ -725,6 +901,34 @@ impl FunctionEmitter<'_> {
         self.operand_text(callable)
     }
 
+    /// Emit an erased imported class instance as an unknown object.
+    ///
+    /// External constructors from packages that are not part of the current
+    /// manifest cannot be called directly from generated Rust. The arguments
+    /// are still rendered into a discarded tuple so their lowered code remains
+    /// type-checked and any future side-effect modeling has a concrete place to
+    /// attach before the value is represented as `SmeltUnknown`.
+    fn external_class_instance_text(
+        &self,
+        class: Symbol,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        let class_name = self.symbol_name(class)?;
+        let args_text = args
+            .iter()
+            .map(|arg| self.operand_text(arg))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let args_tuple_text = if args_text.is_empty() {
+            "()".to_owned()
+        } else {
+            format!("({args_text},)")
+        };
+        Ok(format!(
+            "{{ let _smelt_external_args = {args_tuple_text}; let mut _smelt_external = ::std::collections::HashMap::new(); _smelt_external.insert(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned())); SmeltUnknown::Object(_smelt_external) }}"
+        ))
+    }
+
     /// Emits a field read against a named in-scope receiver value.
     fn field_access_text(
         &self,
@@ -739,6 +943,18 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "{receiver_text}.get({field_name:?}).cloned().expect(\"missing field\")"
             ));
+        }
+        if matches!(
+            self.mir.types.get(receiver_ty),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+        ) {
+            let field_name = self.symbol_name(field)?;
+            return Ok(format!(
+                "match {receiver_text} {{ SmeltUnknown::Object(map) => map.get({field_name:?}).cloned().unwrap_or(SmeltUnknown::Null), _ => SmeltUnknown::Null }}"
+            ));
+        }
+        if self.is_erased_class_type(receiver_ty) {
+            return Ok("SmeltUnknown::Null".to_owned());
         }
         let Some(Type::Class { .. }) = self.mir.types.get(receiver_ty) else {
             return Err(EmitError::new(
@@ -766,10 +982,12 @@ impl FunctionEmitter<'_> {
                     "{receiver_text}.get({index_text}).cloned().expect(\"index out of bounds\")"
                 ))
             }
-            Some(Type::Dict(_, _)) => Ok(format!(
-                "{receiver_text}.get(&{}).cloned().expect(\"index out of bounds\")",
-                self.operand_text(index)?
-            )),
+            Some(Type::Dict(key_ty, _)) => {
+                let key_text = self.operand_as_type_text(index, *key_ty)?;
+                Ok(format!(
+                    "{receiver_text}.get(&{key_text}).cloned().expect(\"index out of bounds\")"
+                ))
+            }
             Some(Type::String) => {
                 let index_text =
                     self.normalized_index_text(&format!("{receiver_text}.chars().count()"), index)?;

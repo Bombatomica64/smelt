@@ -5,7 +5,7 @@ interface Named
 fn new (FuncId(0)) -> User
   locals
     %0 user this: User
-    %1 param: String
+    %1 param id: String
   bb0:
     %0 = struct4 {}
     %0.field1 = copy %1

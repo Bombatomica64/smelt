@@ -134,7 +134,7 @@ values.clear()
 "#,
     );
 
-    assert!(ts_source.contains(".insert(3.0)"));
+    assert!(ts_source.contains(".clone()"));
     assert!(ts_source.contains(".remove(&2.0)"));
     assert!(ts_source.contains(".clear(); ()"));
     assert!(py_source.contains(".insert(3)"));

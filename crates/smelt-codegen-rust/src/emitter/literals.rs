@@ -87,6 +87,18 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
                 assigned_callback_locals(callback, &mut locals);
             }
             if let Statement::Assign {
+                value: Rvalue::ListCallback { list, .. },
+                ..
+            } = statement
+                && let Some(local) = operand_local(list)
+                && let Ok(local_idx) = id_index(local.0, "local index does not fit usize")
+                && let Some(local_decl) = function.locals.get(local_idx)
+                && let Some(Type::List(item_ty)) = mir.types.get(local_decl.ty)
+                && matches!(mir.types.get(*item_ty), Some(Type::Function(_)))
+            {
+                locals.insert(local);
+            }
+            if let Statement::Assign {
                 value:
                     Rvalue::ListPush { list, .. }
                     | Rvalue::ListExtend { list, .. }

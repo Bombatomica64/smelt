@@ -37,6 +37,42 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
+        if matches!(
+            replacement_arg,
+            Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+        ) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let callback_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: vec![string_ty],
+                return_ty: string_ty,
+                is_async: false,
+            }));
+            let callback = self.argument_with_hint(replacement_arg, body, Some(callback_ty))?;
+            let callback_ty_actual = Self::expr_ty(body, callback);
+            let callback_ok = self
+                .function_member_type(callback_ty_actual)
+                .and_then(|ty| self.ctx.krate.types.get(ty).cloned())
+                .is_some_and(|ty| {
+                    matches!(ty, Type::Function(function) if function.params.len() == 1 && self.is_string_compatible_type(function.return_ty))
+                });
+            if !callback_ok {
+                return Err(SmeltError::unsupported(
+                    self.span(replacement_arg.span().start, replacement_arg.span().end),
+                    "regex replacement callback must accept a match string and return a string",
+                ));
+            }
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::RegexReplaceCallback {
+                    op,
+                    pattern,
+                    haystack,
+                    callback,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let replacement = self.argument(replacement_arg, body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, haystack)),

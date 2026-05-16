@@ -11,15 +11,15 @@ struct Secret {
 fn main() {
     let mut _smelt_tmp_1: Secret = Secret::new("s".to_owned(), 1.0);
     let mut secret: Secret = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.reveal();
+    let _smelt_tmp_2: String = secret.reveal();
     let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl Secret {
-    fn new(arg_1: String, arg_2: f64) -> Self {
+    fn new(token: String, count: f64) -> Self {
     let mut this: Secret = Secret { token: String::new(), count: 0.0 };
-    this.token = arg_1.clone();
-    this.count = arg_2.clone();
+    this.token = token.clone();
+    this.count = count.clone();
     return this;
     }
     fn reveal(&self) -> String {

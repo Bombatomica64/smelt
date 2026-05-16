@@ -411,9 +411,15 @@ impl FunctionEmitter<'_> {
                         "array entries destination must contain (int, item) tuples",
                     ));
                 }
-                Ok(format!(
-                    "{list_text}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
-                ))
+                if self.type_contains_function(*item_ty) {
+                    Ok(format!(
+                        "{list_text}.into_iter().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
+                    ))
+                } else {
+                    Ok(format!(
+                        "{list_text}.iter().cloned().enumerate().map(|(idx, item)| (idx as i64, item)).collect::<Vec<_>>()"
+                    ))
+                }
             }
         }
     }

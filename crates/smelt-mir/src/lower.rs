@@ -215,8 +215,15 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                 mir.closures.extend(closures);
                 mir.push_function(lowered_function);
             }
-            Err(error) => errors.push(error),
+            Err(error) => {
+                errors.push(error);
+                break;
+            }
         }
+    }
+
+    if !errors.is_empty() {
+        return Err(errors);
     }
 
     for module in &krate.modules {
@@ -496,7 +503,7 @@ impl<'hir> LoweringCtx<'hir> {
             let hir_local = HirLocalId(u32_from_usize(idx, "HIR local index does not fit in u32")?);
             let is_param = body.params.contains(&hir_local);
             let kind = if is_param {
-                LocalKind::Param
+                LocalKind::Param { symbol: local.name }
             } else {
                 local.name.map_or(LocalKind::Temp, LocalKind::UserBinding)
             };
@@ -552,7 +559,7 @@ impl<'hir> LoweringCtx<'hir> {
             let hir_local = HirLocalId(u32_from_usize(idx, "HIR local index does not fit in u32")?);
             let is_param = body.params.contains(&hir_local);
             let kind = if is_param {
-                LocalKind::Param
+                LocalKind::Param { symbol: local.name }
             } else {
                 local.name.map_or(LocalKind::Temp, LocalKind::UserBinding)
             };
@@ -978,22 +985,40 @@ impl<'hir> LoweringCtx<'hir> {
         let join = self.function.push_block(span);
         let mut mir_arms = Vec::new();
         let mut arm_blocks = Vec::new();
+        let mut targets_by_hir_block = HashMap::new();
 
         for arm in arms {
-            let target = self.function.push_block(span);
+            let target = *targets_by_hir_block
+                .entry(arm.body)
+                .or_insert_with(|| self.function.push_block(span));
             mir_arms.push(crate::MatchArm {
                 label: lower_literal(&arm.label),
                 target,
             });
-            arm_blocks.push((target, arm.body));
+            if !arm_blocks
+                .iter()
+                .any(|(_, hir_block): &(BlockId, smelt_hir::BlockId)| *hir_block == arm.body)
+            {
+                arm_blocks.push((target, arm.body));
+            }
         }
 
-        let default_target = default.map(|_| self.function.push_block(span));
+        let default_target = default.map(|default_body| {
+            *targets_by_hir_block
+                .entry(default_body)
+                .or_insert_with(|| self.function.push_block(span))
+        });
         self.set_terminator(Terminator::Match {
             scrutinee: lowered_scrutinee,
             arms: mir_arms,
             default: default_target,
         })?;
+
+        let default_already_lowered = default.is_some_and(|default_block| {
+            arm_blocks
+                .iter()
+                .any(|(_, hir_block): &(BlockId, smelt_hir::BlockId)| *hir_block == default_block)
+        });
 
         for (target, hir_block) in arm_blocks {
             self.current_block = target;
@@ -1003,7 +1028,9 @@ impl<'hir> LoweringCtx<'hir> {
             }
         }
 
-        if let (Some(target), Some(default_block)) = (default_target, default) {
+        if let (Some(target), Some(default_block)) = (default_target, default)
+            && !default_already_lowered
+        {
             self.current_block = target;
             self.lower_block_stmts(default_block)?;
             if self.block()?.terminator.is_none() {
@@ -1088,17 +1115,37 @@ impl<'hir> LoweringCtx<'hir> {
                 else_expr,
             } => {
                 let cond_operand = self.lower_expr(*cond)?;
-                let then_operand = self.lower_expr(*then_expr)?;
-                let else_operand = self.lower_expr(*else_expr)?;
                 let dest = self.push_temp(expr.ty, expr.span);
+                let then_block = self.function.push_block(expr.span);
+                let else_block = self.function.push_block(expr.span);
+                let join_block = self.function.push_block(expr.span);
+                self.set_terminator(Terminator::Switch {
+                    cond: cond_operand,
+                    then_block,
+                    else_block,
+                })?;
+
+                self.current_block = then_block;
+                let then_operand = self.lower_expr(*then_expr)?;
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
-                    value: Rvalue::Conditional {
-                        cond: cond_operand,
-                        then_operand,
-                        else_operand,
-                    },
+                    value: Rvalue::Use(then_operand),
                 });
+                if self.block()?.terminator.is_none() {
+                    self.set_terminator(Terminator::Goto(join_block))?;
+                }
+
+                self.current_block = else_block;
+                let else_operand = self.lower_expr(*else_expr)?;
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(else_operand),
+                });
+                if self.block()?.terminator.is_none() {
+                    self.set_terminator(Terminator::Goto(join_block))?;
+                }
+
+                self.current_block = join_block;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::InstanceOf { value, class } => {
@@ -1607,6 +1654,27 @@ impl<'hir> LoweringCtx<'hir> {
                         pattern: pattern_operand,
                         haystack: haystack_operand,
                         replacement: replacement_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::RegexReplaceCallback {
+                op,
+                pattern,
+                haystack,
+                callback,
+            } => {
+                let pattern_operand = self.lower_expr(*pattern)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let callback_operand = self.lower_expr(*callback)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::RegexReplaceCallback {
+                        op: *op,
+                        pattern: pattern_operand,
+                        haystack: haystack_operand,
+                        callback: callback_operand,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -2742,11 +2810,21 @@ impl<'hir> LoweringCtx<'hir> {
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::New { class, args } => {
-                let callee_id = self.resolve_constructor(*class, expr.span)?;
                 let lowered_args = args
                     .iter()
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
+                let Some(callee_id) = self.resolve_constructor(*class, expr.span)? else {
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    self.block_mut()?.statements.push(Statement::Assign {
+                        dest,
+                        value: Rvalue::ExternalClassInstance {
+                            class: *class,
+                            args: lowered_args,
+                        },
+                    });
+                    return Ok(Operand::Copy(Place::Local(dest)));
+                };
                 let dest = self.push_temp(expr.ty, expr.span);
                 let target = self.function.push_block(expr.span);
                 self.set_terminator(Terminator::Call {
@@ -2841,7 +2919,9 @@ impl<'hir> LoweringCtx<'hir> {
                         )?);
                         locals.push(LocalDecl {
                             ty: param.ty,
-                            kind: LocalKind::Param,
+                            kind: LocalKind::Param {
+                                symbol: Some(param.name),
+                            },
                             span: param.span,
                         });
                         params.push(local);
@@ -2971,7 +3051,7 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     /// Resolves a class constructor to its function ID.
-    fn resolve_constructor(&self, class: Symbol, span: Span) -> Result<FuncId, LowerError> {
+    fn resolve_constructor(&self, class: Symbol, span: Span) -> Result<Option<FuncId>, LowerError> {
         for item in &self.krate.items {
             if let smelt_hir::Item::Class(class_item) = item
                 && class_item.name == class
@@ -2986,9 +3066,18 @@ impl<'hir> LoweringCtx<'hir> {
                 if let Some(constructor) = class_item.constructor
                     && let Some(func) = self.item_functions.get(&constructor)
                 {
-                    return Ok(*func);
+                    return Ok(Some(*func));
                 }
             }
+        }
+        if self
+            .krate
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Class { name, .. } if *name == class))
+        {
+            return Ok(None);
         }
         let name = self.krate.symbols.get(class).unwrap_or("<unknown>");
         Err(self.error(
@@ -3117,6 +3206,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::StringPredicate { .. }
             | ExprKind::RegexIsMatch { .. }
             | ExprKind::RegexReplace { .. }
+            | ExprKind::RegexReplaceCallback { .. }
             | ExprKind::RegexReplaceFirstMatchUppercase { .. }
             | ExprKind::RegexSplit { .. }
             | ExprKind::RegexFind { .. }

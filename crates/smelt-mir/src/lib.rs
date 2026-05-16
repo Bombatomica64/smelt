@@ -283,7 +283,7 @@ async function run(): Promise<number> {
         );
         let cond = function.push_local(LocalDecl {
             ty: bool_ty,
-            kind: LocalKind::Param,
+            kind: LocalKind::Param { symbol: None },
             span: smelt_hir::Span::new(FileId(0), 0, 0),
         });
         let branch_only = function.push_local(LocalDecl {

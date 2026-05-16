@@ -3,7 +3,7 @@ class Counter fields [Public value: Float] constructor Some(FuncId(0)) methods [
 fn new (FuncId(0)) -> Counter
   locals
     %0 user this: Counter
-    %1 param: Float
+    %1 param value: Float
   bb0:
     %0 = struct0 {}
     %0.field1 = copy %1
@@ -11,8 +11,8 @@ fn new (FuncId(0)) -> Counter
 
 fn inc (FuncId(1)) -> Float
   locals
-    %0 param: Counter
-    %1 param: Float
+    %0 param this: Counter
+    %1 param delta: Float
     %2 temp: Float
   bb0:
     %2 = copy %0.field1 + copy %1
@@ -29,7 +29,7 @@ fn main (FuncId(2)) -> None
     %1 = call fn0(4.0) -> bb1
   bb1:
     %0 = copy %1
-    %2 = call fn1(copy %1, 3.0) -> bb2
+    %2 = call fn1(copy %0, 3.0) -> bb2
   bb2:
     %3 = call @console_log(copy %2) -> bb3
   bb3:

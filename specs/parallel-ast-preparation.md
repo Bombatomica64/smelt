@@ -19,6 +19,17 @@ Smelt currently does multiple related operations over the same source:
 
 Ruff and Oxc do not appear to parallelize a single file's AST parse internally. Their useful pattern for Smelt is task-level parallelism: schedule independent files across workers, then combine results in deterministic order.
 
+Current pressure point: the 2026-05-15 full `date-fns` TS manifest
+(`/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml`) now passes `smelt check` and reaches
+full Rust emission. Initial profiling found a Rust codegen cliff in repeated function-name and
+signature scans; precomputing those indexes moves the emission-only build to the next functional
+diagnostic, `date timestamp must be numeric`. A later flamegraph and phase timings showed the next
+large hot path was manifest dependency discovery: it rebuilt `oxc_resolver` state per import and
+re-read already-seen dependencies. Reusing resolver state and skipping duplicate dependency reads
+moved release full-manifest `check` to about `1.8s` and release emission-only `build` to about
+`2.7s`. Parallel source preparation remains useful for larger package graphs, but date-fns no
+longer needs it before it can be used as a tight compatibility loop.
+
 ## Non-Goals
 
 - Do not parallelize parsing within a single source file.
@@ -324,4 +335,3 @@ cargo clippy
 - Should `check` and `build` share a prepared-source cache inside one process if both are ever run together?
 - Should source prep cache across process runs be part of the later package artifact/cache work?
 - Should TypeScript import scanning stay cheap and line-based until Oxc AST reuse is needed for correctness?
-

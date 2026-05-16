@@ -369,16 +369,22 @@ fn lowers_empty_case_grouped_with_default_body() -> Result<(), String> {
 }
 
 #[test]
-fn rejects_coercive_equality() -> Result<(), String> {
+fn lowers_coercive_equality_as_strict_equality() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let errors = lowering_errors(
+    let module_id = lower_ok(
         ts!("function same(a: number, b: number): boolean {
   return a == b;
+}
+function different(a: number, b: number): boolean {
+  return a != b;
 }
 "),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&errors, "coercive equality")
+    let module = module(&ctx, module_id)?;
+    ensure_eq!(module.items.len(), 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
 }
 
 #[test]

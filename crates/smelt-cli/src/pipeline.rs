@@ -9,7 +9,7 @@ use std::{
 
 use smelt_hir::format_compact;
 
-use crate::{config::Config, lowering, manifest::resolve_manifest_path, stubs};
+use crate::{config::Config, lowering, manifest::resolve_manifest_path, stubs, timing};
 
 /// Parses a Python file and dumps the Ruff AST for CLI debugging.
 pub(crate) fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -52,14 +52,21 @@ pub(crate) fn print_mir(krate: &smelt_hir::Crate) -> Result<(), Box<dyn std::err
 pub(crate) fn lower_to_optimized_mir(
     krate: &smelt_hir::Crate,
 ) -> Result<smelt_mir::Mir, Box<dyn std::error::Error>> {
-    let mut mir = smelt_mir::lower_hir(krate).map_err(|errors| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("MIR lowering failed:\n{errors:#?}"),
-        )
+    let mut mir = timing::measure("mir.lower_hir", || {
+        smelt_mir::lower_hir(krate).map_err(|errors| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("MIR lowering failed:\n{errors:#?}"),
+            )
+        })
     })?;
-    smelt_mir::opt::optimize(&mut mir);
-    let validation_errors = smelt_mir::validate(&mir);
+    timing::measure("mir.optimize", || {
+        smelt_mir::opt::optimize(&mut mir);
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })?;
+    let validation_errors = timing::measure("mir.validate", || {
+        Ok::<_, Box<dyn std::error::Error>>(smelt_mir::validate(&mir))
+    })?;
     if !validation_errors.is_empty() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -75,8 +82,12 @@ pub(crate) fn build_rust_crate(
     config: &Config,
     manifest_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (krate, modules) = lowering::lower_manifest_entries(config, manifest_path)?;
-    stubs::emit_type_declarations(&krate, &modules)?;
+    let (krate, modules) = timing::measure("manifest.lower", || {
+        lowering::lower_manifest_entries(config, manifest_path)
+    })?;
+    timing::measure("stubs.emit", || {
+        stubs::emit_type_declarations(&krate, &modules)
+    })?;
     let mir = lower_to_optimized_mir(&krate)?;
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let output_dir = resolve_manifest_path(manifest_dir, config.output_target());
@@ -84,14 +95,16 @@ pub(crate) fn build_rust_crate(
         .output_crate_name()
         .unwrap_or_else(|| config.project_name())
         .replace('-', "_");
-    smelt_codegen_rust::emit_crate(
-        &mir,
-        &output_dir,
-        &smelt_codegen_rust::EmitOptions::new(crate_name),
-    )?;
+    timing::measure("rust.emit_crate", || {
+        smelt_codegen_rust::emit_crate(
+            &mir,
+            &output_dir,
+            &smelt_codegen_rust::EmitOptions::new(crate_name),
+        )
+    })?;
 
     if config.should_build_output() {
-        build_generated_crate(&output_dir)?;
+        timing::measure("rust.cargo_build", || build_generated_crate(&output_dir))?;
     }
 
     Ok(())
@@ -102,8 +115,12 @@ pub(crate) fn check_manifest(
     config: &Config,
     manifest_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let (krate, modules) = lowering::lower_manifest_entries(config, manifest_path)?;
-    stubs::emit_type_declarations(&krate, &modules)?;
+    let (krate, modules) = timing::measure("manifest.lower", || {
+        lowering::lower_manifest_entries(config, manifest_path)
+    })?;
+    timing::measure("stubs.emit", || {
+        stubs::emit_type_declarations(&krate, &modules)
+    })?;
     Ok(())
 }
 

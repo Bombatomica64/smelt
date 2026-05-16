@@ -1,7 +1,7 @@
 fn add (FuncId(0)) -> Float
   locals
-    %0 param: Float
-    %1 param: Float
+    %0 param a: Float
+    %1 param b: Float
     %2 temp: Float
   bb0:
     %2 = copy %0 + copy %1

@@ -368,14 +368,8 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::Multiplication => BinOp::Mul,
                     BinaryOperator::Division => BinOp::Div,
                     BinaryOperator::Remainder => BinOp::Rem,
-                    BinaryOperator::StrictEquality => BinOp::Eq,
-                    BinaryOperator::StrictInequality => BinOp::NotEq,
-                    BinaryOperator::Equality | BinaryOperator::Inequality => {
-                        return Err(SmeltError::unsupported(
-                            self.span(binary.span.start, binary.span.end),
-                            "coercive equality is not lowered; use === or !==",
-                        ));
-                    }
+                    BinaryOperator::StrictEquality | BinaryOperator::Equality => BinOp::Eq,
+                    BinaryOperator::StrictInequality | BinaryOperator::Inequality => BinOp::NotEq,
                     BinaryOperator::LessThan => BinOp::Lt,
                     BinaryOperator::LessEqualThan => BinOp::Lte,
                     BinaryOperator::GreaterThan => BinOp::Gt,
@@ -397,13 +391,20 @@ impl ModuleBuilder<'_> {
                 };
                 let lhs = self.expression(&binary.left, body)?;
                 let rhs = self.expression(&binary.right, body)?;
+                let lhs_ty = Self::expr_ty(body, lhs);
+                let rhs_ty = Self::expr_ty(body, rhs);
                 let ty = if matches!(
                     op,
                     BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
                 ) {
                     self.ctx.krate.types.intern(Type::Bool)
+                } else if op == BinOp::Add
+                    && (self.is_string_compatible_type(lhs_ty)
+                        || self.is_string_compatible_type(rhs_ty))
+                {
+                    self.ctx.krate.types.intern(Type::String)
                 } else {
-                    Self::expr_ty(body, lhs)
+                    lhs_ty
                 };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::BinOp { op, lhs, rhs },

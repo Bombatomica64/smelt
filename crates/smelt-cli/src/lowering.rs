@@ -11,6 +11,7 @@ use crate::manifest::{
     ManifestSource, dependency_closure, order_manifest_sources, read_manifest_source,
     resolve_manifest_path,
 };
+use crate::timing;
 
 /// Source language inferred from a file path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +82,8 @@ struct FrontendLoweringState {
     ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
     /// TypeScript interface heritage edges visible across manifest entries.
     ts_interface_extends: HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
+    /// TypeScript interface call signatures visible across manifest entries.
+    ts_interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
     /// TypeScript callable intersection fields visible across manifest entries.
     ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
     /// Python module/package namespaces visible through `import package`.
@@ -163,19 +166,28 @@ pub(crate) fn lower_manifest_entries(
     manifest_path: &Path,
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let root_sources = config
-        .entries()
-        .iter()
-        .map(|path| resolve_manifest_path(manifest_dir, path))
-        .map(read_manifest_source)
-        .collect::<Result<Vec<_>, _>>()?;
-    let sources = dependency_closure(root_sources)?;
+    let root_sources = timing::measure("manifest.read_roots", || {
+        config
+            .entries()
+            .iter()
+            .map(|path| resolve_manifest_path(manifest_dir, path))
+            .map(read_manifest_source)
+            .collect::<Result<Vec<_>, _>>()
+    })?;
+    let sources = timing::measure("manifest.dependency_closure", || {
+        dependency_closure(root_sources)
+    })?;
 
-    let ordered_sources = order_manifest_sources(&sources)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?
-        .into_iter()
-        .filter_map(|idx| sources.get(idx))
-        .collect::<Vec<_>>();
+    let ordered_sources = timing::measure("manifest.order_sources", || {
+        order_manifest_sources(&sources)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))
+            .map(|ordered| {
+                ordered
+                    .into_iter()
+                    .filter_map(|idx| sources.get(idx))
+                    .collect::<Vec<_>>()
+            })
+    })?;
 
     if ordered_sources.is_empty() {
         return Err(io::Error::new(
@@ -185,7 +197,9 @@ pub(crate) fn lower_manifest_entries(
         .into());
     }
 
-    lower_ordered_manifest_sources(&ordered_sources)
+    timing::measure("manifest.frontend_lower", || {
+        lower_ordered_manifest_sources(&ordered_sources)
+    })
 }
 
 /// Lowers already ordered manifest files into one shared HIR crate.
@@ -231,6 +245,7 @@ fn lower_manifest_source(
                 overloads: state.ts_overloads,
                 type_alias_fields: state.ts_type_alias_fields,
                 interface_extends: state.ts_interface_extends,
+                interface_call_signatures: state.ts_interface_call_signatures,
                 callable_fields: state.ts_callable_fields,
             };
             let module = smelt_frontend_ts::to_hir_with_path(
@@ -255,6 +270,7 @@ fn lower_manifest_source(
                     ts_overloads: ctx.overloads,
                     ts_type_alias_fields: ctx.type_alias_fields,
                     ts_interface_extends: ctx.interface_extends,
+                    ts_interface_call_signatures: ctx.interface_call_signatures,
                     ts_callable_fields: ctx.callable_fields,
                     py_module_namespaces: state.py_module_namespaces,
                     py_enum_members: state.py_enum_members,
@@ -289,6 +305,7 @@ fn lower_manifest_source(
                     ts_overloads: state.ts_overloads,
                     ts_type_alias_fields: state.ts_type_alias_fields,
                     ts_interface_extends: state.ts_interface_extends,
+                    ts_interface_call_signatures: state.ts_interface_call_signatures,
                     ts_callable_fields: state.ts_callable_fields,
                     py_module_namespaces: ctx.module_namespaces,
                     py_enum_members: ctx.enum_members,

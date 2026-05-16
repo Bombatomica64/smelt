@@ -125,7 +125,17 @@ impl ModuleBuilder<'_> {
                 ));
             }
         }
-        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let item_ty = if let Some(type_args) = &new_expr.type_arguments {
+            let [item] = type_args.params.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(new_expr.span.start, new_expr.span.end),
+                    "new Array(...) supports exactly one type argument",
+                ));
+            };
+            self.ts_type_to_hir(item)?
+        } else {
+            self.ctx.krate.types.intern(Type::Unknown)
+        };
         let ty = self.ctx.krate.types.intern(Type::List(item_ty));
         Ok(body.push_expr(Expr {
             kind: ExprKind::ListLit(Vec::new()),
@@ -215,7 +225,7 @@ impl ModuleBuilder<'_> {
             .transpose()?;
         let haystack_ty = Self::expr_ty(body, haystack);
         let separator_ty = Self::expr_ty(body, separator);
-        if self.ctx.krate.types.get(haystack_ty) != Some(&Type::String)
+        if !(self.is_string_compatible_type(haystack_ty) || self.type_contains_unknown(haystack_ty))
             || !self.string_split_separator_type_is_supported(separator_ty)
         {
             return Err(SmeltError::unsupported(
@@ -703,19 +713,13 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let op = match binary.operator {
-            BinaryOperator::Equality | BinaryOperator::Inequality => {
-                return Err(SmeltError::unsupported(
-                    self.span(binary.span.start, binary.span.end),
-                    "coercive equality is not supported",
-                ));
-            }
             BinaryOperator::Addition => BinOp::Add,
             BinaryOperator::Subtraction => BinOp::Sub,
             BinaryOperator::Multiplication => BinOp::Mul,
             BinaryOperator::Division => BinOp::Div,
             BinaryOperator::Remainder => BinOp::Rem,
-            BinaryOperator::StrictEquality => BinOp::Eq,
-            BinaryOperator::StrictInequality => BinOp::NotEq,
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => BinOp::Eq,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => BinOp::NotEq,
             BinaryOperator::LessThan => BinOp::Lt,
             BinaryOperator::LessEqualThan => BinOp::Lte,
             BinaryOperator::GreaterThan => BinOp::Gt,
@@ -1762,10 +1766,7 @@ impl ModuleBuilder<'_> {
         } else if let Some((_, function_ty)) = &hint_function {
             function_ty.return_ty
         } else {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "function expressions without return annotations need a function type hint",
-            ));
+            self.ctx.krate.types.intern(Type::Unknown)
         };
 
         let saved_locals = std::mem::take(&mut self.locals);
@@ -1791,10 +1792,7 @@ impl ModuleBuilder<'_> {
                         )
                     })?
                 } else {
-                    return Err(SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "function expression parameters need annotations or a function type hint",
-                    ));
+                    self.ctx.krate.types.intern(Type::Unknown)
                 };
                 let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
                     return Err(SmeltError::unsupported(

@@ -196,13 +196,18 @@ impl FunctionEmitter<'_> {
                     let data_arg = args
                         .get(1)
                         .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
-                    rendered_args.push(
-                        self.rest_vector_unknown_adapter_text(first_arg)?
-                            .unwrap_or(self.operand_text(first_arg)?),
-                    );
+                    let callback_param = function.params.first().ok_or_else(|| {
+                        EmitError::new("purry function is missing callback param")
+                    })?;
+                    let callback_ty = self.function_local_decl(function, *callback_param)?.ty;
+                    rendered_args.push(self.function_param_argument_text(first_arg, callback_ty)?);
                     rendered_args.push(self.operand_text(data_arg)?);
                     if let Some(lazy_arg) = args.get(2) {
-                        rendered_args.push(self.operand_text(lazy_arg)?);
+                        let lazy_param = function.params.get(2).ok_or_else(|| {
+                            EmitError::new("purry function is missing lazy param")
+                        })?;
+                        let lazy_ty = self.function_local_decl(function, *lazy_param)?.ty;
+                        rendered_args.push(self.operand_as_type_text(lazy_arg, lazy_ty)?);
                     } else {
                         rendered_args.push("None".to_owned());
                     }
@@ -217,8 +222,12 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .zip(function.params.iter())
                     .map(|(arg, param)| {
-                        let local = self.local_decl(*param)?;
-                        self.operand_as_type_text(arg, local.ty)
+                        let local = self.function_local_decl(function, *param)?;
+                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
+                            self.function_param_argument_text(arg, local.ty)
+                        } else {
+                            self.operand_as_type_text(arg, local.ty)
+                        }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 for param in function.params.iter().skip(args.len()) {
@@ -234,6 +243,31 @@ impl FunctionEmitter<'_> {
             }
             Callee::Indirect(_) => Err(EmitError::new("indirect calls are not implemented yet")),
         }
+    }
+
+    /// Converts a function call to Rust text and coerces it to the destination type.
+    pub(super) fn call_text_for_dest(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let call_text = self.call_text(callee, args)?;
+        let source_ty = match callee {
+            Callee::Builtin(BuiltinFn::ConsoleLog) => self.none_ty,
+            Callee::Static(func) => {
+                let function = self
+                    .mir
+                    .functions
+                    .get(id_index(func.0, "function index does not fit usize")?)
+                    .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+                function.return_ty
+            }
+            Callee::Indirect(_) => {
+                return Err(EmitError::new("indirect calls are not implemented yet"));
+            }
+        };
+        self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
     }
 
     /// Returns the Rust suffix needed when calling a throwing function.

@@ -326,7 +326,13 @@ pub struct LocalDecl {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LocalKind {
     /// A function parameter.
-    Param,
+    Param {
+        /// Source symbol when this parameter comes from a named source-level declaration.
+        ///
+        /// Synthetic parameters (for example callback bridge slots) may not have
+        /// a user-authored name and keep this value as `None`.
+        symbol: Option<Symbol>,
+    },
     /// A compiler-generated temporary.
     Temp,
     /// A user-defined binding (variable).
@@ -501,6 +507,13 @@ pub enum Rvalue {
         class: Symbol,
         /// Field initializers.
         fields: Vec<(Symbol, Operand)>,
+    },
+    /// Construct an imported class value whose implementation is not part of this crate.
+    ExternalClassInstance {
+        /// The imported class being constructed.
+        class: Symbol,
+        /// Constructor arguments, kept so their expressions are lowered before erasure.
+        args: Vec<Operand>,
     },
     /// Compute the length of a value.
     Len(Operand),
@@ -686,6 +699,17 @@ pub enum Rvalue {
         haystack: Operand,
         /// Replacement text.
         replacement: Operand,
+    },
+    /// Replace regex matches with the result of a callback.
+    RegexReplaceCallback {
+        /// Replacement operation to apply.
+        op: smelt_hir::StringReplaceOp,
+        /// Regex pattern text.
+        pattern: Operand,
+        /// String value to transform.
+        haystack: Operand,
+        /// Callback receiving the matched text and returning replacement text.
+        callback: Operand,
     },
     /// Replace the first regex match with its uppercase text.
     RegexReplaceFirstMatchUppercase {

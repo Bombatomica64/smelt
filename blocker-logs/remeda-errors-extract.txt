@@ -1,0 +1,1215 @@
+780-16488 +     let mut _smelt_tmp_2 = |arg0, arg1| { arg0 < arg1 };
+781-      |
+782-
+783:error[E0525]: expected a closure that implements the `Fn` trait, but this closure only implements `FnMut`
+784-   --> src/main.rs:123:34
+785-    |
+786-123 |     let mut data_last = Box::new(move |arg0| IntoSmeltUnknown::into_smelt_unknown((_smelt_tmp_4)(arg0)));
+--
+793-    |
+794-    = note: required for `Box<{closure@src/main.rs:123:34: 123:45}>` to implement `Fn(SmeltUnknown)`
+795-
+796:error[E0282]: type annotations needed
+797-   --> src/main.rs:194:29
+798-    |
+799-194 |     let mut _smelt_tmp_2 = |arg0, arg1, arg2| { arg0(data) };
+--
+804-194 |     let mut _smelt_tmp_2 = |arg0: /* Type */, arg1, arg2| { arg0(data) };
+805-    |                                 ++++++++++++
+806-
+807:error[E0282]: type annotations needed
+808-   --> src/main.rs:209:29
+809-    |
+810-209 |     let mut _smelt_tmp_2 = |arg0, arg1, arg2| { arg0(data) };
+--
+815-209 |     let mut _smelt_tmp_2 = |arg0: /* Type */, arg1, arg2| { arg0(data) };
+816-    |                                 ++++++++++++
+817-
+818:error[E0277]: the `?` operator can only be used in a closure that returns `Result` or `Option` (or another type that implements `FromResidual`)
+819-   --> src/main.rs:313:114
+820-    |
+821-312 |     let mut _smelt_tmp_1 = |closure_arg_0: Vec<SmeltUnknown>, closure_arg_1: f64| {
+--
+823-313 |     let _smelt_tmp_2: Vec<Vec<SmeltUnknown>> = chunk_implementation(closure_arg_0.clone(), closure_arg_1.clone())?;
+824-    |                                                                                                                  ^ cannot use the `?` operator in a closure that returns `Vec<Vec<SmeltUnknown>>`
+825-
+826:error[E0057]: this function takes 3 arguments but 2 arguments were supplied
+827-    --> src/main.rs:1296:37
+828-     |
+829-1296 |     let mut _smelt_tmp_5 = |arg0| { implementation(arg0, args.clone()) };
+--
+834-1296 |     let mut _smelt_tmp_5 = |arg0| { implementation(arg0, /* SmeltUnknown */, args.clone()) };
+835-     |                                                          +++++++++++++++++++
+836-
+837:error[E0277]: the `?` operator can only be used in a closure that returns `Result` or `Option` (or another type that implements `FromResidual`)
+838-    --> src/main.rs:1312:102
+839-     |
+840-1311 |     let mut _smelt_tmp_2 = |closure_arg_0: SmeltUnknown, closure_arg_1: Vec<SmeltUnknown>| {
+--
+842-1312 |     let _smelt_tmp_2: SmeltUnknown = conditional_implementation(closure_arg_0.clone(), closure_arg_1)?;
+843-     |                                                                                                      ^ cannot use the `?` operator in a closure that returns `SmeltUnknown`
+844-
+845:error[E0308]: mismatched types
+846-    --> src/main.rs:1315:153
+847-     |
+848-1315 | ...tUnknown::into_smelt_unknown((_smelt_tmp_2)(arg0, arg1)), args.clone());
+--
+858-1311 |     let mut _smelt_tmp_2 = |closure_arg_0: SmeltUnknown, closure_arg_1: Vec<SmeltUnknown>| {
+859-     |                                                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+860-
+861:error[E0618]: expected function, found `SmeltUnknown`
+862-    --> src/main.rs:1328:38
+863-     |
+864-1326 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+869-     |                                      |
+870-     |                                      call expression requires function
+871-
+872:error[E0618]: expected function, found `SmeltUnknown`
+873-    --> src/main.rs:1346:38
+874-     |
+875-1344 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+880-     |                                      |
+881-     |                                      call expression requires function
+882-
+883:error[E0618]: expected function, found `SmeltUnknown`
+884-    --> src/main.rs:1364:38
+885-     |
+886-1362 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+891-     |                                      |
+892-     |                                      call expression requires function
+893-
+894:error[E0618]: expected function, found `SmeltUnknown`
+895-    --> src/main.rs:1382:38
+896-     |
+897-1380 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+902-     |                                      |
+903-     |                                      call expression requires function
+904-
+905:error[E0618]: expected function, found `SmeltUnknown`
+906-    --> src/main.rs:1400:38
+907-     |
+908-1398 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+913-     |                                      |
+914-     |                                      call expression requires function
+915-
+916:error[E0618]: expected function, found `SmeltUnknown`
+917-    --> src/main.rs:1418:38
+918-     |
+919-1416 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+924-     |                                      |
+925-     |                                      call expression requires function
+926-
+927:error[E0618]: expected function, found `SmeltUnknown`
+928-    --> src/main.rs:1436:38
+929-     |
+930-1434 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+935-     |                                      |
+936-     |                                      call expression requires function
+937-
+938:error[E0618]: expected function, found `SmeltUnknown`
+939-    --> src/main.rs:1454:38
+940-     |
+941-1452 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+946-     |                                      |
+947-     |                                      call expression requires function
+948-
+949:error[E0618]: expected function, found `SmeltUnknown`
+950-    --> src/main.rs:1472:38
+951-     |
+952-1470 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+957-     |                                      |
+958-     |                                      call expression requires function
+959-
+960:error[E0618]: expected function, found `SmeltUnknown`
+961-    --> src/main.rs:1490:38
+962-     |
+963-1488 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+968-     |                                      |
+969-     |                                      call expression requires function
+970-
+971:error[E0618]: expected function, found `SmeltUnknown`
+972-    --> src/main.rs:1508:38
+973-     |
+974-1506 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+979-     |                                      |
+980-     |                                      call expression requires function
+981-
+982:error[E0618]: expected function, found `SmeltUnknown`
+983-    --> src/main.rs:1526:38
+984-     |
+985-1524 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+990-     |                                      |
+991-     |                                      call expression requires function
+992-
+993:error[E0618]: expected function, found `SmeltUnknown`
+994-    --> src/main.rs:1544:38
+995-     |
+996-1542 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1001-     |                                      |
+1002-     |                                      call expression requires function
+1003-
+1004:error[E0618]: expected function, found `SmeltUnknown`
+1005-    --> src/main.rs:1562:38
+1006-     |
+1007-1560 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1012-     |                                      |
+1013-     |                                      call expression requires function
+1014-
+1015:error[E0618]: expected function, found `SmeltUnknown`
+1016-    --> src/main.rs:1580:38
+1017-     |
+1018-1578 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1023-     |                                      |
+1024-     |                                      call expression requires function
+1025-
+1026:error[E0618]: expected function, found `SmeltUnknown`
+1027-    --> src/main.rs:1598:38
+1028-     |
+1029-1596 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1034-     |                                      |
+1035-     |                                      call expression requires function
+1036-
+1037:error[E0618]: expected function, found `SmeltUnknown`
+1038-    --> src/main.rs:1616:38
+1039-     |
+1040-1614 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1045-     |                                      |
+1046-     |                                      call expression requires function
+1047-
+1048:error[E0618]: expected function, found `SmeltUnknown`
+1049-    --> src/main.rs:1634:38
+1050-     |
+1051-1632 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1056-     |                                      |
+1057-     |                                      call expression requires function
+1058-
+1059:error[E0618]: expected function, found `SmeltUnknown`
+1060-    --> src/main.rs:1652:38
+1061-     |
+1062-1650 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1067-     |                                      |
+1068-     |                                      call expression requires function
+1069-
+1070:error[E0618]: expected function, found `SmeltUnknown`
+1071-    --> src/main.rs:1670:38
+1072-     |
+1073-1668 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1078-     |                                      |
+1079-     |                                      call expression requires function
+1080-
+1081:error[E0618]: expected function, found `SmeltUnknown`
+1082-    --> src/main.rs:1688:38
+1083-     |
+1084-1686 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1089-     |                                      |
+1090-     |                                      call expression requires function
+1091-
+1092:error[E0618]: expected function, found `SmeltUnknown`
+1093-    --> src/main.rs:1706:38
+1094-     |
+1095-1704 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1100-     |                                      |
+1101-     |                                      call expression requires function
+1102-
+1103:error[E0618]: expected function, found `SmeltUnknown`
+1104-    --> src/main.rs:1724:38
+1105-     |
+1106-1722 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1111-     |                                      |
+1112-     |                                      call expression requires function
+1113-
+1114:error[E0618]: expected function, found `SmeltUnknown`
+1115-    --> src/main.rs:1742:38
+1116-     |
+1117-1740 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1122-     |                                      |
+1123-     |                                      call expression requires function
+1124-
+1125:error[E0618]: expected function, found `SmeltUnknown`
+1126-    --> src/main.rs:1760:38
+1127-     |
+1128-1758 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1133-     |                                      |
+1134-     |                                      call expression requires function
+1135-
+1136:error[E0618]: expected function, found `SmeltUnknown`
+1137-    --> src/main.rs:1778:38
+1138-     |
+1139-1776 |     let current: SmeltUnknown = cases.get({ let len = cases.len() as i64; let index = _smelt_tmp_5.clone() as i64; let normalized = if in...
+--
+1144-     |                                      |
+1145-     |                                      call expression requires function
+1146-
+1147:error[E0282]: type annotations needed
+1148-    --> src/main.rs:1951:52
+1149-     |
+1150-1951 | ...ox::new(move |smelt_args| _smelt_tmp_27(if let SmeltUnknown::Array(value) = smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null) {...
+--
+1155-1951 |     let mut handle_debounced_call = Box::new(move |smelt_args: /* Type */| _smelt_tmp_27(if let SmeltUnknown::Array(value) = smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null) { value } else { panic!("unknown is not array") }));
+1156-     |                                                              ++++++++++++
+1157-
+1158:error[E0308]: mismatched types
+1159-    --> src/main.rs:1962:53
+1160-     |
+1161-1962 |     let _smelt_tmp_15: SmeltUnknown = _smelt_tmp_14(closure_arg_0.clone().into_iter().map(|value| value).collect::<Vec<_>>());
+--
+1171-2218 | impl<Args: Tuple, F: Fn<Args> + ?Sized, A: Allocator> Fn<Args> for Box<F, A> {
+1172-     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1173-
+1174:error[E0277]: the trait bound `Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>: Clone` is not satisfied
+1175-    --> src/main.rs:2060:338
+1176-     |
+1177-2060 | ...ds") }).cloned().expect("index out of bounds");
+--
+1193-2060 |     let lazy_function: Option<Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>> = (&lazy_functions.get({ let len = lazy_functions.len() as i64; let index = function_index.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") })).cloned().expect("index out of bounds");
+1194-     |                                                                                                       ++                                                                                                                                                                                                                                          +
+1195-
+1196:error[E0277]: the trait bound `Box<dyn FnMut(SmeltUnknown) -> SmeltUnknown>: Clone` is not satisfied
+1197-    --> src/main.rs:2067:304
+1198-     |
+1199-2067 | ... out of bounds") }).cloned().expect("index out of bounds"))(arg0)));
+--
+1213-2067 |     let mut func = Box::new(move |arg0| IntoSmeltUnknown::into_smelt_unknown(((&functions.get({ let len = functions.len() as i64; let index = function_index.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") })).cloned().expect("index out of bounds"))(arg0)));
+1214-     |                                                                               ++                                                                                                                                                                                                                                +
+1215-
+1216:error[E0277]: the trait bound `Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>: Clone` is not satisfied
+1217-    --> src/main.rs:2080:323
+1218-     |
+1219-2080 | ...ds") }).cloned().expect("index out of bounds");
+--
+1235-2080 |     let lazy_op: Option<Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>> = (&lazy_functions.get({ let len = lazy_functions.len() as i64; let index = index.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") })).cloned().expect("index out of bounds");
+1236-     |                                                                                                 ++                                                                                                                                                                                                                                 +
+1237-
+1238:error[E0308]: mismatched types
+1239-    --> src/main.rs:2048:102
+1240-     |
+1241-2048 | fn pipe_37(input: SmeltUnknown, mut functions: Vec<Box<dyn FnMut(SmeltUnknown) -> SmeltUnknown>>) -> SmeltUnknown {
+--
+1249-2049 |     let mut output: SmeltUnknown = input.clone();
+1250-     |             ^^^^^^
+1251-
+1252:error[E0609]: no field `has_next` on type `SmeltUnknown`
+1253-    --> src/main.rs:2107:20
+1254-     |
+1255-2107 |     if lazy_result.has_next.clone() {
+1256-     |                    ^^^^^^^^ unknown field
+1257-
+1258:error[E0277]: the trait bound `Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>: Clone` is not satisfied
+1259-    --> src/main.rs:2113:337
+1260-     |
+1261-2113 | ...ds") }).cloned().expect("index out of bounds");
+--
+1276-2113 |     let __smelt_for_item: (i64, Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>) = (&_smelt_tmp_17.get({ let len = _smelt_tmp_17.len() as i64; let index = _smelt_tmp_18.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") })).cloned().expect("index out of bounds");
+1277-     |                                                                                                         ++                                                                                                                                                                                                                                       +
+1278-
+1279:error[E0609]: no field `has_next` on type `SmeltUnknown`
+1280-    --> src/main.rs:2123:20
+1281-     |
+1282-2123 |     if lazy_result.has_next.clone() {
+1283-     |                    ^^^^^^^^ unknown field
+1284-
+1285:error[E0609]: no field `has_many` on type `SmeltUnknown`
+1286-    --> src/main.rs:2124:84
+1287-     |
+1288-2124 |     let _smelt_tmp_24: bool = if let SmeltUnknown::Bool(value) = match lazy_result.has_many.clone() { SmeltUnknown::Null => SmeltUnknown:...
+1289-     |                                                                                    ^^^^^^^^ unknown field
+1290-
+1291:error[E0308]: mismatched types
+1292-    --> src/main.rs:2123:37
+1293-     |
+1294-2123 |       if lazy_result.has_next.clone() {
+--
+1303-2125 +     _smelt_tmp_24
+1304-     |
+1305-
+1306:error[E0609]: no field `has_next` on type `SmeltUnknown`
+1307-    --> src/main.rs:2126:44
+1308-     |
+1309-2126 |     let _smelt_tmp_32: bool = !lazy_result.has_next.clone();
+1310-     |                                            ^^^^^^^^ unknown field
+1311-
+1312:error[E0308]: mismatched types
+1313-    --> src/main.rs:2125:12
+1314-     |
+1315-2125 |       } else {
+--
+1318-2127 | |     }
+1319-     | |_____^ expected `bool`, found `()`
+1320-
+1321:error[E0308]: mismatched types
+1322-    --> src/main.rs:2157:61
+1323-     |
+1324-2157 |     let _smelt_tmp_13: SmeltUnknown = pipe_37(data.clone(), lazy_definition.clone());
+--
+1334-2048 | fn pipe_37(input: SmeltUnknown, mut functions: Vec<Box<dyn FnMut(SmeltUnknown) -> SmeltUnknown>>) -> SmeltUnknown {
+1335-     |    ^^^^^^^                      ----------------------------------------------------------------
+1336-
+1337:error[E0308]: mismatched types
+1338-    --> src/main.rs:2165:69
+1339-     |
+1340-2165 |     let _smelt_tmp_2: SmeltUnknown = pipe_37(closure_arg_0.clone(), lazy_definition_1.clone());
+--
+1350-2048 | fn pipe_37(input: SmeltUnknown, mut functions: Vec<Box<dyn FnMut(SmeltUnknown) -> SmeltUnknown>>) -> SmeltUnknown {
+1351-     |    ^^^^^^^                      ----------------------------------------------------------------
+1352-
+1353:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+1354-    --> src/main.rs:2179:54
+1355-     |
+1356-2179 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+1365-     = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+1366-     = note: consider using `--verbose` to print the full type name to the console
+1367-
+1368:error[E0308]: mismatched types
+1369-    --> src/main.rs:2191:45
+1370-     |
+1371-2191 |     return Box::new(move |arg0, arg1, arg2| (_smelt_tmp_5)(arg0));
+--
+1378-2191 |     return Box::new(move |arg0, arg1, arg2| SmeltUnknown::Object((_smelt_tmp_5)(arg0)));
+1379-     |                                             +++++++++++++++++++++                    +
+1380-
+1381:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+1382-    --> src/main.rs:2226:54
+1383-     |
+1384-2226 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+1393-     = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+1394-     = note: consider using `--verbose` to print the full type name to the console
+1395-
+1396:error[E0308]: mismatched types
+1397-    --> src/main.rs:2262:339
+1398-     |
+1399-2262 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null), if let SmeltUnknown::Number(value) = smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null) { value } else { panic!("unknown is not number") })), args.clone(), _smelt_tmp_2.clone())?;
+--
+1407- 135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+1408-     |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+1409-
+1410:error[E0308]: mismatched types
+1411-    --> src/main.rs:2273:45
+1412-     |
+1413-2273 |     return Box::new(move |arg0, arg1, arg2| (_smelt_tmp_3)(arg0));
+--
+1420-2273 |     return Box::new(move |arg0, arg1, arg2| SmeltUnknown::Object((_smelt_tmp_3)(arg0)));
+1421-     |                                             +++++++++++++++++++++                    +
+1422-
+1423:error[E0308]: mismatched types
+1424-    --> src/main.rs:3486:46
+1425-     |
+1426-3486 |     let mut arg_removed: Vec<SmeltUnknown> = ();
+--
+1431-     = note: expected struct `Vec<SmeltUnknown>`
+1432-             found unit type `()`
+1433-
+1434:error[E0282]: type annotations needed
+1435-    --> src/main.rs:3500:30
+1436-     |
+1437-3500 |     let mut _smelt_tmp_14 = |arg0| { func(arg0.drain(..).collect::<Vec<_>>(), arg) };
+--
+1442-3500 |     let mut _smelt_tmp_14 = |arg0: /* Type */| { func(arg0.drain(..).collect::<Vec<_>>(), arg) };
+1443-     |                                  ++++++++++++
+1444-
+1445:error[E0057]: this function takes 3 arguments but 2 arguments were supplied
+1446-    --> src/main.rs:3500:38
+1447-     |
+1448-3500 |     let mut _smelt_tmp_14 = |arg0| { func(arg0.drain(..).collect::<Vec<_>>(), arg) };
+--
+1453-3500 |     let mut _smelt_tmp_14 = |arg0| { func(arg0.drain(..).collect::<Vec<_>>(), /* Box<(dyn FnMut(SmeltUnknown, SmeltUnknown) -> f64 + 'static)> */, arg) };
+1454-     |                                                                               ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+1455-
+1456:error[E0277]: the trait bound `Box<dyn FnMut(SmeltUnknown, SmeltUnknown) -> bool>: Clone` is not satisfied
+1457-    --> src/main.rs:3523:73
+1458-     |
+1459-3523 |     let mut comparator = Box::new(_smelt_tmp_11.get(&direction.clone()).cloned().expect("index out of bounds"));
+--
+1473-3523 |     let mut comparator = Box::new((&_smelt_tmp_11.get(&direction.clone())).cloned().expect("index out of bounds"));
+1474-     |                                   ++                                     +
+1475-
+1476:error[E0277]: the `?` operator can only be used in a closure that returns `Result` or `Option` (or another type that implements `FromResidual`)
+1477-    --> src/main.rs:3619:138
+1478-     |
+1479-3618 | ... = |closure_arg_0: Vec<SmeltUnknown>, mut closure_arg_1: Box<dyn FnMut(SmeltUnknown, SmeltUnknown) -> f64>, closure_arg_2: f64| {
+--
+1481-3619 | ...c<SmeltUnknown> = drop_first_by_implementation(closure_arg_0.clone(), &mut *closure_arg_1, closure_arg_2.clone())?;
+1482-     |                                                                                                                     ^ cannot use the `?` operator in a closure that returns `Vec<SmeltUnknown>`
+1483-
+1484:error[E0308]: mismatched types
+1485-    --> src/main.rs:3622:163
+1486-     |
+1487-3622 | ...SmeltUnknown::into_smelt_unknown((_smelt_tmp_1)(arg0, arg1, arg2)), args.clone());
+--
+1495-3618 | ...arg_1: Box<dyn FnMut(SmeltUnknown, SmeltUnknown) -> f64>, closure_arg_2: f64| {
+1496-     |                                                              ^^^^^^^^^^^^^^^^^^
+1497-
+1498:error[E0689]: can't call method `max` on ambiguous numeric type `{float}`
+1499-    --> src/main.rs:4009:33
+1500-     |
+1501-4009 |     let _smelt_tmp_6: f64 = 0.0.max(_smelt_tmp_5.clone());
+--
+1506-4009 |     let _smelt_tmp_6: f64 = 0.0_f32.max(_smelt_tmp_5.clone());
+1507-     |                                ++++
+1508-
+1509:error[E0308]: mismatched types
+1510-    --> src/main.rs:5341:14
+1511-     |
+1512-5341 |       if false {
+--
+1514-5342 | |     } else {
+1515-     | |_____^ expected `SmeltUnknown`, found `()`
+1516-
+1517:error[E0308]: mismatched types
+1518-    --> src/main.rs:5342:12
+1519-     |
+1520-5342 |       } else {
+--
+1522-5343 | |     }
+1523-     | |_____^ expected `SmeltUnknown`, found `()`
+1524-
+1525:error[E0308]: mismatched types
+1526-    --> src/main.rs:5352:234
+1527-     |
+1528-5352 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(Default::default(), Box::new(move |arg0: SmeltUnknown, arg1: f64, arg2: Vec<SmeltUnknown>| false))), args.clone(), _smelt_tmp_2.clone())?;
+--
+1536- 135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+1537-     |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+1538-
+1539:error[E0308]: mismatched types
+1540-    --> src/main.rs:5373:234
+1541-     |
+1542-5373 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(Default::default(), Box::new(move |arg0: SmeltUnknown, arg1: f64, arg2: Vec<SmeltUnknown>| false))), args.clone(), _smelt_tmp_3.clone())?;
+--
+1550- 135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+1551-     |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+1552-
+1553:error[E0308]: mismatched types
+1554-    --> src/main.rs:6633:155
+1555-     |
+1556-6633 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(Default::default())), args.clone(), _smelt_tmp_3.clone())?;
+--
+1564- 135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+1565-     |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+1566-
+1567:error[E0277]: the `?` operator can only be used on `Option`s, not `Result`s, in a closure that returns `Option`
+1568-    --> src/main.rs:6649:113
+1569-     |
+1570-6648 |     let mut _smelt_tmp_1 = |closure_arg_0: Vec<SmeltUnknown>, mut closure_arg_1: Box<dyn FnMut(SmeltUnknown, SmeltUnknown) -> f64>| {
+--
+1572-6649 |     let _smelt_tmp_2: Option<SmeltUnknown> = first_by_implementation(closure_arg_0.clone(), &mut *closure_arg_1)?;
+1573-     |                                                                                                                 ^ use `.ok()?` if you want to discard the `Result<Infallible, Box<dyn std::error::Error>>` error information
+1574-
+1575:error[E0308]: mismatched types
+1576-    --> src/main.rs:6739:247
+1577-     |
+1578-6739 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(Default::default(), Box::new(move |arg0: SmeltUnknown, arg1: f64, arg2: Vec<SmeltUnknown>| Default::default()))), args.clone(), _smelt_tmp_2.clone())?;
+--
+1586- 135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+1587-     |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+1588-
+1589:error[E0308]: mismatched types
+1590-    --> src/main.rs:6764:231
+1591-     |
+1592-6764 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(Default::default(), Box::new(move |arg0: SmeltUnknown, arg1: f64, arg2: Vec<SmeltUnknown>| ()))), args.clone(), _smelt_tmp_2.clone())?;
+--
+1600- 135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+1601-     |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+1602-
+1603:error[E0277]: cannot subtract `f64` from `i64`
+1604-    --> src/main.rs:6937:42
+1605-     |
+1606-6937 |     let _smelt_tmp_36: i64 = now.clone() - burst_start_timestamp.clone().unwrap_or(0.0);
+--
+1614-               `i64` implements `Sub<zerocopy::byteorder::I64<O>>`
+1615-               `i64` implements `Sub`
+1616-
+1617:error[E0277]: cannot subtract `i64` from `f64`
+1618-    --> src/main.rs:6938:75
+1619-     |
+1620-6938 |     let _smelt_tmp_37: f64 = max_burst_duration_ms.clone().unwrap_or(0.0) - _smelt_tmp_36.clone();
+--
+1628-               `f64` implements `Sub<zerocopy::byteorder::F64<O>>`
+1629-               `f64` implements `Sub`
+1630-
+1631:error[E0689]: can't call method `max` on ambiguous numeric type `{float}`
+1632-    --> src/main.rs:6939:34
+1633-     |
+1634-6939 |     let _smelt_tmp_38: f64 = 0.0.max(_smelt_tmp_37.clone());
+--
+1639-6939 |     let _smelt_tmp_38: f64 = 0.0_f32.max(_smelt_tmp_37.clone());
+1640-     |                                 ++++
+1641-
+1642:error[E0277]: cannot subtract `f64` from `i64`
+1643-    --> src/main.rs:6997:42
+1644-     |
+1645-6997 |     let _smelt_tmp_36: i64 = now.clone() - burst_start_timestamp.clone().unwrap_or(0.0);
+--
+1653-               `i64` implements `Sub<zerocopy::byteorder::I64<O>>`
+1654-               `i64` implements `Sub`
+1655-
+1656:error[E0277]: cannot subtract `i64` from `f64`
+1657-    --> src/main.rs:6998:75
+1658-     |
+1659-6998 |     let _smelt_tmp_37: f64 = max_burst_duration_ms.clone().unwrap_or(0.0) - _smelt_tmp_36.clone();
+--
+1667-               `f64` implements `Sub<zerocopy::byteorder::F64<O>>`
+1668-               `f64` implements `Sub`
+1669-
+1670:error[E0689]: can't call method `max` on ambiguous numeric type `{float}`
+1671-    --> src/main.rs:6999:34
+1672-     |
+1673-6999 |     let _smelt_tmp_38: f64 = 0.0.max(_smelt_tmp_37.clone());
+--
+1678-6999 |     let _smelt_tmp_38: f64 = 0.0_f32.max(_smelt_tmp_37.clone());
+1679-     |                                 ++++
+1680-
+1681:error[E0308]: mismatched types
+1682-    --> src/main.rs:8902:125
+1683-     |
+1684-8902 | fn is_deep_equal_sets(data: ::std::collections::HashSet<SmeltUnknown>, other: ::std::collections::HashSet<SmeltUnknown>) -> bool {
+--
+1693-8914 |     let _smelt_tmp_15: bool = _smelt_tmp_13.clone() < _smelt_tmp_14.clone();
+1694-     |         ^^^^^^^^^^^^^
+1695-
+1696:error[E0277]: the `?` operator can only be used in a closure that returns `Result` or `Option` (or another type that implements `FromResidual`)
+1697-    --> src/main.rs:8929:105
+1698-     |
+1699-8928 |     let mut _smelt_tmp_1 = |closure_arg_0: SmeltUnknown, closure_arg_1: SmeltUnknown| {
+--
+1701-8929 |     let _smelt_tmp_2: bool = has_sub_object_implementation(closure_arg_0.clone(), closure_arg_1.clone())?;
+1702-     |                                                                                                         ^ cannot use the `?` operator in a closure that returns `bool`
+1703-
+1704:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+1705-    --> src/main.rs:9417:54
+1706-     |
+1707-9417 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+1716-     = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+1717-     = note: consider using `--verbose` to print the full type name to the console
+1718-
+1719:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+1720-    --> src/main.rs:9477:54
+1721-     |
+1722-9477 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+1731-     = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+1732-     = note: consider using `--verbose` to print the full type name to the console
+1733-
+1734:error[E0308]: mismatched types
+1735-     --> src/main.rs:11522:247
+1736-      |
+1737-11522 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(Default::default(), Box::new(move |arg0: SmeltUnknown, arg1: f64, arg2: Vec<SmeltUnknown>| Default::default()))), args.clone(), _smelt_tmp_2.clone())?;
+--
+1745-  135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+1746-      |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+1747-
+1748:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+1749-     --> src/main.rs:11617:54
+1750-      |
+1751-11617 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+1760-      = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+1761-      = note: consider using `--verbose` to print the full type name to the console
+1762-
+1763:error[E0277]: the `?` operator can only be used on `Option`s, not `Result`s, in a closure that returns `Option`
+1764-     --> src/main.rs:11646:88
+1765-      |
+1766-11645 |     let mut _smelt_tmp_1 = |closure_arg_0: SmeltUnknown| {
+--
+1768-11646 |     let _smelt_tmp_1: Option<SmeltUnknown> = mean_implementation(closure_arg_0.clone())?;
+1769-      |                                                                                        ^ use `.ok()?` if you want to discard the `Result<Infallible, Box<dyn std::error::Error>>` error information
+1770-
+1771:error[E0369]: cannot divide `SmeltUnknown` by `f64`
+1772-     --> src/main.rs:11662:59
+1773-      |
+1774-11662 |     let _smelt_tmp_6: SmeltUnknown = _smelt_tmp_4.clone() / _smelt_tmp_5.clone();
+--
+1787-  462 | pub const trait Div<Rhs = Self> {
+1788-      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1789-
+1790:error[E0369]: cannot add `SmeltUnknown` to `SmeltUnknown`
+1791-     --> src/main.rs:11735:60
+1792-      |
+1793-11735 |     let _smelt_tmp_17: String = SmeltUnknown::Null.clone() + SmeltUnknown::Null.clone();
+--
+1806-   77 | pub const trait Add<Rhs = Self> {
+1807-      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+1808-
+1809:error[E0308]: mismatched types
+1810-     --> src/main.rs:11786:82
+1811-      |
+1812-11786 | fn merge_deep_implementation(destination: SmeltUnknown, source: SmeltUnknown) -> SmeltUnknown {
+--
+1820-11786 | fn merge_deep_implementation(destination: SmeltUnknown, source: SmeltUnknown) -> SmeltUnknown {
+1821-      |                              ^^^^^^^^^^^                ^^^^^^
+1822-
+1823:error[E0308]: mismatched types
+1824-     --> src/main.rs:12426:29
+1825-      |
+1826-12426 |       if _smelt_tmp_9.clone() {
+--
+1828-12427 | |     } else {
+1829-      | |_____^ expected `f64`, found `()`
+1830-
+1831:error[E0308]: mismatched types
+1832-     --> src/main.rs:12427:12
+1833-      |
+1834-12427 |       } else {
+--
+1844-12430 +     _smelt_tmp_12
+1845-      |
+1846-
+1847:error[E0308]: mismatched types
+1848-     --> src/main.rs:12455:163
+1849-      |
+1850-12455 | ...SmeltUnknown::into_smelt_unknown((_smelt_tmp_1)(arg0, arg1, arg2)), args.clone());
+--
+1858-12451 | ...arg_1: Box<dyn FnMut(SmeltUnknown, SmeltUnknown) -> f64>, closure_arg_2: f64| {
+1859-      |                                                              ^^^^^^^^^^^^^^^^^^
+1860-
+1861:error[E0277]: the `?` operator can only be used in a closure that returns `Result` or `Option` (or another type that implements `FromResidual`)
+1862-     --> src/main.rs:12489:140
+1863-      |
+1864-12488 | ..._tmp_1 = |closure_arg_0: SmeltUnknown, closure_arg_1: SmeltUnknown| {
+--
+1866-12489 | ..._2: ::std::collections::HashMap<String, SmeltUnknown> = omit_implementation(closure_arg_0.clone(), closure_arg_1.clone())?;
+1867-      |                                                                                                                             ^ cannot use the `?` operator in a closure that returns `HashMap<String, SmeltUnknown>`
+1868-
+1869:error[E0282]: type annotations needed
+1870-     --> src/main.rs:12595:34
+1871-      |
+1872-12595 |     let mut _smelt_tmp_2 = move |arg0| { func(partial.clone(), arg0.clone()) };
+--
+1877-12595 |     let mut _smelt_tmp_2 = move |arg0: /* Type */| { func(partial.clone(), arg0.clone()) };
+1878-      |                                      ++++++++++++
+1879-
+1880:error[E0618]: expected function, found `SmeltUnknown`
+1881-     --> src/main.rs:12595:42
+1882-      |
+1883-12594 | fn partial_bind(func: SmeltUnknown, partial: Vec<SmeltUnknown>) -> Box<dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown> {
+--
+1887-      |                                          |
+1888-      |                                          call expression requires function
+1889-
+1890:error[E0282]: type annotations needed
+1891-     --> src/main.rs:12600:34
+1892-      |
+1893-12600 |     let mut _smelt_tmp_2 = move |arg0| { func(arg0.clone(), partial.clone()) };
+--
+1898-12600 |     let mut _smelt_tmp_2 = move |arg0: /* Type */| { func(arg0.clone(), partial.clone()) };
+1899-      |                                      ++++++++++++
+1900-
+1901:error[E0618]: expected function, found `SmeltUnknown`
+1902-     --> src/main.rs:12600:42
+1903-      |
+1904-12599 | fn partial_last_bind(func: SmeltUnknown, partial: Vec<SmeltUnknown>) -> Box<dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown> {
+--
+1908-      |                                          |
+1909-      |                                          call expression requires function
+1910-
+1911:error[E0061]: this function takes 2 arguments but 3 arguments were supplied
+1912-     --> src/main.rs:12765:37
+1913-      |
+1914-12765 |     let mut _smelt_tmp_5 = |arg0| { prop_implementation(arg0, maybe_data, args.clone()) };
+--
+1925-12765 +     let mut _smelt_tmp_5 = |arg0| { prop_implementation(arg0, args.clone()) };
+1926-      |
+1927-
+1928:error[E0277]: the `?` operator can only be used in a closure that returns `Result` or `Option` (or another type that implements `FromResidual`)
+1929-     --> src/main.rs:14029:100
+1930-      |
+1931-14028 |     let mut _smelt_tmp_1 = |closure_arg_0: f64, closure_arg_1: SmeltUnknown| {
+--
+1933-14029 |     let _smelt_tmp_2: Vec<f64> = range_implementation(closure_arg_0.clone(), closure_arg_1.clone())?;
+1934-      |                                                                                                    ^ cannot use the `?` operator in a closure that returns `Vec<f64>`
+1935-
+1936:error[E0609]: no field `step` on type `SmeltUnknown`
+1937-     --> src/main.rs:14037:64
+1938-      |
+1939-14037 |     let _smelt_tmp_5: SmeltUnknown = if false { end_or_options.step.clone() } else { SmeltUnknown::Number(1.0 as f64) };
+1940-      |                                                                ^^^^ unknown field
+1941-
+1942:error[E0609]: no field `end` on type `SmeltUnknown`
+1943-     --> src/main.rs:14043:95
+1944-      |
+1945-14043 |     let _smelt_tmp_7: String = if false { if let SmeltUnknown::String(value) = end_or_options.end.clone() { value } else { panic!("unknow...
+1946-      |                                                                                               ^^^ unknown field
+1947-
+1948:error[E0369]: cannot subtract `f64` from `String`
+1949-     --> src/main.rs:14045:44
+1950-      |
+1951-14045 |     let _smelt_tmp_8: String = end.clone() - start.clone();
+--
+1959-  353 | pub struct String {
+1960-      | ^^^^^^^^^^^^^^^^^ `String` is defined in another crate
+1961-
+1962:error[E0277]: the trait bound `f64: Eq` is not satisfied
+1963-     --> src/main.rs:14176:59
+1964-      |
+1965-14176 |     let _smelt_tmp_12: ::std::collections::HashSet<f64> = ::std::collections::HashSet::from([]);
+--
+1977-              and 4 others
+1978-      = note: required for `HashSet<f64>` to implement `From<[f64; 0]>`
+1979-
+1980:error[E0277]: the trait bound `f64: Hash` is not satisfied
+1981-     --> src/main.rs:14176:59
+1982-      |
+1983-14176 |     let _smelt_tmp_12: ::std::collections::HashSet<f64> = ::std::collections::HashSet::from([]);
+--
+1995-              and 4 others
+1996-      = note: required for `HashSet<f64>` to implement `From<[f64; 0]>`
+1997-
+1998:error[E0606]: casting `&usize` as `f64` is invalid
+1999-     --> src/main.rs:14196:113
+2000-      |
+2001-14196 |     let _smelt_tmp_26: Vec<SmeltUnknown> = data.clone().iter().enumerate().filter(|(index, item)| { let index = index as f64; !(sample_in...
+--
+2006-14196 |     let _smelt_tmp_26: Vec<SmeltUnknown> = data.clone().iter().enumerate().filter(|(index, item)| { let index = *index as f64; !(sample_indices.iter().any(|value| *value == index)) }).map(|(_, item)| item.clone()).collect::<Vec<_>>();
+2007-      |                                                                                                                 +
+2008-
+2009:error[E0605]: non-primitive cast: `SmeltUnknown` as `i64`
+2010-     --> src/main.rs:14242:62
+2011-      |
+2012-14242 | ...= { let len = copy.len() as i64; let index = pivot.clone() as i64; let normalized = if index < 0 { len + index } else { index }; usize...
+--
+2014-      |
+2015-      = note: see https://doc.rust-lang.org/reference/items/enumerations.html#casting for more information
+2016-
+2017:error[E0282]: type annotations needed
+2018-     --> src/main.rs:14295:34
+2019-      |
+2020-14295 |     let mut _smelt_tmp_5 = move |arg0| { arg0.slice(data_or_index_start, index_start_or_index_end) };
+--
+2025-14295 |     let mut _smelt_tmp_5 = move |arg0: /* Type */| { arg0.slice(data_or_index_start, index_start_or_index_end) };
+2026-      |                                      ++++++++++++
+2027-
+2028:error[E0308]: mismatched types
+2029-     --> src/main.rs:14382:120
+2030-      |
+2031-14382 |     let _smelt_tmp_6: f64 = binary_search_cutoff_index(data.clone(), &mut move |arg0, arg1, arg2| (_smelt_tmp_5)(arg0, arg1));
+--
+2045-14382 |     let _smelt_tmp_6: f64 = binary_search_cutoff_index(data.clone(), &mut move |arg0, arg1, arg2| (_smelt_tmp_5)(arg0, Some(arg1)));
+2046-      |                                                                                                                        +++++    +
+2047-
+2048:error[E0308]: mismatched types
+2049-     --> src/main.rs:14423:121
+2050-      |
+2051-14423 |     let _smelt_tmp_6: f64 = binary_search_cutoff_index(array.clone(), &mut move |arg0, arg1, arg2| (_smelt_tmp_5)(arg0, arg1));
+--
+2065-14423 |     let _smelt_tmp_6: f64 = binary_search_cutoff_index(array.clone(), &mut move |arg0, arg1, arg2| (_smelt_tmp_5)(arg0, Some(arg1)));
+2066-      |                                                                                                                         +++++    +
+2067-
+2068:error[E0282]: type annotations needed
+2069-     --> src/main.rs:14447:29
+2070-      |
+2071-14447 |     let mut _smelt_tmp_6 = |arg0| { arg0.split(data_or_separator, separator_or_limit) };
+--
+2076-14447 |     let mut _smelt_tmp_6 = |arg0: /* Type */| { arg0.split(data_or_separator, separator_or_limit) };
+2077-      |                                 ++++++++++++
+2078-
+2079:error[E0308]: mismatched types
+2080-     --> src/main.rs:14533:125
+2081-      |
+2082-14533 | ...one()).expect("regex compile failed").find(&path.clone()).map(|m| vec![m.as_str().to_owned()]);
+--
+2092-  232 |     pub fn find<'h>(&self, haystack: &'h str) -> Option<Match<'h>> {
+2093-      |            ^^^^
+2094-
+2095:error[E0609]: no field `prop_name` on type `SmeltUnknown`
+2096-     --> src/main.rs:14540:49
+2097-      |
+2098-14540 |     let prop_name: SmeltUnknown = _smelt_tmp_12.prop_name.clone();
+2099-      |                                                 ^^^^^^^^^ unknown field
+2100-
+2101:error[E0609]: no field `quoted` on type `SmeltUnknown`
+2102-     --> src/main.rs:14541:46
+2103-      |
+2104-14541 |     let quoted: SmeltUnknown = _smelt_tmp_12.quoted.clone();
+2105-      |                                              ^^^^^^ unknown field
+2106-
+2107:error[E0609]: no field `double_quoted` on type `SmeltUnknown`
+2108-     --> src/main.rs:14542:53
+2109-      |
+2110-14542 |     let double_quoted: SmeltUnknown = _smelt_tmp_12.double_quoted.clone();
+2111-      |                                                     ^^^^^^^^^^^^^ unknown field
+2112-
+2113:error[E0609]: no field `unquoted` on type `SmeltUnknown`
+2114-     --> src/main.rs:14543:48
+2115-      |
+2116-14543 |     let unquoted: SmeltUnknown = _smelt_tmp_12.unquoted.clone();
+2117-      |                                                ^^^^^^^^ unknown field
+2118-
+2119:error[E0308]: mismatched types
+2120-     --> src/main.rs:14546:30
+2121-      |
+2122-14546 |       if _smelt_tmp_14.clone() {
+--
+2124-14547 | |     } else {
+2125-      | |_____^ expected `SmeltUnknown`, found `()`
+2126-
+2127:error[E0308]: mismatched types
+2128-     --> src/main.rs:14547:12
+2129-      |
+2130-14547 |       } else {
+--
+2133-14549 | |     }
+2134-      | |_____^ expected `SmeltUnknown`, found `()`
+2135-
+2136:error[E0609]: no field `done` on type `SmeltUnknown`
+2137-     --> src/main.rs:14580:52
+2138-      |
+2139-14580 |     let _smelt_tmp_12: bool = false && first_entry.done.clone();
+2140-      |                                                    ^^^^ unknown field
+2141-
+2142:error[E0609]: no field `value` on type `SmeltUnknown`
+2143-     --> src/main.rs:14584:51
+2144-      |
+2145-14584 |     let _smelt_tmp_13: SmeltUnknown = first_entry.value.clone();
+2146-      |                                                   ^^^^^ unknown field
+2147-
+2148:error[E0369]: cannot add `SmeltUnknown` to `SmeltUnknown`
+2149-     --> src/main.rs:14596:51
+2150-      |
+2151-14596 |     let _smelt_tmp_19: SmeltUnknown = sum.clone() + summand.clone();
+--
+2164-   77 | pub const trait Add<Rhs = Self> {
+2165-      | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2166-
+2167:error[E0308]: mismatched types
+2168-     --> src/main.rs:14700:339
+2169-      |
+2170-14700 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null), if let SmeltUnknown::Number(value) = smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null) { value } else { panic!("unknown is not number") })), args.clone(), _smelt_tmp_2.clone())?;
+--
+2178-  135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+2179-      |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+2180-
+2181:error[E0308]: mismatched types
+2182-     --> src/main.rs:14715:45
+2183-      |
+2184-14715 |     return Box::new(move |arg0, arg1, arg2| (_smelt_tmp_4)(arg0));
+--
+2191-14715 |     return Box::new(move |arg0, arg1, arg2| SmeltUnknown::Object((_smelt_tmp_4)(arg0)));
+2192-      |                                             +++++++++++++++++++++                    +
+2193-
+2194:error[E0277]: the `?` operator can only be used in a closure that returns `Result` or `Option` (or another type that implements `FromResidual`)
+2195-     --> src/main.rs:14734:138
+2196-      |
+2197-14733 | ... = |closure_arg_0: Vec<SmeltUnknown>, mut closure_arg_1: Box<dyn FnMut(SmeltUnknown, SmeltUnknown) -> f64>, closure_arg_2: f64| {
+--
+2199-14734 | ...c<SmeltUnknown> = take_first_by_implementation(closure_arg_0.clone(), &mut *closure_arg_1, closure_arg_2.clone())?;
+2200-      |                                                                                                                     ^ cannot use the `?` operator in a closure that returns `Vec<SmeltUnknown>`
+2201-
+2202:error[E0308]: mismatched types
+2203-     --> src/main.rs:14737:163
+2204-      |
+2205-14737 | ...SmeltUnknown::into_smelt_unknown((_smelt_tmp_1)(arg0, arg1, arg2)), args.clone());
+--
+2213-14733 | ...arg_1: Box<dyn FnMut(SmeltUnknown, SmeltUnknown) -> f64>, closure_arg_2: f64| {
+2214-      |                                                              ^^^^^^^^^^^^^^^^^^
+2215-
+2216:error[E0689]: can't call method `max` on ambiguous numeric type `{float}`
+2217-     --> src/main.rs:15029:33
+2218-      |
+2219-15029 |     let _smelt_tmp_6: f64 = 0.0.max(_smelt_tmp_5.clone());
+--
+2224-15029 |     let _smelt_tmp_6: f64 = 0.0_f32.max(_smelt_tmp_5.clone());
+2225-      |                                ++++
+2226-
+2227:error[E0525]: expected a closure that implements the `Fn` trait, but this closure only implements `FnMut`
+2228-     --> src/main.rs:15826:28
+2229-      |
+2230-15826 |     let mut _smelt_tmp_7 = || {
+--
+2238-      |
+2239-      = note: required for `Box<{closure@src/main.rs:15826:28: 15826:30}>` to implement `Fn()`
+2240-
+2241:error[E0282]: type annotations needed
+2242-     --> src/main.rs:15914:116
+2243-      |
+2244-15914 | ...rmat!("{}{}", "".to_owned(), (if (arg1 == 0.0) { Default::default().to_lowercase() } else { Default::default().to_uppercase() }).to_st...
+2245-      |                                                     ^^^^^^^^^^^^^^^^^^ cannot infer type
+2246-
+2247:error[E0282]: type annotations needed
+2248-     --> src/main.rs:15914:159
+2249-      |
+2250-15914 | ....0) { Default::default().to_lowercase() } else { Default::default().to_uppercase() }).to_string()), (if (preserve_consecutive_uppercas...
+2251-      |                                                     ^^^^^^^^^^^^^^^^^^ cannot infer type
+2252-
+2253:error[E0308]: mismatched types
+2254-     --> src/main.rs:15914:249
+2255-      |
+2256-15914 | ...ercase() }).to_string()), (if (preserve_consecutive_uppercase != ()) { match &arg0 { SmeltUnknown::String(value) => value.chars().skip...
+--
+2261-      = note:   expected enum `Option<bool>`
+2262-              found unit type `()`
+2263-
+2264:error[E0282]: type annotations needed
+2265-     --> src/main.rs:15915:221
+2266-      |
+2267-15915 | ...mat!("{}{}", "".to_owned(), (if (index == 0.0) { Default::default().to_lowercase() } else { Default::default().to_uppercase() }).to_st...
+2268-      |                                                     ^^^^^^^^^^^^^^^^^^ cannot infer type
+2269-
+2270:error[E0282]: type annotations needed
+2271-     --> src/main.rs:15915:264
+2272-      |
+2273-15915 | ....0) { Default::default().to_lowercase() } else { Default::default().to_uppercase() }).to_string()), (if (preserve_consecutive_uppercas...
+2274-      |                                                     ^^^^^^^^^^^^^^^^^^ cannot infer type
+2275-
+2276:error[E0308]: mismatched types
+2277-     --> src/main.rs:15915:354
+2278-      |
+2279-15915 | ...ercase() }).to_string()), (if (preserve_consecutive_uppercase != ()) { match &item { SmeltUnknown::String(value) => value.chars().skip...
+--
+2284-      = note:   expected enum `Option<bool>`
+2285-              found unit type `()`
+2286-
+2287:error[E0308]: mismatched types
+2288-     --> src/main.rs:15974:72
+2289-      |
+2290-15974 |     let mut _smelt_tmp_4 = |arg0| { to_title_case_implementation(arg0, data_or_options) };
+--
+2304-15974 |     let mut _smelt_tmp_4 = |arg0| { to_title_case_implementation(arg0, data_or_options.expect("REASON")) };
+2305-      |                                                                                       +++++++++++++++++
+2306-
+2307:error[E0282]: type annotations needed
+2308-     --> src/main.rs:15992:97
+2309-      |
+2310-15992 |     let mut _smelt_tmp_8 = |arg0, arg1, arg2| { format!("{}{}", format!("{}{}", "".to_owned(), (Default::default().to_uppercase()).to_str...
+2311-      |                                                                                                 ^^^^^^^^^^^^^^^^^^ cannot infer type
+2312-
+2313:error[E0308]: mismatched types
+2314-     --> src/main.rs:15992:185
+2315-      |
+2316-15992 | ...ppercase()).to_string()), (if (preserve_consecutive_uppercase != ()) { match &arg0 { SmeltUnknown::String(value) => value.chars().skip...
+--
+2321-      = note:   expected enum `Option<bool>`
+2322-              found unit type `()`
+2323-
+2324:error[E0282]: type annotations needed
+2325-     --> src/main.rs:15993:175
+2326-      |
+2327-15993 | ... format!("{}{}", format!("{}{}", "".to_owned(), (Default::default().to_uppercase()).to_string()), (if (preserve_consecutive_uppercase ...
+2328-      |                                                     ^^^^^^^^^^^^^^^^^^ cannot infer type
+2329-
+2330:error[E0308]: mismatched types
+2331-     --> src/main.rs:15993:263
+2332-      |
+2333-15993 | ...ppercase()).to_string()), (if (preserve_consecutive_uppercase != ()) { match &item { SmeltUnknown::String(value) => value.chars().skip...
+--
+2338-      = note:   expected enum `Option<bool>`
+2339-              found unit type `()`
+2340-
+2341:error[E0308]: arguments to this function are incorrect
+2342-     --> src/main.rs:16018:37
+2343-      |
+2344-16018 |     let mut _smelt_tmp_5 = |arg0| { truncate_implementation(arg0, data_or_n, n_or_options) };
+--
+2357-16018 +     let mut _smelt_tmp_5 = |arg0| { truncate_implementation(arg0, /* f64 */, data_or_n) };
+2358-      |
+2359-
+2360:error[E0624]: method `len` is private
+2361-     --> src/main.rs:16037:39
+2362-      |
+2363-16037 |     let _smelt_tmp_15: f64 = omission.len() as f64;
+--
+2378-16037 |     let _smelt_tmp_15: f64 = omission.expect("REASON").len() as f64;
+2379-      |                                      +++++++++++++++++
+2380-
+2381:error[E0624]: method `len` is private
+2382-     --> src/main.rs:16045:39
+2383-      |
+2384-16045 |     let _smelt_tmp_20: f64 = omission.len() as f64;
+--
+2399-16045 |     let _smelt_tmp_20: f64 = omission.expect("REASON").len() as f64;
+2400-      |                                      +++++++++++++++++
+2401-
+2402:error[E0609]: no field `flags` on type `Option<SmeltUnknown>`
+2403-     --> src/main.rs:16062:80
+2404-      |
+2405-16062 |     let _smelt_tmp_26: String = if let SmeltUnknown::String(value) = separator.flags.clone() { value } else { panic!("unknown is not stri...
+2406-      |                                                                                ^^^^^ unknown field
+2407-
+2408:error[E0609]: no field `source` on type `Option<SmeltUnknown>`
+2409-     --> src/main.rs:16095:80
+2410-      |
+2411-16095 |     let _smelt_tmp_28: String = if let SmeltUnknown::String(value) = separator.source.clone() { value } else { panic!("unknown is not str...
+2412-      |                                                                                ^^^^^^ unknown field
+2413-
+2414:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+2415-     --> src/main.rs:16152:54
+2416-      |
+2417-16152 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+2426-      = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+2427-      = note: consider using `--verbose` to print the full type name to the console
+2428-
+2429:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+2430-     --> src/main.rs:16175:54
+2431-      |
+2432-16175 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+2441-      = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+2442-      = note: consider using `--verbose` to print the full type name to the console
+2443-
+2444:error[E0282]: type annotations needed
+2445-     --> src/main.rs:16180:43
+2446-      |
+2447-16180 |     let mut _smelt_tmp_3 = Box::new(move |smelt_args| key_function(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null), if let Smelt...
+--
+2452-16180 |     let mut _smelt_tmp_3 = Box::new(move |smelt_args: /* Type */| key_function(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null), if let SmeltUnknown::Number(value) = smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null) { value } else { panic!("unknown is not number") }, Default::default()));
+2453-      |                                                     ++++++++++++
+2454-
+2455:error[E0282]: type annotations needed
+2456-     --> src/main.rs:16181:51
+2457-      |
+2458-16181 | ...Box::new(move |smelt_args| _smelt_tmp_3(if let SmeltUnknown::Array(value) = smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null) {...
+--
+2463-16181 |     let mut branded_key_function = Box::new(move |smelt_args: /* Type */| _smelt_tmp_3(if let SmeltUnknown::Array(value) = smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null) { value } else { panic!("unknown is not array") }));
+2464-      |                                                             ++++++++++++
+2465-
+2466:error[E0277]: expected a `FnMut(Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+2467-     --> src/main.rs:16202:54
+2468-      |
+2469-16202 |     let _smelt_tmp_2: SmeltUnknown = purry_from_lazy(&mut _smelt_tmp_1, args.clone())?;
+--
+2478-      = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-17889074748369619430.txt'
+2479-      = note: consider using `--verbose` to print the full type name to the console
+2480-
+2481:error[E0282]: type annotations needed
+2482-     --> src/main.rs:16218:35
+2483-      |
+2484-16218 |     let mut _smelt_tmp_4 = |arg0, arg1| { when_implementation(arg0, args.clone(), arg1.clone()) };
+--
+2489-16218 |     let mut _smelt_tmp_4 = |arg0, arg1: /* Type */| { when_implementation(arg0, args.clone(), arg1.clone()) };
+2490-      |                                       ++++++++++++
+2491-
+2492:error[E0061]: this function takes 4 arguments but 3 arguments were supplied
+2493-     --> src/main.rs:16218:43
+2494-      |
+2495-16218 |     let mut _smelt_tmp_4 = |arg0, arg1| { when_implementation(arg0, args.clone(), arg1.clone()) };
+--
+2506-16218 +     let mut _smelt_tmp_4 = |arg0, arg1| { when_implementation(arg0, /* &mut dyn FnMut(SmeltUnknown, Vec<SmeltUnknown>) -> bool */, arg1.clone(), args.clone()) };
+2507-      |
+2508-
+2509:error[E0277]: expected a `FnMut(SmeltUnknown, Vec<SmeltUnknown>)` closure, found `SmeltUnknown`
+2510-     --> src/main.rs:16223:302
+2511-      |
+2512-16223 | ...), &mut args.get({ let len = args.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds"), a...
+--
+2519-      | ^^^^^^^^^^^^^^^^^^^^^
+2520-      = note: required for the cast from `&mut SmeltUnknown` to `&mut dyn FnMut(SmeltUnknown, Vec<SmeltUnknown>) -> bool`
+2521-
+2522:error[E0618]: expected function, found `SmeltUnknown`
+2523-     --> src/main.rs:16234:38
+2524-      |
+2525-16229 | ...ata: SmeltUnknown, mut predicate: &mut dyn FnMut(SmeltUnknown, Vec<SmeltUnknown>) -> bool, mut on_true_or_branches: SmeltUnknown, extr...
+--
+2530-      |                 |
+2531-      |                 call expression requires function
+2532-
+2533:error[E0308]: mismatched types
+2534-     --> src/main.rs:16263:251
+2535-      |
+2536-16263 | ... = purry_1(&mut move |smelt_args| IntoSmeltUnknown::into_smelt_unknown(_smelt_tmp_1(smelt_args.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null))), args.clone(), _smelt_tmp_2.clone())?;
+--
+2544-  135 | fn purry_1(mut fn_: &mut dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown, args: Vec<SmeltUnknown>, mut lazy: Option<Box<dyn FnMut(Vec<SmeltUnknown>) -> Box<dyn FnMut(SmeltUnknown, f64, Vec<SmeltUnknown>) -> SmeltUnknown>>>) -...
+2545-      |    ^^^^^^^                                                                                      ---------------------------------------------------------------------------------------------------------------------------
+2546-
+2547:error[E0790]: cannot call associated function on trait without specifying the corresponding `impl` type
+2548-     --> src/main.rs:16274:60
+2549-      |
+2550-16274 |     let mut _smelt_tmp_7 = |arg0, arg1, arg2| { vec![arg0, Default::default()] };
+--
+2555-16274 |     let mut _smelt_tmp_7 = |arg0, arg1, arg2| { vec![arg0, </* self type */ as Default>::default()] };
+2556-      |                                                            +++++++++++++++++++        +
+2557-
+2558:error[E0308]: mismatched types
+2559-     --> src/main.rs:16289:84
+2560-      |
+2561-16289 |     let mut _smelt_tmp_3 = move |arg0, arg1| { zip_with_implementation(arg0, arg1, arg0) };
+--
+2571-16310 | fn zip_with_implementation(first: SmeltUnknown, second: SmeltUnknown, mut fn_: &mut dyn FnMut(SmeltUnknown, SmeltUnknown, f64, (SmeltUnknown, SmeltUnknown)) -> SmeltUnknown) -...
+2572-      |    ^^^^^^^^^^^^^^^^^^^^^^^                                            ------------------------------------------------------------------------------------------------------
+2573-
+2574:error[E0277]: expected a `FnMut(SmeltUnknown, SmeltUnknown, f64, (SmeltUnknown, SmeltUnknown))` closure, found `dyn FnMut(SmeltUnknown, SmeltUnknown, f64, (Vec<...>, ...)) -> ...`
+2575-     --> src/main.rs:16304:149
+2576-      |
+2577-16304 | ...eltUnknown::Null, |value| SmeltUnknown::Null), &mut _smelt_tmp_9);
+--
+2585-      = note: the full name for the type has been written to '/home/lollo/Playground/smelt/third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-3742b1215520bd38.long-type-9433364869323256815.txt'
+2586-      = note: consider using `--verbose` to print the full type name to the console
+2587-
+2588:error[E0308]: mismatched types
+2589-     --> src/main.rs:16319:86
+2590-      |
+2591-16319 |     let mut _smelt_tmp_10 = |arg0, arg1, arg2| { fn_(arg0, Default::default(), arg1, datum) };
+--
+2596-      = note: expected tuple `(SmeltUnknown, SmeltUnknown)`
+2597-                found struct `Vec<SmeltUnknown>`
+2598-
+2599:error[E0308]: mismatched types
+2600-     --> src/main.rs:16324:86
+2601-      |
+2602-16324 |     let mut _smelt_tmp_13 = |arg0, arg1, arg2| { fn_(Default::default(), arg0, arg1, datum) };
+--
+2607-      = note: expected tuple `(SmeltUnknown, SmeltUnknown)`
+2608-                found struct `Vec<SmeltUnknown>`
+2609-
+2610:error[E0308]: mismatched types
+2611-     --> src/main.rs:16489:221
+2612-      |
+2613-16487 | ... = |arg0, arg1| { (arg0 > arg1) };
+--
+2629-  264 |     pub fn new(x: T) -> Self {
+2630-      |            ^^^
+2631-
+2632:error[E0308]: mismatched types
+2633-     --> src/main.rs:16489:113
+2634-      |
+2635-16487 | ...tmp_1 = |arg0, arg1| { (arg0 > arg1) };
+--
+4634-      |                                                                                 |
+4635-      |                                                                                 help: remove this `mut`
+4636-
+4637:error[E0594]: cannot assign to `ret`, as it is not declared as mutable
+4638-     --> src/main.rs:12568:5
+4639-      |
+4640-12568 |     ret = _smelt_tmp_4.clone();
+--
+4645-12563 |     let mut ret: SmeltUnknown = SmeltUnknown::Null;
+4646-      |         +++
+4647-
+4648:error[E0594]: cannot assign to `called`, as it is not declared as mutable
+4649-     --> src/main.rs:12569:5
+4650-      |
+4651-12569 |     called = true;
+--
+5630-      |                                     |
+5631-      |                                     help: remove this `mut`
+5632-
+5633:error[E0596]: cannot borrow `set` as mutable, as it is not declared as mutable
+5634-     --> src/main.rs:16165:69
+5635-      |
+5636-16165 |     let _smelt_tmp_4: ::std::collections::HashSet<SmeltUnknown> = { set.insert(closure_arg_0.clone()); set.clone() };

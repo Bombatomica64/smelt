@@ -14,9 +14,9 @@ fn main() {
 }
 
 impl Box {
-    fn new(arg_1: String) -> Self {
+    fn new(value: String) -> Self {
     let mut this: Box = Box { value: String::new() };
-    this.value = arg_1.clone();
+    this.value = value.clone();
     return this;
     }
 }

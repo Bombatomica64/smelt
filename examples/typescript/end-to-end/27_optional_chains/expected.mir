@@ -3,8 +3,8 @@ class User fields [Public name: String, Public scores: List<Float>] constructor 
 fn new (FuncId(0)) -> User
   locals
     %0 user this: User
-    %1 param: String
-    %2 param: List<Float>
+    %1 param name: String
+    %2 param scores: List<Float>
   bb0:
     %0 = struct0 {}
     %0.field1 = copy %1
@@ -13,7 +13,7 @@ fn new (FuncId(0)) -> User
 
 fn label (FuncId(1)) -> String
   locals
-    %0 param: User
+    %0 param this: User
   bb0:
     return "user"
 
@@ -42,22 +42,22 @@ fn main (FuncId(2)) -> None
   bb1:
     %0 = copy %7
     %1 = none
-    %8 = copy %7?.field1
+    %8 = copy %0?.field1
     %2 = copy %8
     %9 = copy %1?.field1
     %3 = copy %9
-    %10 = copy %7?.field2
+    %10 = copy %0?.field2
     %11 = copy %10?.[0.0]
     %4 = copy %11
-    %12 = copy %7?.method3()
+    %12 = copy %0?.method3()
     %5 = copy %12
-    %13 = call @console_log(copy %8) -> bb2
+    %13 = call @console_log(copy %2) -> bb2
   bb2:
-    %14 = call @console_log(copy %9) -> bb3
+    %14 = call @console_log(copy %3) -> bb3
   bb3:
-    %15 = call @console_log(copy %11) -> bb4
+    %15 = call @console_log(copy %4) -> bb4
   bb4:
-    %16 = call @console_log(copy %12) -> bb5
+    %16 = call @console_log(copy %5) -> bb5
   bb5:
     return none
 

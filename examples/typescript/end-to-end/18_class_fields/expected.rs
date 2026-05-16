@@ -15,10 +15,10 @@ fn main() {
 }
 
 impl Point {
-    fn new(arg_1: f64, arg_2: f64) -> Self {
+    fn new(x: f64, y: f64) -> Self {
     let mut this: Point = Point { x: 0.0, y: 0.0 };
-    this.x = arg_1.clone();
-    this.y = arg_2.clone();
+    this.x = x.clone();
+    this.y = y.clone();
     return this;
     }
 }

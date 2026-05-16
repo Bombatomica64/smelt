@@ -3,7 +3,7 @@ class Box fields [Public value: String] constructor Some(FuncId(0)) methods []
 fn new (FuncId(0)) -> Box
   locals
     %0 user this: Box
-    %1 param: String
+    %1 param value: String
   bb0:
     %0 = struct0 {}
     %0.field1 = copy %1

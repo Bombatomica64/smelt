@@ -963,6 +963,27 @@ it("checks instance", () => {
 }
 
 #[test]
+fn lowers_instanceof_on_catch_like_unknown_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { expect, test } from "vitest";
+
+test("range error", () => {
+  try {
+    throw new RangeError("bad");
+  } catch (e) {
+    expect(e instanceof RangeError).toBe(true);
+  }
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_constructor_field_on_date_like_values() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -1676,6 +1697,191 @@ function direction<T>(primaryRule: OrderRule<T>): string {
     )?;
     let _module = module(&ctx, module_id)?;
 
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn calls_callable_branch_of_union_local_and_nested_result() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Curried = ((value: number) => Curried | string) | string;
+
+function run(fn: Curried): string {
+  const first = fn(3);
+  return first(2) as string;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    let closure_calls = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .count();
+    ensure_eq!(closure_calls, 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn calls_overloaded_interface_call_signature_by_argument_count() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Step1 {
+  (): Step1;
+  (value: number): string;
+}
+
+interface Step2 {
+  (): Step2;
+  (value: number): Step1;
+  (value: number, next: number): string;
+}
+
+function run(fn: Step2): string {
+  const first = fn(2);
+  return first(1);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    let closure_calls = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. }))
+        .count();
+    ensure_eq!(closure_calls, 2);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unhinted_function_expression_object_property_as_unknown_callable() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function build(args: { callback?: unknown }): unknown {
+  return args.callback;
+}
+
+const result = build({
+  callback: function (value) {
+    return Number(value) - 1;
+  },
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::Closure { .. })),
+        "expected unhinted function expression property to lower as a closure",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_annotated_arrow_const_with_callable_alias_hint() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type LocalizeFn<Value> = (value: Value, options?: { unit?: string }) => string;
+
+const ordinalNumber: LocalizeFn<number> = (dirtyNumber, options) => {
+  const number = Number(dirtyNumber);
+  const unit = options?.unit;
+  return unit ? String(number) : "0";
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    ensure!(
+        ctx.krate
+            .types
+            .all()
+            .iter()
+            .any(|ty| matches!(ty, Type::Function(function) if function.params.len() == 2))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn ignores_browser_guarded_describe_branch_and_skipped_test() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { describe, it, expect } from "vitest";
+
+describe("browser guard", () => {
+  if (typeof window !== "undefined") {
+    it("browser only", () => {
+      document.body.append("x");
+    });
+  } else {
+    it.skip("browser only", () => {});
+  }
+
+  it("native", () => {
+    expect(1).toBe(1);
+  });
+});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+
+    let tests = ctx
+        .krate
+        .items
+        .iter()
+        .filter(|item| matches!(item, Item::Function(function) if function.is_test))
+        .count();
+    ensure_eq!(tests, 1);
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_for_each_statement_with_tuple_destructuring_param() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { describe, it, expect } from "vitest";
+
+describe("forEach", () => {
+  it("destructures tuple cases", () => {
+    [
+      ["do", "1er"],
+      ["do M", "1er 1"],
+    ].forEach(([formatString, expectedResult]) => {
+      expect(formatString).toBe(formatString);
+      expect(expectedResult).toBe(expectedResult);
+    });
+  });
+});
+"#),
+        &mut ctx,
+    )?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -2577,6 +2783,47 @@ export function partialLastBind<
 "#),
         &mut ctx,
     )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_all_rest_tuple_spread_return_type_as_list() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type IterableContainer = readonly unknown[];
+
+export const concatImplementation = <
+  T1 extends IterableContainer,
+  T2 extends IterableContainer,
+>(
+  arr1: T1,
+  arr2: T2,
+): [...T1, ...T2] => [...arr1, ...arr2];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function)
+                if matches!(
+                    ctx.krate.symbols.get(function.name),
+                    Some("concatImplementation" | "concat_implementation")
+                ) =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing concatImplementation".to_owned())?;
+    ensure!(
+        matches!(ctx.krate.types.get(function.return_ty), Some(Type::List(_))),
+        "expected all-rest tuple spread return type to lower as a list",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 

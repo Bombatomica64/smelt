@@ -166,6 +166,26 @@ impl FunctionEmitter<'_> {
         self.type_text_with_impl_trait(ty, true)
     }
 
+    /// Convert a function parameter type to Rust.
+    ///
+    /// Callback parameters are borrowed mutably so callers can forward the same
+    /// callback through multiple helper calls without consuming it. Returned
+    /// functions and nested function values still use owned boxes because
+    /// references would not be valid value representations there.
+    pub(super) fn param_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
+        if let Some(Type::Function(function)) = self.mir.types.get(ty) {
+            let params = function
+                .params
+                .iter()
+                .map(|param| self.type_text_with_impl_trait(*param, false))
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
+            return Ok(format!("&mut dyn FnMut({params}) -> {return_ty}"));
+        }
+        self.type_text(ty)
+    }
+
     /// Convert a type ID to Rust, controlling whether root `impl Trait` is legal.
     pub(super) fn type_text_with_impl_trait(
         &self,
@@ -287,7 +307,23 @@ impl FunctionEmitter<'_> {
             Type::Tuple(_) | Type::Class { .. } | Type::TypeParam { .. } | Type::Union(_) => {
                 Ok("Default::default()".to_owned())
             }
-            Type::Function(_) | Type::Future(_) => Ok("Default::default()".to_owned()),
+            Type::Function(function) => {
+                let params = function
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(index, param)| {
+                        Ok(format!(
+                            "arg{index}: {}",
+                            self.type_text_with_impl_trait(*param, false)?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                let return_text = self.default_value(function.return_ty)?;
+                Ok(format!("Box::new(move |{params}| {return_text})"))
+            }
+            Type::Future(_) => Ok("Default::default()".to_owned()),
         }
     }
 

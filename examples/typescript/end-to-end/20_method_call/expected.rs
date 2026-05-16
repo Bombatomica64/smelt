@@ -11,15 +11,15 @@ struct Point {
 fn main() {
     let mut _smelt_tmp_1: Point = Point::new(2.0, 3.0);
     let mut p: Point = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: f64 = _smelt_tmp_1.sum();
+    let _smelt_tmp_2: f64 = p.sum();
     let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl Point {
-    fn new(arg_1: f64, arg_2: f64) -> Self {
+    fn new(x: f64, y: f64) -> Self {
     let mut this: Point = Point { x: 0.0, y: 0.0 };
-    this.x = arg_1.clone();
-    this.y = arg_2.clone();
+    this.x = x.clone();
+    this.y = y.clone();
     return this;
     }
     fn sum(&self) -> f64 {

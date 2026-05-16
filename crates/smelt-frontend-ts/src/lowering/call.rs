@@ -349,13 +349,30 @@ impl ModuleBuilder<'_> {
                 return Ok(expr);
             }
             let callee = self.call_expression(callee_call, body)?;
-            let Some(Type::Function(function)) =
-                self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
+            let callee_ty = Self::expr_ty(body, callee);
+            let Some(function_ty) =
+                self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
             else {
                 return Err(SmeltError::unsupported(
                     self.span(callee_call.span.start, callee_call.span.end),
                     "call expression callee must return a function",
                 ));
+            };
+            let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
+            else {
+                return Err(SmeltError::unsupported(
+                    self.span(callee_call.span.start, callee_call.span.end),
+                    "call expression callee must return a function",
+                ));
+            };
+            let callee = if callee_ty == function_ty {
+                callee
+            } else {
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: callee },
+                    ty: function_ty,
+                    span: self.span(callee_call.span.start, callee_call.span.end),
+                })
             };
             if call.arguments.len() < function.params.len() {
                 return Err(SmeltError::unsupported(
@@ -1208,16 +1225,25 @@ impl ModuleBuilder<'_> {
             body,
         )?;
         let callee_ty = Self::expr_ty(body, callee);
-        let (function, optional_call) = match self
-            .function_member_type(callee_ty)
-            .and_then(|ty| self.ctx.krate.types.get(ty).cloned())
-        {
-            Some(Type::Function(function)) => (function, false),
-            Some(Type::Optional(inner)) if call.optional => {
-                let Some(Type::Function(function)) = self.ctx.krate.types.get(inner).cloned() else {
+        let optional_function_ty = match self.ctx.krate.types.get(callee_ty) {
+            Some(Type::Optional(inner))
+                if call.optional
+                    && matches!(self.ctx.krate.types.get(*inner), Some(Type::Function(_))) =>
+            {
+                Some(*inner)
+            }
+            _ => None,
+        };
+        let function_member_ty = optional_function_ty.or_else(|| {
+            self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
+        });
+        let (function_ty, function, optional_call) = match function_member_ty {
+            Some(function_ty) => {
+                let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
+                else {
                     return Ok(None);
                 };
-                (function, true)
+                (function_ty, function, optional_function_ty.is_some())
             }
             _ if matches!(
                 self.ctx.krate.types.get(callee_ty),
@@ -1239,6 +1265,15 @@ impl ModuleBuilder<'_> {
             _ => {
                 return Ok(None);
             }
+        };
+        let callee = if callee_ty == function_ty {
+            callee
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: callee },
+                ty: function_ty,
+                span: self.span(callee_ident.span.start, callee_ident.span.end),
+            })
         };
         let call_return_ty = if optional_call {
             self.optional_chain_result_type(function.return_ty)

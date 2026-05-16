@@ -13,26 +13,26 @@ fn main() {
     let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6.clone());
     let present: Option<User> = Some(_smelt_tmp_7.clone());
     let missing: Option<User> = None;
-    let _smelt_tmp_8: Option<String> = Some(_smelt_tmp_7.clone().name.clone());
+    let _smelt_tmp_8: Option<String> = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
     let name: Option<String> = _smelt_tmp_8.clone();
     let _smelt_tmp_9: Option<String> = missing.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
     let absent_name: Option<String> = _smelt_tmp_9.clone();
-    let _smelt_tmp_10: Option<Vec<f64>> = Some(_smelt_tmp_7.clone().scores.clone());
+    let _smelt_tmp_10: Option<Vec<f64>> = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
     let _smelt_tmp_11: Option<f64> = _smelt_tmp_10.clone().as_ref().map(|_smelt_value| _smelt_value.get({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds"));
     let score: Option<f64> = _smelt_tmp_11.clone();
-    let _smelt_tmp_12: Option<String> = Some(_smelt_tmp_7.clone().label());
+    let _smelt_tmp_12: Option<String> = present.clone().as_ref().map(|_smelt_value| _smelt_value.label());
     let label: Option<String> = _smelt_tmp_12.clone();
-    let _smelt_tmp_13: () = { println!("{:?}", _smelt_tmp_8.clone()); };
-    let _smelt_tmp_14: () = { println!("{:?}", _smelt_tmp_9.clone()); };
-    let _smelt_tmp_15: () = { println!("{:?}", _smelt_tmp_11.clone()); };
-    let _smelt_tmp_16: () = { println!("{:?}", _smelt_tmp_12.clone()); };
+    let _smelt_tmp_13: () = { println!("{:?}", name.clone()); };
+    let _smelt_tmp_14: () = { println!("{:?}", absent_name.clone()); };
+    let _smelt_tmp_15: () = { println!("{:?}", score.clone()); };
+    let _smelt_tmp_16: () = { println!("{:?}", label.clone()); };
 }
 
 impl User {
-    fn new(arg_1: String, arg_2: Vec<f64>) -> Self {
+    fn new(name: String, scores: Vec<f64>) -> Self {
     let mut this: User = User { name: String::new(), scores: Vec::new() };
-    this.name = arg_1.clone();
-    this.scores = arg_2.clone();
+    this.name = name.clone();
+    this.scores = scores.clone();
     return this;
     }
     fn label(&self) -> String {

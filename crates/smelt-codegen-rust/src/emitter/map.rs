@@ -36,9 +36,15 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
             return Err(EmitError::new("dict get receiver must be a dict"));
         };
-        if self.operand_ty(key)? != *key_ty {
+        if self.operand_ty(key)? != *key_ty
+            && !matches!(
+                self.mir.types.get(self.operand_ty(key)?),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            )
+        {
             return Ok("Default::default()".to_owned());
         }
+        let key_text = self.operand_as_type_text(key, *key_ty)?;
         if let Some(default_operand) = default {
             if self.operand_ty(default_operand)? != *value_ty {
                 return Err(EmitError::new(
@@ -53,7 +59,7 @@ impl FunctionEmitter<'_> {
             return Ok(format!(
                 "{}.get(&{}).cloned().unwrap_or({})",
                 self.operand_text(dict)?,
-                self.operand_text(key)?,
+                key_text,
                 self.operand_text(default_operand)?
             ));
         }
@@ -66,7 +72,7 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             "{}.get(&{}).cloned()",
             self.operand_text(dict)?,
-            self.operand_text(key)?
+            key_text
         ))
     }
 
@@ -149,8 +155,8 @@ impl FunctionEmitter<'_> {
             ));
         };
         let dict_text = self.local_name(*local)?;
-        let key_text = self.operand_text(key)?;
-        let value_text = self.operand_text(value)?;
+        let key_text = self.operand_as_type_text(key, *key_ty)?;
+        let value_text = self.operand_as_type_text(value, *value_ty)?;
         Ok(format!(
             "{{ {dict_text}.insert({key_text}, {value_text}); {dict_text}.clone() }}"
         ))
@@ -166,6 +172,27 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+            if matches!(
+                self.mir.types.get(dict_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Never | Type::Union(_))
+            ) || self.is_erased_class_type(dict_ty)
+            {
+                if !matches!(self.mir.types.get(dest_ty), Some(Type::Bool)) {
+                    return Err(EmitError::new("dict remove destination must be bool"));
+                }
+                let rendered_key = self.operand_text(key)?;
+                let key_text =
+                    self.property_key_to_string_text(&rendered_key, self.operand_ty(key)?)?;
+                if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
+                    dict
+                {
+                    return Ok(format!(
+                        "match &mut {} {{ SmeltUnknown::Object(map) => map.remove(&{key_text}).is_some(), _ => true }}",
+                        self.local_name(*local)?
+                    ));
+                }
+                return Ok("true".to_owned());
+            }
             return Err(EmitError::new("dict remove receiver must be a dict"));
         };
         if self.operand_ty(key)? != *key_ty {
@@ -322,13 +349,29 @@ impl FunctionEmitter<'_> {
         op: smelt_hir::DictProjectionOp,
         dict: &Operand,
     ) -> Result<String, EmitError> {
+        let dict_text = self.operand_text(dict)?;
+        if matches!(
+            self.mir.types.get(self.operand_ty(dict)?),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+        ) {
+            return match op {
+                smelt_hir::DictProjectionOp::Keys => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().cloned().collect::<Vec<_>>(), _ => Vec::new() }}"
+                )),
+                smelt_hir::DictProjectionOp::Values => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.values().cloned().collect::<Vec<_>>(), _ => Vec::new() }}"
+                )),
+                smelt_hir::DictProjectionOp::Entries => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.into_iter().collect::<Vec<_>>(), _ => Vec::new() }}"
+                )),
+            };
+        }
         if !matches!(
             self.mir.types.get(self.operand_ty(dict)?),
             Some(Type::Dict(_, _))
         ) {
             return Err(EmitError::new("dict projection receiver must be a dict"));
         }
-        let dict_text = self.operand_text(dict)?;
         match op {
             smelt_hir::DictProjectionOp::Keys => {
                 Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))

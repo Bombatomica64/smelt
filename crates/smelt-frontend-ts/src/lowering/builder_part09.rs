@@ -88,7 +88,10 @@ impl ModuleBuilder<'_> {
                 | Type::TypeParam { .. }
                 | Type::Future(_)
                 | Type::Float
-                | Type::Int,
+                | Type::Int
+                | Type::String
+                | Type::Bool
+                | Type::None,
             ) => true,
             Some(Type::Union(items)) => items
                 .iter()
@@ -1176,6 +1179,22 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let method = member.property.name.as_str();
+        if method == "toISOString" {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Date.toISOString() does not accept arguments",
+                ));
+            }
+            let receiver = self.expression(&member.object, body)?;
+            let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateToIsoString { timestamp_ms },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if method == "getTime" {
             if !call.arguments.is_empty() {
                 return Err(SmeltError::unsupported(
@@ -1249,15 +1268,27 @@ impl ModuleBuilder<'_> {
         let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
         let mut values = Vec::with_capacity(call.arguments.len());
         for argument in &call.arguments {
-            let value = self.argument(argument, body)?;
-            if !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            let mut value = self.argument(argument, body)?;
+            let value_ty = Self::expr_ty(body, value);
+            let value_is_numeric = matches!(
+                self.ctx.krate.types.get(value_ty),
                 Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. })
-            ) {
+            );
+            let narrowed_numeric = self
+                .non_nullish_type(value_ty)
+                .is_some_and(|ty| self.is_numeric_like_type(ty));
+            if !value_is_numeric && !narrowed_numeric {
                 return Err(SmeltError::unsupported(
                     self.span(argument.span().start, argument.span().end),
                     format!("Date.{method}() arguments must be numeric"),
                 ));
+            }
+            if !value_is_numeric {
+                value = self.non_null_assertion_value(
+                    value,
+                    self.span(argument.span().start, argument.span().end),
+                    body,
+                );
             }
             values.push(value);
         }

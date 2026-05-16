@@ -585,6 +585,25 @@ impl ModuleBuilder<'_> {
             } => {
                 let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 let call_args = self.callback_call_args_to_body_exprs(call_args, args, body, span)?;
+                if self.ctx.krate.symbols.get(*method) == Some("has")
+                    && call_args.len() == 1
+                    && matches!(
+                        self.ctx.krate.types.get(Self::expr_ty(body, receiver)),
+                        Some(Type::Set(_))
+                    )
+                {
+                    let item = *call_args.first().ok_or_else(|| {
+                        SmeltError::unsupported(span, "Set.has callback call requires one argument")
+                    })?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::SetContains {
+                            set: receiver,
+                            item,
+                        },
+                        ty: callback.ty,
+                        span,
+                    }));
+                }
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Method {
                         receiver,
@@ -745,6 +764,9 @@ impl ModuleBuilder<'_> {
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         let Argument::ArrowFunctionExpression(arrow) = argument else {
+            if let Argument::FunctionExpression(function) = argument {
+                return self.function_callback_from_params(function, expected_param_tys, body);
+            }
             if let Argument::Identifier(identifier) = argument
                 && let Some(item) = self.items.get(identifier.name.as_str()).copied()
             {
@@ -838,6 +860,47 @@ impl ModuleBuilder<'_> {
             ));
         }
         self.arrow_callback_from_params(arrow, expected_param_tys, body)
+    }
+
+    /// Lower a function-expression callback after expected parameter types are known.
+    fn function_callback_from_params(
+        &mut self,
+        function: &oxc::ast::ast::Function<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        if function.r#async {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "async callbacks need closure-body lowering",
+            ));
+        }
+        if function.params.rest.is_some()
+            || function.params.items.is_empty()
+            || function.params.items.len() > expected_param_tys.len()
+        {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "array callback parameter count is not supported for this method",
+            ));
+        }
+        let Some(function_body) = &function.body else {
+            return Err(SmeltError::unsupported(
+                self.span(function.span.start, function.span.end),
+                "function expression callbacks must have a body",
+            ));
+        };
+        let mut params = HashMap::new();
+        for (index, param) in function.params.items.iter().enumerate() {
+            let Some(expected_ty) = expected_param_tys.get(index).copied() else {
+                return Err(SmeltError::unsupported(
+                    self.span(param.span.start, param.span.end),
+                    "array callback parameter count is not supported for this method",
+                ));
+            };
+            self.bind_callback_param_pattern(&param.pattern, index, expected_ty, &mut params)?;
+        }
+        self.callback_block_expression(&function_body.statements, &mut params, body)
     }
 
     /// Lower an arrow callback after the expected parameter types are known.
@@ -2208,7 +2271,10 @@ impl ModuleBuilder<'_> {
                 return_ty: callback.return_ty,
             });
         }
-        if !matches!(argument, Argument::ArrowFunctionExpression(_)) {
+        if !matches!(
+            argument,
+            Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+        ) {
             let direct_expr = self.argument(argument, body)?;
             if let Some(Type::Function(function)) =
                 self.ctx.krate.types.get(Self::expr_ty(body, direct_expr)).cloned()
@@ -2242,11 +2308,11 @@ impl ModuleBuilder<'_> {
         match self.callback_argument(argument, expected_param_tys, context, body) {
             Ok(callback) => Ok(callback),
             Err(error)
-                if error.message == "callback expression kind is not supported yet"
+                if Self::should_fallback_to_closure_body_for_callback(&error)
                     && matches!(argument, Argument::ArrowFunctionExpression(_)) =>
             {
                 let Argument::ArrowFunctionExpression(arrow) = argument else {
-                    unreachable!("argument shape was checked in the guard")
+                    return Err(error);
                 };
                 let expr =
                     self.arrow_closure_body_expr(arrow, expected_param_tys, fallback_return_ty, body)?;
@@ -2257,6 +2323,15 @@ impl ModuleBuilder<'_> {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Return whether compact callback lowering should retry as a normal closure.
+    fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
+        error.message == "callback expression kind is not supported yet"
+            || error.message.starts_with("unresolved callback identifier `")
+            || error
+                .message
+                .contains("resolves outside the current callback body")
     }
 
     /// Collapse tuple item types into the element type used by array callbacks.
@@ -2597,6 +2672,29 @@ impl ModuleBuilder<'_> {
                     ty: self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)),
                 })
             }
+            Expression::NewExpression(new_expr)
+                if matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp") =>
+            {
+                let Some(first) = new_expr.arguments.first() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        "RegExp callback constructors require a pattern argument",
+                    ));
+                };
+                let Some(pattern) = first.as_expression() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(first.span().start, first.span().end),
+                        "RegExp callback constructor pattern kind is not supported yet",
+                    ));
+                };
+                let mut expr = self.callback_expression(pattern, params, body)?;
+                let name = self.intern_type_name("RegExp");
+                expr.ty = self.ctx.krate.types.intern(Type::Class {
+                    name,
+                    args: Vec::new(),
+                });
+                Ok(expr)
+            }
             Expression::CallExpression(call) => {
                 if let Expression::StaticMemberExpression(member) = &call.callee
                     && let Expression::Identifier(object) = &member.object
@@ -2721,6 +2819,9 @@ impl ModuleBuilder<'_> {
                     let return_ty = match member.property.name.as_str() {
                         "toString" => self.ctx.krate.types.intern(Type::String),
                         "match" => self.ctx.krate.types.intern(Type::Bool),
+                        "has" if matches!(self.ctx.krate.types.get(receiver.ty), Some(Type::Set(_))) => {
+                            self.ctx.krate.types.intern(Type::Bool)
+                        }
                         "getFullYear" | "getMonth" | "getDate" | "getHours" | "getMinutes"
                         | "getSeconds" | "getMilliseconds" | "getTime" => {
                             self.ctx.krate.types.intern(Type::Float)
@@ -3557,14 +3658,8 @@ impl ModuleBuilder<'_> {
             BinaryOperator::Multiplication => Ok(BinOp::Mul),
             BinaryOperator::Division => Ok(BinOp::Div),
             BinaryOperator::Remainder => Ok(BinOp::Rem),
-            BinaryOperator::Equality | BinaryOperator::Inequality => {
-                Err(SmeltError::unsupported(
-                    self.span(start, end),
-                    "coercive equality is not supported",
-                ))
-            }
-            BinaryOperator::StrictEquality => Ok(BinOp::Eq),
-            BinaryOperator::StrictInequality => Ok(BinOp::NotEq),
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => Ok(BinOp::Eq),
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => Ok(BinOp::NotEq),
             BinaryOperator::LessThan => Ok(BinOp::Lt),
             BinaryOperator::LessEqualThan => Ok(BinOp::Lte),
             BinaryOperator::GreaterThan => Ok(BinOp::Gt),

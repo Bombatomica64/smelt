@@ -9,5 +9,5 @@ fn main() {
     let _smelt_tmp_4: bool = !blocked.clone();
     let _smelt_tmp_5: bool = _smelt_tmp_4.clone() && ready.clone();
     let _smelt_tmp_6: bool = _smelt_tmp_5.clone() || false;
-    let _smelt_tmp_7: () = { println!("{} {}", _smelt_tmp_6.clone(), _smelt_tmp_3.clone()); };
+    let _smelt_tmp_7: () = { println!("{} {}", _smelt_tmp_6.clone(), value.clone()); };
 }

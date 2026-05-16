@@ -6,7 +6,7 @@ fn main (FuncId(0)) -> None
   bb0:
     %1 = ("age", 42.0)
     %0 = copy %1
-    %2 = call @console_log(copy %1) -> bb1
+    %2 = call @console_log(copy %0) -> bb1
   bb1:
     return none
 

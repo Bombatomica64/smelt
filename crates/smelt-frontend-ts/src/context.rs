@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use smelt_hir::{Crate as HirCrate, Field, ItemId, Literal, TypeId};
+use smelt_hir::{Crate as HirCrate, Field, FunctionType, ItemId, Literal, TypeId};
 
 /// A static object-constant entry that can be recreated in later lowered bodies.
 #[derive(Debug, Clone)]
@@ -54,6 +54,8 @@ pub struct HirCtx {
     pub type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses visible to later modules for lazy field lookup.
     pub interface_extends: HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>,
+    /// Interface call signatures visible to later modules.
+    pub interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Structural fields attached to callable intersection types.
     pub callable_fields: HashMap<TypeId, Vec<Field>>,
 }
@@ -70,6 +72,7 @@ impl HirCtx {
             overloads: HashMap::new(),
             type_alias_fields: HashMap::new(),
             interface_extends: HashMap::new(),
+            interface_call_signatures: HashMap::new(),
             callable_fields: HashMap::new(),
         }
     }

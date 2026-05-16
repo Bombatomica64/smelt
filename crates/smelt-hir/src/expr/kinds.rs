@@ -169,6 +169,12 @@ pub enum ExprKind {
         haystack: ExprId,
         replacement: ExprId,
     },
+    RegexReplaceCallback {
+        op: StringReplaceOp,
+        pattern: ExprId,
+        haystack: ExprId,
+        callback: ExprId,
+    },
     RegexReplaceFirstMatchUppercase {
         pattern: ExprId,
         haystack: ExprId,

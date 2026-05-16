@@ -4,7 +4,7 @@ interface Named
 fn new (FuncId(0)) -> User
   locals
     %0 user this: User
-    %1 param: String
+    %1 param name: String
   bb0:
     %0 = struct4 {}
     %0.field1 = copy %1
@@ -12,8 +12,8 @@ fn new (FuncId(0)) -> User
 
 fn label (FuncId(1)) -> String
   locals
-    %0 param: User
-    %1 param: String
+    %0 param this: User
+    %1 param prefix: String
     %2 temp: String
   bb0:
     %2 = copy %1 + copy %0.field1
@@ -29,7 +29,7 @@ fn main (FuncId(2)) -> None
     %1 = call fn0("Ada") -> bb1
   bb1:
     %0 = copy %1
-    %2 = call fn1(copy %1, "Hi ") -> bb2
+    %2 = call fn1(copy %0, "Hi ") -> bb2
   bb2:
     %3 = call @console_log(copy %2) -> bb3
   bb3:

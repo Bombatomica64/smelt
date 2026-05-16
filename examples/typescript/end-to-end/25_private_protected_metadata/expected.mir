@@ -3,8 +3,8 @@ class Secret fields [Private token: String, Protected count: Float] constructor 
 fn new (FuncId(0)) -> Secret
   locals
     %0 user this: Secret
-    %1 param: String
-    %2 param: Float
+    %1 param token: String
+    %2 param count: Float
   bb0:
     %0 = struct0 {}
     %0.field1 = copy %1
@@ -13,7 +13,7 @@ fn new (FuncId(0)) -> Secret
 
 fn reveal (FuncId(1)) -> String
   locals
-    %0 param: Secret
+    %0 param this: Secret
   bb0:
     return copy %0.field1
 
@@ -27,7 +27,7 @@ fn main (FuncId(2)) -> None
     %1 = call fn0("s", 1.0) -> bb1
   bb1:
     %0 = copy %1
-    %2 = call fn1(copy %1) -> bb2
+    %2 = call fn1(copy %0) -> bb2
   bb2:
     %3 = call @console_log(copy %2) -> bb3
   bb3:

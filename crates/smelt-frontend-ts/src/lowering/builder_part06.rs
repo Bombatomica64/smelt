@@ -1018,17 +1018,59 @@ impl ModuleBuilder<'_> {
     }
 
     /// Extract a callable member from a union or function type.
-    fn function_member_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    fn function_member_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        self.function_member_type_for_arg_count(ty, None)
+    }
+
+    /// Extract a callable member matching a supplied argument count when available.
+    fn function_member_type_for_arg_count(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        arg_count: Option<usize>,
+    ) -> Option<smelt_hir::TypeId> {
         let resolved_ty = self.type_param_constraint_or_self(ty);
-        match self.ctx.krate.types.get(resolved_ty) {
+        match self.ctx.krate.types.get(resolved_ty).cloned() {
             Some(Type::Function(_)) => Some(resolved_ty),
-            Some(Type::Optional(item)) => self.function_member_type(*item),
+            Some(Type::Optional(item)) => self.function_member_type_for_arg_count(item, arg_count),
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
-                .find_map(|item| self.function_member_type(item)),
+                .find_map(|item| self.function_member_type_for_arg_count(item, arg_count)),
+            Some(Type::Class { name, args }) => {
+                self.interface_call_signature_type(name, &args, arg_count)
+            }
             _ => None,
         }
+    }
+
+    /// Instantiate an interface call signature as a HIR function type.
+    fn interface_call_signature_type(
+        &mut self,
+        name: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+        arg_count: Option<usize>,
+    ) -> Option<smelt_hir::TypeId> {
+        let signatures = self.interface_call_signatures.get(&name).cloned()?;
+        let interface = self.find_interface(name).cloned();
+        let type_params = interface.map(|interface| interface.type_params).unwrap_or_default();
+        let substitutions = self
+            .type_argument_substitution(&type_params, args, self.span(0, 0))
+            .ok()?;
+        let signature = signatures
+            .iter()
+            .find(|signature| arg_count.is_some_and(|count| signature.params.len() == count))
+            .or_else(|| signatures.first())?;
+        let params = signature
+            .params
+            .iter()
+            .map(|param| self.substitute_type_params(*param, &substitutions))
+            .collect();
+        let return_ty = self.substitute_type_params(signature.return_ty, &substitutions);
+        Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params,
+            return_ty,
+            is_async: signature.is_async,
+        })))
     }
 
     /// Recognize `Array.isArray(value)` guard expressions.
@@ -1608,7 +1650,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a contextual function type from an optional type hint.
-    fn contextual_function_type(&self, type_hint: Option<smelt_hir::TypeId>) -> Option<FunctionType> {
+    fn contextual_function_type(
+        &mut self,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Option<FunctionType> {
         type_hint.and_then(|hint| {
             let function_hint = self.function_member_type(hint).unwrap_or(hint);
             if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
@@ -1765,16 +1810,26 @@ impl ModuleBuilder<'_> {
                         let field = self.property_key_symbol(&property.key)?;
                         let omitted_key =
                             self.object_destructuring_static_key_expr(&property.key, body)?;
-                        let ty = self.class_field_type(Self::expr_ty(body, receiver), field)?;
-                        (
-                            ty,
+                        let receiver_ty = Self::expr_ty(body, receiver);
+                        let is_stdlib_len = self.ctx.krate.symbols.get(field) == Some("length")
+                            && self.supports_stdlib_length(receiver_ty);
+                        let is_stdlib_size = self.ctx.krate.symbols.get(field) == Some("size")
+                            && self.supports_stdlib_size(receiver_ty);
+                        let ty = self.class_field_type(receiver_ty, field)?;
+                        let extracted = if is_stdlib_len || is_stdlib_size {
+                            body.push_expr(Expr {
+                                kind: ExprKind::Len { operand: receiver },
+                                ty,
+                                span: self.span(property.span.start, property.span.end),
+                            })
+                        } else {
                             body.push_expr(Expr {
                                 kind: ExprKind::Field { receiver, field },
                                 ty,
                                 span: self.span(property.span.start, property.span.end),
-                            }),
-                            omitted_key,
-                        )
+                            })
+                        };
+                        (ty, extracted, omitted_key)
                     };
                     omitted_keys.push(omitted_key);
                     self.binding_declaration(

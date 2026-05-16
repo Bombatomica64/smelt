@@ -32,32 +32,41 @@ Deferred TS stress target:
 ### External Probe: 2026-05-15 date-fns Full TS-Only Manifest
 
 Manifest:
-`/tmp/smelt_date_fns_ts_only_check_1778832912/Smelt.toml`
+`/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml`
 
-This manifest includes all `src/**/*.ts` files from the fresh date-fns clone and excludes generated
-`.d.ts` stubs.
+This manifest includes the full sorted date-fns TS source/test surface from
+`/tmp/smelt-reclone-rerun-20260511-145915/repos/date-fns` and writes to
+`/tmp/smelt_date_fns_full_check_BLgUAn/dist`.
 
 Progress from this pass:
 
-- Full date-fns now gets past `constructFrom/test.ts`, including local `CustomDate` classes,
-  imported opaque constructors such as `TZDate`, direct `instanceof` over imported constructors,
-  and `.constructor` field probes on Date-like/class values.
-- Full date-fns now gets past `constructNow/test.ts`, including local class constructors used as
-  call arguments and constructor names used as values.
-- Full date-fns now gets past boolean unary-plus coercion in `differenceInMonths/index.ts`
-  (`+isLastMonthNotFull`).
-- Full date-fns now gets past bound function `expect(block).not.toThrow()` in
-  `eachMinuteOfInterval/test.ts`, including optional remaining parameters on the bound callback.
-- Full date-fns now gets past postfix update expressions in value position such as
-  `dateInterval[index++]` in `eachWeekendOfInterval/index.ts`.
-- Full date-fns now gets past non-null asserted string match arrays such as
-  `formatStr.match(...)!.map(...).join("").match(...)!.map(...)` preserving `List<String>`.
+- Full `smelt check` passes for this manifest.
+- Full `smelt build` reaches MIR/codegen instead of frontend lowering blockers.
+- Fixed during this pass:
+  - MIR lowering no longer panics when an earlier function fails before a later pre-numbered
+    function is pushed.
+  - Imported opaque constructors such as `new UTCDate()` lower as erased external class
+    instances instead of requiring a local constructor body.
+  - Conditional expressions with temp-producing branches lower through real branch blocks.
+  - Copy propagation no longer rewrites branch-local temps across control-flow joins.
+  - Switch lowering reuses one MIR block for grouped case/default labels that share one HIR body.
+  - String `.replace(...)`, optional field access, dictionary projections, structural callback
+    object literals, and slice bounds now tolerate unknown/erased values where date-fns exposes
+    source-typed but runtime-dynamic surfaces.
 
-Current first blocker:
+Current build status:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
-| `src/format/index.ts:385-409` | Block-bodied array callback with internal `if` statements and multiple return paths. | `block-bodied callbacks currently require a single return statement` in the second `.map((substring) => { ... })`. |
+| Full manifest, `[output] build = false` | None in source emission. | After match closure body emission, release emission-only `smelt build` completes in about `3.0s`. |
+| Full manifest, `[output] build = true` | Generated Rust crate compile errors. | First visible Rust syntax blocker is erased external calls with no arguments emitting `let _smelt_external_args = (,);`; the same generated crate also exposes many follow-on type errors that need triage after the syntax blocker is fixed. |
+
+Probe commands:
+
+```bash
+cargo run -q -p smelt-cli -- --manifest-path /tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml check
+cargo run -q -p smelt-cli -- --manifest-path /tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml build
+```
 
 ### External Probe: 2026-05-14 Current Rerun
 
@@ -486,6 +495,12 @@ TypeScript:
       `{} as { ... }` call arguments and `expectTypeOf` no-op type assertions.
 - [ ] `pipe.ts` runtime lowering gaps in Remeda: callback expression kind, destructured
       `for...of` binding, and field access on a non-record/class/interface type.
+- [x] Remeda generated Rust no longer references branch-local temporaries after common `if` joins;
+      common-join branches now hoist shared destination locals before the branch.
+- [x] Remeda generated Rust closure parameters with `Box<dyn FnMut...>` types are mutable when the
+      closure body calls them.
+- [ ] Remeda generated Rust callable shape loss: repeated `E0618` sites still call values typed as
+      `SmeltUnknown`, especially function-table/list cases whose item type should remain callable.
 - [ ] Inference or safe acceptance for unannotated exported/test-adjacent function declarations
       when upstream TypeScript would infer the return type.
 - [ ] Exported non-primitive const call expressions used by Effect, especially `dual(...)`-style
@@ -586,7 +601,9 @@ Compatibility numbers:
 |---|---:|---|
 | TS/TSX files under `src` | `1536` | Raw source corpus size in the latest checkout. |
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
-| Full `src/**/*.ts(x)` manifest `smelt check` | fail | Latest 2026-05-14 rerun gets past locale string `.replace(...)` and returned closure contextual typing, then fails in `src/locale/en-US/_lib/formatLong/index.ts` on exported object const fields initialized by `buildFormatLongFn(...)` helper calls. |
+| Full `src/**/*.ts(x)` manifest `smelt check` | pass | Latest 2026-05-15 full manifest check passes at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml`. |
+| Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = false` | pass | Latest release emission-only full manifest build completes after match closure body Rust emission was added. |
+| Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = true` | fail | Generated crate reaches `cargo build` and fails first on invalid empty external-call argument tuple text: `let _smelt_external_args = (,);`. |
 | Full manifest with shared type files forced first `smelt check` | fail | Superseded by the sorted full-manifest rerun above; the locale type-surface blockers are now cleared. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
@@ -599,13 +616,23 @@ Compatibility numbers:
 | Same `src/types.ts` slices passing generated `cargo test` | `23 / 250` | All build-green `with_types` slices passed generated Rust tests. |
 | Approx direct Vitest cases covered | `78 / 2882` | Heuristic text count of direct `it(...)` / `test(...)` calls. |
 
-Latest rerun status: the full sorted manifest now gets past the previous `isSaturday` chain,
-`ContextOptions.in`, Date receiver blockers, `src/locale/types.ts`, the `addBusinessDays/basic.ts`
-Node environment probe, ambient `.d.ts` declaration files, the locale `formatDistance` formatter
-including `tokenValue.other.replace("{{count}}", count.toString())`, and returned closure
-contextual typing in `buildFormatLongFn`. The first failing file is now
-`src/locale/en-US/_lib/formatLong/index.ts`, where exported object fields call
-`buildFormatLongFn(...)`.
+Latest rerun status: the full sorted manifest now passes `smelt check`. It gets past the previous
+`isSaturday` chain, `ContextOptions.in`, Date receiver blockers, `src/locale/types.ts`, the
+`addBusinessDays/basic.ts` Node environment probe, ambient `.d.ts` declaration files, the locale
+`formatDistance` formatter including
+`tokenValue.other.replace("{{count}}", count.toString())`, returned closure contextual typing in
+`buildFormatLongFn`, exported object fields initialized by helper calls in
+`src/locale/en-US/_lib/formatLong/index.ts`, `src/locale/_lib/buildLocalizeFn/index.ts`,
+`src/locale/en-US/_lib/localize/index.ts`, and `for ... in` / `hasOwnProperty.call(...)` in
+`src/locale/_lib/buildMatchFn/index.ts`.
+
+Current full-build blocker: source emission completes for the full sorted manifest. With
+`[output] build = true`, generated crate compilation fails first on erased external calls with no
+arguments emitting invalid Rust tuple syntax: `let _smelt_external_args = (,);`. The previous match
+closure body, Date timestamp, Date setter, erased object deletion, and string affix emission
+blockers are cleared. Release `target/release/smelt ... check` for the full date-fns manifest takes
+about `1.8s`; release emission-only `build` completes in about `3.0s`; build-enabled generated
+crate compilation fails after about `31s` in `rust.cargo_build`.
 
 `src/types.ts`, `src/locale/types.ts`, `src/fp/types.ts`, `src/addBusinessDays/index.ts`,
 `src/_lib/addBusinessDays/basic.ts`, and `src/locale/en-US/_lib/formatDistance/index.ts` pass
@@ -644,15 +671,38 @@ Shared type-file status:
 - [x] Full date-fns gets past `src/locale/en-US/_lib/localize/index.ts`, including annotated
   module-level arrow const callbacks, module-level object constants such as `eraValues`, and
   inline object-property callbacks such as `(quarter) => quarter - 1`.
-- [ ] Full date-fns needs `for ... in` lowering and `Object.prototype.hasOwnProperty.call(...)`
-  compatibility in `src/locale/_lib/buildMatchFn/index.ts`.
+- [x] Full date-fns gets past `for ... in` lowering and
+  `Object.prototype.hasOwnProperty.call(...)` compatibility in
+  `src/locale/_lib/buildMatchFn/index.ts`.
+- [x] Full date-fns gets through full-manifest `smelt check`.
+- [x] Full date-fns no longer hits the repeated function-name/signature scan cliff in Rust
+  codegen; emission-only full `smelt build` now reaches the next functional blocker in about
+  `2.7s` in release mode.
+- [x] Full date-fns no longer spends most of `check` in manifest dependency discovery. Reusing one
+  TypeScript resolver per dependency walk and skipping duplicate dependency reads moved debug
+  `check` from about `79s` to about `15s`, and release `check` with the compiled binary to about
+  `1.8s`.
+- [x] Full date-fns gets past DateArg-compatible Date ISO/getter/setter Rust emission, erased
+  object deletion, and string affix coercion for erased operands.
+- [x] Full date-fns gets past match closure body Rust emission.
+- [ ] Full date-fns generated crate still needs to compile before generated full-crate `cargo test`
+  can be attempted.
 
-Full manifest first blocker:
+Full manifest build status:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
-| `src/locale/_lib/buildMatchFn/index.ts:115` | `for (const key in object)` over record-like objects | `statement kind is not lowered yet: ForInStatement(...)`. |
-| `src/locale/_lib/buildMatchFn/index.ts:117` | `Object.prototype.hasOwnProperty.call(object, key)` | static member chain falls into normal field access and reports `field access ... (receiver: String)` before the `for-in` statement diagnostic. |
+| Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
+| Full manifest, `[output] build = true` | Empty erased external-call argument tuple syntax | Latest build-enabled full build reaches generated crate compilation and first fails on `let _smelt_external_args = (,);`. |
+
+Current active date-fns blockers:
+
+| Priority | Surface | Where it breaks | Notes |
+|---|---|---|---|
+| 1 | Empty external-call args | Full manifest generated crate compile | Erased external calls with no arguments emit `let _smelt_external_args = (,);`; generate `()` or an empty collection shape instead. |
+| 2 | Full generated crate type errors | After blocker 1 | Build-enabled full manifest reports thousands of follow-on Rust type errors after parsing, including duplicate struct fields, Date setter numeric return mismatches, unknown field access on `SmeltUnknown`, and arithmetic between `SmeltUnknown` and numbers. Triage once syntax errors are gone. |
+| 3 | Runtime invalid-date parity | Known from `isExists` sibling slice | One generated invalid-date test previously panicked at runtime. Recheck after full Date emission succeeds, because this may share the same Date representation surface. |
+| 4 | Broader test-slice coverage | Sibling test slices | Current pessimistic direct coverage remains `23 / 250` sibling slices with `src/types.ts` included. Full manifest build should replace this as the primary date-fns signal once source emission succeeds. |
 
 Optional chaining surface in date-fns:
 
@@ -875,8 +925,14 @@ eight-repo rerun.
       computed property keys, and `addPropImplementation`.
     - previous blocker fixed: `packages/remeda/src/addProp.test-d.ts` now lowers type assertion
       call arguments such as `{} as { ... }` and erases Vitest `expectTypeOf` type assertions.
-    - new blocker: `packages/remeda/src/pipe.ts` needs callback expression support,
-      destructured `for...of` bindings, and field access on a non-record/class/interface type.
+    - newer generated-Rust blocker log: `blocker-logs/remeda-errors-summary.md`.
+    - previous generated-Rust blocker fixed: branch-scoped temporaries after common `if` joins no
+      longer produce `E0425`.
+    - previous generated-Rust blocker fixed: boxed `FnMut` closure parameters are emitted as
+      mutable, reducing `E0596` to one remaining site.
+    - current generated-Rust blocker: erased callable shape loss. The repeated `E0618` sites call
+      values typed as `SmeltUnknown`; those values need to retain function/list-of-function shape
+      through lowering and codegen.
 
 `psf/requests`:
 

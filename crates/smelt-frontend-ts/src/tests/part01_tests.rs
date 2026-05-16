@@ -1366,6 +1366,14 @@ fn lowers_array_length_constructor_as_list_container() -> Result<(), String> {
         )),
         "expected Array constructor to lower as an empty list container",
     );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            ctx.krate.types.get(expr.ty),
+            Some(Type::List(item))
+                if matches!(ctx.krate.types.get(*item), Some(Type::List(_)))
+        )),
+        "expected Array constructor generic to become the list item type",
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

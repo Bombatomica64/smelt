@@ -86,7 +86,7 @@ use classes::{
     class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
     effective_class_fields, inherited_trait_methods,
 };
-use emitter::FunctionEmitter;
+use emitter::{EmitContext, FunctionEmitter};
 use rust::{CodeWriter, RustIdent};
 
 /// Options for controlling code emission behavior.
@@ -214,6 +214,35 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             );
         });
         writer.blank_line();
+        writer.block("impl PartialOrd for SmeltUnknown", |impl_writer| {
+            impl_writer.block(
+                "fn partial_cmp(&self, other: &Self) -> Option<::std::cmp::Ordering>",
+                |fn_writer| {
+                    fn_writer.block("match (self, other)", |match_writer| {
+                        match_writer.line("(Self::Number(left), Self::Number(right)) => left.partial_cmp(right),");
+                        match_writer.line("(Self::String(left), Self::String(right)) => Some(left.cmp(right)),");
+                        match_writer.line("(Self::Bool(left), Self::Bool(right)) => Some(left.cmp(right)),");
+                        match_writer.line("(Self::Null, Self::Null) => Some(::std::cmp::Ordering::Equal),");
+                        match_writer.line("(left, right) => Some(smelt_unknown_rank(left).cmp(&smelt_unknown_rank(right))),");
+                    });
+                },
+            );
+        });
+        writer.blank_line();
+        writer.block(
+            "fn smelt_unknown_rank(value: &SmeltUnknown) -> u8",
+            |fn_writer| {
+                fn_writer.block("match value", |match_writer| {
+                    match_writer.line("SmeltUnknown::Null => 0,");
+                    match_writer.line("SmeltUnknown::Bool(_) => 1,");
+                    match_writer.line("SmeltUnknown::Number(_) => 2,");
+                    match_writer.line("SmeltUnknown::String(_) => 3,");
+                    match_writer.line("SmeltUnknown::Array(_) => 4,");
+                    match_writer.line("SmeltUnknown::Object(_) => 5,");
+                });
+            },
+        );
+        writer.blank_line();
         writer.block("trait IntoSmeltUnknown", |trait_writer| {
             trait_writer.line("fn into_smelt_unknown(self) -> SmeltUnknown;");
         });
@@ -248,6 +277,17 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             });
         });
         writer.blank_line();
+        writer.block(
+            "impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Option<T>",
+            |impl_writer| {
+                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line(
+                        "self.map_or(SmeltUnknown::Null, IntoSmeltUnknown::into_smelt_unknown)",
+                    );
+                });
+            },
+        );
+        writer.blank_line();
         writer.block("impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T>", |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
                 fn_writer.line("SmeltUnknown::Array(self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect())");
@@ -255,18 +295,33 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         });
         writer.blank_line();
         writer.block(
-            "impl<T: IntoSmeltUnknown> IntoSmeltUnknown for ::std::collections::HashMap<String, T>",
+            "impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B)",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(self.into_iter().map(|(key, value)| (key, value.into_smelt_unknown())).collect())");
+                    fn_writer.line(
+                        "SmeltUnknown::Array(vec![self.0.into_smelt_unknown(), self.1.into_smelt_unknown()])",
+                    );
+                });
+            },
+        );
+        writer.blank_line();
+        writer.block(
+            "impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown",
+            |impl_writer| {
+                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line("SmeltUnknown::Object(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }; (key, value.into_smelt_unknown()) }).collect())");
                 });
             },
         );
         writer.blank_line();
     }
 
+    let mut emitted_class_names = std::collections::HashSet::new();
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
+        if !emitted_class_names.insert(name.clone()) {
+            continue;
+        }
         let type_params = class_type_params_text(mir, class)?;
         let _inherited_trait_methods = inherited_trait_methods(mir, class);
         writer.line("#[derive(Clone, Debug)]");
@@ -290,6 +345,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         writer.blank_line();
     }
 
+    let context = EmitContext::new(mir)?;
     let mut out = writer.finish();
 
     for (idx, function) in mir.functions.iter().enumerate() {
@@ -302,12 +358,16 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         if idx > 0 || !mir.classes.is_empty() {
             out.push('\n');
         }
-        let mut emitter = FunctionEmitter::new(mir, function)?;
+        let mut emitter = FunctionEmitter::new(mir, &context, function)?;
         emitter.emit(&mut out)?;
     }
 
+    let mut emitted_impl_names = std::collections::HashSet::new();
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
+        if !emitted_impl_names.insert(name.clone()) {
+            continue;
+        }
         let impl_generics = class_impl_generics_text(mir, class)?;
         let type_args = class_type_args_text(mir, class)?;
         out.push_str(&format!("\nimpl{impl_generics} {name}{type_args} {{\n"));
@@ -318,7 +378,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                 "constructor index does not fit usize",
             )?)
         {
-            let mut emitter = FunctionEmitter::new(mir, function)?;
+            let mut emitter = FunctionEmitter::new(mir, &context, function)?;
             emitter.emit_method(&mut out)?;
         }
         for method in &class.methods {
@@ -326,7 +386,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                 .functions
                 .get(id_index(method.0, "method index does not fit usize")?)
             {
-                let mut emitter = FunctionEmitter::new(mir, function)?;
+                let mut emitter = FunctionEmitter::new(mir, &context, function)?;
                 emitter.emit_method(&mut out)?;
             }
         }

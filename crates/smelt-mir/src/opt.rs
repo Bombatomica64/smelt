@@ -58,6 +58,7 @@ pub fn optimize(mir: &mut Mir) {
 fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterner) -> bool {
     let mut aliases = HashMap::new();
     let mutated = mutated_locals(function);
+    let assigned_counts = assigned_local_counts(function);
 
     for block in &function.blocks {
         for stmt in &block.statements {
@@ -67,6 +68,8 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
             } = stmt
                 && !mutated.contains(dest)
                 && !mutated.contains(source)
+                && assigned_counts.get(dest) == Some(&1)
+                && !is_temp_local(function, *source)
                 && !is_function_local(function, types, *dest)
                 && !is_function_local(function, types, *source)
             {
@@ -104,6 +107,40 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
     }
 
     changed
+}
+
+/// Count direct assignments to each local across a function.
+fn assigned_local_counts(function: &MirFunction) -> HashMap<LocalId, usize> {
+    let mut counts = HashMap::new();
+    for block in &function.blocks {
+        for stmt in &block.statements {
+            match stmt {
+                Statement::Assign { dest, .. } => {
+                    let count = counts.entry(*dest).or_insert(0usize);
+                    *count = count.saturating_add(1);
+                }
+                Statement::AssignPlace {
+                    place: Place::Local(local),
+                    ..
+                } => {
+                    let count = counts.entry(*local).or_insert(0usize);
+                    *count = count.saturating_add(1);
+                }
+                Statement::AssignPlace { .. }
+                | Statement::StorageLive(_)
+                | Statement::StorageDead(_) => {}
+            }
+        }
+    }
+    counts
+}
+
+/// Return whether a local is a compiler-generated temporary.
+fn is_temp_local(function: &MirFunction, local: LocalId) -> bool {
+    function
+        .locals
+        .get(usize::try_from(local.0).unwrap_or(usize::MAX))
+        .is_some_and(|decl| matches!(decl.kind, crate::LocalKind::Temp))
 }
 
 /// Return whether a local has a function type that must not be clone-propagated.
@@ -234,6 +271,16 @@ fn rewrite_rvalue(
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(pattern, aliases, dest)
                 | rewrite_operand_except(replacement, aliases, dest)
+        }
+        Rvalue::RegexReplaceCallback {
+            haystack,
+            pattern,
+            callback,
+            ..
+        } => {
+            rewrite_operand_except(haystack, aliases, dest)
+                | rewrite_operand_except(pattern, aliases, dest)
+                | rewrite_operand_except(callback, aliases, dest)
         }
         Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
             rewrite_operand_except(pattern, aliases, dest)
@@ -591,6 +638,11 @@ fn rewrite_rvalue(
         Rvalue::Struct { fields, .. } => fields.iter_mut().fold(false, |changed, (_, value)| {
             rewrite_operand_except(value, aliases, dest) | changed
         }),
+        Rvalue::ExternalClassInstance { args, .. } => {
+            args.iter_mut().fold(false, |changed, arg| {
+                rewrite_operand_except(arg, aliases, dest) | changed
+            })
+        }
         Rvalue::Len(operand)
         | Rvalue::NumericAbs(operand)
         | Rvalue::NumericRound { operand, .. }

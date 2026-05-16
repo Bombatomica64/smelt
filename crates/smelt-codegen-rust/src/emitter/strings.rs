@@ -49,24 +49,13 @@ impl FunctionEmitter<'_> {
         haystack: &Operand,
         needle: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(needle)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("string affix operands must be strings"));
-        }
+        let haystack_text = self.string_like_operand_text(haystack, "string affix")?;
+        let needle_text = self.string_like_operand_text(needle, "string affix")?;
         let method_name = match op {
             smelt_hir::StringAffixOp::StartsWith => "starts_with",
             smelt_hir::StringAffixOp::EndsWith => "ends_with",
         };
-        Ok(format!(
-            "{}.{method_name}(&{})",
-            self.operand_text(haystack)?,
-            self.operand_text(needle)?
-        ))
+        Ok(format!("{haystack_text}.{method_name}(&{needle_text})"))
     }
 
     /// Converts a string search operation to Rust text.
@@ -103,21 +92,9 @@ impl FunctionEmitter<'_> {
         pattern: &Operand,
         replacement: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(pattern)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(replacement)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new("string replace operands must be strings"));
-        }
-        let haystack_text = self.operand_text(haystack)?;
-        let pattern_text = self.operand_text(pattern)?;
-        let replacement_text = self.operand_text(replacement)?;
+        let haystack_text = self.string_like_operand_text(haystack, "string replace")?;
+        let pattern_text = self.string_like_operand_text(pattern, "string replace")?;
+        let replacement_text = self.string_like_operand_text(replacement, "string replace")?;
         match op {
             smelt_hir::StringReplaceOp::First => Ok(format!(
                 "{haystack_text}.replacen(&{pattern_text}, &{replacement_text}, 1)"
@@ -136,19 +113,8 @@ impl FunctionEmitter<'_> {
         haystack: &Operand,
         affix: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(affix)?),
-            Some(Type::String)
-        ) {
-            return Err(EmitError::new(
-                "string remove-affix operands must be strings",
-            ));
-        }
-        let haystack_text = self.operand_text(haystack)?;
-        let affix_text = self.operand_text(affix)?;
+        let haystack_text = self.string_like_operand_text(haystack, "string remove-affix")?;
+        let affix_text = self.string_like_operand_text(affix, "string remove-affix")?;
         let method_name = match op {
             smelt_hir::StringAffixOp::StartsWith => "strip_prefix",
             smelt_hir::StringAffixOp::EndsWith => "strip_suffix",
@@ -309,6 +275,34 @@ impl FunctionEmitter<'_> {
         })
     }
 
+    /// Converts a regex replacement callback operation to Rust text.
+    pub(super) fn regex_replace_callback_text(
+        &self,
+        op: smelt_hir::StringReplaceOp,
+        pattern: &Operand,
+        haystack: &Operand,
+        callback: &Operand,
+    ) -> Result<String, EmitError> {
+        self.require_string_operands(&[pattern, haystack], "regex replace callback")?;
+        let regex_text = format!(
+            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
+            self.operand_text(pattern)?
+        );
+        let haystack_text = self.operand_text(haystack)?;
+        let callback_text = self.operand_text(callback)?;
+        let replacement = format!(
+            "|caps: &regex::Captures<'_>| ({callback_text})(caps.get(0).expect(\"regex match missing\").as_str().to_string())"
+        );
+        Ok(match op {
+            smelt_hir::StringReplaceOp::First => {
+                format!("{regex_text}.replace(&{haystack_text}, {replacement}).to_string()")
+            }
+            smelt_hir::StringReplaceOp::All => {
+                format!("{regex_text}.replace_all(&{haystack_text}, {replacement}).to_string()")
+            }
+        })
+    }
+
     /// Converts regex replacement with an uppercase first-match callback.
     pub(super) fn regex_replace_first_match_uppercase_text(
         &self,
@@ -350,12 +344,10 @@ impl FunctionEmitter<'_> {
         pattern: &Operand,
         haystack: &Operand,
     ) -> Result<String, EmitError> {
-        self.require_string_operands(&[pattern, haystack], "regex find")?;
-        let regex_text = format!(
-            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
-            self.operand_text(pattern)?
-        );
-        let haystack_text = self.operand_text(haystack)?;
+        let pattern_text = self.string_like_operand_text(pattern, "regex find")?;
+        let haystack_text = self.string_like_operand_text(haystack, "regex find")?;
+        let regex_text =
+            format!("regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\")");
         Ok(format!(
             "{regex_text}.find(&{haystack_text}).map(|m| vec![m.as_str().to_owned()])"
         ))
@@ -556,11 +548,23 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a string into a list of one-character strings.
-    pub(super) fn string_chars_text(&self, haystack: &Operand) -> Result<String, EmitError> {
+    pub(super) fn string_chars_text(
+        &self,
+        haystack: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
         let haystack_text = self.string_like_operand_text(haystack, "string chars")?;
-        Ok(format!(
-            "{haystack_text}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()"
-        ))
+        let text = format!("{haystack_text}.chars().map(|ch| ch.to_string()).collect::<Vec<_>>()");
+        if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty)
+            && self.mir.types.get(*item_ty) != Some(&Type::String)
+        {
+            let item_text =
+                self.rendered_value_as_type_text("value", self.type_id(Type::String)?, *item_ty)?;
+            return Ok(format!(
+                "{text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>()"
+            ));
+        }
+        Ok(text)
     }
 
     /// Converts a string join operation to Rust text.

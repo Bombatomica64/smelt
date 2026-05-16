@@ -6,10 +6,7 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let function_hint = type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
-            Some(Type::Function(function)) => Some(function),
-            _ => None,
-        });
+        let function_hint = self.contextual_function_type(type_hint);
         let _type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let declared_return_ty = match arrow
             .return_type
@@ -59,20 +56,13 @@ impl ModuleBuilder<'_> {
                     return Err(error);
                 }
             };
-            let Some(ty) = param_annotation_ty.or_else(|| {
-                function_hint
-                    .as_ref()
-                    .and_then(|function| function.params.get(params.len()).copied())
-            }) else {
-                self.locals = saved_locals;
-                self.narrowed_locals = saved_narrowed_locals;
-                self.current_async = saved_async;
-                self.pop_type_parameter_scope();
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "arrow function parameters must have explicit type annotations",
-                ));
-            };
+            let ty = param_annotation_ty
+                .or_else(|| {
+                    function_hint
+                        .as_ref()
+                        .and_then(|function| function.params.get(params.len()).copied())
+                })
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
             let (param_name, param_span) = match &param.pattern {
                 BindingPattern::BindingIdentifier(binding) => (
                     self.intern_source_name(binding.name.as_str()),

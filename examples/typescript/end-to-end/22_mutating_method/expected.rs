@@ -10,18 +10,18 @@ struct Counter {
 fn main() {
     let mut _smelt_tmp_1: Counter = Counter::new(4.0);
     let mut counter: Counter = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: f64 = _smelt_tmp_1.inc(3.0);
+    let _smelt_tmp_2: f64 = counter.inc(3.0);
     let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl Counter {
-    fn new(arg_1: f64) -> Self {
+    fn new(value: f64) -> Self {
     let mut this: Counter = Counter { value: 0.0 };
-    this.value = arg_1.clone();
+    this.value = value.clone();
     return this;
     }
-    fn inc(&mut self, arg_1: f64) -> f64 {
-    let _smelt_tmp_2: f64 = self.value.clone() + arg_1.clone();
+    fn inc(&mut self, delta: f64) -> f64 {
+    let _smelt_tmp_2: f64 = self.value.clone() + delta.clone();
     self.value = _smelt_tmp_2.clone();
     return self.value.clone();
     }

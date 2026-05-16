@@ -124,8 +124,8 @@ console.log(result);
 ",
     );
 
-    assert!(source.contains("fn add(arg_0: f64, arg_1: f64) -> f64 {"));
-    assert!(source.contains("arg_0.clone() + arg_1.clone()"));
+    assert!(source.contains("fn add(a: f64, b: f64) -> f64 {"));
+    assert!(source.contains("a.clone() + b.clone()"));
     assert!(source.contains("let _smelt_tmp_1: f64 = add(2.0, 3.0);"));
 }
 
@@ -142,7 +142,7 @@ async function run(): Promise<number> {
 ",
     );
 
-    assert!(source.contains("async fn lift(arg_0: f64) -> f64 {"));
+    assert!(source.contains("async fn lift(value: f64) -> f64 {"));
     assert!(source.contains("async fn run() -> f64 {"));
     assert!(source.contains("let _smelt_tmp_0 = lift(5.0);"));
     assert!(source.contains("let _smelt_tmp_1: f64 = _smelt_tmp_0.await;"));
@@ -185,8 +185,8 @@ console.log(result);
     );
 
     assert!(source.contains("if _smelt_tmp_2.clone() {"));
-    assert!(source.contains("return arg_0.clone();"));
-    assert!(source.contains("return arg_1.clone();"));
+    assert!(source.contains("return a.clone();"));
+    assert!(source.contains("return b.clone();"));
 }
 
 #[test]
@@ -207,9 +207,32 @@ console.log(result);
 ",
     );
 
-    assert!(source.contains("match arg_0.as_str() {"));
+    assert!(source.contains("match status.as_str() {"));
     assert!(source.contains("\"pending\" => {"));
     assert!(source.contains("return \"Waiting\".to_owned();"));
+    assert!(source.contains("_ => unreachable!(),"));
+}
+
+#[test]
+fn emits_switch_inside_closure_as_rust_match() {
+    let source = source_for(
+        "const label = (status: \"pending\" | \"approved\"): string => {
+  switch (status) {
+    case \"pending\":
+      return \"Waiting\";
+    case \"approved\":
+      return \"Approved\";
+  }
+};
+const result = label(\"approved\");
+console.log(result);
+",
+    );
+
+    assert!(source.contains("let mut _smelt_tmp_2 = |closure_arg_0: String| {"));
+    assert!(source.contains("match closure_arg_0.as_str() {"));
+    assert!(source.contains("\"pending\" => {"));
+    assert!(source.contains("\"Waiting\".to_owned()"));
     assert!(source.contains("_ => unreachable!(),"));
 }
 

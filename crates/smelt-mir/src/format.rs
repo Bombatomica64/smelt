@@ -95,7 +95,9 @@ pub fn format_compact(mir: &Mir) -> String {
 /// Formats a local kind to human-readable text.
 fn local_kind_text(mir: &Mir, kind: LocalKind) -> String {
     match kind {
-        LocalKind::Param => "param".to_owned(),
+        LocalKind::Param { symbol } => symbol
+            .and_then(|param_symbol| mir.symbols.get(param_symbol))
+            .map_or_else(|| "param".to_owned(), |name| format!("param {name}")),
         LocalKind::Temp => "temp".to_owned(),
         LocalKind::UserBinding(symbol) => {
             format!("user {}", mir.symbols.get(symbol).unwrap_or("<unknown>"))
@@ -248,6 +250,10 @@ fn rvalue_text(value: &Rvalue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ");
             format!("struct{} {{{field_list}}}", class.0)
+        }
+        Rvalue::ExternalClassInstance { class, args } => {
+            let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            format!("external_new{}({arg_list})", class.0)
         }
         Rvalue::Len(operand) => format!("len {}", operand_text(operand)),
         Rvalue::NumericAbs(operand) => format!("numeric_abs {}", operand_text(operand)),
@@ -472,6 +478,23 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(pattern),
                 operand_text(haystack),
                 operand_text(replacement)
+            )
+        }
+        Rvalue::RegexReplaceCallback {
+            op,
+            pattern,
+            haystack,
+            callback,
+        } => {
+            let op_text = match op {
+                smelt_hir::StringReplaceOp::First => "replace_callback",
+                smelt_hir::StringReplaceOp::All => "replace_all_callback",
+            };
+            format!(
+                "regex_{op_text} {}, {}, {}",
+                operand_text(pattern),
+                operand_text(haystack),
+                operand_text(callback)
             )
         }
         Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {

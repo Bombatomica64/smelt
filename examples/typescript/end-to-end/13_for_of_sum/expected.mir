@@ -16,7 +16,7 @@ fn main (FuncId(0)) -> None
     %4 = 0.0
     goto bb1
   bb1:
-    %5 = len copy %3
+    %5 = len copy %0
     %6 = copy %4 < copy %5
     switch copy %6 ? bb2 : bb4
   bb2:

@@ -38,11 +38,13 @@ impl FunctionEmitter<'_> {
                             "{base_text}.get({index_text}).cloned().expect(\"index out of bounds\")"
                         ))
                     }
-                    Some(Type::Dict(_, _)) => Ok(format!(
-                        "{}.get(&{}).cloned().expect(\"index out of bounds\")",
-                        self.local_name(*base)?,
-                        self.operand_text(index)?
-                    )),
+                    Some(Type::Dict(key_ty, _)) => {
+                        let key_text = self.operand_as_type_text(index, *key_ty)?;
+                        Ok(format!(
+                            "{}.get(&{key_text}).cloned().expect(\"index out of bounds\")",
+                            self.local_name(*base)?
+                        ))
+                    }
                     Some(Type::String) => {
                         let base_text = self.local_name(*base)?;
                         let index_text = self.normalized_index_text(
@@ -72,11 +74,13 @@ impl FunctionEmitter<'_> {
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
                         Ok(format!("{base_text}[{index_text}]"))
                     }
-                    Some(Type::Dict(_, _)) => Ok(format!(
-                        "*{}.get_mut(&{}).expect(\"index out of bounds\")",
-                        self.local_name(*base)?,
-                        self.operand_text(index)?
-                    )),
+                    Some(Type::Dict(key_ty, _)) => {
+                        let key_text = self.operand_as_type_text(index, *key_ty)?;
+                        Ok(format!(
+                            "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
+                            self.local_name(*base)?
+                        ))
+                    }
                     _ => Err(EmitError::new(
                         "index assignment codegen is only implemented for lists and dicts",
                     )),

@@ -283,6 +283,8 @@ struct ModuleBuilder<'ctx> {
     type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses for resolving fields after cyclic type imports settle.
     interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
+    /// Interface call signatures for callable interface types.
+    interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Fields attached to callable intersection types.
     callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
     /// Currently processing class name, if any.

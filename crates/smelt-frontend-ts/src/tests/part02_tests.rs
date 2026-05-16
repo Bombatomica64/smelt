@@ -470,6 +470,32 @@ const iso = new Date(now).toISOString();
 }
 
 #[test]
+fn lowers_to_iso_string_on_generic_date_like_receiver() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function parseJSON<ResultDate extends Date = Date>(value: string): ResultDate {
+  return new Date(value) as ResultDate;
+}
+
+const parsedDate = parseJSON("2000-03-15T05:20:10.123Z");
+const iso = parsedDate.toISOString();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateToIsoString { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_conditional_expression() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(ts!("const value = true ? \"yes\" : \"no\";"), &mut ctx)?;
@@ -603,6 +629,42 @@ const parts = "ab"
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListCallback { .. })),
         "expected block-bodied callback to lower into list callback",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_nested_array_callback_inside_map_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Setter {
+  priority: number;
+  subPriority: number;
+}
+
+const setters: Setter[] = [];
+const uniquePrioritySetters = setters
+  .map((setter) => setter.priority)
+  .sort((a, b) => b - a)
+  .filter((priority, index, array) => array.indexOf(priority) === index)
+  .map((priority) =>
+    setters
+      .filter((setter) => setter.priority === priority)
+      .sort((a, b) => b.subPriority - a.subPriority),
+  )
+  .map((setterArray) => setterArray[0]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListCallback { .. })),
+        "expected nested date-fns parse callbacks to lower",
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -812,6 +874,15 @@ date.setHours(hours, minutes, seconds, milliseconds);
 date.setMinutes(minutes, seconds, milliseconds);
 date.setSeconds(seconds, milliseconds);
 date.setMilliseconds(milliseconds);
+interface DateValues {
+  year?: number;
+  date?: number;
+  hours?: number;
+}
+const values: DateValues = { year: 2020, date: 3, hours: 4 };
+if (values.year != null) date.setFullYear(values.year);
+if (values.date != null) date.setDate(values.date);
+if (values.hours != null) date.setHours(values.hours);
 "#),
         &mut ctx,
     )?;
@@ -834,7 +905,7 @@ date.setMilliseconds(milliseconds);
             .iter()
             .filter(|expr| matches!(expr.kind, ExprKind::DateSetPart { .. }))
             .count(),
-        7
+        10
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())

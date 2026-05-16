@@ -8,6 +8,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let function_overloads = ctx.overloads.clone();
         let type_alias_fields = ctx.type_alias_fields.clone();
         let interface_extends = ctx.interface_extends.clone();
+        let interface_call_signatures = ctx.interface_call_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
         let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
         Self {
@@ -25,6 +26,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_bases: HashMap::new(),
             type_alias_fields,
             interface_extends,
+            interface_call_signatures,
             callable_fields,
             current_class: None,
             current_async: false,
@@ -382,8 +384,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     && let Some(init) = &declarator.init
                     && (Self::is_module_global_array_initializer(init)
                         || Self::object_const_initializer(init).is_some())
-                    && let Ok(ty) = self.infer_module_global_initializer_type(init)
                 {
+                    let ty = self.infer_module_global_initializer_type(init).unwrap_or_else(|_| {
+                        self.ctx.krate.types.intern(Type::Unknown)
+                    });
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                 }

@@ -37,6 +37,7 @@ impl ModuleBuilder<'_> {
         let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
+        let mut call_signatures = Vec::new();
 
         let mut heritage_refs = Vec::new();
         let result = (|| {
@@ -165,8 +166,33 @@ impl ModuleBuilder<'_> {
                             span: self.span(method.span.start, method.span.end),
                         });
                     }
-                    TSSignature::TSCallSignatureDeclaration(_)
-                    | TSSignature::TSConstructSignatureDeclaration(_)
+                    TSSignature::TSCallSignatureDeclaration(signature) => {
+                        let return_ty = signature
+                            .return_type
+                            .as_ref()
+                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                            .transpose()?
+                            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                        let mut params = Vec::new();
+                        for param in &signature.params.items {
+                            let ty = param
+                                .type_annotation
+                                .as_ref()
+                                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                                .transpose()?
+                                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                            params.push(ty);
+                        }
+                        call_signatures.push(FunctionType {
+                            params,
+                            return_ty,
+                            is_async: matches!(
+                                self.ctx.krate.types.get(return_ty),
+                                Some(Type::Future(_))
+                            ),
+                        });
+                    }
+                    TSSignature::TSConstructSignatureDeclaration(_)
                     | TSSignature::TSIndexSignature(_) => {}
                 }
             }
@@ -184,6 +210,11 @@ impl ModuleBuilder<'_> {
         self.interface_extends
             .insert(name, heritage_refs.clone());
         self.ctx.interface_extends.insert(name, heritage_refs);
+        self.interface_call_signatures
+            .insert(name, call_signatures.clone());
+        self.ctx
+            .interface_call_signatures
+            .insert(name, call_signatures);
         self.interfaces.insert(name_text.to_owned(), item);
         Ok(item)
     }
@@ -448,7 +479,8 @@ impl ModuleBuilder<'_> {
                 let mut default = None;
                 let mut pending_empty_labels = Vec::new();
 
-                for case in &switch_stmt.cases {
+                let case_count = switch_stmt.cases.len();
+                for (case_index, case) in switch_stmt.cases.iter().enumerate() {
                     if case.consequent.is_empty() {
                         if let Some(test) = &case.test {
                             pending_empty_labels.push(self.literal_case_label(test)?);
@@ -470,7 +502,11 @@ impl ModuleBuilder<'_> {
                         }
                         self.statement_in_block(case_statement, body, case_block)?;
                     }
-                    if !saw_break && !case.consequent.iter().any(statement_terminates) {
+                    let is_last_case = case_index + 1 == case_count;
+                    if !saw_break
+                        && !is_last_case
+                        && !case.consequent.iter().any(statement_terminates)
+                    {
                         return Err(SmeltError::unsupported(
                             self.span(case.span.start, case.span.end),
                             "switch fallthrough is not lowered yet; each case must break, return, or throw",
@@ -611,12 +647,6 @@ impl ModuleBuilder<'_> {
                 "array forEach callbacks require an item parameter",
             ));
         };
-        let BindingPattern::BindingIdentifier(item_binding) = &item_param.pattern else {
-            return Err(SmeltError::unsupported(
-                self.span(item_param.span.start, item_param.span.end),
-                "array forEach statement callbacks only support identifier item parameters",
-            ));
-        };
         let iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);
         let Some(Type::List(item_ty)) = self.ctx.krate.types.get(iter_ty).cloned() else {
@@ -625,16 +655,23 @@ impl ModuleBuilder<'_> {
                 "array forEach statement receiver must be an array",
             ));
         };
-        let item_symbol = self.intern_source_name(item_binding.name.as_str());
+        let item_binding = match &item_param.pattern {
+            BindingPattern::BindingIdentifier(binding) => Some(binding),
+            _ => None,
+        };
+        let item_symbol = if let Some(binding) = item_binding {
+            self.intern_source_name(binding.name.as_str())
+        } else {
+            self.ctx.krate.symbols.intern("__for_each_item")
+        };
         let item_local = body.push_local(LocalDecl {
             name: Some(item_symbol),
             ty: item_ty,
             mutable: false,
-            span: self.span(item_binding.span.start, item_binding.span.end),
+            span: self.span(item_param.span.start, item_param.span.end),
         });
-        let saved_item_local = self
-            .locals
-            .insert(item_binding.name.to_string(), item_local);
+        let saved_item_local = item_binding
+            .map(|binding| self.locals.insert(binding.name.to_string(), item_local));
         let item_pat = body.push_pattern(Pattern::Binding(item_local));
         let index_binding = arrow
             .params
@@ -673,6 +710,21 @@ impl ModuleBuilder<'_> {
             counter_local
         });
         let loop_body = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
+        if item_binding.is_none() {
+            let item_value = body.push_expr(Expr {
+                kind: ExprKind::Local(item_local),
+                ty: item_ty,
+                span: self.span(item_param.span.start, item_param.span.end),
+            });
+            self.binding_declaration(
+                &item_param.pattern,
+                Some(item_value),
+                Some(item_ty),
+                false,
+                body,
+                loop_body,
+            )?;
+        }
         let saved_index_local =
             if let (Some(index_binding), Some(counter)) = (index_binding, index_counter) {
                 let index_symbol = self.intern_source_name(index_binding.name.as_str());
@@ -731,10 +783,12 @@ impl ModuleBuilder<'_> {
                 self.locals.remove(index_binding.name.as_str());
             }
         }
-        if let Some(prior) = saved_item_local {
-            self.locals.insert(item_binding.name.to_string(), prior);
-        } else {
-            self.locals.remove(item_binding.name.as_str());
+        if let Some(item_binding) = item_binding {
+            if let Some(Some(prior)) = saved_item_local {
+                self.locals.insert(item_binding.name.to_string(), prior);
+            } else {
+                self.locals.remove(item_binding.name.as_str());
+            }
         }
         body.push_stmt_to_block(
             block,
@@ -850,7 +904,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return a supported top-level test case call, if this expression is one.
-    fn test_case_call<'a>(
+    pub(super) fn test_case_call<'a>(
         &self,
         expression: &'a Expression<'a>,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
@@ -862,6 +916,73 @@ impl ModuleBuilder<'_> {
         };
         let name = callee.name.as_str();
         (self.test_builtins.contains(name) && matches!(name, "it" | "test")).then_some(call)
+    }
+
+    /// Return whether an expression is a skipped Vitest test case.
+    pub(super) fn skipped_test_case_call(&self, expression: &Expression<'_>) -> bool {
+        let Expression::CallExpression(call) = expression else {
+            return false;
+        };
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return false;
+        };
+        if member.property.name != "skip" {
+            return false;
+        }
+        matches!(
+            &member.object,
+            Expression::Identifier(object)
+                if self.test_builtins.contains(object.name.as_str())
+                    && matches!(object.name.as_str(), "it" | "test")
+        )
+    }
+
+    /// Return whether a suite-level condition is known false for native Rust tests.
+    pub(super) fn describe_condition_is_native_false(expression: &Expression<'_>) -> bool {
+        Self::typeof_window_undefined_comparison(expression, false)
+    }
+
+    /// Return whether a suite-level condition is known true for native Rust tests.
+    pub(super) fn describe_condition_is_native_true(expression: &Expression<'_>) -> bool {
+        Self::typeof_window_undefined_comparison(expression, true)
+    }
+
+    /// Evaluate `typeof window ===/!== "undefined"` for the Rust test target.
+    fn typeof_window_undefined_comparison(
+        expression: &Expression<'_>,
+        want_equal: bool,
+    ) -> bool {
+        let Expression::BinaryExpression(binary) = expression else {
+            return false;
+        };
+        let is_equal = match binary.operator {
+            BinaryOperator::StrictEquality | BinaryOperator::Equality => true,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality => false,
+            _ => return false,
+        };
+        if is_equal != want_equal {
+            return false;
+        }
+        let left_typeof_window = Self::is_typeof_window(&binary.left);
+        let right_typeof_window = Self::is_typeof_window(&binary.right);
+        matches!(
+            (left_typeof_window, &binary.right, right_typeof_window, &binary.left),
+            (true, Expression::StringLiteral(value), _, _) if value.value == "undefined"
+        ) || matches!(
+            (left_typeof_window, &binary.right, right_typeof_window, &binary.left),
+            (_, _, true, Expression::StringLiteral(value)) if value.value == "undefined"
+        )
+    }
+
+    /// Return whether an expression is `typeof window`.
+    fn is_typeof_window(expression: &Expression<'_>) -> bool {
+        let Expression::UnaryExpression(unary) = expression else {
+            return false;
+        };
+        if unary.operator != UnaryOperator::Typeof {
+            return false;
+        }
+        matches!(&unary.argument, Expression::Identifier(identifier) if identifier.name == "window")
     }
 
     /// Return a supported `test.each(...)` or `describe.each(...)` outer call.

@@ -101,12 +101,11 @@ pub(crate) fn read_manifest_source(
 pub(crate) fn dependency_closure(
     roots: Vec<ManifestSource>,
 ) -> Result<Vec<ManifestSource>, Box<dyn std::error::Error>> {
-    let mut sources = Vec::new();
-    let mut seen = HashSet::new();
+    let mut collector = DependencyCollector::default();
     for root in roots {
-        collect_manifest_source(root, &mut sources, &mut seen)?;
+        collector.collect_source(root)?;
     }
-    Ok(sources)
+    Ok(collector.sources)
 }
 
 /// Returns manifest source indexes in dependency-first order.
@@ -150,53 +149,127 @@ fn manifest_source_index(sources: &[ManifestSource]) -> HashMap<PathBuf, usize> 
     index
 }
 
-/// Adds one source and recursively adds local import targets that exist on disk.
-fn collect_manifest_source(
-    mut source: ManifestSource,
-    sources: &mut Vec<ManifestSource>,
-    seen: &mut HashSet<PathBuf>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let key = normalize_path_key(&source.path);
-    if !seen.insert(key) {
-        return Ok(());
-    }
-    let imports = source.imports.clone();
-    let source_path = source.path.clone();
-    let lang = source.lang;
-    let mut dependencies = Vec::new();
-    for import in &imports {
-        dependencies.extend(resolve_import_to_existing_sources(
-            &source_path,
-            lang,
-            import,
-        )?);
-    }
-    source.dependencies.clone_from(&dependencies);
-    sources.push(source);
-    for path in dependencies {
-        let dep = read_manifest_source(path)?;
-        collect_manifest_source(dep, sources, seen)?;
-    }
-    Ok(())
+/// Stateful dependency collector for one manifest expansion.
+struct DependencyCollector {
+    /// Sources discovered so far in traversal order.
+    sources: Vec<ManifestSource>,
+    /// Normalized source paths that have already been collected.
+    seen: HashSet<PathBuf>,
+    /// TypeScript resolver reused across all import edges.
+    ts_resolver: Resolver,
+    /// Parsed TypeScript barrel export maps keyed by normalized path.
+    barrel_exports: HashMap<PathBuf, HashMap<String, String>>,
 }
 
-/// Resolves a local import specifier to existing source files.
-fn resolve_import_to_existing_sources(
-    importer_path: &Path,
-    importer_lang: SourceLang,
-    import: &ManifestImport,
-) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
-    if importer_lang.is_typescript() {
-        return resolve_typescript_import_to_existing_sources(importer_path, import);
-    }
-
-    let base = python_import_base(importer_path, import);
-    for candidate in manifest_import_candidates(&base) {
-        if candidate.is_file() {
-            return Ok(vec![candidate.canonicalize()?]);
+impl Default for DependencyCollector {
+    /// Creates an empty collector with shared resolver state.
+    fn default() -> Self {
+        Self {
+            sources: Vec::new(),
+            seen: HashSet::new(),
+            ts_resolver: typescript_resolver(),
+            barrel_exports: HashMap::new(),
         }
     }
-    Ok(Vec::new())
+}
+
+impl DependencyCollector {
+    /// Adds one source and recursively adds local import targets that exist on disk.
+    fn collect_source(
+        &mut self,
+        mut source: ManifestSource,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let key = normalize_path_key(&source.path);
+        if !self.seen.insert(key) {
+            return Ok(());
+        }
+        let imports = source.imports.clone();
+        let source_path = source.path.clone();
+        let lang = source.lang;
+        let mut dependencies = Vec::new();
+        for import in &imports {
+            dependencies.extend(self.resolve_import_to_existing_sources(
+                &source_path,
+                lang,
+                import,
+            )?);
+        }
+        source.dependencies.clone_from(&dependencies);
+        self.sources.push(source);
+        for path in dependencies {
+            if self.seen.contains(&normalize_path_key(&path)) {
+                continue;
+            }
+            let dep = read_manifest_source(path)?;
+            self.collect_source(dep)?;
+        }
+        Ok(())
+    }
+
+    /// Resolves a local import specifier to existing source files.
+    fn resolve_import_to_existing_sources(
+        &mut self,
+        importer_path: &Path,
+        importer_lang: SourceLang,
+        import: &ManifestImport,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        if importer_lang.is_typescript() {
+            return self.resolve_typescript_import_to_existing_sources(importer_path, import);
+        }
+
+        let base = python_import_base(importer_path, import);
+        for candidate in manifest_import_candidates(&base) {
+            if candidate.is_file() {
+                return Ok(vec![candidate.canonicalize()?]);
+            }
+        }
+        Ok(Vec::new())
+    }
+
+    /// Resolves a TypeScript import specifier with the shared resolver.
+    fn resolve_typescript_import_to_existing_sources(
+        &mut self,
+        importer_path: &Path,
+        import: &ManifestImport,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        let Some(candidate) =
+            resolve_typescript_path(&self.ts_resolver, importer_path, &import.module)?
+        else {
+            return Ok(Vec::new());
+        };
+        self.resolve_barrel_import_targets(&candidate, import)
+            .or_else(|| Some(vec![candidate.canonicalize().ok()?]))
+            .ok_or_else(|| "failed to canonicalize TypeScript import candidate".into())
+    }
+
+    /// Resolves named imports from an `index.ts` barrel to matching re-export files.
+    fn resolve_barrel_import_targets(
+        &mut self,
+        candidate: &Path,
+        import: &ManifestImport,
+    ) -> Option<Vec<PathBuf>> {
+        if candidate.file_name().is_none_or(|name| name != "index.ts") {
+            return None;
+        }
+        let names = import.names.as_ref()?;
+        if names.is_empty() {
+            return None;
+        }
+        let key = normalize_path_key(candidate);
+        if !self.barrel_exports.contains_key(&key) {
+            let source = fs::read_to_string(candidate).ok()?;
+            self.barrel_exports
+                .insert(key.clone(), scan_typescript_barrel_exports(&source));
+        }
+        let export_map = self.barrel_exports.get(&key)?;
+        let mut targets = vec![candidate.canonicalize().ok()?];
+        for name in names {
+            let module = export_map.get(name)?;
+            let target = resolve_typescript_path(&self.ts_resolver, candidate, module).ok()??;
+            targets.push(target.canonicalize().ok()?);
+        }
+        Some(targets)
+    }
 }
 
 /// Builds the filesystem base path for a Python import using AST relative levels.
@@ -222,20 +295,6 @@ fn python_relative_base_dir(importer_dir: &Path, level: u32) -> PathBuf {
         }
     }
     base
-}
-
-/// Resolves a TypeScript import specifier with `oxc_resolver`.
-fn resolve_typescript_import_to_existing_sources(
-    importer_path: &Path,
-    import: &ManifestImport,
-) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
-    let resolver = typescript_resolver();
-    let Some(candidate) = resolve_typescript_path(&resolver, importer_path, &import.module)? else {
-        return Ok(Vec::new());
-    };
-    resolve_barrel_import_targets(&resolver, &candidate, import)
-        .or_else(|| Some(vec![candidate.canonicalize().ok()?]))
-        .ok_or_else(|| "failed to canonicalize TypeScript import candidate".into())
 }
 
 /// Builds the resolver options used for TypeScript manifest dependency discovery.
@@ -313,30 +372,6 @@ fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
         candidates.push(base.join("__init__.pyi"));
     }
     candidates
-}
-
-/// Resolves named imports from an `index.ts` barrel to the matching re-export files.
-fn resolve_barrel_import_targets(
-    resolver: &Resolver,
-    candidate: &Path,
-    import: &ManifestImport,
-) -> Option<Vec<PathBuf>> {
-    if candidate.file_name().is_none_or(|name| name != "index.ts") {
-        return None;
-    }
-    let names = import.names.as_ref()?;
-    if names.is_empty() {
-        return None;
-    }
-    let source = fs::read_to_string(candidate).ok()?;
-    let export_map = scan_typescript_barrel_exports(&source);
-    let mut targets = vec![candidate.canonicalize().ok()?];
-    for name in names {
-        let module = export_map.get(name)?;
-        let target = resolve_typescript_path(resolver, candidate, module).ok()??;
-        targets.push(target.canonicalize().ok()?);
-    }
-    Some(targets)
 }
 
 /// Maps simple named exports in a TypeScript barrel file to their module specifiers.

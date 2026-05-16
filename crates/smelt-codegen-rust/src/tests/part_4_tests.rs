@@ -71,7 +71,7 @@ returned: int = adder(6)
 "#,
     );
 
-    assert!(source.contains("impl FnMut(i64) -> i64"));
+    assert!(source.contains("&mut dyn FnMut(i64) -> i64"));
     assert!(source.contains("(3)"));
     assert!(source.contains("apply(4,"));
     assert!(source.contains("make_adder(5)"));
@@ -173,9 +173,9 @@ chosen: int = pick(value=5, **extras)
 "#,
     );
 
-    assert!(source.contains("fn sum_values(arg_0: Vec<i64>) -> i64"));
+    assert!(source.contains("fn sum_values(values: Vec<i64>) -> i64"));
     assert!(source.contains("vec![2, 3, 4]"));
-    assert!(source.contains("fn pick(arg_0: ::std::collections::HashMap<String, i64>) -> i64"));
+    assert!(source.contains("fn pick(kwargs: ::std::collections::HashMap<String, i64>) -> i64"));
     assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
     assert!(source.contains("assigned.extend"));
 }
@@ -401,9 +401,25 @@ const fromSource = new Set(source);
 
     assert!(source.contains("::std::collections::HashSet<f64>"));
     assert!(source.contains("::std::collections::HashSet::from(["));
-    assert!(source.contains(".contains(&2.0);"));
+    assert!(source.contains(".iter().any(|value| *value == 2.0);"));
     assert!(source.contains("::std::collections::HashSet::from([]);"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
+}
+
+#[test]
+fn emits_set_has_inside_callback() {
+    let source = source_for(
+        r#"
+const selected: Set<number> = new Set([1, 2]);
+const values: number[] = [1, 2, 3];
+const hits = values.filter((value) => selected.has(value));
+"#,
+    );
+
+    assert!(
+        source.contains(".iter().any(|value| *value == item)"),
+        "{source}"
+    );
 }
 
 #[test]

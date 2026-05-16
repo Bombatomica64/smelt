@@ -3,8 +3,8 @@ class Point fields [Public x: Float, Private y: Float] constructor Some(FuncId(0
 fn new (FuncId(0)) -> Point
   locals
     %0 user this: Point
-    %1 param: Float
-    %2 param: Float
+    %1 param x: Float
+    %2 param y: Float
   bb0:
     %0 = struct0 {}
     %0.field1 = copy %1

@@ -53,12 +53,78 @@ const returned = adder(6);
 "#,
     );
 
-    assert!(source.contains("impl FnMut(f64) -> f64"));
+    assert!(source.contains("&mut dyn FnMut(f64) -> f64"));
     assert!(source.contains("(3.0)"));
     assert!(source.contains("apply(4.0,"));
     assert!(source.contains("make_adder(5.0)"));
     assert!(source.contains("adder(6.0)"));
     assert!(source.contains("move |"));
+}
+
+#[test]
+fn emits_function_array_some_without_cloning_callbacks() {
+    let source = source_for(
+        r#"
+function anyPass(data: unknown, fns: Array<(value: unknown) => boolean>): boolean {
+  return fns.some((fn) => fn(data));
+}
+"#,
+    );
+
+    assert!(source.contains("mut fns:"), "{source}");
+    assert!(
+        source.contains("fns.iter_mut().enumerate().any"),
+        "{source}"
+    );
+    assert!(!source.contains("let item = (*item).clone()"), "{source}");
+    assert!(!source.contains("fns.clone()"), "{source}");
+}
+
+#[test]
+fn skips_unused_function_callback_item_bindings_in_literal_false_branch() {
+    let source = source_for(
+        r#"
+function lazy(functions: Array<(value: unknown) => unknown>): Array<unknown | null> {
+  return functions.map((fn) => false ? fn(null) : null);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("functions.iter().enumerate().map"),
+        "{source}"
+    );
+    assert!(!source.contains("let item = (*item).clone()"), "{source}");
+    assert!(!source.contains("functions.clone()"), "{source}");
+}
+
+#[test]
+fn emits_string_concat_with_optional_primitive_rhs() {
+    let source = source_for(
+        r#"
+function label(prefix: string, value: string | undefined): string {
+  return prefix + value;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".unwrap_or_default().to_string()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_unknown_slice_inside_callback_as_runtime_string_match() {
+    let source = source_for(
+        r#"
+const values: unknown[] = ["abc"];
+const tails = values.map((value) => value.slice(1));
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
+    assert!(!source.contains(".slice(1.0)"), "{source}");
 }
 
 #[test]
@@ -141,7 +207,7 @@ const total = sum(2, 3, 4);
 "#,
     );
 
-    assert!(source.contains("fn sum(arg_0: Vec<f64>) -> f64"));
+    assert!(source.contains("fn sum(values: Vec<f64>) -> f64"));
     assert!(source.contains("vec![2.0, 3.0, 4.0]"));
 }
 

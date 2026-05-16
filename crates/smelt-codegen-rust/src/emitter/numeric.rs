@@ -3,6 +3,16 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Emits Rust text that truncates a numeric expression through `f64`.
+    ///
+    /// JavaScript numeric coercions such as bit shifts and `toString(radix)` accept
+    /// either integer-like or float-like operands. Rust's `.trunc()` method exists
+    /// only on floats, so generated code must cast the receiver before truncating
+    /// when the MIR operand may lower to an integer expression.
+    pub(super) fn numeric_trunc_f64_text(&self, value_text: &str) -> String {
+        format!("({value_text} as f64).trunc()")
+    }
+
     /// Converts an operand for len() to its Rust text representation.
     pub(super) fn len_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
@@ -22,13 +32,14 @@ impl FunctionEmitter<'_> {
             }
         };
         let receiver_text = self.len_operand_text(operand)?;
-        let len_expr = if matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::String)
-        ) {
-            format!("{receiver_text}.chars().count()")
-        } else {
-            format!("{receiver_text}.len()")
+        let len_expr = match self.mir.types.get(self.operand_ty(operand)?) {
+            Some(Type::String) => format!("{receiver_text}.chars().count()"),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                format!(
+                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => value.len(), _ => 0 }}"
+                )
+            }
+            _ => format!("{receiver_text}.len()"),
         };
         Ok(format!("{len_expr} as {cast}"))
     }
@@ -280,8 +291,10 @@ impl FunctionEmitter<'_> {
         }
         let operand_text = self.operand_text(operand)?;
         let radix_text = self.operand_text(radix)?;
+        let value_trunc_text = self.numeric_trunc_f64_text(&operand_text);
+        let radix_trunc_text = self.numeric_trunc_f64_text(&radix_text);
         Ok(format!(
-            "{{ let value = {operand_text}.trunc() as i128; let radix = ({radix_text}.trunc() as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 {{ digits.push('0'); }} while n > 0 {{ let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 {{ (b'0' + digit) as char }} else {{ (b'a' + digit - 10) as char }}); n /= u128::from(radix); }} if negative {{ digits.push('-'); }} digits.iter().rev().collect::<String>() }}"
+            "{{ let value = {value_trunc_text} as i128; let radix = ({radix_trunc_text} as u32).clamp(2, 36); let negative = value < 0; let mut n = value.unsigned_abs(); let mut digits = Vec::new(); if n == 0 {{ digits.push('0'); }} while n > 0 {{ let digit = (n % u128::from(radix)) as u8; digits.push(if digit < 10 {{ (b'0' + digit) as char }} else {{ (b'a' + digit - 10) as char }}); n /= u128::from(radix); }} if negative {{ digits.push('-'); }} digits.iter().rev().collect::<String>() }}"
         ))
     }
 

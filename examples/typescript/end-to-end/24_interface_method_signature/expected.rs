@@ -10,18 +10,18 @@ struct User {
 fn main() {
     let mut _smelt_tmp_1: User = User::new("Ada".to_owned());
     let mut user: User = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.label("Hi ".to_owned());
+    let _smelt_tmp_2: String = user.label("Hi ".to_owned());
     let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl User {
-    fn new(arg_1: String) -> Self {
+    fn new(name: String) -> Self {
     let mut this: User = User { name: String::new() };
-    this.name = arg_1.clone();
+    this.name = name.clone();
     return this;
     }
-    fn label(&self, arg_1: String) -> String {
-    let _smelt_tmp_2: String = arg_1.clone() + &self.name.clone();
+    fn label(&self, prefix: String) -> String {
+    let _smelt_tmp_2: String = prefix.clone() + &self.name.clone();
     return _smelt_tmp_2.clone();
     }
 }

@@ -16,7 +16,7 @@ fn main (FuncId(0)) -> None
     %4 = !copy %1
     %5 = copy %4 && copy %0
     %6 = copy %5 || false
-    %7 = call @console_log(copy %6, copy %3) -> bb1
+    %7 = call @console_log(copy %6, copy %2) -> bb1
   bb1:
     return none
 

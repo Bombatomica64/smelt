@@ -248,6 +248,32 @@ const replaced = value.replace(/\d/g, "x");
 }
 
 #[test]
+fn lowers_global_regex_replace_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const digits: Record<string, string> = { "1": "one" };
+const replaced = "1".replace(/\d/g, function (match) {
+  return digits[match];
+});
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::RegexReplaceCallback {
+            op: StringReplaceOp::All,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_callback_regex_replace_uppercase_inside_template_literal() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
@@ -269,6 +295,120 @@ fn lowers_callback_string_key_record_access() -> Result<(), String> {
         ts!(r#"
 export function values(record: Record<string, number>, keys: string[]): number[] {
   return keys.map((key) => record[key]);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn falls_back_for_array_callback_reading_module_const() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const TOKENS = ["MMM", "MMMM"];
+
+export function hasLong(parts: { value: string }[]): boolean {
+  return parts.some((part) => TOKENS.includes(part.value));
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn records_mixed_object_const_as_unknown_module_global() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function week(value: boolean) {
+  return (date: Date) => "week";
+}
+
+const formatRelativeLocale = {
+  lastWeek: week(false),
+  today: "'today'",
+};
+
+export function formatRelative(token: string): unknown {
+  return formatRelativeLocale[token];
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_function_expression_array_callback_with_outer_capture() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function extract(token: string): string | undefined {
+  const result = ["lessThan", "about"].filter(function (preposition) {
+    return !!token.match(new RegExp("^" + preposition));
+  });
+  return result[0];
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn types_addition_with_string_operand_as_string() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function format(count: number, translated: string): string {
+  const result = count + translated;
+  return true ? translated : result;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn allows_split_on_unknown_string_flow() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function words(value: unknown): string[] {
+  return value.split(" ");
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn allows_last_switch_case_without_break() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function suffix(value: string): string {
+  let result = "";
+  switch (value) {
+    case "a":
+      result += "a";
+      break;
+    default:
+      result += value;
+  }
+  return result;
 }
 "#),
         &mut ctx,

@@ -47,11 +47,53 @@ impl FunctionEmitter<'_> {
         let element_ty = *list_element_ty;
         let list_text = self.operand_text(list)?;
         let callback_text = self.callback_expr_text(callback_body, &["item", "index", "array"])?;
+        let callback_is_static_default =
+            matches!(callback_text.as_str(), "None" | "Default::default()" | "()");
+        let callback_uses_item =
+            !callback_is_static_default && callback_uses_param(&self.mir.types, callback_body, 0);
+        let callback_uses_index =
+            !callback_is_static_default && callback_uses_param(&self.mir.types, callback_body, 1);
+        let function_element = matches!(self.mir.types.get(element_ty), Some(Type::Function(_)));
+        let callback_uses_array =
+            !callback_is_static_default && callback_uses_param(&self.mir.types, callback_body, 2);
+        let function_item_closure = || {
+            let index_binding = if callback_uses_index {
+                "let index = index as f64; "
+            } else {
+                ""
+            };
+            let array_binding = if callback_uses_array {
+                format!("let array = {list_text}.clone(); ")
+            } else {
+                String::new()
+            };
+            format!("|(index, item)| {{ {index_binding}{array_binding}{callback_text} }}")
+        };
+        let item_binding = if callback_uses_item {
+            "let item = (*item).clone(); "
+        } else {
+            ""
+        };
+        let ref_item_binding = if callback_uses_item {
+            "let item = (**item).clone(); "
+        } else {
+            ""
+        };
+        let index_binding = if callback_uses_index {
+            "let index = index as f64; "
+        } else {
+            ""
+        };
+        let array_binding = if callback_uses_array {
+            format!("let array = {list_text}.clone(); ")
+        } else {
+            String::new()
+        };
         let closure = format!(
-            "|(index, item)| {{ let item = (*item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}"
+            "|(index, item)| {{ {item_binding}{index_binding}{array_binding}{callback_text} }}"
         );
         let ref_closure = format!(
-            "|(index, item)| {{ let item = (**item).clone(); let index = index as f64; let array = {list_text}.clone(); {callback_text} }}"
+            "|(index, item)| {{ {ref_item_binding}{index_binding}{array_binding}{callback_text} }}"
         );
         match op {
             smelt_hir::ListCallbackOp::Map => {
@@ -122,12 +164,24 @@ impl FunctionEmitter<'_> {
                 if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
                     return Err(EmitError::new("array some destination must be boolean"));
                 }
+                if function_element {
+                    return Ok(format!(
+                        "{list_text}.iter_mut().enumerate().any({})",
+                        function_item_closure()
+                    ));
+                }
                 Ok(format!("{list_text}.iter().enumerate().any({closure})"))
             }
             smelt_hir::ListCallbackOp::Every => {
                 self.validate_bool_callback(callback_body, "array every")?;
                 if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
                     return Err(EmitError::new("array every destination must be boolean"));
+                }
+                if function_element {
+                    return Ok(format!(
+                        "{list_text}.iter_mut().enumerate().all({})",
+                        function_item_closure()
+                    ));
                 }
                 Ok(format!("{list_text}.iter().enumerate().all({closure})"))
             }
@@ -352,7 +406,7 @@ impl FunctionEmitter<'_> {
                     let index = id_index(captured_local.0, "local index does not fit usize")?;
                     if closure_locals.len() <= index {
                         closure_locals.resize(
-                            index + 1,
+                            index.saturating_add(1),
                             LocalDecl {
                                 ty: capture.ty,
                                 kind: LocalKind::Temp,
@@ -366,7 +420,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             let function = MirFunction {
-                id: smelt_mir::FuncId(u32::MAX),
+                id: FuncId(u32::MAX),
                 name: Symbol(u32::MAX),
                 origin: HirOrigin::Body(smelt_hir::BodyId(u32::MAX)),
                 is_async: false,
@@ -378,7 +432,7 @@ impl FunctionEmitter<'_> {
                 blocks: closure.blocks.clone(),
                 entry: closure.entry,
             };
-            let mut emitter = FunctionEmitter::new(self.mir, &function)?;
+            let mut emitter = FunctionEmitter::new(self.mir, self.context, &function)?;
             for (index, param) in closure.params.iter().enumerate() {
                 emitter.names.insert(*param, format!("closure_arg_{index}"));
             }
@@ -394,8 +448,14 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .map(|param| {
                     let local = emitter.local_decl(*param)?;
+                    let mutability =
+                        if matches!(emitter.mir.types.get(local.ty), Some(Type::Function(_))) {
+                            "mut "
+                        } else {
+                            ""
+                        };
                     Ok(format!(
-                        "{}: {}",
+                        "{mutability}{}: {}",
                         emitter.local_name(*param)?,
                         emitter.type_text_with_impl_trait(local.ty, false)?
                     ))
@@ -427,7 +487,7 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         out: &mut String,
     ) -> Result<(), EmitError> {
-        self.emit_closure_block_inner(block, out, &mut Vec::new())
+        self.emit_closure_block_inner(block, out, &mut Vec::new(), None)
     }
 
     /// Emits a closure block while guarding against unstructured CFG cycles.
@@ -436,7 +496,11 @@ impl FunctionEmitter<'_> {
         block: &BasicBlock,
         out: &mut String,
         active: &mut Vec<*const BasicBlock>,
+        stop: Option<smelt_mir::BlockId>,
     ) -> Result<(), EmitError> {
+        if Some(block.id) == stop {
+            return Ok(());
+        }
         let block_ptr = std::ptr::from_ref(block);
         if active.contains(&block_ptr) {
             out.push_str("    panic!(\"recursive closure control flow is not structured yet\")\n");
@@ -465,7 +529,11 @@ impl FunctionEmitter<'_> {
                 Ok(())
             }
             Terminator::Goto(target) => {
-                self.emit_closure_block_inner(self.block(*target)?, out, active)
+                if Some(*target) == stop {
+                    Ok(())
+                } else {
+                    self.emit_closure_block_inner(self.block(*target)?, out, active, stop)
+                }
             }
             Terminator::Call {
                 callee,
@@ -473,14 +541,14 @@ impl FunctionEmitter<'_> {
                 dest,
                 target,
             } => {
-                let call_text = self.call_text(callee, args)?;
                 let local = self.local_decl(*dest)?;
+                let call_text = self.call_text_for_dest(callee, args, local.ty)?;
                 let name = self.local_name(*dest)?;
                 out.push_str(&format!(
                     "    let {name}: {} = {call_text};\n",
                     self.type_text(local.ty)?
                 ));
-                self.emit_closure_block_inner(self.block(*target)?, out, active)
+                self.emit_closure_block_inner(self.block(*target)?, out, active, stop)
             }
             Terminator::Switch {
                 cond,
@@ -488,15 +556,17 @@ impl FunctionEmitter<'_> {
                 else_block,
             } => {
                 out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
-                self.emit_closure_block_inner(self.block(*then_block)?, out, active)?;
+                self.emit_closure_block_inner(self.block(*then_block)?, out, active, stop)?;
                 out.push_str("    } else {\n");
-                self.emit_closure_block_inner(self.block(*else_block)?, out, active)?;
+                self.emit_closure_block_inner(self.block(*else_block)?, out, active, stop)?;
                 out.push_str("    }\n");
                 Ok(())
             }
-            Terminator::Match { .. } => Err(EmitError::new(
-                "match closure bodies are not supported in Rust codegen yet",
-            )),
+            Terminator::Match {
+                scrutinee,
+                arms,
+                default,
+            } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop),
             Terminator::Throw(operand) => {
                 out.push_str(&format!(
                     "    panic!(\"{{}}\", {});\n",
@@ -511,6 +581,50 @@ impl FunctionEmitter<'_> {
         };
         active.pop();
         result
+    }
+
+    /// Emits a MIR match inside a Rust closure body.
+    ///
+    /// Closure blocks can end as Rust tail expressions, unlike ordinary function
+    /// blocks that usually emit explicit `return` statements. This helper keeps
+    /// shared match join blocks outside the generated `match` expression and
+    /// lets non-joining matches remain the closure tail expression.
+    fn emit_closure_match(
+        &self,
+        scrutinee: &Operand,
+        arms: &[smelt_mir::MatchArm],
+        default: Option<smelt_mir::BlockId>,
+        out: &mut String,
+        active: &mut Vec<*const BasicBlock>,
+        stop: Option<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        let join = self.match_join(arms, default)?;
+        let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        out.push_str(&format!("    match {scrutinee_text} {{\n"));
+        for arm in arms {
+            out.push_str(&format!(
+                "        {} => {{\n",
+                self.match_label_text(&arm.label)
+            ));
+            self.emit_closure_block_inner(self.block(arm.target)?, out, active, join)?;
+            out.push_str("        }\n");
+        }
+        if let Some(default_block) = default {
+            out.push_str("        _ => {\n");
+            self.emit_closure_block_inner(self.block(default_block)?, out, active, join)?;
+            out.push_str("        }\n");
+        } else {
+            out.push_str("        _ => unreachable!(),\n");
+        }
+        if join.is_some() {
+            out.push_str("    };\n");
+        } else {
+            out.push_str("    }\n");
+        }
+        if let Some(join_block) = join {
+            self.emit_closure_block_inner(self.block(join_block)?, out, active, stop)?;
+        }
+        Ok(())
     }
 
     /// Resolve a callback operand to the temporary MIR closure body it was constructed from.
@@ -684,17 +798,19 @@ impl FunctionEmitter<'_> {
             }
             smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
                 let receiver_text = self.callback_expr_text(receiver, params)?;
-                let index_text = self.callback_expr_text(index, params)?;
                 match self.mir.types.get(receiver.ty) {
                     Some(Type::List(_)) => Ok(format!(
-                        "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.len() as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.get(callback_index).cloned().expect(\"index out of bounds\") }}"
+                        "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.len() as i64; let index = {} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.get(callback_index).cloned().expect(\"index out of bounds\") }}",
+                        self.callback_expr_text(index, params)?
                     )),
                     Some(Type::String) => Ok(format!(
-                        "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.chars().count() as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.chars().nth(callback_index).map(|ch| ch.to_string()).expect(\"index out of bounds\") }}"
+                        "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.chars().count() as i64; let index = {} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.chars().nth(callback_index).map(|ch| ch.to_string()).expect(\"index out of bounds\") }}",
+                        self.callback_expr_text(index, params)?
                     )),
                     Some(Type::Dict(key_ty, value_ty))
                         if self.mir.types.get(*key_ty) == Some(&Type::String) =>
                     {
+                        let index_text = self.callback_expr_as_type_text(index, *key_ty, params)?;
                         Ok(format!(
                             "{receiver_text}.get(&{index_text}).cloned().unwrap_or({})",
                             self.default_value(*value_ty)?
@@ -796,9 +912,28 @@ impl FunctionEmitter<'_> {
                 let lhs_text = self.callback_expr_text(lhs, params)?;
                 let rhs_text = self.callback_expr_text(rhs, params)?;
                 if *op == smelt_hir::BinOp::UShr {
+                    let lhs_trunc_text = self.numeric_trunc_f64_text(&lhs_text);
+                    let rhs_trunc_text = self.numeric_trunc_f64_text(&rhs_text);
                     return Ok(format!(
-                        "{{ let smelt_shift_value = ({lhs_text}).trunc(); let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = ({rhs_text}).trunc(); let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
+                        "{{ let smelt_shift_value = {lhs_trunc_text}; let smelt_shift_value = if smelt_shift_value.is_finite() {{ smelt_shift_value.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; let smelt_shift_count = {rhs_trunc_text}; let smelt_shift_count = if smelt_shift_count.is_finite() {{ smelt_shift_count.rem_euclid(4294967296.0) as u32 }} else {{ 0_u32 }}; (smelt_shift_value >> (smelt_shift_count & 31)) as f64 }}"
                     ));
+                }
+                if *op == smelt_hir::BinOp::Add
+                    && matches!(self.mir.types.get(lhs.ty), Some(Type::String))
+                {
+                    let rhs_expr = match self.mir.types.get(rhs.ty) {
+                        Some(Type::String) => rhs_text,
+                        Some(Type::Optional(inner))
+                            if matches!(
+                                self.mir.types.get(*inner),
+                                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                            ) =>
+                        {
+                            format!("({rhs_text}).unwrap_or_default().to_string()")
+                        }
+                        _ => format!("({rhs_text}).to_string()"),
+                    };
+                    return Ok(format!("format!(\"{{}}{{}}\", {lhs_text}, {rhs_expr})"));
                 }
                 Ok(format!(
                     "({lhs_text} {} {rhs_text})",
@@ -813,12 +948,27 @@ impl FunctionEmitter<'_> {
                 cond,
                 then_expr,
                 else_expr,
-            } => Ok(format!(
-                "if {} {{ {} }} else {{ {} }}",
-                self.callback_expr_text(cond, params)?,
-                self.callback_expr_as_type_text(then_expr, expr.ty, params)?,
-                self.callback_expr_as_type_text(else_expr, expr.ty, params)?
-            )),
+            } => {
+                if let Some(value) = callback_literal_bool(cond) {
+                    let selected = if value { then_expr } else { else_expr };
+                    return self.callback_expr_as_type_text(selected, expr.ty, params);
+                }
+                let cond_text = self.callback_expr_text(cond, params)?;
+                if cond_text == "true" || cond_text == "false" {
+                    let selected = if cond_text == "true" {
+                        then_expr
+                    } else {
+                        else_expr
+                    };
+                    return self.callback_expr_as_type_text(selected, expr.ty, params);
+                }
+                Ok(format!(
+                    "if {} {{ {} }} else {{ {} }}",
+                    cond_text,
+                    self.callback_expr_as_type_text(then_expr, expr.ty, params)?,
+                    self.callback_expr_as_type_text(else_expr, expr.ty, params)?
+                ))
+            }
             smelt_hir::CallbackExprKind::Call { callee, args } => {
                 if let smelt_hir::CallbackExprKind::FunctionTableLookup { key, cases } =
                     &callee.kind
@@ -831,7 +981,11 @@ impl FunctionEmitter<'_> {
                     .map(|arg| {
                         let text = self.callback_expr_text(&arg.expr, params)?;
                         if arg.spread {
-                            Ok(format!("{text}.clone()"))
+                            if self.type_contains_function(arg.expr.ty) {
+                                Ok(format!("{text}.drain(..).collect::<Vec<_>>()"))
+                            } else {
+                                Ok(format!("{text}.clone()"))
+                            }
                         } else {
                             Ok(text)
                         }
@@ -853,7 +1007,59 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
                 if method_text == "toString" {
-                    Ok(format!("{receiver_text}.to_string()"))
+                    if matches!(
+                        self.mir.types.get(receiver.ty),
+                        Some(Type::Optional(inner))
+                            if matches!(
+                                self.mir.types.get(*inner),
+                                Some(Type::Bool | Type::Int | Type::Float | Type::String)
+                            )
+                    ) {
+                        Ok(format!("{receiver_text}.unwrap_or_default().to_string()"))
+                    } else {
+                        Ok(format!("{receiver_text}.to_string()"))
+                    }
+                } else if method_text == "to_lower_case" && args.is_empty() {
+                    Ok(format!("{receiver_text}.to_lowercase()"))
+                } else if method_text == "to_upper_case" && args.is_empty() {
+                    Ok(format!("{receiver_text}.to_uppercase()"))
+                } else if method_text == "has"
+                    && args.len() == 1
+                    && matches!(self.mir.types.get(receiver.ty), Some(Type::Set(_)))
+                {
+                    let item = args.first().ok_or_else(|| {
+                        EmitError::new("callback Set.has call requires one item argument")
+                    })?;
+                    let item_text = self.callback_expr_text(&item.expr, params)?;
+                    let Some(Type::Set(item_ty)) = self.mir.types.get(receiver.ty) else {
+                        return Err(EmitError::new("callback Set.has receiver must be a set"));
+                    };
+                    if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+                        Ok(format!(
+                            "{receiver_text}.iter().any(|value| *value == {item_text})"
+                        ))
+                    } else {
+                        Ok(format!("{receiver_text}.contains(&{item_text})"))
+                    }
+                } else if method_text == "slice"
+                    && matches!(self.mir.types.get(receiver.ty), Some(Type::Unknown))
+                    && (args.len() == 1 || args.len() == 2)
+                {
+                    let start = args.first().ok_or_else(|| {
+                        EmitError::new("callback unknown slice requires a start argument")
+                    })?;
+                    let start_text = self.callback_expr_text(&start.expr, params)?;
+                    let take_text = if let Some(end) = args.get(1) {
+                        let end_text = self.callback_expr_text(&end.expr, params)?;
+                        format!(
+                            ".take((({end_text} as i64) - ({start_text} as i64)).max(0) as usize)"
+                        )
+                    } else {
+                        String::new()
+                    };
+                    Ok(format!(
+                        "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().skip(({start_text} as i64).max(0) as usize){take_text}.collect::<String>(), _ => String::new() }}"
+                    ))
                 } else if method_text == "match" && args.len() == 1 {
                     let pattern = args.first().ok_or_else(|| {
                         EmitError::new("callback match call requires one pattern argument")
@@ -930,14 +1136,25 @@ impl FunctionEmitter<'_> {
         params: &[&str],
     ) -> Result<String, EmitError> {
         let class_name = sanitize_ident(self.symbol_name(class)?);
-        let mir_class = self
-            .mir
-            .classes
-            .iter()
-            .find(|item| item.name == class)
-            .ok_or_else(|| {
-                EmitError::new("callback structural object literal references an unknown class")
-            })?;
+        let class_def = self.mir.classes.iter().find(|item| item.name == class);
+        let Some(mir_class) = class_def else {
+            let entries_text = entries
+                .iter()
+                .map(|(entry_name, value)| {
+                    let key = self.symbol_name(*entry_name)?;
+                    let value_text = self.callback_expr_as_type_text(
+                        value,
+                        self.type_id(Type::Unknown)?,
+                        params,
+                    )?;
+                    Ok(format!("({key:?}.to_owned(), {value_text})"))
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
+            return Ok(format!(
+                "SmeltUnknown::Object(::std::collections::HashMap::from([{entries_text}]))"
+            ));
+        };
         let mut parts = Vec::new();
         for field in &mir_class.fields {
             let name = sanitize_ident(self.symbol_name(field.name)?);
@@ -969,20 +1186,8 @@ impl FunctionEmitter<'_> {
                 return Ok(format!("Some({})", self.callback_expr_text(expr, params)?));
             }
         }
-        if self.mir.types.get(target) == Some(&Type::Unknown) {
-            let text = self.callback_expr_text(expr, params)?;
-            return match self.mir.types.get(expr.ty) {
-                Some(Type::None) => Ok("SmeltUnknown::Null".to_owned()),
-                Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({text})")),
-                Some(Type::Int | Type::Float) => Ok(format!("SmeltUnknown::Number({text} as f64)")),
-                Some(Type::String) => Ok(format!("SmeltUnknown::String({text})")),
-                Some(Type::List(_)) => Ok(format!("SmeltUnknown::Array({text})")),
-                Some(Type::Dict(_, _)) => Ok(format!("SmeltUnknown::Object({text})")),
-                Some(Type::Unknown) => Ok(text),
-                _ => Ok("SmeltUnknown::Null".to_owned()),
-            };
-        }
-        self.callback_expr_text(expr, params)
+        let text = self.callback_expr_text(expr, params)?;
+        self.rendered_value_as_type_text(&text, expr.ty, target)
     }
 
     /// Converts a list slice operation to Rust text.
@@ -1086,4 +1291,109 @@ impl FunctionEmitter<'_> {
     }
 
     // Sorted-list helpers continue in `list_ordering.rs`.
+}
+
+/// Returns whether a callback expression references a positional callback parameter.
+fn callback_uses_param(
+    types: &smelt_hir::TypeInterner,
+    expr: &smelt_hir::CallbackExpr,
+    needle: usize,
+) -> bool {
+    match &expr.kind {
+        smelt_hir::CallbackExprKind::Param(index) => *index == needle,
+        smelt_hir::CallbackExprKind::HasField { receiver, .. }
+            if !matches!(
+                types.get(receiver.ty),
+                Some(Type::Dict(_, _) | Type::Unknown | Type::Class { .. })
+            ) =>
+        {
+            false
+        }
+        smelt_hir::CallbackExprKind::AssignCapture { value, .. }
+        | smelt_hir::CallbackExprKind::Throw {
+            message: Some(value),
+        }
+        | smelt_hir::CallbackExprKind::Index {
+            receiver: value, ..
+        }
+        | smelt_hir::CallbackExprKind::Field {
+            receiver: value, ..
+        }
+        | smelt_hir::CallbackExprKind::HasField {
+            receiver: value, ..
+        }
+        | smelt_hir::CallbackExprKind::FieldTruthy {
+            receiver: value, ..
+        }
+        | smelt_hir::CallbackExprKind::Unary { operand: value, .. }
+        | smelt_hir::CallbackExprKind::UnknownIs { value, .. }
+        | smelt_hir::CallbackExprKind::FunctionTableLookup { key: value, .. } => {
+            callback_uses_param(types, value, needle)
+        }
+        smelt_hir::CallbackExprKind::DynamicIndex { receiver, index }
+        | smelt_hir::CallbackExprKind::HasDynamicField {
+            receiver,
+            field: index,
+        }
+        | smelt_hir::CallbackExprKind::Binary {
+            lhs: receiver,
+            rhs: index,
+            ..
+        } => {
+            callback_uses_param(types, receiver, needle)
+                || callback_uses_param(types, index, needle)
+        }
+        smelt_hir::CallbackExprKind::Sequence { effects, result } => {
+            effects
+                .iter()
+                .any(|item| callback_uses_param(types, item, needle))
+                || callback_uses_param(types, result, needle)
+        }
+        smelt_hir::CallbackExprKind::Conditional {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            if let Some(value) = callback_literal_bool(cond) {
+                return callback_uses_param(
+                    types,
+                    if value { then_expr } else { else_expr },
+                    needle,
+                );
+            }
+            callback_uses_param(types, cond, needle)
+                || callback_uses_param(types, then_expr, needle)
+                || callback_uses_param(types, else_expr, needle)
+        }
+        smelt_hir::CallbackExprKind::Call { callee, args } => {
+            callback_uses_param(types, callee, needle)
+                || args
+                    .iter()
+                    .any(|arg| callback_uses_param(types, &arg.expr, needle))
+        }
+        smelt_hir::CallbackExprKind::MethodCall { receiver, args, .. } => {
+            callback_uses_param(types, receiver, needle)
+                || args
+                    .iter()
+                    .any(|arg| callback_uses_param(types, &arg.expr, needle))
+        }
+        smelt_hir::CallbackExprKind::ListLit(items) => items
+            .iter()
+            .any(|item| callback_uses_param(types, item, needle)),
+        smelt_hir::CallbackExprKind::DictLit(entries) => entries
+            .iter()
+            .any(|(_, value)| callback_uses_param(types, value, needle)),
+        smelt_hir::CallbackExprKind::Throw { message: None }
+        | smelt_hir::CallbackExprKind::Capture(_)
+        | smelt_hir::CallbackExprKind::Function(_)
+        | smelt_hir::CallbackExprKind::Literal(_) => false,
+    }
+}
+
+/// Extracts a static boolean value from a callback expression when it is literal.
+fn callback_literal_bool(expr: &smelt_hir::CallbackExpr) -> Option<bool> {
+    match &expr.kind {
+        smelt_hir::CallbackExprKind::Literal(smelt_hir::Literal::Bool(value)) => Some(*value),
+        _ => None,
+    }
 }

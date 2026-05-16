@@ -279,9 +279,20 @@ impl FunctionEmitter<'_> {
     /// Return whether a slice-bound type is numeric, allowing optional numeric bounds.
     fn slice_bound_type_is_numeric(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Int | Type::Float) => true,
+            Some(
+                Type::Int | Type::Float | Type::Unknown | Type::Union(_) | Type::TypeParam { .. },
+            ) => true,
             Some(Type::Optional(item)) => {
-                matches!(self.mir.types.get(*item), Some(Type::Int | Type::Float))
+                matches!(
+                    self.mir.types.get(*item),
+                    Some(
+                        Type::Int
+                            | Type::Float
+                            | Type::Unknown
+                            | Type::Union(_)
+                            | Type::TypeParam { .. }
+                    )
+                )
             }
             _ => false,
         }
@@ -346,11 +357,16 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let bound_text = self.operand_text(bound)?;
         let index_text = match self.mir.types.get(self.operand_ty(bound)?) {
-            Some(Type::Optional(item))
-                if matches!(self.mir.types.get(*item), Some(Type::Int | Type::Float)) =>
-            {
-                format!("{bound_text}.unwrap_or({default_text})")
-            }
+            Some(Type::Optional(item)) => match self.mir.types.get(*item) {
+                Some(Type::Int | Type::Float) => format!("{bound_text}.unwrap_or({default_text})"),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => format!(
+                    "match {bound_text}.unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
+                ),
+                _ => bound_text,
+            },
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => format!(
+                "match {bound_text} {{ SmeltUnknown::Number(value) => value, _ => {default_text} }}"
+            ),
             _ => bound_text,
         };
         Ok(format!(

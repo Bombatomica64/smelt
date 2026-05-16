@@ -43,6 +43,7 @@ mod lowering;
 mod manifest;
 mod pipeline;
 pub mod stubs;
+mod timing;
 
 use std::{io, io::Write as _, path::PathBuf};
 

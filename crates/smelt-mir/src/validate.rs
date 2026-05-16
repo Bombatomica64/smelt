@@ -618,6 +618,16 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, replacement, errors);
         }
+        Rvalue::RegexReplaceCallback {
+            pattern,
+            haystack,
+            callback,
+            ..
+        } => {
+            validate_operand_exists(function, pattern, errors);
+            validate_operand_exists(function, haystack, errors);
+            validate_operand_exists(function, callback, errors);
+        }
         Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
             validate_operand_exists(function, pattern, errors);
             validate_operand_exists(function, haystack, errors);
@@ -693,6 +703,11 @@ fn validate_rvalue_exists(
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {
                 validate_operand_exists(function, field_value, errors);
+            }
+        }
+        Rvalue::ExternalClassInstance { args, .. } => {
+            for arg in args {
+                validate_operand_exists(function, arg, errors);
             }
         }
         Rvalue::Len(operand)
@@ -790,7 +805,7 @@ fn validate_definite_assignment(
     entry_defs.extend(function.locals.iter().enumerate().filter_map(
         |(idx, local)| match local.kind {
             crate::LocalKind::UserBinding(_) => Some(LocalId(u32::try_from(idx).ok()?)),
-            crate::LocalKind::Param | crate::LocalKind::Temp => None,
+            crate::LocalKind::Param { .. } | crate::LocalKind::Temp => None,
         },
     ));
     if let Some(slot) = in_sets.get_mut(entry_idx) {
@@ -1374,6 +1389,16 @@ fn validate_rvalue(
             validate_operand(mir, function, definitions, haystack, errors);
             validate_operand(mir, function, definitions, replacement, errors);
         }
+        Rvalue::RegexReplaceCallback {
+            pattern,
+            haystack,
+            callback,
+            ..
+        } => {
+            validate_operand(mir, function, definitions, pattern, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, callback, errors);
+        }
         Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
             validate_operand(mir, function, definitions, pattern, errors);
             validate_operand(mir, function, definitions, haystack, errors);
@@ -1453,6 +1478,11 @@ fn validate_rvalue(
         Rvalue::Struct { fields, .. } => {
             for (_, field_value) in fields {
                 validate_operand(mir, function, definitions, field_value, errors);
+            }
+        }
+        Rvalue::ExternalClassInstance { args, .. } => {
+            for arg in args {
+                validate_operand(mir, function, definitions, arg, errors);
             }
         }
         Rvalue::Len(operand)
@@ -1536,7 +1566,9 @@ fn local_detail(mir: &Mir, function: &MirFunction, local: LocalId) -> String {
         return "<unknown local>".to_owned();
     };
     let kind = match decl.kind {
-        crate::LocalKind::Param => "param".to_owned(),
+        crate::LocalKind::Param { symbol } => symbol
+            .and_then(|param_symbol| mir.symbols.get(param_symbol))
+            .map_or_else(|| "param".to_owned(), |name| format!("param `{name}`")),
         crate::LocalKind::Temp => "temp".to_owned(),
         crate::LocalKind::UserBinding(symbol) => {
             format!(

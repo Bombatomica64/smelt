@@ -668,6 +668,35 @@ impl ModuleBuilder<'_> {
         &mut self,
         tuple: &oxc::ast::ast::TSTupleType<'_>,
     ) -> Result<Option<smelt_hir::TypeId>, SmeltError> {
+        if !tuple.element_types.is_empty()
+            && tuple
+                .element_types
+                .iter()
+                .all(|item| matches!(item, TSTupleElement::TSRestType(_)))
+        {
+            let mut list_item_ty = None;
+            for item in &tuple.element_types {
+                let TSTupleElement::TSRestType(rest) = item else {
+                    continue;
+                };
+                let rest_ty = self.ts_type_to_hir(&rest.type_annotation)?;
+                let rest_ty = self.type_param_constraint_or_self(rest_ty);
+                let item_ty = match self.ctx.krate.types.get(rest_ty).cloned() {
+                    Some(Type::List(item_ty)) => item_ty,
+                    Some(Type::Never) => return Ok(None),
+                    _ => self.ctx.krate.types.intern(Type::Unknown),
+                };
+                list_item_ty = Some(match list_item_ty {
+                    Some(previous) if previous == item_ty => previous,
+                    Some(_) => self.ctx.krate.types.intern(Type::Unknown),
+                    None => item_ty,
+                });
+            }
+            if let Some(item_ty) = list_item_ty {
+                return Ok(Some(self.ctx.krate.types.intern(Type::List(item_ty))));
+            }
+        }
+
         let Some(TSTupleElement::TSRestType(rest)) = tuple.element_types.last() else {
             return Ok(None);
         };
@@ -1339,6 +1368,9 @@ impl ModuleBuilder<'_> {
             }
             Type::String if self.ctx.krate.symbols.get(field) == Some("length") => {
                 Ok(self.ctx.krate.types.intern(Type::Float))
+            }
+            Type::String if self.ctx.krate.symbols.get(field) == Some("message") => {
+                Ok(self.ctx.krate.types.intern(Type::String))
             }
             Type::String if self.allow_unknown_index_access => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
@@ -2056,7 +2088,7 @@ impl ModuleBuilder<'_> {
     fn supports_stdlib_length(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
-            Some(Type::List(_) | Type::String | Type::Tuple(_))
+            Some(Type::List(_) | Type::String | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. })
         )
     }
 
@@ -2064,7 +2096,7 @@ impl ModuleBuilder<'_> {
     fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Dict(_, _) | Type::Set(_))
+            Some(Type::Dict(_, _) | Type::Set(_) | Type::Unknown | Type::TypeParam { .. })
         )
     }
 

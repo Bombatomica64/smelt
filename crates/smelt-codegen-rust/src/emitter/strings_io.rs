@@ -8,16 +8,51 @@ impl FunctionEmitter<'_> {
         &self,
         timestamp_ms: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(timestamp_ms)?),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(EmitError::new("date timestamp must be numeric"));
-        }
-        let timestamp_text = self.operand_text(timestamp_ms)?;
+        let timestamp_text = self.date_timestamp_text(timestamp_ms)?;
         Ok(format!(
             "chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned())"
         ))
+    }
+
+    /// Converts a DateArg-compatible operand to a numeric timestamp expression.
+    ///
+    /// Frontends model JavaScript `Date` values as timestamps where possible,
+    /// but real libraries pass Date-compatible erased values through generic
+    /// option bags and formatter APIs. Rust emission accepts those surfaces here
+    /// and maps values that cannot produce a timestamp to `NaN`, matching the
+    /// existing invalid-date sentinel path.
+    fn date_timestamp_text(&self, timestamp_ms: &Operand) -> Result<String, EmitError> {
+        let ty = self.operand_ty(timestamp_ms)?;
+        let text = self.operand_text(timestamp_ms)?;
+        self.date_timestamp_value_text(&text, ty)
+    }
+
+    /// Converts rendered DateArg-compatible Rust value text to timestamp text.
+    fn date_timestamp_value_text(&self, value_text: &str, ty: TypeId) -> Result<String, EmitError> {
+        match self.mir.types.get(ty) {
+            Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
+            Some(Type::Bool) => Ok(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}")),
+            Some(Type::String) => Ok(format!("{value_text}.parse::<f64>().unwrap_or(f64::NAN)")),
+            Some(Type::Optional(inner)) => {
+                let inner_text = self.date_timestamp_value_text("value", *inner)?;
+                Ok(format!(
+                    "match {value_text} {{ Some(value) => {inner_text}, None => f64::NAN }}"
+                ))
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Never | Type::Union(_))
+            | Some(Type::Class { .. })
+                if self.is_erased_class_type(ty)
+                    || matches!(
+                        self.mir.types.get(ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Never | Type::Union(_))
+                    ) =>
+            {
+                Ok(format!(
+                    "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => f64::NAN }}"
+                ))
+            }
+            _ => Ok("f64::NAN".to_owned()),
+        }
     }
 
     /// Converts JavaScript Date constructor parts to a timestamp in milliseconds.
@@ -62,13 +97,7 @@ impl FunctionEmitter<'_> {
         part: smelt_hir::DatePart,
         timestamp_ms: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(timestamp_ms)?),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(EmitError::new("Date getter receiver must be numeric"));
-        }
-        let timestamp_text = self.operand_text(timestamp_ms)?;
+        let timestamp_text = self.date_timestamp_text(timestamp_ms)?;
         let (trait_use, accessor) = match part {
             smelt_hir::DatePart::FullYear => ("chrono::Datelike as _", "date.year() as f64"),
             smelt_hir::DatePart::Month => ("chrono::Datelike as _", "date.month0() as f64"),
@@ -100,24 +129,10 @@ impl FunctionEmitter<'_> {
         if values.is_empty() {
             return Err(EmitError::new("Date setter requires at least one value"));
         }
-        if !matches!(
-            self.mir.types.get(self.operand_ty(timestamp_ms)?),
-            Some(Type::Int | Type::Float)
-        ) {
-            return Err(EmitError::new("Date setter receiver must be numeric"));
-        }
-        for value in values {
-            if !matches!(
-                self.mir.types.get(self.operand_ty(value)?),
-                Some(Type::Int | Type::Float)
-            ) {
-                return Err(EmitError::new("Date setter values must be numeric"));
-            }
-        }
-        let timestamp_text = self.operand_text(timestamp_ms)?;
+        let timestamp_text = self.date_timestamp_text(timestamp_ms)?;
         let value_texts = values
             .iter()
-            .map(|value| self.operand_text(value))
+            .map(|value| self.date_timestamp_text(value))
             .collect::<Result<Vec<_>, _>>()?;
         let update = match part {
             smelt_hir::DatePart::FullYear => {

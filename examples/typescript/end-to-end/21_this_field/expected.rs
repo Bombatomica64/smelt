@@ -11,15 +11,15 @@ struct User {
 fn main() {
     let mut _smelt_tmp_1: User = User::new("Ada".to_owned(), "Lovelace".to_owned());
     let mut user: User = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: String = _smelt_tmp_1.label();
+    let _smelt_tmp_2: String = user.label();
     let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl User {
-    fn new(arg_1: String, arg_2: String) -> Self {
+    fn new(first: String, last: String) -> Self {
     let mut this: User = User { first: String::new(), last: String::new() };
-    this.first = arg_1.clone();
-    this.last = arg_2.clone();
+    this.first = first.clone();
+    this.last = last.clone();
     return this;
     }
     fn label(&self) -> String {

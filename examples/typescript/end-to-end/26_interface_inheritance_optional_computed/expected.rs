@@ -14,9 +14,9 @@ fn main() {
 }
 
 impl User {
-    fn new(arg_1: String) -> Self {
+    fn new(id: String) -> Self {
     let mut this: User = User { id: String::new() };
-    this.id = arg_1.clone();
+    this.id = id.clone();
     return this;
     }
 }

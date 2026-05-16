@@ -313,8 +313,19 @@ impl ModuleBuilder<'_> {
         }
         if let [argument] = call.arguments.as_slice() {
             let value = self.argument(argument, body)?;
-            if matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Dict(_, _))) {
-                return Ok(Some(value));
+            if let Some(Type::Dict(key, value_ty)) =
+                self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned()
+            {
+                if self.ctx.krate.types.get(key) == Some(&Type::String) {
+                    return Ok(Some(value));
+                }
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
             }
         }
         let [Argument::ArrayExpression(entries_array)] = call.arguments.as_slice() else {

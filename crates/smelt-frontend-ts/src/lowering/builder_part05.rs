@@ -71,6 +71,17 @@ impl ModuleBuilder<'_> {
                 setup.push(statement);
                 continue;
             }
+            if let Statement::IfStatement(if_stmt) = statement {
+                items.extend(self.describe_if_statement_declarations(
+                    if_stmt,
+                    group_name,
+                    &setup,
+                    &before_each,
+                    &after_each,
+                    table_bindings,
+                )?);
+                continue;
+            }
             let Statement::ExpressionStatement(expr_stmt) = statement else {
                 return Err(SmeltError::unsupported(
                     self.statement_span(statement),
@@ -110,6 +121,9 @@ impl ModuleBuilder<'_> {
             if self.dynamic_test_alias_call(&expr_stmt.expression) {
                 continue;
             }
+            if self.skipped_test_case_call(&expr_stmt.expression) {
+                continue;
+            }
             if let Some(test_call) = self.test_case_call(&expr_stmt.expression) {
                 items.push(self.test_case_declaration(
                     test_call,
@@ -124,6 +138,73 @@ impl ModuleBuilder<'_> {
             setup.push(statement);
         }
         Ok(items)
+    }
+
+    /// Lower tests nested inside a suite-level conditional.
+    ///
+    /// Date-fns uses browser guards in `describe` blocks. When Smelt can prove
+    /// the guard is false for the native Rust target, only the alternate branch
+    /// is considered; otherwise both branches are scanned for tests.
+    fn describe_if_statement_declarations<'a>(
+        &mut self,
+        if_stmt: &'a oxc::ast::ast::IfStatement<'a>,
+        group_name: &str,
+        setup: &[&'a Statement<'a>],
+        before_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        after_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        table_bindings: &[(&'a str, TableBindingValue<'a>)],
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let mut items = Vec::new();
+        let include_consequent = !Self::describe_condition_is_native_false(&if_stmt.test);
+        let include_alternate = Self::describe_condition_is_native_false(&if_stmt.test)
+            || !Self::describe_condition_is_native_true(&if_stmt.test);
+        if include_consequent {
+            items.extend(self.describe_branch_declarations(
+                &if_stmt.consequent,
+                group_name,
+                setup,
+                before_each,
+                after_each,
+                table_bindings,
+            )?);
+        }
+        if include_alternate && let Some(alternate) = &if_stmt.alternate {
+            items.extend(self.describe_branch_declarations(
+                alternate,
+                group_name,
+                setup,
+                before_each,
+                after_each,
+                table_bindings,
+            )?);
+        }
+        Ok(items)
+    }
+
+    /// Lower a statement that appears as one branch of a suite-level `if`.
+    fn describe_branch_declarations<'a>(
+        &mut self,
+        statement: &'a Statement<'a>,
+        group_name: &str,
+        setup: &[&'a Statement<'a>],
+        before_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        after_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
+        table_bindings: &[(&'a str, TableBindingValue<'a>)],
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        match statement {
+            Statement::BlockStatement(block) => self.describe_body_declarations(
+                &block.body,
+                group_name,
+                setup.to_vec(),
+                before_each.to_vec(),
+                after_each.to_vec(),
+                table_bindings,
+            ),
+            other => Err(SmeltError::unsupported(
+                self.statement_span(other),
+                "suite-level conditional branches must be blocks",
+            )),
+        }
     }
 
     /// Lower a nested `describe` while carrying inherited table bindings.
