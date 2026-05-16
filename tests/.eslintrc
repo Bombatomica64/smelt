@@ -1,0 +1,5 @@
+{
+  "root": true,
+  "extends": ["custom/back"],
+  "ignorePatterns": ["e2e/data/**"]
+}
