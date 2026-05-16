@@ -127,7 +127,7 @@ result: int = sum_two(2, 3)
 "#,
     );
 
-    assert!(source.contains("|arg0, arg1|"));
+    assert!(source.contains("|arg0: i64, arg1: i64|"));
     assert!(source.contains("vec![arg0, arg1][0].clone() + vec![arg0, arg1][1].clone()"));
     assert!(source.contains("(2, 3)"));
 }
@@ -150,7 +150,7 @@ def run() -> int:
 "#,
     );
 
-    assert!(source.contains("|arg0| { (arg0[0].clone() + arg0[1].clone()) }"));
+    assert!(source.contains("|arg0: Vec<i64>| { (arg0[0].clone() + arg0[1].clone()) }"));
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(source.contains("arg0.get(\"value\").cloned().unwrap_or(0)"));
     assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
@@ -402,7 +402,7 @@ const fromSource = new Set(source);
     assert!(source.contains("::std::collections::HashSet<f64>"));
     assert!(source.contains("::std::collections::HashSet::from(["));
     assert!(source.contains(".iter().any(|value| *value == 2.0);"));
-    assert!(source.contains("::std::collections::HashSet::from([]);"));
+    assert!(source.contains("::std::collections::HashSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
 }
 

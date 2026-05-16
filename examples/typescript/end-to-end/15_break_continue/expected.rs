@@ -2,6 +2,7 @@
 #![allow(dead_code, unused_variables)]
 
 fn main() {
+    let mut _smelt_tmp_2: bool = false;
     let mut _smelt_tmp_3: f64 = 0.0;
     let mut _smelt_tmp_4: bool = false;
     let mut _smelt_tmp_5: f64 = 0.0;

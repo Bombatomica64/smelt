@@ -121,9 +121,17 @@ impl FunctionEmitter<'_> {
         let Some((first, rest)) = args.split_first() else {
             return Ok(identity.to_owned());
         };
-        let mut rendered = self.operand_text(first)?;
+        let render_arg = |arg: &Operand| -> Result<String, EmitError> {
+            let text = self.operand_as_type_text(arg, dest_ty)?;
+            if !dest_is_int && matches!(arg, Operand::Const(Constant::Float(_))) {
+                Ok(format!("({text} as f64)"))
+            } else {
+                Ok(text)
+            }
+        };
+        let mut rendered = render_arg(first)?;
         for arg in rest {
-            rendered = format!("{rendered}.{method_name}({})", self.operand_text(arg)?);
+            rendered = format!("{rendered}.{method_name}({})", render_arg(arg)?);
         }
         Ok(rendered)
     }

@@ -380,6 +380,22 @@ impl<'mir> FunctionEmitter<'mir> {
         operand_local(mutated) == Some(local)
     }
 
+    /// Returns whether `source` can be coerced before wrapping into `Option`.
+    fn can_coerce_to_optional_inner(&self, source: TypeId, inner: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(inner),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(inner)
+            || matches!(
+                (self.mir.types.get(source), self.mir.types.get(inner)),
+                (Some(Type::Int), Some(Type::Float))
+                    | (Some(Type::Float), Some(Type::Int))
+                    | (Some(Type::List(_)), Some(Type::Tuple(_)))
+                    | (Some(Type::List(_)), Some(Type::List(_)))
+                    | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
+            )
+    }
+
     /// Return the emitted Rust name for a free MIR function.
     ///
     /// Source modules can contain same-named local helper functions. Because
@@ -575,6 +591,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.operand_as_type_text(operand, *inner)?
                 ));
             }
+            if self.can_coerce_to_optional_inner(operand_ty, *inner) {
+                return Ok(format!(
+                    "Some({})",
+                    self.operand_as_type_text(operand, *inner)?
+                ));
+            }
         }
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
@@ -592,6 +614,14 @@ impl<'mir> FunctionEmitter<'mir> {
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
         {
             return Ok(format!("({}.trunc() as i64)", self.operand_text(operand)?));
+        }
+        if self.mir.types.get(target) == Some(&Type::Float)
+            && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
+        {
+            return Ok(format!(
+                "{}.parse::<f64>().unwrap_or(0.0)",
+                self.operand_text(operand)?
+            ));
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_)))
             && matches!(
@@ -629,12 +659,27 @@ impl<'mir> FunctionEmitter<'mir> {
             self.mir.types.get(target),
         ) && source_item != target_item
         {
-            let value_text =
-                self.rendered_value_as_type_text("value", *source_item, *target_item)?;
+            let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
+                && (matches!(
+                    self.mir.types.get(*target_item),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(*target_item))
+            {
+                "IntoSmeltUnknown::into_smelt_unknown(value)".to_owned()
+            } else {
+                self.rendered_value_as_type_text("value", *source_item, *target_item)?
+            };
             return Ok(format!(
                 "{}.into_iter().map(|value| {value_text}).collect::<Vec<_>>()",
                 self.operand_text(operand)?
             ));
+        }
+        if let (Some(Type::Dict(_, _)), Some(Type::List(target_item))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && matches!(self.mir.types.get(*target_item), Some(Type::Function(_)))
+        {
+            return Ok("Vec::new()".to_owned());
         }
         if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) = (
             self.mir.types.get(self.operand_ty(operand)?),
@@ -767,6 +812,11 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return Ok(format!("({value_text}.trunc() as i64)"));
         }
+        if self.mir.types.get(target) == Some(&Type::Float)
+            && self.mir.types.get(source) == Some(&Type::String)
+        {
+            return Ok(format!("{value_text}.parse::<f64>().unwrap_or(0.0)"));
+        }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target)
             && source == *inner
         {
@@ -893,7 +943,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let call = format!("{function_text}({args})");
         let return_text =
             self.rendered_value_as_type_text(&call, source.return_ty, target_function.return_ty)?;
-        let closure = format!("move |smelt_args| {return_text}");
+        let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
         Ok(Some(if borrowed {
             format!("&mut {closure}")
         } else {

@@ -163,8 +163,9 @@ while (count < 10) {
         let while_mir = ok_or_panic(lower_hir(&ctx.krate), "while lowers");
         assert!(validate(&while_mir).is_empty());
         let while_output = format_compact(&while_mir);
-        assert!(while_output.contains("switch copy %1 ? bb1 : bb2"));
-        assert!(while_output.contains("goto bb2"));
+        assert!(while_output.contains("goto bb1"));
+        assert!(while_output.contains("switch copy %1 ? bb2 : bb3"));
+        assert!(while_output.contains("goto bb3"));
 
         let mut for_ctx = HirCtx::new();
         ok_or_panic(

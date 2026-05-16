@@ -59,7 +59,10 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
     ) -> Result<String, EmitError> {
         match self.mir.types.get(ty) {
-            Some(Type::Unknown | Type::TypeParam { .. }) => Ok(value_text.to_owned()),
+            Some(Type::Unknown) => Ok(value_text.to_owned()),
+            Some(Type::TypeParam { .. }) => Ok(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({value_text})"
+            )),
             Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
             Some(Type::Int | Type::Float) => {

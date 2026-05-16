@@ -18,6 +18,29 @@ impl FunctionEmitter<'_> {
                         self.local_name(*base)?
                     ));
                 }
+                if matches!(
+                    self.mir.types.get(base_ty),
+                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+                ) || self.is_erased_class_type(base_ty)
+                {
+                    let field_name = self.symbol_name(*field)?;
+                    let base_text = self.local_name(*base)?;
+                    return Ok(format!(
+                        "match {base_text}.clone() {{ SmeltUnknown::Object(map) => map.get({field_name:?}).cloned().unwrap_or(SmeltUnknown::Null), _ => SmeltUnknown::Null }}"
+                    ));
+                }
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && (matches!(
+                        self.mir.types.get(*inner),
+                        Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+                    ) || self.is_erased_class_type(*inner))
+                {
+                    let field_name = self.symbol_name(*field)?;
+                    let base_text = self.local_name(*base)?;
+                    return Ok(format!(
+                        "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(map) => map.get({field_name:?}).cloned().unwrap_or(SmeltUnknown::Null), _ => SmeltUnknown::Null }}"
+                    ));
+                }
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }

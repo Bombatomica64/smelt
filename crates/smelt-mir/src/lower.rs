@@ -859,10 +859,13 @@ impl<'hir> LoweringCtx<'hir> {
         cond: ExprId,
         body_hir: smelt_hir::BlockId,
     ) -> Result<(), LowerError> {
-        let header = self.current_block;
+        let preheader_span = self.block()?.span;
+        let header = self.function.push_block(preheader_span);
+        self.set_terminator(Terminator::Goto(header))?;
+        self.current_block = header;
         let body_span = self.hir_block(body_hir)?.span;
         let body_mir = self.function.push_block(body_span);
-        let after = self.function.push_block(self.block()?.span);
+        let after = self.function.push_block(preheader_span);
         let lowered_cond = self.lower_expr(cond)?;
         self.set_terminator(Terminator::Switch {
             cond: lowered_cond,

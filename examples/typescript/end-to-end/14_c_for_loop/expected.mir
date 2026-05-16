@@ -9,16 +9,18 @@ fn main (FuncId(0)) -> None
   bb0:
     %0 = 0.0
     %1 = 0.0
-    %2 = copy %1 < 4.0
-    switch copy %2 ? bb1 : bb2
+    goto bb1
   bb1:
+    %2 = copy %1 < 4.0
+    switch copy %2 ? bb2 : bb3
+  bb2:
     %3 = copy %0 + copy %1
     %0 = copy %3
     %4 = copy %1 + 1.0
     %1 = copy %4
-    goto bb0
-  bb2:
-    %5 = call @console_log(copy %0) -> bb3
+    goto bb1
   bb3:
+    %5 = call @console_log(copy %0) -> bb4
+  bb4:
     return none
 

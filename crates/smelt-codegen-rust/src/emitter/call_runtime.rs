@@ -49,6 +49,9 @@ impl FunctionEmitter<'_> {
                 Ok(format!("vec![{items_text}]"))
             }
             Rvalue::Set(items) => {
+                if items.is_empty() {
+                    return Ok("::std::collections::HashSet::new()".to_owned());
+                }
                 let items_text = items
                     .iter()
                     .map(|item| self.operand_text(item))
@@ -96,7 +99,11 @@ impl FunctionEmitter<'_> {
                             if matches!(self.mir.types.get(value_ty), Some(Type::Function(_)))
                                 && self.operand_ty(entry_value)? == value_ty
                             {
-                                self.operand_text(entry_value)?
+                                format!(
+                                    "{{ let smelt_fn: {} = {}; smelt_fn }}",
+                                    self.type_text_with_impl_trait(value_ty, false)?,
+                                    self.operand_text(entry_value)?
+                                )
                             } else {
                                 self.operand_as_type_text(entry_value, value_ty)?
                             }
@@ -126,7 +133,7 @@ impl FunctionEmitter<'_> {
                 }
             }
             Rvalue::Binary { op, lhs, rhs } => {
-                if let Some(text) = self.optional_binary_text(*op, lhs, rhs)? {
+                if let Some(text) = self.optional_binary_text(*op, lhs, rhs, dest_ty)? {
                     return Ok(text);
                 }
                 if let Some(text) = self.unknown_binary_text(*op, lhs, rhs)? {
@@ -210,13 +217,10 @@ impl FunctionEmitter<'_> {
                     self.operand_text(rhs)?
                 ))
             }
-            Rvalue::Unary { op, operand } => {
-                let op_text = match op {
-                    smelt_hir::UnaryOp::Not => "!",
-                    smelt_hir::UnaryOp::Neg => "-",
-                };
-                Ok(format!("{op_text}{}", self.operand_text(operand)?))
-            }
+            Rvalue::Unary { op, operand } => match op {
+                smelt_hir::UnaryOp::Not => Ok(format!("!{}", self.truthy_operand_text(operand)?)),
+                smelt_hir::UnaryOp::Neg => Ok(format!("-{}", self.operand_text(operand)?)),
+            },
             Rvalue::Conditional {
                 cond,
                 then_operand,
@@ -405,15 +409,39 @@ impl FunctionEmitter<'_> {
                     return Ok(format!("{callee_text}({})", rendered_args.join(", ")));
                 }
                 let emitted_params = self.emitted_function_param_types(&callee_text)?;
+                let local_params = match callee {
+                    Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+                        match self.mir.types.get(self.local_decl(*local)?.ty) {
+                            Some(Type::Function(function)) => Some(function.params.as_slice()),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                };
                 let inferred_params = match self.mir.types.get(self.operand_ty(callee)?) {
                     Some(Type::Function(function)) => function.params.as_slice(),
                     _ => &[],
                 };
-                let params = emitted_params.as_deref().unwrap_or(inferred_params);
+                let params = emitted_params
+                    .as_deref()
+                    .or(local_params)
+                    .unwrap_or(inferred_params);
                 let mut rendered_args = args
                     .iter()
                     .zip(params.iter())
-                    .map(|(arg, param)| self.operand_as_type_text(arg, *param))
+                    .map(|(arg, param)| {
+                        let text = self.operand_as_type_text(arg, *param)?;
+                        if self.type_text(*param)? == "Vec<SmeltUnknown>"
+                            && text.contains(".into_iter().map(|value| value).collect::<Vec<_>>()")
+                        {
+                            Ok(text.replace(
+                                ".into_iter().map(|value| value).collect::<Vec<_>>()",
+                                ".into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>()",
+                            ))
+                        } else {
+                            Ok(text)
+                        }
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 for param in params.iter().skip(args.len()) {
                     rendered_args.push(self.default_value(*param)?);
@@ -630,6 +658,7 @@ impl FunctionEmitter<'_> {
         op: smelt_hir::BinOp,
         lhs: &Operand,
         rhs: &Operand,
+        dest_ty: TypeId,
     ) -> Result<Option<String>, EmitError> {
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
@@ -648,11 +677,12 @@ impl FunctionEmitter<'_> {
             && self.is_numeric_type(inner)
             && self.is_numeric_type(rhs_ty)
         {
+            let common_ty = self.common_numeric_type(inner, rhs_ty, dest_ty)?;
             return Ok(Some(format!(
                 "{} {} {}",
-                self.option_value_text(lhs, inner)?,
+                self.option_value_as_type_text(lhs, inner, common_ty)?,
                 smelt_hir::bin_op_text(op),
-                self.operand_text(rhs)?
+                self.operand_as_type_text(rhs, common_ty)?
             )));
         }
 
@@ -661,11 +691,12 @@ impl FunctionEmitter<'_> {
             && self.is_numeric_type(lhs_ty)
             && self.is_numeric_type(inner)
         {
+            let common_ty = self.common_numeric_type(lhs_ty, inner, dest_ty)?;
             return Ok(Some(format!(
                 "{} {} {}",
-                self.operand_text(lhs)?,
+                self.operand_as_type_text(lhs, common_ty)?,
                 smelt_hir::bin_op_text(op),
-                self.option_value_text(rhs, inner)?
+                self.option_value_as_type_text(rhs, inner, common_ty)?
             )));
         }
 
@@ -771,6 +802,24 @@ impl FunctionEmitter<'_> {
         matches!(self.mir.types.get(ty), Some(Type::Int | Type::Float))
     }
 
+    /// Chooses the Rust scalar type for mixed numeric arithmetic.
+    fn common_numeric_type(
+        &self,
+        lhs: TypeId,
+        rhs: TypeId,
+        dest_ty: TypeId,
+    ) -> Result<TypeId, EmitError> {
+        if self.is_numeric_type(dest_ty) {
+            return Ok(dest_ty);
+        }
+        if matches!(self.mir.types.get(lhs), Some(Type::Float))
+            || matches!(self.mir.types.get(rhs), Some(Type::Float))
+        {
+            return self.type_id(Type::Float);
+        }
+        self.type_id(Type::Int)
+    }
+
     /// Emits an `Option<T>` value expression with a default for arithmetic.
     fn option_value_text(&self, operand: &Operand, inner: TypeId) -> Result<String, EmitError> {
         let fallback = match self.mir.types.get(inner) {
@@ -782,6 +831,17 @@ impl FunctionEmitter<'_> {
             "{}.unwrap_or({fallback})",
             self.operand_text(operand)?
         ))
+    }
+
+    /// Emits an unwrapped optional arithmetic operand coerced to `target`.
+    fn option_value_as_type_text(
+        &self,
+        operand: &Operand,
+        inner: TypeId,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
+        let value = self.option_value_text(operand, inner)?;
+        self.rendered_value_as_type_text(&value, inner, target)
     }
 
     /// Emits Rust for a TypeScript optional-chain field read.

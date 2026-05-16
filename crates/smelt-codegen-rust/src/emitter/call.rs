@@ -253,6 +253,35 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let call_text = self.call_text(callee, args)?;
+        let source_ty = self.call_source_ty(callee)?;
+        self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
+    }
+
+    /// Converts a function call inside a non-throwing Rust closure.
+    ///
+    /// MIR closures are emitted as plain `FnMut` values, not as closures
+    /// returning `Result`. When their body calls a throwing Smelt function, the
+    /// error cannot be propagated with `?` through the callback signature, so
+    /// this renderer makes that boundary explicit by unwrapping the throwing
+    /// call before applying normal destination coercions.
+    pub(super) fn closure_call_text_for_dest(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let call_text = self.call_text(callee, args)?;
+        let call_text = if let Some(without_try) = call_text.strip_suffix('?') {
+            format!("{without_try}.expect(\"throwing call failed inside non-throwing closure\")")
+        } else {
+            call_text
+        };
+        let source_ty = self.call_source_ty(callee)?;
+        self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
+    }
+
+    /// Returns the static return type of a call expression.
+    fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Builtin(BuiltinFn::ConsoleLog) => self.none_ty,
             Callee::Static(func) => {
@@ -267,7 +296,7 @@ impl FunctionEmitter<'_> {
                 return Err(EmitError::new("indirect calls are not implemented yet"));
             }
         };
-        self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
+        Ok(source_ty)
     }
 
     /// Returns the Rust suffix needed when calling a throwing function.

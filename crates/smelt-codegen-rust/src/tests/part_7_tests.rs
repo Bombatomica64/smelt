@@ -705,7 +705,10 @@ const sortByImplementation = <T>(
 "#,
     );
 
-    assert!(source.contains("closure_arg_1(left, right)"), "{source}");
+    assert!(
+        source.contains("closure_arg_1(left.clone(), right.clone())"),
+        "{source}"
+    );
 }
 
 #[test]

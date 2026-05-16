@@ -42,7 +42,7 @@ coord_set: set[int] = set(coords)
 
     assert!(source.matches(".clone().clone()").count() >= 3);
     assert!(source.contains("vec![]"));
-    assert!(source.contains("::std::collections::HashSet::from([])"));
+    assert!(source.contains("::std::collections::HashSet::new()"));
     assert!(source.contains("::std::collections::HashMap::from([])"));
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));

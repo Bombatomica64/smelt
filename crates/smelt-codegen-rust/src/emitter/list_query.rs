@@ -377,21 +377,38 @@ impl FunctionEmitter<'_> {
             .get(usize::try_from(id.0).unwrap_or(usize::MAX))
             .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?;
         let body = if let Some(callback) = closure.callback_body.as_ref() {
-            let mut params = closure
+            let mut param_names = closure
                 .params
                 .iter()
                 .enumerate()
                 .map(|(index, _)| format!("arg{index}"))
                 .collect::<Vec<_>>();
-            params.extend((0..extra_params).map(|index| format!("_arg{index}")));
-            let param_refs = params.iter().map(String::as_str).collect::<Vec<_>>();
+            param_names.extend((0..extra_params).map(|index| format!("_arg{index}")));
+            let param_refs = param_names.iter().map(String::as_str).collect::<Vec<_>>();
             let body_expr = self.callback_expr_text(callback, &param_refs)?;
             let body = if matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_))) {
                 format!("Box::pin(async move {{ {body_expr} }})")
             } else {
                 body_expr
             };
-            format!("|{}| {{ {body} }}", params.join(", "))
+            let mut param_decls = closure
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    let local_index = id_index(param.0, "closure param index does not fit usize")?;
+                    let local = closure
+                        .locals
+                        .get(local_index)
+                        .ok_or_else(|| EmitError::new("closure param has no local declaration"))?;
+                    Ok(format!(
+                        "arg{index}: {}",
+                        self.type_text_with_impl_trait(local.ty, false)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?;
+            param_decls.extend((0..extra_params).map(|index| format!("_arg{index}: SmeltUnknown")));
+            format!("|{}| {{ {body} }}", param_decls.join(", "))
         } else {
             let mut closure_locals = closure.locals.clone();
             let fallback_span = closure_locals.first().map_or(
@@ -547,7 +564,7 @@ impl FunctionEmitter<'_> {
                 target,
             } => {
                 let local = self.local_decl(*dest)?;
-                let call_text = self.call_text_for_dest(callee, args, local.ty)?;
+                let call_text = self.closure_call_text_for_dest(callee, args, local.ty)?;
                 let name = self.local_name(*dest)?;
                 out.push_str(&format!(
                     "    let {name}: {} = {call_text};\n",
@@ -562,7 +579,7 @@ impl FunctionEmitter<'_> {
                 else_block,
             } => {
                 let branch_declared = self.declared_locals_snapshot();
-                out.push_str(&format!("    if {} {{\n", self.operand_text(cond)?));
+                out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
                 self.emit_closure_block_inner(self.block(*then_block)?, out, active, stop)?;
                 out.push_str("    } else {\n");
                 self.restore_declared_locals(branch_declared.clone());
@@ -969,8 +986,36 @@ impl FunctionEmitter<'_> {
                     };
                     return Ok(format!("format!(\"{{}}{{}}\", {lhs_text}, {rhs_expr})"));
                 }
+                let (left_value_text, right_value_text) = if matches!(
+                    op,
+                    smelt_hir::BinOp::Eq
+                        | smelt_hir::BinOp::NotEq
+                        | smelt_hir::BinOp::Lt
+                        | smelt_hir::BinOp::Lte
+                        | smelt_hir::BinOp::Gt
+                        | smelt_hir::BinOp::Gte
+                ) && self.mir.types.get(lhs.ty)
+                    == Some(&Type::Float)
+                    && self.mir.types.get(rhs.ty) == Some(&Type::Int)
+                {
+                    (lhs_text, format!("({rhs_text} as f64)"))
+                } else if matches!(
+                    op,
+                    smelt_hir::BinOp::Eq
+                        | smelt_hir::BinOp::NotEq
+                        | smelt_hir::BinOp::Lt
+                        | smelt_hir::BinOp::Lte
+                        | smelt_hir::BinOp::Gt
+                        | smelt_hir::BinOp::Gte
+                ) && self.mir.types.get(lhs.ty) == Some(&Type::Int)
+                    && self.mir.types.get(rhs.ty) == Some(&Type::Float)
+                {
+                    (format!("({lhs_text} as f64)"), rhs_text)
+                } else {
+                    (lhs_text, rhs_text)
+                };
                 Ok(format!(
-                    "({lhs_text} {} {rhs_text})",
+                    "({left_value_text} {} {right_value_text})",
                     smelt_hir::bin_op_text(*op)
                 ))
             }
@@ -1060,6 +1105,26 @@ impl FunctionEmitter<'_> {
                     } else {
                         Ok(format!("{receiver_text}.to_string()"))
                     }
+                } else if method_text == "split" {
+                    let pattern_text = args
+                        .first()
+                        .map(|arg| self.callback_expr_text(&arg.expr, params))
+                        .transpose()?
+                        .unwrap_or_else(|| "\"\".to_owned()".to_owned());
+                    let split_text = format!(
+                        "{receiver_text}.split(&{pattern_text}).map(str::to_owned).collect::<Vec<_>>()"
+                    );
+                    if matches!(
+                        self.mir.types.get(expr.ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(expr.ty)
+                    {
+                        Ok(format!(
+                            "SmeltUnknown::Array({split_text}.into_iter().map(SmeltUnknown::String).collect())"
+                        ))
+                    } else {
+                        Ok(split_text)
+                    }
                 } else if method_text == "to_lower_case" && args.is_empty() {
                     Ok(format!("{receiver_text}.to_lowercase()"))
                 } else if method_text == "to_upper_case" && args.is_empty() {
@@ -1076,8 +1141,14 @@ impl FunctionEmitter<'_> {
                         return Err(EmitError::new("callback Set.has receiver must be a set"));
                     };
                     if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+                        let comparable_item_text =
+                            if self.mir.types.get(item.expr.ty) == Some(&Type::Int) {
+                                format!("({item_text} as f64)")
+                            } else {
+                                item_text
+                            };
                         Ok(format!(
-                            "{receiver_text}.iter().any(|value| *value == {item_text})"
+                            "{receiver_text}.iter().any(|value| *value == {comparable_item_text})"
                         ))
                     } else {
                         Ok(format!("{receiver_text}.contains(&{item_text})"))
@@ -1228,6 +1299,15 @@ impl FunctionEmitter<'_> {
             }
         }
         let text = self.callback_expr_text(expr, params)?;
+        if expr.ty == target
+            && !self.type_contains_function(expr.ty)
+            && matches!(
+                expr.kind,
+                smelt_hir::CallbackExprKind::Param(_) | smelt_hir::CallbackExprKind::Capture(_)
+            )
+        {
+            return Ok(format!("{text}.clone()"));
+        }
         self.rendered_value_as_type_text(&text, expr.ty, target)
     }
 
