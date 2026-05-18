@@ -480,7 +480,9 @@ function invoke(callback: (value: number) => number, fallback?: (value: number) 
     );
 
     assert!(
-        source.contains("::std::rc::Rc::new(::std::cell::RefCell::new(move |arg0: f64| 0.0))"),
+        source.contains(
+            "::std::rc::Rc::new(::std::cell::RefCell::new(move |arg0: f64| -> f64 { 0.0 }))"
+        ),
         "{source}"
     );
 }
@@ -576,7 +578,10 @@ function truncateDifference(left: bigint, right: number): bigint {
 "#,
     );
 
-    assert!(source.contains("right.clone().trunc() as i64"), "{source}");
+    assert!(
+        source.contains("((right.clone() as f64).trunc() as i64)"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -698,7 +703,7 @@ console.log(user.name);
         "{source}"
     );
     assert!(
-        source.contains("user.get(\"name\").cloned().expect(\"missing field\")"),
+        source.contains("user.get(&\"name\".to_owned()).cloned().expect(\"missing field\")"),
         "{source}"
     );
 }
@@ -767,7 +772,7 @@ console.log(user[key]);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone()).cloned().expect(\"index out of bounds\")"),
+        source.contains("user.get(&key.clone().clone()).cloned().expect(\"index out of bounds\")"),
         "{source}"
     );
 }
@@ -845,7 +850,7 @@ const sortByImplementation = <T>(
     );
 
     assert!(
-        source.contains("(&mut *closure_arg_1.borrow_mut())(IntoSmeltUnknown::into_smelt_unknown(left.clone()), IntoSmeltUnknown::into_smelt_unknown(right.clone()))"),
+        source.contains("(&mut *closure_arg_1.borrow_mut())((left.clone()).into_smelt_unknown(), (right.clone()).into_smelt_unknown())"),
         "{source}"
     );
 }

@@ -274,8 +274,12 @@ impl FunctionEmitter<'_> {
                 "Vec<{}>",
                 self.type_text_with_impl_trait(*item, false)?
             )),
-            Type::Set(item) => Ok(format!(
+            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(format!(
                 "::std::collections::HashSet<{}>",
+                self.type_text_with_impl_trait(*item, false)?
+            )),
+            Type::Set(item) => Ok(format!(
+                "Vec<{}>",
                 self.type_text_with_impl_trait(*item, false)?
             )),
             Type::Dict(key, value) => Ok(format!(
@@ -351,7 +355,10 @@ impl FunctionEmitter<'_> {
             Type::Never => Ok("SmeltUnknown::Null".to_owned()),
             Type::None => Ok("()".to_owned()),
             Type::List(_) => Ok("Vec::new()".to_owned()),
-            Type::Set(_) => Ok("::std::collections::HashSet::new()".to_owned()),
+            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
+                Ok("::std::collections::HashSet::new()".to_owned())
+            }
+            Type::Set(_) => Ok("Vec::new()".to_owned()),
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
             Type::Optional(inner) => Ok(format!(
                 "None::<{}>",

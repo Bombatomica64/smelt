@@ -50,6 +50,8 @@ pub(crate) struct EmitContext {
     function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
+    /// Emitted return types keyed by Rust function name.
+    function_return_types: HashMap<String, TypeId>,
     /// Whether an emitted Rust function can throw and therefore returns `Result`.
     function_can_throw: HashMap<String, bool>,
     /// First emitted Rust name keyed by source callback symbol.
@@ -85,6 +87,8 @@ impl EmitContext {
 
         let mut function_names = HashMap::new();
         let mut function_param_types = HashMap::new();
+        let mut function_return_types = HashMap::new();
+        let mut function_param_type_priorities = HashMap::<String, u8>::new();
         let mut function_can_throw = HashMap::new();
         let mut callback_names = HashMap::new();
         for function in &mir.functions {
@@ -119,7 +123,16 @@ impl EmitContext {
             callback_names
                 .entry(function.name)
                 .or_insert_with(|| rust_name.clone());
-            function_param_types.insert(rust_name.clone(), params);
+            let priority = emitted_signature_priority(function);
+            if function_param_type_priorities
+                .get(&rust_name)
+                .copied()
+                .is_none_or(|existing| priority >= existing)
+            {
+                function_param_types.insert(rust_name.clone(), params);
+                function_return_types.insert(rust_name.clone(), function.return_ty);
+                function_param_type_priorities.insert(rust_name.clone(), priority);
+            }
             function_can_throw.insert(rust_name.clone(), function.can_throw);
             function_names.insert(function.id, rust_name);
         }
@@ -129,10 +142,26 @@ impl EmitContext {
             none_ty,
             function_names,
             function_param_types,
+            function_return_types,
             function_can_throw,
             callback_names,
             owned_callback_params,
         })
+    }
+}
+
+/// Return precedence for cross-module emitted ABI signatures.
+///
+/// Manifest builds can contain imported or test-local function entries that
+/// resolve to the same Rust symbol as the real source function. Calls must be
+/// adapted to the concrete Rust function definition, so body-backed non-test
+/// functions win over test/import-like entries when the registry sees the same
+/// emitted name more than once.
+fn emitted_signature_priority(function: &MirFunction) -> u8 {
+    match (function.is_test, function.origin) {
+        (false, HirOrigin::Body(_)) => 2,
+        (false, _) => 1,
+        (true, _) => 0,
     }
 }
 

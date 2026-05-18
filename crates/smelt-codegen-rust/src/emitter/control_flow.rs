@@ -95,8 +95,11 @@ impl FunctionEmitter<'_> {
             Statement::Assign { dest, value } => {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
+                if matches!(value, Rvalue::Closure { .. }) && !self.local_has_uses(*dest) {
+                    return Ok(());
+                }
                 let raw_rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
-                let rendered_value =
+                let mut rendered_value =
                     if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                         && raw_rendered_value == "Default::default()"
                     {
@@ -104,6 +107,32 @@ impl FunctionEmitter<'_> {
                     } else {
                         raw_rendered_value
                     };
+                if let Some(Type::Function(function)) = self.mir.types.get(local.ty)
+                    && matches!(self.mir.types.get(function.return_ty), Some(Type::Float))
+                    && rendered_value.ends_with(".clone()")
+                    && rendered_value.starts_with("_smelt_tmp_")
+                {
+                    let function_value = rendered_value.trim_end_matches(".clone()");
+                    let params = function
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| {
+                            Ok(format!(
+                                "arg{index}: {}",
+                                self.type_text_with_impl_trait(*param, false)?
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                        .join(", ");
+                    let call_args = (0..function.params.len())
+                        .map(|index| format!("arg{index}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    rendered_value = format!(
+                        "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> f64 {{ (&mut *smelt_fn.borrow_mut())({call_args}).smelt_into_f64() }})) }}"
+                    );
+                }
                 if name == "SmeltUnknown::Null" {
                     out.push_str(&format!("    let _ = {rendered_value};\n"));
                     return Ok(());

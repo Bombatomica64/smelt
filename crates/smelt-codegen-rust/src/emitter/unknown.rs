@@ -60,11 +60,17 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         match self.mir.types.get(ty) {
             Some(Type::Unknown) => Ok(value_text.to_owned()),
-            Some(Type::TypeParam { .. }) => Ok(format!(
-                "IntoSmeltUnknown::into_smelt_unknown({value_text})"
-            )),
+            Some(Type::TypeParam { .. }) if value_text == "Default::default()" => {
+                Ok("SmeltUnknown::Null".to_owned())
+            }
+            Some(Type::TypeParam { .. }) => Ok(format!("({value_text}).into_smelt_unknown()")),
             Some(Type::None | Type::Never) | None => Ok("SmeltUnknown::Null".to_owned()),
             Some(Type::Bool) => Ok(format!("SmeltUnknown::Bool({value_text})")),
+            Some(Type::Int | Type::Float)
+                if value_text == "Default::default()" || value_text == "(Default::default())" =>
+            {
+                Ok("SmeltUnknown::Number(0.0)".to_owned())
+            }
             Some(Type::Int | Type::Float) => {
                 Ok(format!("SmeltUnknown::Number({value_text} as f64)"))
             }
@@ -159,6 +165,19 @@ impl FunctionEmitter<'_> {
         text: &str,
         target: TypeId,
     ) -> Result<String, EmitError> {
+        if text == "Default::default()" {
+            return match self.mir.types.get(target) {
+                Some(Type::None) => Ok("()".to_owned()),
+                Some(Type::Bool) => Ok("false".to_owned()),
+                Some(Type::Float) => Ok("0.0".to_owned()),
+                Some(Type::Int) => Ok("0_i64".to_owned()),
+                Some(Type::String) => Ok("String::new()".to_owned()),
+                Some(Type::List(_)) => Ok("Vec::new()".to_owned()),
+                Some(Type::Dict(_, _)) => Ok("::std::collections::HashMap::new()".to_owned()),
+                Some(Type::Optional(_)) => Ok("None".to_owned()),
+                _ => self.default_value(target),
+            };
+        }
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
             Some(Type::None) => Ok(format!(
@@ -189,9 +208,7 @@ impl FunctionEmitter<'_> {
                     "if let SmeltUnknown::Object(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not object\") }}"
                 ))
             }
-            Some(Type::TypeParam { .. }) => {
-                Ok(format!("IntoSmeltUnknown::into_smelt_unknown({text})"))
-            }
+            Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(
                 Type::List(_)

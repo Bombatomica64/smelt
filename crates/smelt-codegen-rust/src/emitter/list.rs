@@ -126,19 +126,32 @@ impl FunctionEmitter<'_> {
         list: &Operand,
         start: Option<&Operand>,
         end: Option<&Operand>,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        if !matches!(self.mir.types.get(list_ty), Some(Type::List(_))) {
+        let Some(Type::List(source_item_ty)) = self.mir.types.get(list_ty) else {
             return Ok("Default::default()".to_owned());
-        }
+        };
         self.validate_optional_numeric_index(start, "list slice start index")?;
         self.validate_optional_numeric_index(end, "list slice end index")?;
         let list_text = self.operand_text(list)?;
         let len_source = format!("{list_text}.len()");
         let start_text = self.slice_start_text(start, &len_source)?;
         let len_text = self.slice_len_text(&list_text, start, end, SliceLenKind::Len)?;
+        let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
+            return Ok(format!(
+                "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
+            ));
+        };
+        if source_item_ty == dest_item_ty {
+            return Ok(format!(
+                "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
+            ));
+        }
+        let item_text =
+            { self.rendered_value_as_type_text("value", *source_item_ty, *dest_item_ty)? };
         Ok(format!(
-            "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
+            "{list_text}.iter().skip({start_text}).take({len_text}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
         ))
     }
 

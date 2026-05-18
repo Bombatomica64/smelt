@@ -270,7 +270,9 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
-                    if self.module_global_assignment_statement(assign, body, block)? {
+                    if block == body.root
+                        && self.module_global_assignment_statement(assign, body, block)?
+                    {
                         return Ok(());
                     }
                     let (target, value) = self.assignment_parts(assign, body)?;
@@ -656,13 +658,43 @@ impl ModuleBuilder<'_> {
                 "array forEach callbacks require an item parameter",
             ));
         };
-        let iter = self.expression(&member.object, body)?;
+        let mut iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);
-        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(iter_ty).cloned() else {
-            return Err(SmeltError::unsupported(
-                self.span(member.object.span().start, member.object.span().end),
-                "array forEach statement receiver must be an array",
-            ));
+        let item_ty = match self.ctx.krate.types.get(iter_ty).cloned() {
+            Some(Type::List(item_ty)) => item_ty,
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: iter },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                item_ty
+            }
+            Some(Type::Union(items))
+                if items.iter().any(|item| {
+                    matches!(
+                        self.ctx.krate.types.get(*item),
+                        Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                    )
+                }) =>
+            {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: iter },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                item_ty
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(member.object.span().start, member.object.span().end),
+                    "array forEach statement receiver must be an array",
+                ));
+            }
         };
         let item_binding = match &item_param.pattern {
             BindingPattern::BindingIdentifier(binding) => Some(binding),

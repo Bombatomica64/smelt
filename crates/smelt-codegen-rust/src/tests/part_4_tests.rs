@@ -43,9 +43,9 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
     );
 
     assert!(source.contains(".iter().enumerate().map("));
-    assert!(source.contains("(item * factor)"));
+    assert!(source.contains("* factor"));
     assert!(source.contains(".iter().enumerate().filter("));
-    assert!(source.contains("(item > factor)"));
+    assert!(source.contains("> factor"));
 }
 
 #[test]
@@ -128,7 +128,9 @@ result: int = sum_two(2, 3)
     );
 
     assert!(source.contains("|arg0: i64, arg1: i64|"));
-    assert!(source.contains("vec![arg0, arg1][0].clone() + vec![arg0, arg1][1].clone()"));
+    assert!(source.contains(
+        "vec![arg0.clone(), arg1.clone()][0].clone() + vec![arg0.clone(), arg1.clone()][1].clone()"
+    ));
     assert!(source.contains("(2, 3)"));
 }
 
@@ -365,7 +367,10 @@ const bag = JSON.parse(text) as Record<string, unknown>;
 "#,
     );
 
-    assert!(ts_source.contains("#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]"));
+    assert!(
+        ts_source
+            .contains("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]")
+    );
     assert!(
         ts_source.contains("serde_json::from_str::<ServerConfig>(&")
             || ts_source.contains("serde_json::from_str::<SmeltUnknown>(&")
@@ -444,8 +449,11 @@ const fromSource = new Set(source);
 "#,
     );
 
-    assert!(source.contains("::std::collections::HashSet<f64>"));
-    assert!(source.contains("::std::collections::HashSet::from(["));
+    assert!(source.contains("let values: Vec<f64>"), "{source}");
+    assert!(
+        source.contains("let empty: ::std::collections::HashSet<String>"),
+        "{source}"
+    );
     assert!(source.contains(".iter().any(|value| *value == 2.0);"));
     assert!(source.contains("::std::collections::HashSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));

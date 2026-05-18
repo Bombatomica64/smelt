@@ -229,6 +229,18 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             });
         });
         writer.blank_line();
+        writer.block("impl SmeltUnknown", |impl_writer| {
+            impl_writer.line("/// Returns the JavaScript-style length for unknown string, array, and object values.");
+            impl_writer.block("pub fn len(&self) -> usize", |fn_writer| {
+                fn_writer.block("match self", |match_writer| {
+                    match_writer.line("Self::String(value) => value.chars().count(),");
+                    match_writer.line("Self::Array(value) => value.len(),");
+                    match_writer.line("Self::Object(value) => value.len(),");
+                    match_writer.line("Self::Null | Self::Bool(_) | Self::Number(_) => 0,");
+                });
+            });
+        });
+        writer.blank_line();
         writer.block("impl ::std::fmt::Display for SmeltUnknown", |impl_writer| {
             impl_writer.block(
                 "fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result",
@@ -322,6 +334,25 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         writer.block("impl IntoSmeltUnknown for String", |impl_writer| {
             impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
                 fn_writer.line("SmeltUnknown::String(self)");
+            });
+        });
+        writer.blank_line();
+        writer.block("trait SmeltIntoF64", |trait_writer| {
+            trait_writer.line("fn smelt_into_f64(self) -> f64;");
+        });
+        writer.blank_line();
+        writer.block("impl SmeltIntoF64 for f64", |impl_writer| {
+            impl_writer.block("fn smelt_into_f64(self) -> f64", |fn_writer| {
+                fn_writer.line("self");
+            });
+        });
+        writer.blank_line();
+        writer.block("impl SmeltIntoF64 for SmeltUnknown", |impl_writer| {
+            impl_writer.block("fn smelt_into_f64(self) -> f64", |fn_writer| {
+                fn_writer.block("match self", |match_writer| {
+                    match_writer.line("SmeltUnknown::Number(value) => value,");
+                    match_writer.line("_ => 0.0,");
+                });
             });
         });
         writer.blank_line();

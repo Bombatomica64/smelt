@@ -3392,6 +3392,23 @@ const value = map[param]();
 }
 
 #[test]
+fn lowers_for_each_statement_on_opaque_array_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function addRoutes(routes: any) {
+  routes.routes.forEach((route) => {
+    route.handler;
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_typeof_undefined_checks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

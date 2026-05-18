@@ -3,6 +3,20 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Render array-literal elements by value without consuming local operands.
+    ///
+    /// JavaScript array literals copy references/primitive values into the new
+    /// array and do not invalidate the source expression. MIR may mark an input
+    /// as `Move` when the temporary is otherwise dead, but generated Rust can
+    /// still need the same closure parameter later in the literal expression, so
+    /// list emission treats local moves as cloneable copies.
+    fn list_literal_operand(&self, operand: &Operand) -> Operand {
+        match operand {
+            Operand::Move(place @ Place::Local(_)) => Operand::Copy(place.clone()),
+            _ => operand.clone(),
+        }
+    }
+
     /// Converts an rvalue to its Rust text representation.
     pub(super) fn rvalue_text(&self, value: &Rvalue) -> Result<String, EmitError> {
         self.rvalue_text_for_dest(value, self.none_ty)
@@ -18,6 +32,18 @@ impl FunctionEmitter<'_> {
         match value {
             Rvalue::Use(operand) => self.operand_as_type_text(operand, dest_ty),
             Rvalue::List(items) => {
+                if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
+                    if matches!(
+                        self.mir.types.get(*inner),
+                        Some(
+                            Type::List(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_)
+                        )
+                    ) || self.is_erased_class_type(*inner)
+                    {
+                        let inner_text = self.rvalue_text_for_dest(value, *inner)?;
+                        return Ok(format!("Some({inner_text})"));
+                    }
+                }
                 if matches!(
                     self.mir.types.get(dest_ty),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -25,7 +51,12 @@ impl FunctionEmitter<'_> {
                 {
                     let items_text = items
                         .iter()
-                        .map(|item| self.operand_as_type_text(item, self.type_id(Type::Unknown)?))
+                        .map(|item| {
+                            self.operand_as_type_text(
+                                &self.list_literal_operand(item),
+                                self.type_id(Type::Unknown)?,
+                            )
+                        })
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     return Ok(format!("SmeltUnknown::Array(vec![{items_text}])"));
@@ -33,27 +64,37 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) {
                     let items_text = items
                         .iter()
-                        .map(|item| self.operand_as_type_text(item, *item_ty))
+                        .map(|item| {
+                            self.operand_as_type_text(&self.list_literal_operand(item), *item_ty)
+                        })
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     return Ok(format!("vec![{items_text}]"));
                 }
                 let items_text = items
                     .iter()
-                    .map(|item| self.operand_text(item))
+                    .map(|item| self.operand_text(&self.list_literal_operand(item)))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 Ok(format!("vec![{items_text}]"))
             }
             Rvalue::Set(items) => {
+                let set_uses_vec = matches!(self.mir.types.get(dest_ty), Some(Type::Set(item)) if !self.type_is_hash_set_key_safe(*item));
                 if items.is_empty() {
-                    return Ok("::std::collections::HashSet::new()".to_owned());
+                    return Ok(if set_uses_vec {
+                        "Vec::new()".to_owned()
+                    } else {
+                        "::std::collections::HashSet::new()".to_owned()
+                    });
                 }
                 let items_text = items
                     .iter()
                     .map(|item| self.operand_text(item))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
+                if set_uses_vec {
+                    return Ok(format!("vec![{items_text}]"));
+                }
                 Ok(format!("::std::collections::HashSet::from([{items_text}])"))
             }
             Rvalue::Dict(entries) => {
@@ -116,6 +157,25 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Rvalue::Tuple(items) => {
+                if let Some(Type::Tuple(target_items)) = self.mir.types.get(dest_ty) {
+                    let offset = items.len().saturating_sub(target_items.len());
+                    let items_text = target_items
+                        .iter()
+                        .enumerate()
+                        .map(|(index, target_item)| {
+                            let item = items.get(index + offset).ok_or_else(|| {
+                                EmitError::new("tuple destination has more items than literal")
+                            })?;
+                            self.operand_as_type_text(item, *target_item)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ");
+                    return if target_items.len() == 1 {
+                        Ok(format!("({items_text},)"))
+                    } else {
+                        Ok(format!("({items_text})"))
+                    };
+                }
                 let items_text = items
                     .iter()
                     .map(|item| self.operand_text(item))
@@ -218,6 +278,25 @@ impl FunctionEmitter<'_> {
                         _ => format!("&{rhs_text}.to_string()"),
                     };
                     return Ok(format!("{} + {rhs_expr}", self.operand_text(lhs)?));
+                }
+                if matches!(*op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+                    let lhs_ty = self.operand_ty(lhs)?;
+                    let rhs_ty = self.operand_ty(rhs)?;
+                    if lhs_ty != rhs_ty
+                        || self.type_contains_unknown(lhs_ty)
+                        || self.type_contains_unknown(rhs_ty)
+                    {
+                        let comparison = format!(
+                            "{} == {}",
+                            self.unknown_wrap_text(lhs)?,
+                            self.unknown_wrap_text(rhs)?
+                        );
+                        return Ok(if *op == smelt_hir::BinOp::NotEq {
+                            format!("!({comparison})")
+                        } else {
+                            comparison
+                        });
+                    }
                 }
                 Ok(format!(
                     "{} {} {}",
@@ -397,7 +476,35 @@ impl FunctionEmitter<'_> {
             Rvalue::SetProjection { op, set } => self.set_projection_text(*op, set, dest_ty),
             Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
-            Rvalue::Closure { id, .. } => self.closure_text_for_type(*id, dest_ty),
+            Rvalue::Closure { id, .. } => {
+                if !matches!(
+                    self.mir.types.get(dest_ty),
+                    Some(
+                        Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_)
+                    )
+                ) && !self.is_erased_class_type(dest_ty)
+                {
+                    return self.default_value(dest_ty);
+                }
+                if let Some(closure) = self
+                    .mir
+                    .closures
+                    .get(id_index(id.0, "closure id does not fit usize")?)
+                    && closure.captures.iter().any(|capture| {
+                        self.capture_is_borrowed_callback_param(capture.source_local)
+                            .unwrap_or(false)
+                            || self
+                                .capture_symbol_is_borrowed_callback_param(
+                                    capture.symbol,
+                                    capture.ty,
+                                )
+                                .unwrap_or(false)
+                    })
+                {
+                    return self.default_value(dest_ty);
+                }
+                self.closure_text_for_type(*id, dest_ty)
+            }
             Rvalue::ClosureCall { callee, args } => {
                 if matches!(
                     self.mir.types.get(self.operand_ty(callee)?),
@@ -406,6 +513,9 @@ impl FunctionEmitter<'_> {
                     return self.default_value(dest_ty);
                 }
                 let callee_text = self.operand_text(callee)?;
+                if callee_text == "()" {
+                    return self.default_value(dest_ty);
+                }
                 if callee_text.starts_with("purry_")
                     && args.len() >= 2
                     && let Some(first_arg) = args.first()
@@ -446,26 +556,34 @@ impl FunctionEmitter<'_> {
                 let params = local_params
                     .or(emitted_params.as_deref())
                     .unwrap_or(inferred_params);
-                let mut rendered_args = args
-                    .iter()
-                    .zip(params.iter())
-                    .map(|(arg, param)| {
-                        let text = self.operand_as_type_text(arg, *param)?;
-                        if self.type_text(*param)? == "Vec<SmeltUnknown>"
-                            && text.contains(".into_iter().map(|value| value).collect::<Vec<_>>()")
-                        {
-                            Ok(text.replace(
-                                ".into_iter().map(|value| value).collect::<Vec<_>>()",
-                                ".into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>()",
-                            ))
-                        } else {
-                            Ok(text)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                for param in params.iter().skip(args.len()) {
-                    rendered_args.push(self.default_value(*param)?);
-                }
+                let rendered_args = if let Some(rest_args) =
+                    self.rest_vector_call_args_text(args, params)?
+                {
+                    rest_args
+                } else {
+                    let mut rendered_args = args
+                        .iter()
+                        .zip(params.iter())
+                        .map(|(arg, param)| {
+                            let text = self.operand_as_type_text(arg, *param)?;
+                            if self.type_text(*param)? == "Vec<SmeltUnknown>"
+                                && text
+                                    .contains(".into_iter().map(|value| value).collect::<Vec<_>>()")
+                            {
+                                Ok(text.replace(
+                                    ".into_iter().map(|value| value).collect::<Vec<_>>()",
+                                    ".into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>()",
+                                ))
+                            } else {
+                                Ok(text)
+                            }
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    for param in params.iter().skip(args.len()) {
+                        rendered_args.push(self.default_value(*param)?);
+                    }
+                    rendered_args
+                };
                 let args_text = rendered_args.join(", ");
                 let call_text = match callee {
                     Operand::Copy(place) | Operand::Move(place)
@@ -500,7 +618,7 @@ impl FunctionEmitter<'_> {
                 callback,
             } => self.list_reduce_text(list, initial.as_ref(), callback, dest_ty),
             Rvalue::ListSlice { list, start, end } => {
-                self.list_slice_text(list, start.as_ref(), end.as_ref())
+                self.list_slice_text(list, start.as_ref(), end.as_ref(), dest_ty)
             }
             Rvalue::ListSplice {
                 list,
@@ -624,7 +742,12 @@ impl FunctionEmitter<'_> {
             Rvalue::UrlField { field, url } => self.url_field_text(*field, url),
             Rvalue::FileReadText { path } => self.file_read_text(path),
             Rvalue::FileWriteText { path, text } => self.file_write_text(path, text),
-            Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
+            Rvalue::Await(operand) => {
+                if self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::None) {
+                    return self.default_value(dest_ty);
+                }
+                Ok(format!("{}.await", self.await_operand_text(operand)?))
+            }
             Rvalue::AsyncOp { op, args } => {
                 let text = self.async_op_text(*op, args)?;
                 if matches!(op, smelt_hir::AsyncOp::Sleep)
@@ -962,11 +1085,23 @@ impl FunctionEmitter<'_> {
                 self.operand_as_type_text(rhs, lhs_ty)?
             )
         } else if rhs_needs_erased && !lhs_needs_erased {
-            format!(
-                "{} == {}",
-                self.operand_as_type_text(lhs, rhs_ty)?,
-                self.operand_text(rhs)?
-            )
+            if matches!(self.mir.types.get(lhs_ty), Some(Type::Tuple(_)))
+                && matches!(self.mir.types.get(rhs_ty), Some(Type::List(_)))
+            {
+                format!(
+                    "{} == {}",
+                    self.operand_as_type_text(lhs, self.type_id(Type::Unknown)?)?,
+                    self.operand_as_type_text(rhs, self.type_id(Type::Unknown)?)?
+                )
+            } else {
+                format!(
+                    "{} == {}",
+                    self.operand_as_type_text(lhs, rhs_ty)?,
+                    self.operand_text(rhs)?
+                )
+            }
+        } else if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
+            "false".to_owned()
         } else {
             return Ok(None);
         };
@@ -975,6 +1110,64 @@ impl FunctionEmitter<'_> {
         } else {
             text
         }))
+    }
+
+    /// Returns whether two static types cannot be equal under JavaScript-style deep equality.
+    fn equality_shapes_are_definitely_incompatible(&self, left: TypeId, right: TypeId) -> bool {
+        match (self.mir.types.get(left), self.mir.types.get(right)) {
+            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => false,
+            (Some(Type::Optional(left_inner)), Some(Type::Optional(right_inner))) => {
+                self.equality_shapes_are_definitely_incompatible(*left_inner, *right_inner)
+            }
+            (Some(Type::Optional(inner)), _) => {
+                self.equality_shapes_are_definitely_incompatible(*inner, right)
+            }
+            (_, Some(Type::Optional(inner))) => {
+                self.equality_shapes_are_definitely_incompatible(left, *inner)
+            }
+            (Some(Type::List(_)), Some(Type::List(_)))
+            | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
+            | (Some(Type::Set(_)), Some(Type::Set(_))) => false,
+            (Some(Type::Tuple(left_items)), Some(Type::Tuple(right_items))) => {
+                left_items.len() != right_items.len()
+                    || left_items
+                        .iter()
+                        .zip(right_items.iter())
+                        .any(|(left_item, right_item)| {
+                            self.equality_shapes_are_definitely_incompatible(
+                                *left_item,
+                                *right_item,
+                            )
+                        })
+            }
+            (
+                Some(
+                    Type::List(_)
+                    | Type::Dict(_, _)
+                    | Type::Set(_)
+                    | Type::Tuple(_)
+                    | Type::Function(_),
+                ),
+                Some(
+                    Type::List(_)
+                    | Type::Dict(_, _)
+                    | Type::Set(_)
+                    | Type::Tuple(_)
+                    | Type::Function(_),
+                ),
+            ) => true,
+            (
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
+            ) => {
+                !matches!(
+                    (self.mir.types.get(left), self.mir.types.get(right)),
+                    (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float))
+                        | (Some(Type::None), Some(Type::None))
+                ) && self.mir.types.get(left) != self.mir.types.get(right)
+            }
+            _ => false,
+        }
     }
 
     /// Returns the inner type for `Option<T>`.
@@ -1231,14 +1424,49 @@ impl FunctionEmitter<'_> {
             return Ok(coalesced);
         }
         match self.mir.types.get(optional_ty) {
-            Some(Type::Optional(inner)) => Ok(format!(
-                "{}.clone().unwrap_or({})",
-                self.operand_text(optional)?,
-                self.operand_as_type_text(fallback, *inner)?
-            )),
+            Some(Type::Optional(inner)) => {
+                let coalesced = format!(
+                    "{}.clone().unwrap_or({})",
+                    self.operand_text(optional)?,
+                    self.operand_as_type_text(fallback, *inner)?
+                );
+                if dest_ty == *inner {
+                    Ok(coalesced)
+                } else {
+                    self.rendered_value_as_type_text(&coalesced, *inner, dest_ty)
+                }
+            }
             Some(Type::None) => self.operand_text(fallback),
             _ => self.operand_text(optional),
         }
+    }
+
+    /// Packs scalar callback call arguments for an erased rest-vector callback ABI.
+    fn rest_vector_call_args_text(
+        &self,
+        args: &[Operand],
+        params: &[TypeId],
+    ) -> Result<Option<Vec<String>>, EmitError> {
+        let [param] = params else {
+            return Ok(None);
+        };
+        let Some(Type::List(item)) = self.mir.types.get(*param) else {
+            return Ok(None);
+        };
+        if self.mir.types.get(*item) != Some(&Type::Unknown) {
+            return Ok(None);
+        }
+        if let [single_arg] = args
+            && self.operand_ty(single_arg)? == *param
+        {
+            return Ok(None);
+        }
+        let items = args
+            .iter()
+            .map(|arg| self.operand_as_type_text(arg, *item))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        Ok(Some(vec![format!("vec![{items}]")]))
     }
 
     /// Emits `Object.assign` when the target is a callable JavaScript value.
@@ -1362,7 +1590,14 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Dict(key_ty, _)) => {
-                let key_text = self.operand_as_type_text(index, *key_ty)?;
+                let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    self.property_key_to_string_text(
+                        &self.operand_text(index)?,
+                        self.operand_ty(index)?,
+                    )?
+                } else {
+                    self.operand_as_type_text(index, *key_ty)?
+                };
                 Ok(format!(
                     "{receiver_text}.get(&{key_text}).cloned().expect(\"index out of bounds\")"
                 ))

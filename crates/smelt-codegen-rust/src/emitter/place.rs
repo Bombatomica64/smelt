@@ -9,12 +9,21 @@ impl FunctionEmitter<'_> {
             Place::Local(local) => self.local_name(*local).map(str::to_owned),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
-                if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty)
-                    && self.mir.types.get(*key) == Some(&Type::String)
-                {
+                if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty) {
                     let field_name = self.symbol_name(*field)?;
+                    let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
+                        format!("{field_name:?}.to_owned()")
+                    } else if matches!(
+                        self.mir.types.get(*key),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(*key)
+                    {
+                        format!("SmeltUnknown::String({field_name:?}.to_owned())")
+                    } else {
+                        self.default_value(*key)?
+                    };
                     return Ok(format!(
-                        "{}.get({field_name:?}).cloned().expect(\"missing field\")",
+                        "{}.get(&{key_text}).cloned().expect(\"missing field\")",
                         self.local_name(*base)?
                     ));
                 }
@@ -70,7 +79,13 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                     Some(Type::Dict(key_ty, _)) => {
-                        let key_text = self.operand_as_type_text(index, *key_ty)?;
+                        let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                            let source_key = self.operand_ty(index)?;
+                            let index_text = self.operand_text(index)?;
+                            self.property_key_to_string_text(&index_text, source_key)?
+                        } else {
+                            self.operand_as_type_text(index, *key_ty)?
+                        };
                         Ok(format!(
                             "{}.get(&{key_text}).cloned().expect(\"index out of bounds\")",
                             self.local_name(*base)?
@@ -106,7 +121,13 @@ impl FunctionEmitter<'_> {
                         Ok(format!("{base_text}[{index_text}]"))
                     }
                     Some(Type::Dict(key_ty, _)) => {
-                        let key_text = self.operand_as_type_text(index, *key_ty)?;
+                        let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                            let source_key = self.operand_ty(index)?;
+                            let index_text = self.operand_text(index)?;
+                            self.property_key_to_string_text(&index_text, source_key)?
+                        } else {
+                            self.operand_as_type_text(index, *key_ty)?
+                        };
                         Ok(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
                             self.local_name(*base)?
