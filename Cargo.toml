@@ -10,6 +10,7 @@ members = [
     "crates/smelt-runtime",
     "crates/smelt-test",
     "crates/smelt-cli",
+    "crates/smelt-gui",
 ]
 resolver = "2"
 

@@ -1,0 +1,20 @@
+[package]
+name = "smelt-gui"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "smelt-gui"
+path = "src/main.rs"
+
+[dependencies]
+gpui = "0.2"
+smelt-frontend-ts = { path = "../smelt-frontend-ts" }
+smelt-frontend-py = { path = "../smelt-frontend-py" }
+smelt-hir = { path = "../smelt-hir" }
+smelt-mir = { path = "../smelt-mir" }
+smelt-codegen-rust = { path = "../smelt-codegen-rust" }
+gpui-component = "0.5.1"
+
+[lints]
+workspace = true
