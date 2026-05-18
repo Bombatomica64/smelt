@@ -16,7 +16,7 @@ mod theme;
 mod workspace;
 
 use gpui::{
-    px, size, AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions,
+    AppContext, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size,
 };
 use gpui_component::Root;
 use gpui_component::theme::{Theme, ThemeMode};
@@ -39,8 +39,7 @@ fn main() {
                 ..WindowOptions::default()
             },
             |window, outer_cx| {
-                let workspace_view =
-                    outer_cx.new(|cx| SmeltWorkspace::new(window, cx));
+                let workspace_view = outer_cx.new(|cx| SmeltWorkspace::new(window, cx));
                 outer_cx.new(|cx| Root::new(workspace_view, window, cx))
             },
         )

@@ -1,6 +1,6 @@
 //! Color and styling constants for the Smelt GUI.
 
-use gpui::{rgb, Hsla};
+use gpui::{Hsla, rgb};
 
 /// Background for the main window.
 pub(super) fn bg_primary() -> Hsla {
@@ -20,6 +20,21 @@ pub(super) fn bg_header() -> Hsla {
 /// Primary accent color (blue).
 pub(super) fn accent() -> Hsla {
     rgb(0x89_B4_FA).into()
+}
+
+/// TypeScript panel accent color.
+pub(super) fn typescript() -> Hsla {
+    rgb(0x89_B4_FA).into()
+}
+
+/// Python panel accent color.
+pub(super) fn python() -> Hsla {
+    rgb(0xFA_E3_82).into()
+}
+
+/// Rust output panel accent color.
+pub(super) fn rust() -> Hsla {
+    rgb(0xF9_AF_74).into()
 }
 
 /// Success/green accent.
