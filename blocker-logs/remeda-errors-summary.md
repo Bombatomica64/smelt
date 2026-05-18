@@ -1,5 +1,35 @@
 # Remeda Generated Rust Errors
 
+## Additional Web Server Probes (2026-05-16)
+
+Generated from:
+
+```sh
+cargo run -q -- build --manifest-path /tmp/Smelt.strapi.toml
+cargo run -q -- build --manifest-path /tmp/Smelt.strapi-core.toml
+```
+
+Additional logs:
+
+- `blocker-logs/strapi-smelt-build.log`
+- `blocker-logs/strapi-core-smelt-build.log`
+
+### Strapi (`third_party/strapi`)
+
+- Narrow entry (`examples/kitchensink-ts/src/index.ts`) builds cleanly with Smelt.
+- Core entry (`packages/core/core/src/index.ts`) fails in frontend TS lowering at
+  `packages/core/core/src/configuration/urls.ts` with:
+  - `smelt::unsupported-ts`: `Map.get requires exactly one key argument`
+  - `smelt::unsupported-ts`: `string prefix/suffix methods require string receiver and argument`
+
+### Nest (`third_party/nest`)
+
+- Probe blocked due to invalid subtree contents: `third_party/nest` currently contains a copy of
+  this `smelt` repository tree (for example `AGENTS.md`, `Cargo.toml`, `crates/`, and
+  `blocker-logs/` at its top level) instead of NestJS sources.
+- Until the subtree is corrected to actual `nestjs/nest` content, any Smelt compile result would
+  be invalid as benchmark signal.
+
 Generated from:
 
 ```sh

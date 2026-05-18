@@ -95,7 +95,15 @@ impl FunctionEmitter<'_> {
             Statement::Assign { dest, value } => {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
-                let rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
+                let raw_rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
+                let rendered_value =
+                    if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
+                        && raw_rendered_value == "Default::default()"
+                    {
+                        self.default_value(local.ty)?
+                    } else {
+                        raw_rendered_value
+                    };
                 if self.is_local_declared(*dest)
                     && (!matches!(local.kind, LocalKind::Temp)
                         || self.mutable_locals.contains(dest))

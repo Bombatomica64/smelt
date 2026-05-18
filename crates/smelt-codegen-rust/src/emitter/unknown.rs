@@ -42,7 +42,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.unknown_wrap_value_text("value", *inner)?;
                 Ok(format!(
-                    "{text}.map_or(SmeltUnknown::Null, |value| {value_wrap})"
+                    "{text}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})"
                 ))
             }
             Some(Type::Function(_)) => Ok("SmeltUnknown::Null".to_owned()),
@@ -97,7 +97,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.unknown_wrap_value_text("value", *inner)?;
                 Ok(format!(
-                    "{value_text}.map_or(SmeltUnknown::Null, |value| {value_wrap})"
+                    "{value_text}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})"
                 ))
             }
             Some(Type::Function(_)) => Ok("SmeltUnknown::Null".to_owned()),
@@ -162,23 +162,23 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
             Some(Type::None) => Ok(format!(
-                "if matches!({text}, SmeltUnknown::Null) {{ () }} else {{ panic!(\"unknown is not null\") }}"
+                "if matches!({text}.clone(), SmeltUnknown::Null) {{ () }} else {{ panic!(\"unknown is not null\") }}"
             )),
             Some(Type::Bool) => Ok(format!(
-                "if let SmeltUnknown::Bool(value) = {text} {{ value }} else {{ panic!(\"unknown is not boolean\") }}"
+                "if let SmeltUnknown::Bool(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not boolean\") }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "if let SmeltUnknown::Number(value) = {text} {{ value }} else {{ panic!(\"unknown is not number\") }}"
+                "if let SmeltUnknown::Number(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not number\") }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "if let SmeltUnknown::Number(value) = {text} {{ value as i64 }} else {{ panic!(\"unknown is not number\") }}"
+                "if let SmeltUnknown::Number(value) = {text}.clone() {{ value as i64 }} else {{ panic!(\"unknown is not number\") }}"
             )),
             Some(Type::String) => Ok(format!(
-                "if let SmeltUnknown::String(value) = {text} {{ value }} else {{ panic!(\"unknown is not string\") }}"
+                "if let SmeltUnknown::String(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not string\") }}"
             )),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
-                    "if let SmeltUnknown::Array(value) = {text} {{ value }} else {{ panic!(\"unknown is not array\") }}"
+                    "if let SmeltUnknown::Array(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not array\") }}"
                 ))
             }
             Some(Type::Dict(key, item))
@@ -186,7 +186,7 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "if let SmeltUnknown::Object(value) = {text} {{ value }} else {{ panic!(\"unknown is not object\") }}"
+                    "if let SmeltUnknown::Object(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not object\") }}"
                 ))
             }
             Some(Type::Never | Type::TypeParam { .. } | Type::Union(_)) => Ok(text.to_owned()),

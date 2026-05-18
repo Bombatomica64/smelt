@@ -175,6 +175,7 @@ impl ModuleBuilder<'_> {
             "href" => UrlField::Href,
             "protocol" => UrlField::Protocol,
             "host" => UrlField::Host,
+            "origin" => UrlField::Origin,
             "hostname" => UrlField::Hostname,
             "pathname" => UrlField::Pathname,
             "search" => UrlField::Search,
@@ -204,6 +205,51 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::UrlField { field, url },
             ty,
             span: self.span(member.span.start, member.span.end),
+        })))
+    }
+
+    /// Lower `new URL(text).toString()` to the same full-URL extraction as `.href`.
+    fn url_to_string_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "toString" || !call.arguments.is_empty() {
+            return Ok(None);
+        }
+        let Expression::NewExpression(new_expr) = &member.object else {
+            return Ok(None);
+        };
+        let Expression::Identifier(callee) = &new_expr.callee else {
+            return Ok(None);
+        };
+        if callee.name != "URL" {
+            return Ok(None);
+        }
+        let [url_arg] = new_expr.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new URL() currently supports exactly one string URL argument",
+            ));
+        };
+        let url = self.argument(url_arg, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new URL(text) requires a string URL argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::UrlField {
+                field: UrlField::Href,
+                url,
+            },
+            ty,
+            span: self.span(call.span.start, call.span.end),
         })))
     }
 

@@ -227,7 +227,9 @@ console.log(result);
     );
 
     assert!(
-        source.contains("_smelt_tmp_2 = Box::new(|closure_arg_0: String| {"),
+        source.contains(
+            "_smelt_tmp_2 = ::std::rc::Rc::new(::std::cell::RefCell::new(|closure_arg_0: String| {"
+        ),
         "{source}"
     );
     assert!(source.contains("match closure_arg_0.as_str() {"));

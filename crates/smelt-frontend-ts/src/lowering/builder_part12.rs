@@ -680,16 +680,16 @@ impl ModuleBuilder<'_> {
         if member.property.name != "get" {
             return Ok(None);
         }
+        let dict = self.expression(&member.object, body)?;
+        let dict_ty = Self::expr_ty(body, dict);
+        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
+            return Ok(None);
+        };
         let [key_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "Map.get requires exactly one key argument",
             ));
-        };
-        let dict = self.expression(&member.object, body)?;
-        let dict_ty = Self::expr_ty(body, dict);
-        let Some(Type::Dict(dict_key_ty, dict_value_ty)) = self.ctx.krate.types.get(dict_ty) else {
-            return Ok(None);
         };
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;

@@ -139,6 +139,9 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.unknown_binary_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
+                if let Some(text) = self.erased_arithmetic_text(*op, lhs, rhs, dest_ty)? {
+                    return Ok(text);
+                }
                 if matches!(
                     *op,
                     smelt_hir::BinOp::Add
@@ -447,7 +450,20 @@ impl FunctionEmitter<'_> {
                     rendered_args.push(self.default_value(*param)?);
                 }
                 let args_text = rendered_args.join(", ");
-                let call_text = format!("{callee_text}({args_text})");
+                let call_text = match callee {
+                    Operand::Copy(place) | Operand::Move(place)
+                        if self.is_function_parameter_place(place)? =>
+                    {
+                        format!("{callee_text}({args_text})")
+                    }
+                    _ if self.is_function_parameter_name(&callee_text)? => {
+                        format!("{callee_text}({args_text})")
+                    }
+                    _ if self.is_borrowed_callback_capture_name(&callee_text) => {
+                        format!("{callee_text}({args_text})")
+                    }
+                    _ => format!("({callee_text}.borrow_mut())({args_text})"),
+                };
                 let source_ty = match self.mir.types.get(self.operand_ty(callee)?) {
                     Some(Type::Function(function)) => function.return_ty,
                     _ => dest_ty,
@@ -795,6 +811,54 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) => Some(*inner),
             _ => None,
         }
+    }
+
+    /// Emits arithmetic involving erased operands through JavaScript-like numbers.
+    fn erased_arithmetic_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Add
+                | smelt_hir::BinOp::Sub
+                | smelt_hir::BinOp::Mul
+                | smelt_hir::BinOp::Div
+                | smelt_hir::BinOp::Rem
+        ) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let lhs_erased = matches!(
+            self.mir.types.get(lhs_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(lhs_ty);
+        let rhs_erased = matches!(
+            self.mir.types.get(rhs_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(rhs_ty);
+        let has_non_add_string = op != smelt_hir::BinOp::Add
+            && matches!(
+                (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)),
+                (Some(Type::String), _) | (_, Some(Type::String))
+            );
+        if !lhs_erased && !rhs_erased && !has_non_add_string {
+            return Ok(None);
+        }
+        let float_ty = self.type_id(Type::Float)?;
+        let lhs_text = self.operand_as_type_text(lhs, float_ty)?;
+        let rhs_text = self.operand_as_type_text(rhs, float_ty)?;
+        let numeric_text = format!("{lhs_text} {} {rhs_text}", smelt_hir::bin_op_text(op));
+        Ok(Some(match self.mir.types.get(dest_ty) {
+            Some(Type::Int) => format!("({numeric_text}).trunc() as i64"),
+            Some(Type::Float) => numeric_text,
+            Some(Type::String) => format!("({numeric_text}).to_string()"),
+            _ => format!("SmeltUnknown::Number({numeric_text})"),
+        }))
     }
 
     /// Returns whether a type is a Rust numeric scalar.

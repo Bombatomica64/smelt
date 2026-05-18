@@ -393,7 +393,7 @@ function invoke(callback: (value: number) => number, fallback?: (value: number) 
     );
 
     assert!(
-        source.contains("Box::new(move |arg0: f64| 0.0)"),
+        source.contains("::std::rc::Rc::new(::std::cell::RefCell::new(move |arg0: f64| 0.0))"),
         "{source}"
     );
 }
@@ -706,7 +706,7 @@ const sortByImplementation = <T>(
     );
 
     assert!(
-        source.contains("closure_arg_1(left.clone(), right.clone())"),
+        source.contains("(closure_arg_1.borrow_mut())(left.clone(), right.clone())"),
         "{source}"
     );
 }
@@ -723,10 +723,16 @@ function makeMapper(): (value: number) => number {
     );
 
     assert!(
-        source.contains("fn make_mapper() -> Box<dyn FnMut(f64) -> f64>"),
+        source.contains(
+            "fn make_mapper() -> ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(f64) -> f64>>"
+        ),
         "{source}"
     );
-    assert!(source.contains("return Box::new("), "{source}");
+    assert!(
+        source.contains("return ::std::rc::Rc::new(::std::cell::RefCell::new(")
+            || source.contains("return _smelt_tmp_2.clone()"),
+        "{source}"
+    );
 }
 
 #[test]

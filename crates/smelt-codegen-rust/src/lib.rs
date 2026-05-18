@@ -197,6 +197,21 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             });
         });
         writer.blank_line();
+        writer.block("impl ::std::fmt::Display for SmeltUnknown", |impl_writer| {
+            impl_writer.block(
+                "fn fmt(&self, formatter: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result",
+                |fn_writer| {
+                    fn_writer.block("match self", |match_writer| {
+                        match_writer.line("Self::Null => formatter.write_str(\"null\"),");
+                        match_writer.line("Self::Bool(value) => write!(formatter, \"{value}\"),");
+                        match_writer.line("Self::Number(value) => write!(formatter, \"{value}\"),");
+                        match_writer.line("Self::String(value) => formatter.write_str(value),");
+                        match_writer.line("Self::Array(_) | Self::Object(_) => formatter.write_str(\"[object Object]\"),");
+                    });
+                },
+            );
+        });
+        writer.blank_line();
         writer.line("impl Eq for SmeltUnknown {}");
         writer.blank_line();
         writer.block("impl ::std::hash::Hash for SmeltUnknown", |impl_writer| {

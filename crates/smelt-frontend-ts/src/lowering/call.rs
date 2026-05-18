@@ -161,6 +161,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.string_match_all_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.url_to_string_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_case_call(call, body)? {
             return Ok(expr);
         }

@@ -975,6 +975,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::UrlField::Href => "href",
                 smelt_hir::UrlField::Protocol => "protocol",
                 smelt_hir::UrlField::Host => "host",
+                smelt_hir::UrlField::Origin => "origin",
                 smelt_hir::UrlField::Hostname => "hostname",
                 smelt_hir::UrlField::Pathname => "pathname",
                 smelt_hir::UrlField::Search => "search",

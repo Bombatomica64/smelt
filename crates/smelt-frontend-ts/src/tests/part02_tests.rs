@@ -917,6 +917,8 @@ fn lowers_url_fields_and_rejects_deferred_object_apis() -> Result<(), String> {
     let module_id = lower_ok(
         ts!(r#"
 const host = new URL("https://example.com/path?q=1").hostname;
+const origin = new URL("https://example.com/path?q=1").origin;
+const href = new URL("https://example.com/path?q=1").toString();
 "#),
         &mut ctx,
     )?;
@@ -926,6 +928,13 @@ const host = new URL("https://example.com/path?q=1").hostname;
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::UrlField { .. }))
+    );
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::UrlField { .. }))
+            .count(),
+        3
     );
 
     let mut ctx = HirCtx::new();

@@ -87,7 +87,7 @@ impl FunctionEmitter<'_> {
             (_, Type::Float, _) => Ok("0.0".to_owned()),
             (_, Type::String, _) => Ok("String::new()".to_owned()),
             (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.unknown_wrap_text(operand),
-            _ => Ok("Default::default()".to_owned()),
+            _ => self.default_value(dest_ty),
         }
     }
 
@@ -275,7 +275,9 @@ impl FunctionEmitter<'_> {
                 if allow_impl_trait {
                     Ok(format!("impl FnMut({params}) -> {return_ty}"))
                 } else {
-                    Ok(format!("Box<dyn FnMut({params}) -> {return_ty}>"))
+                    Ok(format!(
+                        "::std::rc::Rc<::std::cell::RefCell<dyn FnMut({params}) -> {return_ty}>>"
+                    ))
                 }
             }
             Type::Future(item) => Ok(format!(
@@ -316,7 +318,19 @@ impl FunctionEmitter<'_> {
             Type::Set(_) => Ok("::std::collections::HashSet::new()".to_owned()),
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
             Type::Optional(_) => Ok("None".to_owned()),
-            Type::Tuple(_) | Type::Class { .. } | Type::TypeParam { .. } | Type::Union(_) => {
+            Type::Tuple(items) => {
+                let items_text = items
+                    .iter()
+                    .map(|item| self.default_value(*item))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                if items.len() == 1 {
+                    Ok(format!("({items_text},)"))
+                } else {
+                    Ok(format!("({items_text})"))
+                }
+            }
+            Type::Class { .. } | Type::TypeParam { .. } | Type::Union(_) => {
                 Ok("Default::default()".to_owned())
             }
             Type::Function(function) => {
@@ -333,7 +347,9 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
                 let return_text = self.default_value(function.return_ty)?;
-                Ok(format!("Box::new(move |{params}| {return_text})"))
+                Ok(format!(
+                    "::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| {return_text}))"
+                ))
             }
             Type::Future(_) => Ok("Default::default()".to_owned()),
         }

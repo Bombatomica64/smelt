@@ -232,6 +232,9 @@ impl FunctionEmitter<'_> {
             smelt_hir::UrlField::Host => format!(
                 "{{ let url = {parsed}; url.host_str().map(|host| match url.port() {{ Some(port) => format!(\"{{}}:{{}}\", host, port), None => host.to_owned() }}).unwrap_or_default() }}"
             ),
+            smelt_hir::UrlField::Origin => format!(
+                "{{ let url = {parsed}; url.host_str().map(|host| match url.port() {{ Some(port) => format!(\"{{}}://{{}}:{{}}\", url.scheme(), host, port), None => format!(\"{{}}://{{}}\", url.scheme(), host) }}).unwrap_or_default() }}"
+            ),
             smelt_hir::UrlField::Hostname => {
                 format!("{parsed}.host_str().unwrap_or_default().to_owned()")
             }

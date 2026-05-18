@@ -57,7 +57,7 @@ const returned = adder(6);
     assert!(source.contains("(3.0)"));
     assert!(source.contains("apply(4.0,"));
     assert!(source.contains("make_adder(5.0)"));
-    assert!(source.contains("adder(6.0)"));
+    assert!(source.contains("(adder.borrow_mut())(6.0)"));
     assert!(source.contains("move |"));
 }
 

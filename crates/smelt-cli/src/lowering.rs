@@ -209,6 +209,7 @@ fn lower_ordered_manifest_sources(
     let mut krate = smelt_hir::Crate::new();
     let mut state = FrontendLoweringState::default();
     let mut modules = Vec::new();
+    let module_names = manifest_module_names(sources);
 
     for (idx, source) in sources.iter().enumerate() {
         let (next_krate, module, next_state) = lower_manifest_source(krate, state, source, idx)?;
@@ -218,7 +219,10 @@ fn lower_ordered_manifest_sources(
         if let Ok(module_idx) = usize::try_from(module.0)
             && let Some(module_value) = krate.modules.get_mut(module_idx)
         {
-            module_value.name = manifest_module_name(file);
+            module_value.name = module_names
+                .get(idx)
+                .cloned()
+                .unwrap_or_else(|| manifest_module_name(file));
         }
         modules.push((file.display().to_string(), module));
     }
@@ -336,4 +340,42 @@ fn manifest_module_name(path: &Path) -> String {
         .and_then(Path::file_name)
         .and_then(|parent| parent.to_str())
         .map_or_else(|| stem.to_owned(), |parent| format!("{parent}_{stem}"))
+}
+
+/// Returns collision-free Rust function names for manifest module bodies.
+///
+/// Dependency sorting can place two files with the same stem in one HIR crate,
+/// such as `src/main.py` importing `src/lib/main.ts`. Both frontends lower
+/// module-level statements as a module body, and MIR lowering uses the module
+/// name as the emitted Rust function name. This helper keeps the final
+/// colliding module body under the plain name so an entry file named `main`
+/// still emits the executable `fn main()`, while earlier collisions receive a
+/// stable ordinal suffix.
+fn manifest_module_names(sources: &[&ManifestSource]) -> Vec<String> {
+    let bases = sources
+        .iter()
+        .map(|source| manifest_module_name(&source.path))
+        .collect::<Vec<_>>();
+    let mut totals = HashMap::<String, usize>::new();
+    for base in &bases {
+        let total = totals.entry(base.clone()).or_insert(0);
+        *total = total.saturating_add(1);
+    }
+    let mut seen = HashMap::<String, usize>::new();
+    bases
+        .into_iter()
+        .map(|base| {
+            let total = totals.get(&base).copied().unwrap_or(1);
+            if total == 1 {
+                return base;
+            }
+            let ordinal = seen.entry(base.clone()).or_insert(0);
+            *ordinal = ordinal.saturating_add(1);
+            if *ordinal == total {
+                base
+            } else {
+                format!("{base}_{ordinal}")
+            }
+        })
+        .collect()
 }

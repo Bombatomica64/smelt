@@ -55,10 +55,7 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if callee.name == "URL" {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "TypeScript URL is not supported yet; URL construction and URL field access need a URL mapping policy",
-            ));
+            return self.url_constructor_expression(new_expr, body);
         }
         let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
             if self.value_imports.contains(callee.name.as_str()) {
@@ -155,6 +152,36 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::New {
                 class: class_name,
                 args,
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
+    /// Lower `new URL(text)` to its full URL string for string-oriented URL APIs.
+    fn url_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let [url_arg] = new_expr.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new URL() currently supports exactly one string URL argument",
+            ));
+        };
+        let url = self.argument(url_arg, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "new URL(text) requires a string URL argument",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UrlField {
+                field: UrlField::Href,
+                url,
             },
             ty,
             span: self.span(new_expr.span.start, new_expr.span.end),

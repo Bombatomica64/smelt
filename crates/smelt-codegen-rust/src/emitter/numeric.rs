@@ -34,6 +34,16 @@ impl FunctionEmitter<'_> {
         let receiver_text = self.len_operand_text(operand)?;
         let len_expr = match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::String) => format!("{receiver_text}.chars().count()"),
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
+            {
+                format!("{receiver_text}.as_ref().map_or(0, |value| value.chars().count())")
+            }
+            Some(Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::List(_))) =>
+            {
+                format!("{receiver_text}.as_ref().map_or(0, Vec::len)")
+            }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 format!(
                     "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => value.len(), _ => 0 }}"

@@ -238,6 +238,8 @@ pub enum UrlField {
     Protocol,
     /// Host, including port when present.
     Host,
+    /// Origin, including protocol and host.
+    Origin,
     /// Hostname without port.
     Hostname,
     /// Path component.

@@ -5,7 +5,7 @@ mod common;
 use std::fs;
 
 use common::{
-    TempProject, TestResult, cargo_run_manifest, ensure_eq, smelt, utf8_path,
+    TempProject, TestResult, cargo_run_manifest, ensure, ensure_eq, smelt, utf8_path,
     verify_end_to_end_example,
 };
 
@@ -46,6 +46,57 @@ clone-strategy = "aggressive"
 
     let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
     ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
+fn build_keeps_one_main_when_python_entry_imports_typescript_main_module() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/lib"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "cross-main-name"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.py"]
+
+[output]
+target = "./dist"
+crate-name = "cross_main_name"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/lib/main.ts"),
+        "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.py"),
+        "from lib.main import add\nresult: float = add(4.0, 6.0)\nprint(result)\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let generated = fs::read_to_string(project_path.join("dist/src/main.rs"))?;
+    ensure_eq(
+        &generated.matches("fn main(").count(),
+        &1,
+        "generated Rust should contain one executable main function",
+    )?;
+    ensure(
+        generated.contains("fn main_1()"),
+        "dependency module body should be renamed away from main",
+    )?;
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"10\n".to_owned(), "unexpected stdout")?;
 
     Ok(())
 }

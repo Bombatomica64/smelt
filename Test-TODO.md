@@ -14,6 +14,8 @@ For v1, Smelt should not try to transpile Vitest or pytest internals. The v1 goa
 | 2 | `Textualize/rich` | Real Python library with many plain pytest asserts. |
 | 3 | `remeda/remeda` | Large typed TS utility library with Vitest tests and less runtime-framework noise than Effect. |
 | 4 | `encode/httpx` | Typed Python library with real pytest tests and useful stdlib/protocol coverage. |
+| 5 | `strapi/strapi` | Koa-based real web server framework with large TypeScript server surface and heavy test corpus. |
+| 6 | `nestjs/nest` | Very popular Node server framework repo (Express/Fastify adapters) with broad TS coverage. |
 
 Deferred TS stress target:
 
@@ -28,6 +30,28 @@ Deferred TS stress target:
   - `cargo clippy`: passed, with non-fatal shadowing warnings in `smelt-mir` for
     `NumericToStringRadix` lowering.
 - External repo checks can be used as signal again.
+
+### External Probe: 2026-05-16 Web Server Targets
+
+Probe manifests:
+
+- `/tmp/Smelt.strapi.toml`
+- `/tmp/Smelt.strapi-core.toml`
+
+Probe commands:
+
+```bash
+cargo run -q -- build --manifest-path /tmp/Smelt.strapi.toml
+cargo run -q -- build --manifest-path /tmp/Smelt.strapi-core.toml
+```
+
+Results:
+
+| Repo | Manifest slice | `smelt build` | Current first blocker |
+|---|---|---:|---|
+| `strapi/strapi` | `examples/kitchensink-ts/src/index.ts` | pass | Green for this narrow entry. |
+| `strapi/strapi` | `packages/core/core/src/index.ts` | fail | `packages/core/core/src/configuration/urls.ts`: `Map.get requires exactly one key argument`; `string prefix/suffix methods require string receiver and argument`. |
+| `nestjs/nest` | n/a | blocked | Local subtree at `third_party/nest` is currently incorrect (contains this `smelt` repo tree), so probe is invalid until subtree is fixed. |
 
 ### External Probe: 2026-05-15 date-fns Full TS-Only Manifest
 

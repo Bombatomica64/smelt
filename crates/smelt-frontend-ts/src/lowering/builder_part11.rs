@@ -607,10 +607,7 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         if !call.arguments.is_empty() {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "string trim requires no arguments",
-            ));
+            return Ok(None);
         }
         let operand = self.expression(&member.object, body)?;
         let operand_ty = Self::expr_ty(body, operand);
@@ -648,14 +645,35 @@ impl ModuleBuilder<'_> {
                 "string prefix/suffix methods require exactly one argument",
             ));
         }
-        let haystack = self.expression(&member.object, body)?;
+        let mut haystack = self.expression(&member.object, body)?;
         let Some(needle_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "string prefix/suffix methods require exactly one argument",
             ));
         };
-        let needle = self.argument(needle_argument, body)?;
+        let mut needle = self.argument(needle_argument, body)?;
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let haystack_ty = Self::expr_ty(body, haystack);
+        if self.ctx.krate.types.get(haystack_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(haystack_ty)
+        {
+            haystack = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: haystack },
+                ty: string_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+        }
+        let needle_ty = Self::expr_ty(body, needle);
+        if self.ctx.krate.types.get(needle_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(needle_ty)
+        {
+            needle = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: needle },
+                ty: string_ty,
+                span: self.span(needle_argument.span().start, needle_argument.span().end),
+            });
+        }
         if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
         {

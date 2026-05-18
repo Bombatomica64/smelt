@@ -75,7 +75,7 @@ returned: int = adder(6)
     assert!(source.contains("(3)"));
     assert!(source.contains("apply(4,"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("adder(6)"));
+    assert!(source.contains("(adder.borrow_mut())(6)"));
     assert!(source.contains("move |"));
 }
 
@@ -113,7 +113,7 @@ result: int = adder(6)
 
     assert!(source.contains("move |"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("adder(6)"));
+    assert!(source.contains("(adder.borrow_mut())(6)"));
 }
 
 #[test]
