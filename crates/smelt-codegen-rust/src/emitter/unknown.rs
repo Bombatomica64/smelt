@@ -189,7 +189,10 @@ impl FunctionEmitter<'_> {
                     "if let SmeltUnknown::Object(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not object\") }}"
                 ))
             }
-            Some(Type::Never | Type::TypeParam { .. } | Type::Union(_)) => Ok(text.to_owned()),
+            Some(Type::TypeParam { .. }) => {
+                Ok(format!("IntoSmeltUnknown::into_smelt_unknown({text})"))
+            }
+            Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(
                 Type::List(_)
                 | Type::Set(_)

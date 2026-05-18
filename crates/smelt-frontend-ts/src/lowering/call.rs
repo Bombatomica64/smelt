@@ -119,6 +119,15 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.object_get_prototype_of_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.object_metadata_mutation_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.buffer_from_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.lodash_negate_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.object_get_own_property_symbols_call(call, body)? {
             return Ok(expr);
         }
@@ -231,6 +240,9 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.string_char_at_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.node_path_static_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.string_join_call(call, body)? {
@@ -439,6 +451,19 @@ impl ModuleBuilder<'_> {
             }));
         }
         if let Expression::Identifier(callee_ident) = &call.callee {
+            if matches!(
+                callee_ident.name.as_str(),
+                "Error"
+                    | "EvalError"
+                    | "RangeError"
+                    | "ReferenceError"
+                    | "SyntaxError"
+                    | "TypeError"
+                    | "URIError"
+                    | "AggregateError"
+            ) {
+                return self.error_function_call(call, body);
+            }
             if self.locals.contains_key(callee_ident.name.as_str()) {
                 let callee = self.identifier_expression(
                     callee_ident.name.as_str(),
@@ -446,9 +471,28 @@ impl ModuleBuilder<'_> {
                     callee_ident.span.end,
                     body,
                 )?;
+                let callee_ty = Self::expr_ty(body, callee);
+                let callable_ty = match self.ctx.krate.types.get(callee_ty) {
+                    Some(Type::Optional(inner)) => *inner,
+                    _ => callee_ty,
+                };
                 let Some(Type::Function(function)) =
-                    self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
+                    self.ctx.krate.types.get(callable_ty).cloned()
                 else {
+                    if matches!(
+                        self.ctx.krate.types.get(callee_ty),
+                        Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. })
+                    ) {
+                        for arg in &call.arguments {
+                            let _ = self.argument(arg, body)?;
+                        }
+                        let ty = self.ctx.krate.types.intern(Type::Unknown);
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::None),
+                            ty,
+                            span: self.span(call.span.start, call.span.end),
+                        }));
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(callee_ident.span.start, callee_ident.span.end),
                         format!(
@@ -1314,7 +1358,9 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee_ident) = &call.callee else {
             return Ok(None);
         };
-        if self.items.contains_key(callee_ident.name.as_str()) {
+        if self.items.contains_key(callee_ident.name.as_str())
+            && !self.locals.contains_key(callee_ident.name.as_str())
+        {
             return Ok(None);
         }
         let callee = self.identifier_expression(

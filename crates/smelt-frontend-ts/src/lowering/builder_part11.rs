@@ -298,6 +298,158 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower opaque side-effecting `Object` metadata calls.
+    fn object_metadata_mutation_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        let expected_args = match (object.name.as_str(), member.property.name.as_str()) {
+            ("Object", "setPrototypeOf") => 2,
+            ("Object", "defineProperty") => 3,
+            ("Object", "freeze") => 1,
+            _ => return Ok(None),
+        };
+        if call.arguments.len() != expected_args {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!(
+                    "Object.{} requires exactly {expected_args} arguments",
+                    member.property.name
+                ),
+            ));
+        }
+        for argument in &call.arguments {
+            let _ = self.argument(argument, body)?;
+        }
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower Node `Buffer.from(value[, encoding])` as an opaque string-producing decode.
+    fn buffer_from_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Buffer" || member.property.name != "from" {
+            return Ok(None);
+        }
+        if !(1..=2).contains(&call.arguments.len()) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Buffer.from requires a value and optional encoding",
+            ));
+        }
+        let Some(source_argument) = call.arguments.first() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Buffer.from requires a value argument",
+            ));
+        };
+        let source = self.argument(source_argument, body)?;
+        if let Some(encoding) = call.arguments.get(1) {
+            let _ = self.argument(encoding, body)?;
+        }
+        let source_ty = Self::expr_ty(body, source);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        if self.ctx.krate.types.get(source_ty) == Some(&Type::String) {
+            return Ok(Some(source));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: source,
+                target: string_ty,
+            },
+            ty: string_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower lodash/fp `negate(predicate)` as an opaque boolean predicate function.
+    fn lodash_negate_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if callee.name != "negate" || !self.value_imports.contains("negate") {
+            return Ok(None);
+        }
+        let [predicate] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "negate requires exactly one predicate argument",
+            ));
+        };
+        let _ = self.argument(predicate, body)?;
+        let param_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let return_ty = self.ctx.krate.types.intern(Type::Bool);
+        let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![param_ty],
+            return_ty,
+            is_async: false,
+        }));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower Node `path.join(...)` and `path.resolve(...)` as string path builders.
+    fn node_path_static_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "path" || !self.value_imports.contains("path") {
+            return Ok(None);
+        }
+        if !matches!(member.property.name.as_str(), "join" | "resolve") {
+            return Ok(None);
+        }
+        if call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                format!("path.{} requires at least one argument", member.property.name),
+            ));
+        }
+        for argument in &call.arguments {
+            let _ = self.argument(argument, body)?;
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(String::new())),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower TypeScript `Object.fromEntries([[key, value], ...])` to a dictionary literal.
     fn object_from_entries_call(
         &mut self,

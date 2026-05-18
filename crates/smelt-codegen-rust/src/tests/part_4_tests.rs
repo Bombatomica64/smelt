@@ -150,7 +150,7 @@ def run() -> int:
 "#,
     );
 
-    assert!(source.contains("|arg0: Vec<i64>| { (arg0[0].clone() + arg0[1].clone()) }"));
+    assert!(source.contains("|arg0: Vec<i64>| -> i64 { (arg0[0].clone() + arg0[1].clone()) }"));
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(source.contains("arg0.get(\"value\").cloned().unwrap_or(0)"));
     assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));

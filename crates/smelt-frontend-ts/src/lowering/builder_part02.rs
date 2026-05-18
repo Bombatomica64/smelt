@@ -219,7 +219,7 @@ impl ModuleBuilder<'_> {
                 inferred_return_ty.map(|inner| self.ctx.krate.types.intern(Type::Future(inner)))
             })
         } else {
-            declared_return_ty.or(inferred_return_ty)
+            self.arrow_const_return_type(declared_return_ty, inferred_return_ty)
         }
             .ok_or_else(|| {
                 self.pop_type_parameter_scope();
@@ -247,6 +247,41 @@ impl ModuleBuilder<'_> {
             self.function_rests.insert(name_text.to_owned(), rest);
         }
         Ok(item)
+    }
+
+    /// Pick the public return type for a lowered arrow-const function item.
+    fn arrow_const_return_type(
+        &mut self,
+        declared_return_ty: Option<smelt_hir::TypeId>,
+        inferred_return_ty: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        match (declared_return_ty, inferred_return_ty) {
+            (Some(declared), Some(inferred))
+                if matches!(self.ctx.krate.types.get(declared), Some(Type::Class { .. }))
+                    && matches!(self.ctx.krate.types.get(inferred), Some(Type::Function(_))) =>
+            {
+                Some(self.erase_opaque_callable_return(inferred))
+            }
+            (Some(declared), _) => Some(declared),
+            (None, inferred) => inferred,
+        }
+    }
+
+    /// Preserve callable parameters from an erased API surface while dropping precise return data.
+    fn erase_opaque_callable_return(&mut self, inferred: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(inferred).cloned() else {
+            return inferred;
+        };
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let return_ty = match self.ctx.krate.types.get(function.return_ty) {
+            Some(Type::Future(_)) => self.ctx.krate.types.intern(Type::Future(unknown_ty)),
+            _ => unknown_ty,
+        };
+        self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: function.params,
+            return_ty,
+            is_async: function.is_async,
+        }))
     }
 
     /// Create a stable internal symbol for a destructured parameter slot.

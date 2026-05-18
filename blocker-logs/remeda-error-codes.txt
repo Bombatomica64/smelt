@@ -1,8 +1,1 @@
-      2 error[E0618]
-      2 error[E0061]
-      2 error[E0057]
-      1 error[E0609]
-      1 error[E0606]
-      1 error[E0605]
-      1 error[E0271]
-      1 error[E0005]
+1440:1382 | fn conditional_implementation(data: SmeltUnknown, mut cases: Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>> {

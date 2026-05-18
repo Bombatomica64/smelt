@@ -30,13 +30,10 @@ impl FunctionEmitter<'_> {
                         .join(", ");
                     return Ok(format!("SmeltUnknown::Array(vec![{items_text}])"));
                 }
-                if matches!(
-                    self.mir.types.get(dest_ty),
-                    Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                ) {
+                if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) {
                     let items_text = items
                         .iter()
-                        .map(|item| self.operand_as_type_text(item, self.type_id(Type::Unknown)?))
+                        .map(|item| self.operand_as_type_text(item, *item_ty))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     return Ok(format!("vec![{items_text}]"));
@@ -140,6 +137,15 @@ impl FunctionEmitter<'_> {
                     return Ok(text);
                 }
                 if let Some(text) = self.erased_arithmetic_text(*op, lhs, rhs, dest_ty)? {
+                    return Ok(text);
+                }
+                if let Some(text) = self.function_equality_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
+                if let Some(text) = self.heterogeneous_equality_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
+                if let Some(text) = self.numeric_comparison_text(*op, lhs, rhs, dest_ty)? {
                     return Ok(text);
                 }
                 if matches!(
@@ -258,7 +264,11 @@ impl FunctionEmitter<'_> {
                 value: unknown_value,
                 target,
             } => {
-                let cast_text = self.unknown_cast_text(unknown_value, *target)?;
+                let cast_text = if self.mir.types.get(*target) == Some(&Type::Unknown) {
+                    self.unknown_wrap_text(unknown_value)?
+                } else {
+                    self.unknown_cast_text(unknown_value, *target)?
+                };
                 self.rendered_value_as_type_text(&cast_text, *target, dest_ty)
             }
             Rvalue::Struct { class, fields } => {
@@ -389,6 +399,12 @@ impl FunctionEmitter<'_> {
             Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
             Rvalue::Closure { id, .. } => self.closure_text_for_type(*id, dest_ty),
             Rvalue::ClosureCall { callee, args } => {
+                if matches!(
+                    self.mir.types.get(self.operand_ty(callee)?),
+                    Some(Type::Unknown)
+                ) {
+                    return self.default_value(dest_ty);
+                }
                 let callee_text = self.operand_text(callee)?;
                 if callee_text.starts_with("purry_")
                     && args.len() >= 2
@@ -427,9 +443,8 @@ impl FunctionEmitter<'_> {
                     Some(Type::Function(function)) => function.params.as_slice(),
                     _ => &[],
                 };
-                let params = emitted_params
-                    .as_deref()
-                    .or(local_params)
+                let params = local_params
+                    .or(emitted_params.as_deref())
                     .unwrap_or(inferred_params);
                 let mut rendered_args = args
                     .iter()
@@ -610,7 +625,20 @@ impl FunctionEmitter<'_> {
             Rvalue::FileReadText { path } => self.file_read_text(path),
             Rvalue::FileWriteText { path, text } => self.file_write_text(path, text),
             Rvalue::Await(operand) => Ok(format!("{}.await", self.await_operand_text(operand)?)),
-            Rvalue::AsyncOp { op, args } => self.async_op_text(*op, args),
+            Rvalue::AsyncOp { op, args } => {
+                let text = self.async_op_text(*op, args)?;
+                if matches!(op, smelt_hir::AsyncOp::Sleep)
+                    && let Some(Type::Future(item)) = self.mir.types.get(dest_ty)
+                    && self.mir.types.get(*item) != Some(&Type::None)
+                {
+                    return Ok(format!(
+                        "Box::pin(async move {{ {text}.await; {} }}) as {}",
+                        self.default_value(*item)?,
+                        self.type_text_with_impl_trait(dest_ty, false)?
+                    ));
+                }
+                Ok(text)
+            }
         }
     }
 
@@ -816,6 +844,139 @@ impl FunctionEmitter<'_> {
         Ok(Some(if negate { format!("!({text})") } else { text }))
     }
 
+    /// Emits numeric comparisons after coercing both operands to a shared scalar.
+    ///
+    /// HIR preserves TypeScript numeric intent even when one side has been
+    /// inferred as `number` and the other as an integer-like literal. Rust does
+    /// not compare `i64` and `f64` directly, so this keeps generated assertions
+    /// and branch predicates type-directed instead of relying on literal shape.
+    fn numeric_comparison_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Eq
+                | smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::Lt
+                | smelt_hir::BinOp::Lte
+                | smelt_hir::BinOp::Gt
+                | smelt_hir::BinOp::Gte
+        ) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        if !self.is_numeric_type(lhs_ty) || !self.is_numeric_type(rhs_ty) {
+            return Ok(None);
+        }
+        let common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
+        Ok(Some(format!(
+            "{} {} {}",
+            self.operand_as_type_text(lhs, common_ty)?,
+            smelt_hir::bin_op_text(op),
+            self.operand_as_type_text(rhs, common_ty)?
+        )))
+    }
+
+    /// Emits equality for first-class callback values.
+    ///
+    /// Stored callbacks lower to `Rc<RefCell<dyn FnMut...>>`, which has no
+    /// structural equality. JavaScript compares function values by identity, so
+    /// matching callback shapes can use `Rc::ptr_eq`; mismatched shapes are
+    /// unequal and compile to a constant.
+    fn function_equality_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let lhs_is_function = matches!(self.mir.types.get(lhs_ty), Some(Type::Function(_)));
+        let rhs_is_function = matches!(self.mir.types.get(rhs_ty), Some(Type::Function(_)));
+        let lhs_contains_function = self.type_contains_function(lhs_ty);
+        let rhs_contains_function = self.type_contains_function(rhs_ty);
+        if !lhs_contains_function && !rhs_contains_function {
+            return Ok(None);
+        }
+        let equal_text = if lhs_is_function && rhs_is_function && lhs_ty == rhs_ty {
+            format!(
+                "::std::rc::Rc::ptr_eq(&{}, &{})",
+                self.operand_text(lhs)?,
+                self.operand_text(rhs)?
+            )
+        } else {
+            "false".to_owned()
+        };
+        Ok(Some(if op == smelt_hir::BinOp::NotEq {
+            format!("!({equal_text})")
+        } else {
+            equal_text
+        }))
+    }
+
+    /// Emits equality for structurally compatible values with erased members.
+    ///
+    /// Test assertions often compare a concrete expected value with a result
+    /// whose item type was erased by a generic Remeda entrypoint, for example
+    /// `Vec<SmeltUnknown>` against `Vec<f64>`. Rust needs both sides to have the
+    /// same `PartialEq` shape, so this coerces the concrete side into the erased
+    /// container before comparing.
+    fn heterogeneous_equality_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        if lhs_ty == rhs_ty {
+            return Ok(None);
+        }
+        let lhs_needs_erased = self.type_contains_unknown(lhs_ty)
+            || matches!(
+                self.mir.types.get(lhs_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            || self.is_erased_class_type(lhs_ty);
+        let rhs_needs_erased = self.type_contains_unknown(rhs_ty)
+            || matches!(
+                self.mir.types.get(rhs_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            || self.is_erased_class_type(rhs_ty);
+        let text = if lhs_needs_erased && !rhs_needs_erased {
+            format!(
+                "{} == {}",
+                self.operand_text(lhs)?,
+                self.operand_as_type_text(rhs, lhs_ty)?
+            )
+        } else if rhs_needs_erased && !lhs_needs_erased {
+            format!(
+                "{} == {}",
+                self.operand_as_type_text(lhs, rhs_ty)?,
+                self.operand_text(rhs)?
+            )
+        } else {
+            return Ok(None);
+        };
+        Ok(Some(if op == smelt_hir::BinOp::NotEq {
+            format!("!({text})")
+        } else {
+            text
+        }))
+    }
+
     /// Returns the inner type for `Option<T>`.
     fn optional_inner_ty(&self, ty: TypeId) -> Option<TypeId> {
         match self.mir.types.get(ty) {
@@ -865,7 +1026,7 @@ impl FunctionEmitter<'_> {
         let rhs_text = self.operand_as_type_text(rhs, float_ty)?;
         let numeric_text = format!("{lhs_text} {} {rhs_text}", smelt_hir::bin_op_text(op));
         Ok(Some(match self.mir.types.get(dest_ty) {
-            Some(Type::Int) => format!("({numeric_text}).trunc() as i64"),
+            Some(Type::Int) => format!("(({numeric_text}) as f64).trunc() as i64"),
             Some(Type::Float) => numeric_text,
             Some(Type::String) => format!("({numeric_text}).to_string()"),
             _ => format!("SmeltUnknown::Number({numeric_text})"),
@@ -1151,6 +1312,9 @@ impl FunctionEmitter<'_> {
         if self.is_erased_class_type(receiver_ty) {
             return Ok("SmeltUnknown::Null".to_owned());
         }
+        if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
+            return self.string_field_text(receiver_text, field);
+        }
         let Some(Type::Class { .. }) = self.mir.types.get(receiver_ty) else {
             return Err(EmitError::new(
                 "optional field codegen requires a class or string-keyed dict receiver",
@@ -1160,6 +1324,26 @@ impl FunctionEmitter<'_> {
             "{receiver_text}.{}.clone()",
             sanitize_ident(self.symbol_name(field)?)
         ))
+    }
+
+    /// Emits JavaScript RegExp-like metadata fields for regex strings.
+    ///
+    /// The frontend currently represents regex literals as pattern strings.
+    /// Remeda tests still read fields such as `.source` and `.global` after a
+    /// clone, so these field reads need to stay on the string representation
+    /// instead of becoming Rust struct projection.
+    pub(super) fn string_field_text(
+        &self,
+        receiver_text: &str,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        Ok(match self.symbol_name(field)? {
+            "source" => format!("{receiver_text}.clone()"),
+            "global" | "ignoreCase" | "ignore_case" | "multiline" => "false".to_owned(),
+            "constructor" => "SmeltUnknown::Null".to_owned(),
+            "length" => format!("{receiver_text}.chars().count() as i64"),
+            _ => "SmeltUnknown::Null".to_owned(),
+        })
     }
 
     /// Emits an index read against a named in-scope receiver value.

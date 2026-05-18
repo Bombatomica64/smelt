@@ -212,6 +212,65 @@ describe("quartersToMonths", () => {
 }
 
 #[test]
+fn build_discovers_typescript_tests_from_glob() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/math"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-test-glob"
+version = "0.1.0"
+
+[sources]
+roots = ["src"]
+entries = ["src/math/index.ts"]
+test-prefix = ["**/*.test.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_test_glob"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/math/index.ts"),
+        "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/math/add.test.ts"),
+        r#"
+import { describe, expect, test } from "vitest";
+import { add } from "./index.ts";
+
+describe("add", () => {
+  test("adds numbers", () => {
+    expect(add(2, 5)).toBe(7);
+  });
+});
+"#,
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let test_stdout = cargo_test_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure(
+        test_stdout.contains("running 1 test") && test_stdout.contains("1 passed"),
+        "glob-discovered test did not run",
+    )?;
+    ensure(
+        test_stdout.contains("test result: ok"),
+        "generated tests did not pass",
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn build_runs_typescript_folded_const_expression_import() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

@@ -59,6 +59,7 @@ impl ModuleBuilder<'_> {
                         .unwrap_or("<unknown>");
                     if parent_name_text == "ContextOptions"
                         || parent_name_text.starts_with("Intl.")
+                        || parent_name_text.contains('.')
                         || self.type_only_imports.contains(parent_name_text)
                     {
                         continue;
@@ -892,6 +893,9 @@ impl ModuleBuilder<'_> {
         let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left else {
             return Ok(false);
         };
+        if assign.operator != AssignmentOperator::Assign {
+            return Ok(false);
+        }
         if !self.module_globals.contains_key(target.name.as_str()) {
             return Ok(false);
         }

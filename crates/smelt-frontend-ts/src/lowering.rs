@@ -271,6 +271,8 @@ struct ModuleBuilder<'ctx> {
     items: HashMap<String, smelt_hir::ItemId>,
     /// Class definitions by name.
     classes: HashMap<String, smelt_hir::ItemId>,
+    /// Class names declared later in the current module.
+    pending_class_names: HashSet<String>,
     /// Interface definitions by name.
     interfaces: HashMap<String, smelt_hir::ItemId>,
     /// Fields for each class.

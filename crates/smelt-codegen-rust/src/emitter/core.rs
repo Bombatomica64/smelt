@@ -535,6 +535,15 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(self.context.function_param_types.get(rust_name).cloned())
     }
 
+    /// Return whether an emitted Rust function has a `Result` return ABI.
+    pub(super) fn emitted_function_can_throw(&self, rust_name: &str) -> bool {
+        self.context
+            .function_can_throw
+            .get(rust_name)
+            .copied()
+            .unwrap_or(false)
+    }
+
     /// Return the emitted Rust name for a callback function symbol.
     pub(super) fn callback_function_rust_name(
         &self,
@@ -656,7 +665,12 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
             Operand::Copy(place) => {
-                if self.type_contains_function(self.place_ty(place)?) {
+                if self.type_contains_function(self.place_ty(place)?)
+                    || matches!(
+                        self.mir.types.get(self.place_ty(place)?),
+                        Some(Type::Future(_))
+                    )
+                {
                     self.place_text(place)
                 } else {
                     Ok(format!("{}.clone()", self.place_text(place)?))
@@ -724,7 +738,10 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
         {
-            return Ok(format!("({}.trunc() as i64)", self.operand_text(operand)?));
+            return Ok(format!(
+                "(({} as f64).trunc() as i64)",
+                self.operand_text(operand)?
+            ));
         }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
@@ -1059,6 +1076,15 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             return Ok(format!("{value_text}.clone()"));
         }
+        if let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let awaited =
+                self.rendered_value_as_type_text("smelt_future_value", *source_item, *target_item)?;
+            return Ok(format!(
+                "Box::pin(async move {{ let smelt_future_value = {value_text}.await; {awaited} }})"
+            ));
+        }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
             (self.mir.types.get(source), self.mir.types.get(target))
             && source_items.len() == target_items.len()
@@ -1109,7 +1135,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(source) == Some(&Type::Float)
         {
-            return Ok(format!("({value_text}.trunc() as i64)"));
+            return Ok(format!("(({value_text} as f64).trunc() as i64)"));
         }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::String)
@@ -1180,13 +1206,17 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Dict(source_key, source_value)),
             Some(Type::Dict(target_key, target_value)),
         ) = (self.mir.types.get(source), self.mir.types.get(target))
-            && self.mir.types.get(*target_key) == Some(&Type::String)
-            && source_key != target_key
-            && source_value == target_value
+            && (source_key != target_key || source_value != target_value)
         {
-            let key_text = self.property_key_to_string_text("key", *source_key)?;
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                self.property_key_to_string_text("key", *source_key)?
+            } else {
+                self.rendered_value_as_type_text("key", *source_key, *target_key)?
+            };
+            let mapped_value_text =
+                self.rendered_value_as_type_text("value", *source_value, *target_value)?;
             return Ok(format!(
-                "{value_text}.into_iter().map(|(key, value)| ({key_text}, value)).collect::<::std::collections::HashMap<_, _>>()"
+                "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<::std::collections::HashMap<_, _>>()"
             ));
         }
         Ok(value_text.to_owned())
@@ -1258,6 +1288,15 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let return_text =
             self.rendered_value_as_type_text(&call, source.return_ty, target_function.return_ty)?;
+        let return_text = if return_text == "Default::default()"
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) {
+            "SmeltUnknown::Null".to_owned()
+        } else {
+            return_text
+        };
         let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
         Ok(Some(if borrowed {
             format!("&mut {closure}")
@@ -1346,6 +1385,15 @@ impl<'mir> FunctionEmitter<'mir> {
             source.return_ty,
             target_function.return_ty,
         )?;
+        let return_text = if return_text == "Default::default()"
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) {
+            "SmeltUnknown::Null".to_owned()
+        } else {
+            return_text
+        };
         let closure = if let Some(prelude) = callback_prelude {
             format!(
                 "{{ {prelude} move |{}| {return_text} }}",
@@ -1429,6 +1477,31 @@ impl<'mir> FunctionEmitter<'mir> {
                 | Type::Unknown
                 | Type::Never
                 | Type::TypeParam { .. }
+                | Type::Class { .. },
+            )
+            | None => false,
+        }
+    }
+
+    /// Returns whether a type contains an erased `SmeltUnknown` value.
+    pub(super) fn type_contains_unknown(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
+            Some(
+                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+            ) => self.type_contains_unknown(*item),
+            Some(Type::Dict(key, value)) => {
+                self.type_contains_unknown(*key) || self.type_contains_unknown(*value)
+            }
+            Some(Type::Tuple(items)) => items.iter().any(|item| self.type_contains_unknown(*item)),
+            Some(
+                Type::None
+                | Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Never
+                | Type::Function(_)
                 | Type::Class { .. },
             )
             | None => false,

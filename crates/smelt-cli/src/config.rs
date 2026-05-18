@@ -51,6 +51,18 @@ impl Config {
         &self.sources.entries
     }
 
+    /// Get optional source root directories used for import and test discovery.
+    #[must_use]
+    pub fn source_roots(&self) -> Option<&[PathBuf]> {
+        self.sources.roots.as_deref()
+    }
+
+    /// Get test file glob patterns discovered under source roots.
+    #[must_use]
+    pub fn test_globs(&self) -> &[String] {
+        self.sources.test_globs.as_deref().unwrap_or(&[])
+    }
+
     /// Get the output target directory path.
     #[must_use]
     pub fn output_target(&self) -> &PathBuf {
@@ -72,15 +84,14 @@ impl Config {
 
 /// Source file configuration from the [sources] section.
 #[derive(Deserialize, Debug, JsonSchema)]
-#[expect(
-    dead_code,
-    reason = "configuration schema includes fields not consumed yet"
-)]
 pub struct Source {
     /// List of source file paths.
     entries: Vec<PathBuf>,
     /// Optional list of root directories.
     roots: Option<Vec<PathBuf>>,
+    /// Optional glob patterns used to discover test source files under roots.
+    #[serde(rename = "test-globs", alias = "test-prefix")]
+    test_globs: Option<Vec<String>>,
 }
 
 /// Output configuration from the [output] section.

@@ -44,6 +44,9 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }
+                if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+                    return self.string_field_text(self.local_name(*base)?, *field);
+                }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
                 {

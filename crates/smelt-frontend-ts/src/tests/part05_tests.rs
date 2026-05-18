@@ -162,6 +162,28 @@ const value = mapping.get("a");
 }
 
 #[test]
+fn lowers_untyped_map_has_with_string_key() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class Container {
+  private serviceMap = new Map();
+
+  get(name: string) {
+    if (this.serviceMap.has(name)) {
+      return this.serviceMap.get(name);
+    }
+    this.serviceMap.set(name, {});
+    return this.serviceMap.get(name);
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
 fn lowers_map_mutation_methods() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -411,7 +433,7 @@ for (const [key, value] of pairs) {
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
+            .any(|expr| matches!(expr.kind, ExprKind::TupleIndex { .. })),
         "expected destructured for-of binding to lower tuple indexes",
     );
     ensure!(

@@ -55,6 +55,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(literal.span.start, literal.span.end),
                 }))
             }
+            PropertyKey::StaticMemberExpression(member) => self.static_member(member, body),
             PropertyKey::ComputedMemberExpression(member) => self.computed_member(member, body),
             PropertyKey::TSAsExpression(assertion) => self.expression(&assertion.expression, body),
             PropertyKey::TSSatisfiesExpression(assertion) => {
@@ -100,13 +101,14 @@ impl ModuleBuilder<'_> {
     ) -> Result<(smelt_hir::Symbol, Vec<smelt_hir::TypeId>), SmeltError> {
         let name_text = match &item.expression {
             Expression::Identifier(name) => name.name.to_string(),
-            Expression::StaticMemberExpression(member)
-                if matches!(
-                    &member.object,
-                    Expression::Identifier(object) if object.name == "Intl"
-                ) =>
-            {
-                format!("Intl.{}", member.property.name)
+            Expression::StaticMemberExpression(member) => {
+                let Expression::Identifier(object) = &member.object else {
+                    return Err(SmeltError::unsupported(
+                        self.span(item.span.start, item.span.end),
+                        "qualified interface inheritance is not lowered yet",
+                    ));
+                };
+                format!("{}.{}", object.name, member.property.name)
             }
             _ => {
                 return Err(SmeltError::unsupported(

@@ -50,6 +50,8 @@ pub(crate) struct EmitContext {
     function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
+    /// Whether an emitted Rust function can throw and therefore returns `Result`.
+    function_can_throw: HashMap<String, bool>,
     /// First emitted Rust name keyed by source callback symbol.
     callback_names: HashMap<Symbol, String>,
     /// Function parameters that must use an owned callback handle.
@@ -83,6 +85,7 @@ impl EmitContext {
 
         let mut function_names = HashMap::new();
         let mut function_param_types = HashMap::new();
+        let mut function_can_throw = HashMap::new();
         let mut callback_names = HashMap::new();
         for function in &mir.functions {
             let source_name = mir
@@ -117,6 +120,7 @@ impl EmitContext {
                 .entry(function.name)
                 .or_insert_with(|| rust_name.clone());
             function_param_types.insert(rust_name.clone(), params);
+            function_can_throw.insert(rust_name.clone(), function.can_throw);
             function_names.insert(function.id, rust_name);
         }
         let owned_callback_params = compute_owned_callback_params(mir)?;
@@ -125,6 +129,7 @@ impl EmitContext {
             none_ty,
             function_names,
             function_param_types,
+            function_can_throw,
             callback_names,
             owned_callback_params,
         })

@@ -44,9 +44,10 @@ impl ModuleBuilder<'_> {
         };
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let index_ty = self.ctx.krate.types.intern(Type::Float);
-        let callback = self.callback_argument(
+        let callback = self.callback_argument_with_body_fallback(
             mapper_arg,
             &[unknown_ty, index_ty],
+            index_ty,
             "Array.from mapper",
             body,
         )?;
@@ -1757,10 +1758,12 @@ impl ModuleBuilder<'_> {
             };
             let [Statement::ReturnStatement(statement)] = function_body.statements.as_slice()
             else {
-                return Err(SmeltError::unsupported(
-                    self.span(function_body.span.start, function_body.span.end),
-                    "object getter functions must contain one return statement",
-                ));
+                let ty = type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(function.span.start, function.span.end),
+                }));
             };
             let Some(argument) = &statement.argument else {
                 return Err(SmeltError::unsupported(
@@ -1818,6 +1821,7 @@ impl ModuleBuilder<'_> {
             self.span(function_body.span.start, function_body.span.end),
         );
         let mut params = Vec::new();
+        let mut param_names = HashSet::new();
         let mut errors = Vec::new();
         for (index, param) in function.params.items.iter().enumerate() {
             let result = (|| {
@@ -1848,6 +1852,7 @@ impl ModuleBuilder<'_> {
                 });
                 body.params.push(local);
                 self.locals.insert(binding.name.to_string(), local);
+                param_names.insert(binding.name.to_string());
                 params.push(Param {
                     name: param_name,
                     local,
@@ -1866,6 +1871,46 @@ impl ModuleBuilder<'_> {
                 self.span(function.span.start, function.span.end),
                 "function expression rest parameters are not lowered in object values yet",
             ));
+        }
+        let mut captures = Vec::new();
+        if errors.is_empty() {
+            let mut capture_names = Vec::new();
+            let function_locals = self.locals.clone();
+            self.locals = saved_locals.clone();
+            for statement in &function_body.statements {
+                self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
+            }
+            self.locals = function_locals;
+            capture_names.sort();
+            capture_names.dedup();
+            for name in capture_names {
+                let Some(source_local) = saved_locals.get(name.as_str()).copied() else {
+                    continue;
+                };
+                let Some(source_decl) = usize::try_from(source_local.0)
+                    .ok()
+                    .and_then(|index| outer_body.locals.get(index))
+                else {
+                    continue;
+                };
+                let symbol = source_decl
+                    .name
+                    .unwrap_or_else(|| self.ctx.krate.symbols.intern(name.as_str()));
+                let body_local = body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty: source_decl.ty,
+                    mutable: source_decl.mutable,
+                    span: source_decl.span,
+                });
+                self.locals.insert(name, body_local);
+                captures.push(ClosureCapture {
+                    source_local,
+                    body_local: Some(body_local),
+                    symbol,
+                    ty: source_decl.ty,
+                    mode: CaptureMode::ByRef,
+                });
+            }
         }
         for statement in &function_body.statements {
             if let Err(error) = self.statement(statement, &mut body) {
@@ -1897,7 +1942,7 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
                 return_ty,
-                captures: Vec::new(),
+                captures,
                 body: body_id,
                 callback_body: None,
                 span: self.span(function.span.start, function.span.end),
@@ -1914,50 +1959,18 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         if object_property.computed {
-            return match &object_property.key {
-                PropertyKey::Identifier(identifier) => self.identifier_expression(
-                    identifier.name.as_str(),
-                    identifier.span.start,
-                    identifier.span.end,
-                    body,
-                ),
-                PropertyKey::StringLiteral(literal) => {
-                    let ty = self.ctx.krate.types.intern(Type::String);
-                    Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::String(literal.value.to_string())),
-                        ty,
-                        span: self.span(literal.span.start, literal.span.end),
-                    }))
-                }
-                PropertyKey::NumericLiteral(literal) => {
-                    let ty = self.ctx.krate.types.intern(Type::Float);
-                    Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::Float(literal.value)),
-                        ty,
-                        span: self.span(literal.span.start, literal.span.end),
-                    }))
-                }
-                _ => {
-                    if let Some(key_text) = self.computed_string_literal_key(object_property) {
-                        let ty = self.ctx.krate.types.intern(Type::String);
-                        return Ok(body.push_expr(Expr {
-                            kind: ExprKind::Literal(Literal::String(key_text)),
-                            ty,
-                            span: self.span(
-                                object_property.key.span().start,
-                                object_property.key.span().end,
-                            ),
-                        }));
-                    }
-                    Err(SmeltError::unsupported(
-                        self.span(
-                            object_property.key.span().start,
-                            object_property.key.span().end,
-                        ),
-                        "computed object keys support identifiers and literal keys for now",
-                    ))
-                }
-            };
+            if let Some(key_text) = self.computed_string_literal_key(object_property) {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(key_text)),
+                    ty,
+                    span: self.span(
+                        object_property.key.span().start,
+                        object_property.key.span().end,
+                    ),
+                }));
+            }
+            return self.property_key_index_expression(&object_property.key, body);
         }
 
         let key_text = match &object_property.key {

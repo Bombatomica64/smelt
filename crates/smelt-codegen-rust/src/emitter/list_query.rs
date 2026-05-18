@@ -47,6 +47,15 @@ impl FunctionEmitter<'_> {
         let element_ty = *list_element_ty;
         let list_text = self.operand_text(list)?;
         let callback_text = self.callback_expr_text(callback_body, &["item", "index", "array"])?;
+        let callback_text = if callback_text == "Default::default()"
+            && matches!(
+                self.mir.types.get(callback_body.ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) {
+            "SmeltUnknown::Null".to_owned()
+        } else {
+            callback_text
+        };
         let callback_is_static_default =
             matches!(callback_text.as_str(), "None" | "Default::default()" | "()");
         let callback_uses_item =
@@ -56,11 +65,21 @@ impl FunctionEmitter<'_> {
         let function_element = matches!(self.mir.types.get(element_ty), Some(Type::Function(_)));
         let callback_uses_array =
             !callback_is_static_default && callback_uses_param(&self.mir.types, callback_body, 2);
+        let index_value_text = if self.mir.types.get(callback_body.ty) == Some(&Type::Int) {
+            "index as i64"
+        } else {
+            "index as f64"
+        };
+        let ref_index_value_text = if self.mir.types.get(callback_body.ty) == Some(&Type::Int) {
+            "*index as i64"
+        } else {
+            "*index as f64"
+        };
         let function_item_closure = || {
             let index_binding = if callback_uses_index {
-                "let index = index as f64; "
+                format!("let index = {index_value_text}; ")
             } else {
-                ""
+                String::new()
             };
             let array_binding = if callback_uses_array {
                 format!("let array = {list_text}.clone(); ")
@@ -80,14 +99,14 @@ impl FunctionEmitter<'_> {
             ""
         };
         let index_binding = if callback_uses_index {
-            "let index = index as f64; "
+            format!("let index = {index_value_text}; ")
         } else {
-            ""
+            String::new()
         };
         let ref_index_binding = if callback_uses_index {
-            "let index = *index as f64; "
+            format!("let index = {ref_index_value_text}; ")
         } else {
-            ""
+            String::new()
         };
         let array_binding = if callback_uses_array {
             format!("let array = {list_text}.clone(); ")
@@ -485,7 +504,11 @@ impl FunctionEmitter<'_> {
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?;
             param_decls.extend((0..extra_params).map(|index| format!("_arg{index}: SmeltUnknown")));
-            format!("|{}| {{ {body} }}", param_decls.join(", "))
+            format!(
+                "|{}| -> {} {{ {body} }}",
+                param_decls.join(", "),
+                self.type_text_with_impl_trait(return_ty, false)?
+            )
         } else {
             let mut closure_locals = closure.locals.clone();
             let fallback_span = closure_locals.first().map_or(
@@ -693,7 +716,7 @@ impl FunctionEmitter<'_> {
                 let name = self.local_name(*dest)?;
                 out.push_str(&format!(
                     "    let {name}: {} = {call_text};\n",
-                    self.type_text(local.ty)?
+                    self.type_text_with_impl_trait(local.ty, false)?
                 ));
                 self.mark_local_declared(*dest);
                 self.emit_closure_block_inner(self.block(*target)?, out, active, stop)
@@ -859,7 +882,19 @@ impl FunctionEmitter<'_> {
                 .map(|param| (*param).to_owned())
                 .ok_or_else(|| EmitError::new("callback parameter index is out of bounds")),
             smelt_hir::CallbackExprKind::Capture(local) => {
-                self.local_name(LocalId(local.0)).map(str::to_owned)
+                let local_id = LocalId(local.0);
+                let local_ty = self.local_decl(local_id).ok().map(|decl| decl.ty);
+                self.local_name(LocalId(local.0)).map(|name| {
+                    if self.is_borrowed_callback_capture_name(name)
+                        || local_ty.is_some_and(|ty| {
+                            matches!(self.mir.types.get(ty), Some(Type::Future(_)))
+                        })
+                    {
+                        name.to_owned()
+                    } else {
+                        format!("{name}.clone()")
+                    }
+                })
             }
             smelt_hir::CallbackExprKind::Function(function) => {
                 self.callback_function_rust_name(*function)
@@ -976,15 +1011,18 @@ impl FunctionEmitter<'_> {
             smelt_hir::CallbackExprKind::Field { receiver, field } => {
                 let receiver_text = self.callback_expr_text(receiver, params)?;
                 let field_text = self.symbol_name(*field)?;
+                if field_text == "call" {
+                    return Ok("Default::default()".to_owned());
+                }
                 match self.mir.types.get(receiver.ty) {
+                    Some(Type::String) => self.string_field_text(&receiver_text, *field),
                     Some(Type::Dict(_, value_ty)) => Ok(format!(
                         "{receiver_text}.get({field_text:?}).cloned().unwrap_or({})",
                         self.default_value(*value_ty)?
                     )),
-                    Some(Type::Class { .. }) => Ok(format!(
-                        "{receiver_text}.{}.clone()",
-                        sanitize_ident(field_text)
-                    )),
+                    Some(Type::Class { .. }) if !self.is_erased_class_type(receiver.ty) => Ok(
+                        format!("{receiver_text}.{}.clone()", sanitize_ident(field_text)),
+                    ),
                     _ => Ok("Default::default()".to_owned()),
                 }
             }
@@ -1087,6 +1125,40 @@ impl FunctionEmitter<'_> {
                 }
                 let lhs_text = self.callback_expr_text(lhs, params)?;
                 let rhs_text = self.callback_expr_text(rhs, params)?;
+                if matches!(
+                    op,
+                    smelt_hir::BinOp::Eq
+                        | smelt_hir::BinOp::NotEq
+                        | smelt_hir::BinOp::Lt
+                        | smelt_hir::BinOp::Lte
+                        | smelt_hir::BinOp::Gt
+                        | smelt_hir::BinOp::Gte
+                ) {
+                    let lhs_erased = matches!(
+                        self.mir.types.get(lhs.ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(lhs.ty);
+                    let rhs_erased = matches!(
+                        self.mir.types.get(rhs.ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(rhs.ty);
+                    if lhs_erased && !rhs_erased {
+                        let lhs_value =
+                            self.rendered_value_as_type_text(&lhs_text, lhs.ty, rhs.ty)?;
+                        return Ok(format!(
+                            "({lhs_value} {} {rhs_text})",
+                            smelt_hir::bin_op_text(*op)
+                        ));
+                    }
+                    if rhs_erased && !lhs_erased {
+                        let rhs_value =
+                            self.rendered_value_as_type_text(&rhs_text, rhs.ty, lhs.ty)?;
+                        return Ok(format!(
+                            "({lhs_text} {} {rhs_value})",
+                            smelt_hir::bin_op_text(*op)
+                        ));
+                    }
+                }
                 if matches!(
                     op,
                     smelt_hir::BinOp::Add
@@ -1227,7 +1299,11 @@ impl FunctionEmitter<'_> {
                 {
                     return self.callback_function_table_call_text(key, cases, args, params);
                 }
-                let callee_text = self.callback_expr_text(callee, params)?;
+                let callee_text = if let smelt_hir::CallbackExprKind::Capture(local) = callee.kind {
+                    self.local_name(LocalId(local.0))?.to_owned()
+                } else {
+                    self.callback_expr_text(callee, params)?
+                };
                 let actual_callee_ty =
                     if let smelt_hir::CallbackExprKind::Capture(local) = callee.kind {
                         self.local_decl(LocalId(local.0)).ok().map(|decl| decl.ty)
@@ -1309,7 +1385,12 @@ impl FunctionEmitter<'_> {
                 }
                 let call_text = match &callee.kind {
                     smelt_hir::CallbackExprKind::Function(_) => {
-                        format!("{callee_text}({args_text})")
+                        let suffix = if self.emitted_function_can_throw(&callee_text) {
+                            ".expect(\"throwing call failed inside non-throwing closure\")"
+                        } else {
+                            ""
+                        };
+                        format!("{callee_text}({args_text}){suffix}")
                     }
                     smelt_hir::CallbackExprKind::Capture(_)
                         if self.is_function_parameter_name(&callee_text)?
@@ -1336,7 +1417,14 @@ impl FunctionEmitter<'_> {
                     .map(|arg| self.callback_expr_text(&arg.expr, params))
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                if method_text == "toString" {
+                if method_text == "call"
+                    && (matches!(
+                        self.mir.types.get(receiver.ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(receiver.ty))
+                {
+                    self.default_value(expr.ty)
+                } else if method_text == "toString" {
                     if matches!(
                         self.mir.types.get(receiver.ty),
                         Some(Type::Optional(inner))
@@ -1413,6 +1501,16 @@ impl FunctionEmitter<'_> {
                     } else {
                         Ok(format!("{receiver_text}.contains(&{item_text})"))
                     }
+                } else if method_text == "push"
+                    && args.len() == 1
+                    && let Some(Type::List(item_ty)) = self.mir.types.get(receiver.ty)
+                {
+                    let item = args.first().ok_or_else(|| {
+                        EmitError::new("callback Array.push call requires one item argument")
+                    })?;
+                    let item_text =
+                        self.callback_expr_as_type_text(&item.expr, *item_ty, params)?;
+                    Ok(format!("{receiver_text}.push({item_text})"))
                 } else if method_text == "slice"
                     && matches!(self.mir.types.get(receiver.ty), Some(Type::Unknown))
                     && (args.len() == 1 || args.len() == 2)

@@ -78,6 +78,26 @@ impl ModuleBuilder<'_> {
             return self.url_constructor_expression(new_expr, body);
         }
         let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
+            if self.pending_class_names.contains(callee.name.as_str()) {
+                let class_name = self.intern_type_name(callee.name.as_str());
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: Vec::new(),
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: class_name,
+                        args,
+                    },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
+            }
             if self.value_imports.contains(callee.name.as_str()) {
                 let class_name = self.intern_type_name(callee.name.as_str());
                 let args = new_expr
@@ -317,6 +337,46 @@ impl ModuleBuilder<'_> {
         Err(SmeltError::unsupported(
             self.span(message_arg.span().start, message_arg.span().end),
             "Error constructor message must be a string",
+        ))
+    }
+
+    /// Lower `Error(message)`-style calls to the message value used by HIR throws.
+    fn error_function_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if call.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Error function lowering supports at most one message argument",
+            ));
+        }
+        let Some(message_arg) = call.arguments.first() else {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("Error".to_owned())),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        };
+        let message = self.argument(message_arg, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, message)) == Some(&Type::String) {
+            return Ok(message);
+        }
+        if self.is_string_compatible_type(Self::expr_ty(body, message))
+            || self.type_contains_unknown(Self::expr_ty(body, message))
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: message },
+                ty,
+                span: self.span(message_arg.span().start, message_arg.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(message_arg.span().start, message_arg.span().end),
+            "Error function message must be a string",
         ))
     }
 

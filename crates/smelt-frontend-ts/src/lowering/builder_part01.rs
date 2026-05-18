@@ -20,6 +20,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             module_globals: HashMap::new(),
             items,
             classes,
+            pending_class_names: HashSet::new(),
             interfaces,
             class_fields: HashMap::new(),
             class_methods: HashMap::new(),
@@ -157,6 +158,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.shadow_cross_module_overloads(&implemented_functions);
         self.predeclare_type_alias_items(program);
         self.collect_module_globals(program);
+        self.pending_class_names = Self::program_class_names(program);
         self.collect_overload_signatures(program, &implemented_functions);
         self.collect_forward_function_types(program, &implemented_functions);
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
@@ -327,6 +329,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
         Ok(self.ctx.krate.push_module(module))
     }
 
+    /// Collect class names declared in the current module before lowering eager arrow bodies.
+    fn program_class_names(program: &Program<'_>) -> HashSet<String> {
+        program
+            .body
+            .iter()
+            .filter_map(|statement| {
+                let Statement::ClassDeclaration(class) = statement else {
+                    return None;
+                };
+                class.id.as_ref().map(|id| id.name.to_string())
+            })
+            .collect()
+    }
+
     /// Drop imported overloads shadowed by implementations in the current module.
     ///
     /// Overload signatures are valid only for their concrete implementation.
@@ -368,14 +384,20 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.const_objects
                     .insert(binding.name.as_str().to_owned(), value);
             }
-            if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+            if matches!(
+                decl.kind,
+                oxc::ast::ast::VariableDeclarationKind::Const
+                    | oxc::ast::ast::VariableDeclarationKind::Let
+            )
                 && let Some(init) = &declarator.init
                 && let Ok(value) = self.literal_const_expression(init)
             {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), value.ty);
-                self.const_literals
-                    .insert(binding.name.as_str().to_owned(), value);
+                if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
+                    self.const_literals
+                        .insert(binding.name.as_str().to_owned(), value);
+                }
             }
             let Some(annotation) = &declarator.type_annotation else {
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -389,6 +411,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     && let Some(init) = &declarator.init
                     && (Self::is_module_global_array_initializer(init)
                         || Self::object_const_initializer(init).is_some())
+                {
+                    let ty = self.infer_module_global_initializer_type(init).unwrap_or_else(|_| {
+                        self.ctx.krate.types.intern(Type::Unknown)
+                    });
+                    self.module_globals
+                        .insert(binding.name.as_str().to_owned(), ty);
+                }
+                if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                    && let Some(init) = &declarator.init
+                    && !matches!(init, Expression::ArrowFunctionExpression(_))
                 {
                     let ty = self.infer_module_global_initializer_type(init).unwrap_or_else(|_| {
                         self.ctx.krate.types.intern(Type::Unknown)
@@ -1112,6 +1144,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
+            if let Some(identifier) = Self::imported_value_identifier(init)
+                && self.value_imports.contains(identifier.name.as_str())
+            {
+                let span = self.span(binding.span.start, binding.span.end);
+                let mut body = Body::new(None, span);
+                let expr = self.expression(init, &mut body)?;
+                let ty = Self::expr_ty(&body, expr);
+                let body_id = self.ctx.krate.push_body(body);
+                let name_text = binding.name.as_str();
+                let name = self.intern_source_name(name_text);
+                let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+                    name,
+                    ty,
+                    value: expr,
+                    body: body_id,
+                    span,
+                }));
+                self.items.insert(name_text.to_owned(), item);
+                self.ctx.export_aliases.insert(name_text.to_owned(), item);
+                self.module_globals.insert(name_text.to_owned(), ty);
+                items.push(item);
+                continue;
+            }
             if matches!(init, Expression::CallExpression(_))
                 && self.literal_const_expression(init).is_err()
             {
@@ -1166,6 +1221,28 @@ impl<'ctx> ModuleBuilder<'ctx> {
             items.push(item);
         }
         Ok(items)
+    }
+
+    /// Return the identifier behind a top-level const initializer that aliases an imported value.
+    fn imported_value_identifier<'a>(
+        expression: &'a Expression<'a>,
+    ) -> Option<&'a oxc::ast::ast::IdentifierReference<'a>> {
+        match expression {
+            Expression::Identifier(identifier) => Some(identifier),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::imported_value_identifier(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => {
+                Self::imported_value_identifier(&as_expr.expression)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                Self::imported_value_identifier(&satisfies.expression)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                Self::imported_value_identifier(&non_null.expression)
+            }
+            _ => None,
+        }
     }
 
     /// Lower top-level local arrow `const` declarations into private callable items.

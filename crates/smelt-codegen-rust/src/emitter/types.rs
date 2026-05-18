@@ -51,7 +51,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
             }
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Float) => {
-                Ok(format!("{operand_text}.trunc() as i64"))
+                Ok(format!("({operand_text} as f64).trunc() as i64"))
             }
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(format!(
                 "{operand_text}.parse::<i64>().expect(\"int() parse failed\")"
@@ -369,9 +369,8 @@ impl FunctionEmitter<'_> {
                     Ok(format!("({items_text})"))
                 }
             }
-            Type::Class { .. } | Type::TypeParam { .. } | Type::Union(_) => {
-                Ok("Default::default()".to_owned())
-            }
+            Type::TypeParam { .. } | Type::Union(_) => Ok("SmeltUnknown::Null".to_owned()),
+            Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
                 let params = function
                     .params
@@ -386,12 +385,17 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
                 let return_text = self.default_value(function.return_ty)?;
+                let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
                 let function_type = self.type_text_with_impl_trait(ty, false)?;
                 Ok(format!(
-                    "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| {return_text})); smelt_default_callback }}"
+                    "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ {return_text} }})); smelt_default_callback }}"
                 ))
             }
-            Type::Future(_) => Ok("Default::default()".to_owned()),
+            Type::Future(item) => Ok(format!(
+                "Box::pin(async move {{ {} }}) as {}",
+                self.default_value(*item)?,
+                self.type_text_with_impl_trait(ty, false)?
+            )),
         }
     }
 

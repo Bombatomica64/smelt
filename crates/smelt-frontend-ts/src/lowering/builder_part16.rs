@@ -1360,6 +1360,10 @@ impl ModuleBuilder<'_> {
         };
         match receiver_type {
             Type::Dict(_, value) => Ok(value),
+            Type::Optional(inner) => {
+                let inner_field = self.class_field_type(inner, field)?;
+                Ok(self.optional_chain_result_type(inner_field))
+            }
             Type::Unknown | Type::TypeParam { .. } => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Type::Bool => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
@@ -1627,6 +1631,15 @@ impl ModuleBuilder<'_> {
         let child_substitutions =
             self.type_argument_substitution(&child_params, args, self.span(0, 0))?;
         for parent in parents {
+            if self
+                .ctx
+                .krate
+                .symbols
+                .get(parent.parent)
+                .is_some_and(|parent_name| parent_name.contains('.'))
+            {
+                return Ok(Some(self.ctx.krate.types.intern(Type::Unknown)));
+            }
             let parent_args = parent
                 .args
                 .into_iter()
@@ -1813,6 +1826,13 @@ impl ModuleBuilder<'_> {
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
+        if matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok((ty, smelt_hir::ItemId(u32::MAX)));
+        }
         let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
@@ -2247,7 +2267,33 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if name == "strapi" {
+            if name == "__dirname" {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(String::new())),
+                    ty,
+                    span: self.span(start, end),
+                }));
+            }
+            if matches!(
+                name,
+                "Error"
+                    | "EvalError"
+                    | "RangeError"
+                    | "ReferenceError"
+                    | "SyntaxError"
+                    | "TypeError"
+                    | "URIError"
+                    | "AggregateError"
+            ) {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(name.to_owned())),
+                    ty,
+                    span: self.span(start, end),
+                }));
+            }
+            if matches!(name, "process" | "strapi" | "require") {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(ty, start, end, body);
             }

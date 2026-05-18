@@ -33,7 +33,9 @@ import path from "path";
 const envPath = process.env.ENV_PATH;
 const mode = process.env.NODE_ENV || "development";
 const configDir = path.resolve(process.cwd(), "config");
+const interactive = process.stdout.isTTY;
 const pkg = require(path.resolve(configDir, "package.json"));
+const resolved = require.resolve("pkg");
 "#),
         &mut ctx,
     )?;
@@ -2852,6 +2854,59 @@ const text = JSON.stringify(values);
 }
 
 #[test]
+fn lowers_json_stringify_with_optional_union_fields() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const result: {
+  license?: string | null;
+  error?: string;
+  lastCheckAt?: number;
+} = { lastCheckAt: Date.now() };
+
+const text = JSON.stringify(result);
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn captures_unannotated_module_let_literals_in_arrow_functions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+let initialized = false;
+
+const init = () => {
+  if (initialized) {
+    return;
+  }
+
+  initialized = true;
+};
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_node_path_join_and_resolve_static_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import path from 'path';
+
+const configPath = path.join('/tmp', '.strapi-updater.json');
+const resourcePath = path.resolve(__dirname, '../resources/key.pub');
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
 fn lowers_json_parse_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2893,6 +2948,19 @@ const values = JSON.parse(text);
         }),
         "expected untyped JSON.parse to lower as an unknown record",
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_json_parse_with_erased_text_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const parseStored = (result: any) => (result ? JSON.parse(result.value) : result);
+const parseTyped = (result: any) => JSON.parse<Record<string, unknown>>(result.value);
+"#),
+        &mut ctx,
+    )?;
     Ok(())
 }
 
@@ -3350,6 +3418,303 @@ import { errors } from '@strapi/utils';
 
 function fail(): never {
   throw new errors.ValidationError('invalid');
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_object_metadata_mutation_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const target = {};
+const proto = {};
+Object.setPrototypeOf(target, proto);
+Object.defineProperty(target, Symbol('custom'), {
+  writable: false,
+});
+Object.freeze(target);
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_node_dirname_buffer_and_error_call_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { resolve } from 'path';
+
+const keyPath = resolve(__dirname, '../key.pub');
+const [signature, content] = Buffer.from('encoded', 'base64').toString().split('\n');
+
+function fail(): never {
+  throw Error('bad license');
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_error_subclass_construction() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class LicenseCheckError extends Error {
+  shouldFallback = false;
+
+  constructor(message: string, shouldFallback = false) {
+    super(message);
+    this.shouldFallback = shouldFallback;
+  }
+}
+
+function fail(): never {
+  throw new LicenseCheckError('bad license', true);
+}
+
+const failLater = () => {
+  throw new LicenseCheckError('bad license', true);
+};
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_cron_style_math_floor_and_negated_filter_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { isEmpty, negate } from 'lodash/fp';
+
+const COMPONENTS: { limit: number }[] = [{ limit: 60 }];
+
+const shift = (component: string, index: number) => {
+  const { limit } = COMPONENTS[index];
+  const [, step] = component.split('/');
+  const frequency = Math.floor(limit / Number(step));
+  return Array.from({ length: frequency }, (_, index) => index * Number(step));
+};
+
+export const clean = (rule: string) => rule.trim().split(' ').filter(negate(isEmpty));
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_complex_object_getters_as_opaque_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+let cached: string[];
+
+const router = {
+  get routes(): string[] {
+    if (!cached) {
+      cached = Object.values({ a: 'route' });
+    }
+
+    return cached;
+  },
+};
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_asserted_arrow_array_callbacks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const values = [{ type: 'dynamiczone' }, { type: 'text' }];
+const has = values.some(
+  (({ type }: { type: string }) => type === 'dynamiczone' || type === 'component') as any
+);
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_imported_value_alias_const_references() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { createId } from '@paralleldrive/cuid2';
+
+export const createDocumentId = createId;
+
+const attribute = {
+  documentId: { type: 'string', default: createDocumentId },
+};
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_computed_member_object_keys() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function model(identifiers: any, entityId: string) {
+  return {
+    [identifiers.ID_COLUMN]: { type: 'increments' },
+    [entityId]: { type: 'integer' },
+  };
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_truthy_dynamic_index_filter_callbacks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const model: { attributes: Record<string, { type: string }> } = {
+  attributes: { documentId: { type: 'string' } },
+};
+
+const columns = ['documentId', 'locale', 'publishedAt'].filter((name) => model.attributes[name]);
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_nested_function_self_property_references() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function createFetch() {
+  function strapiFetch(url: string) {
+    const options = {
+      ...(strapiFetch.dispatcher ? { dispatcher: strapiFetch.dispatcher } : {}),
+    };
+
+    return options;
+  }
+
+  strapiFetch.dispatcher = {};
+  return strapiFetch;
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_function_expression_captures_and_qualified_interface_extends() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import http from 'http';
+
+export interface Server extends http.Server {
+  destroy: () => Promise<void>;
+}
+
+function create(koaApp: any) {
+  let handler: http.RequestListener;
+  const listener: http.RequestListener = function handleRequest(req, res) {
+    if (!handler) {
+      handler = koaApp.callback();
+    }
+
+    return handler(req, res);
+  };
+
+  const server: Server = http.createServer({}, listener);
+  if (!server.listening) {
+    return listener;
+  }
+
+  return listener;
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_unannotated_catch_error_property_guards() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function resolve(resolve: string) {
+  try {
+    return require.resolve(resolve);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'MODULE_NOT_FOUND') {
+      return resolve;
+    }
+
+    throw error;
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn local_unknown_callable_shadows_same_named_item() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const run = () => {
+  const { get } = ({} as any);
+  return get();
+};
+
+const get = (featureName: string) => featureName;
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn preserves_callable_return_for_erased_function_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import type { Modules } from '@strapi/types';
+
+export const createStrapiFetch = (): Modules.Fetch.Fetch => {
+  function strapiFetch(url: RequestInfo | URL, options?: RequestInit) {
+    return fetch(url, options);
+  }
+
+  return strapiFetch;
+};
+
+async function readTrial(): Promise<unknown> {
+  const silentFetch = createStrapiFetch();
+  const res = await silentFetch('https://example.com', { method: 'GET' });
+  return res.json();
 }
 "#),
         &mut ctx,

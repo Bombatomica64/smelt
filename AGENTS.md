@@ -6,6 +6,11 @@ cargo test
 cargo check
 cargo clippy
 
+## Generated Rust diagnostics
+when working on generated Rust warnings or blockers, use:
+`cargo run --bin smelt -- rust-diagnostics --cargo-manifest <generated-crate>/Cargo.toml --output blocker-logs/<name>.md`
+This produces a grouped Markdown report sorted by diagnostic count so LLMs can start with the biggest warning/error classes.
+
 ## Style
 put docstrings in modules and functions
 

@@ -71,11 +71,7 @@
     )
 )]
 
-use std::{
-    collections::HashMap,
-    fs,
-    path::Path,
-};
+use std::{collections::HashMap, fs, path::Path};
 
 use smelt_hir::{BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirFunction};
@@ -391,9 +387,9 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             writer.line("#[derive(Clone)]");
             writer.line("#[allow(dead_code)]");
         } else if needs_serde_json && interface_is_json_serializable(mir, interface) {
-            writer.line("#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]");
+            writer.line("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]");
         } else {
-            writer.line("#[derive(Clone, Debug)]");
+            writer.line("#[derive(Clone, Debug, Default)]");
         }
         let phantom_args = interface
             .type_params
@@ -443,9 +439,9 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             writer.line("#[derive(Clone)]");
             writer.line("#[allow(dead_code)]");
         } else if needs_serde_json && class_is_json_serializable(mir, class) {
-            writer.line("#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]");
+            writer.line("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]");
         } else {
-            writer.line("#[derive(Clone, Debug)]");
+            writer.line("#[derive(Clone, Debug, Default)]");
         }
         for field in fields {
             field_lines.push(format!(
@@ -666,7 +662,9 @@ fn publicize_free_function(source: String) -> String {
     if source.starts_with("fn ") {
         return source.replacen("fn ", "pub(crate) fn ", 1);
     }
-    if source.starts_with("#[") && let Some(index) = source.find("\nfn ") {
+    if source.starts_with("#[")
+        && let Some(index) = source.find("\nfn ")
+    {
         let mut output = source;
         output.replace_range(index + 1..index + 4, "pub(crate) fn ");
         return output;

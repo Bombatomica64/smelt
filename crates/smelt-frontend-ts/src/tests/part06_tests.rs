@@ -370,6 +370,24 @@ class Derived extends Base {
 }
 
 #[test]
+fn lowers_optional_receiver_field_access_as_optional() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface Config {
+  pagination?: { withCount?: boolean };
+}
+
+function read(config?: Config) {
+  return config?.pagination?.withCount;
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
 fn lowers_unannotated_class_method_as_unknown_return() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
@@ -719,6 +737,20 @@ fn rejects_await_outside_async_function() -> Result<(), String> {
         .ok_or_else(|| "expected at least one lowering error".to_owned())?;
     ensure_eq!(error.code, "smelt::parse-error");
     ensure!(error.message.contains("await"));
+    Ok(())
+}
+
+#[test]
+fn lowers_fetch_with_options_and_url_objects() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+async function load(url: RequestInfo | URL, options?: RequestInit): Promise<string> {
+  return await fetch(url, options);
+}
+"#),
+        &mut ctx,
+    )?;
     Ok(())
 }
 

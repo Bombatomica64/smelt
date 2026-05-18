@@ -126,7 +126,7 @@ impl FunctionEmitter<'_> {
                     if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                         String::new()
                     } else {
-                        format!(": {}", self.type_text(local.ty)?)
+                        format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
                     }
                 ));
                 self.mark_local_declared(*dest);
@@ -225,7 +225,7 @@ impl FunctionEmitter<'_> {
             };
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {rendered_value};\n",
-                self.type_text(decl.ty)?
+                self.type_text_with_impl_trait(decl.ty, false)?
             ));
             self.mark_local_declared(*local);
             return Ok(());
@@ -271,7 +271,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     out.push_str(&format!(
                         "    let {mutability}{name}: {} = {call_text};\n",
-                        self.type_text(local.ty)?
+                        self.type_text_with_impl_trait(local.ty, false)?
                     ));
                 }
                 self.mark_local_declared(*dest);
@@ -406,7 +406,7 @@ impl FunctionEmitter<'_> {
                 let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
                 out.push_str(&format!(
                     "    let {name}: {} = if {} {{ {then_text} }} else {{ {else_text} }};\n",
-                    self.type_text(local.ty)?,
+                    self.type_text_with_impl_trait(local.ty, false)?,
                     self.truthy_operand_text(cond)?
                 ));
                 self.mark_local_declared(*then_dest);

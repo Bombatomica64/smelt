@@ -228,13 +228,32 @@ impl ModuleBuilder<'_> {
             | ListCallbackOp::Every => bool_ty,
             ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
         };
-        let callback = self.callback_argument_with_body_fallback(
-            callback_argument,
-            &[element_ty, index_ty, list_ty],
-            fallback_return_ty,
-            "array callback",
-            body,
-        )?;
+        let callback_param_tys = [element_ty, index_ty, list_ty];
+        let callback = if matches!(
+            op,
+            ListCallbackOp::Filter
+                | ListCallbackOp::Find
+                | ListCallbackOp::FindIndex
+                | ListCallbackOp::FindLast
+                | ListCallbackOp::FindLastIndex
+                | ListCallbackOp::Some
+                | ListCallbackOp::Every
+        ) {
+            self.truthy_callback_argument_with_body_fallback(
+                callback_argument,
+                &callback_param_tys,
+                "array callback",
+                body,
+            )?
+        } else {
+            self.callback_argument_with_body_fallback(
+                callback_argument,
+                &callback_param_tys,
+                fallback_return_ty,
+                "array callback",
+                body,
+            )?
+        };
         let ty = match op {
             ListCallbackOp::Map => self.ctx.krate.types.intern(Type::List(callback.return_ty)),
             ListCallbackOp::Filter => {
@@ -763,6 +782,9 @@ impl ModuleBuilder<'_> {
         expected_param_tys: &[smelt_hir::TypeId],
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
+        if let Some(callback) = self.asserted_arrow_callback(argument, expected_param_tys, body)? {
+            return Ok(callback);
+        }
         let Argument::ArrowFunctionExpression(arrow) = argument else {
             if let Argument::FunctionExpression(function) = argument {
                 return self.function_callback_from_params(function, expected_param_tys, body);
@@ -860,6 +882,81 @@ impl ModuleBuilder<'_> {
             ));
         }
         self.arrow_callback_from_params(arrow, expected_param_tys, body)
+    }
+
+    /// Lower callbacks wrapped in erased TypeScript assertion syntax.
+    fn asserted_arrow_callback(
+        &mut self,
+        argument: &Argument<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        body: &Body,
+    ) -> Result<Option<CallbackExpr>, SmeltError> {
+        match argument {
+            Argument::TSAsExpression(as_expr) => Ok(Some(self.arrow_callback_expression(
+                &as_expr.expression,
+                expected_param_tys,
+                body,
+            )?)),
+            Argument::TSTypeAssertion(assertion) => Ok(Some(self.arrow_callback_expression(
+                &assertion.expression,
+                expected_param_tys,
+                body,
+            )?)),
+            Argument::TSSatisfiesExpression(satisfies) => Ok(Some(self.arrow_callback_expression(
+                &satisfies.expression,
+                expected_param_tys,
+                body,
+            )?)),
+            Argument::TSNonNullExpression(non_null) => Ok(Some(self.arrow_callback_expression(
+                &non_null.expression,
+                expected_param_tys,
+                body,
+            )?)),
+            _ => Ok(None),
+        }
+    }
+
+    /// Lower the expression inside a TypeScript assertion when it is a callback.
+    fn arrow_callback_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        body: &Body,
+    ) -> Result<CallbackExpr, SmeltError> {
+        match expression {
+            Expression::ArrowFunctionExpression(arrow) => {
+                if arrow.r#async {
+                    return Err(SmeltError::unsupported(
+                        self.span(arrow.span.start, arrow.span.end),
+                        "async callbacks need closure-body lowering",
+                    ));
+                }
+                self.arrow_callback_from_params(arrow, expected_param_tys, body)
+            }
+            Expression::FunctionExpression(function) => {
+                self.function_callback_from_params(function, expected_param_tys, body)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => self.arrow_callback_expression(
+                &parenthesized.expression,
+                expected_param_tys,
+                body,
+            ),
+            Expression::TSAsExpression(as_expr) => {
+                self.arrow_callback_expression(&as_expr.expression, expected_param_tys, body)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => self.arrow_callback_expression(
+                &satisfies.expression,
+                expected_param_tys,
+                body,
+            ),
+            Expression::TSNonNullExpression(non_null) => {
+                self.arrow_callback_expression(&non_null.expression, expected_param_tys, body)
+            }
+            _ => Err(SmeltError::unsupported(
+                self.span(expression.span().start, expression.span().end),
+                "array callback methods currently require arrow function callbacks",
+            )),
+        }
     }
 
     /// Lower a function-expression callback after expected parameter types are known.
@@ -2294,6 +2391,138 @@ impl ModuleBuilder<'_> {
             body,
         );
         Ok(ClosureCallback { expr, return_ty })
+    }
+
+    /// Lower an array predicate callback, coercing JavaScript truthy returns into booleans.
+    fn truthy_callback_argument_with_body_fallback(
+        &mut self,
+        argument: &Argument<'_>,
+        expected_param_tys: &[smelt_hir::TypeId],
+        context: &'static str,
+        body: &mut Body,
+    ) -> Result<ClosureCallback, SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        match self.arrow_callback(argument, expected_param_tys, body) {
+            Ok(callback) => {
+                let span = self.span(argument.span().start, argument.span().end);
+                let callback = self.coerce_callback_expr_to_truthy(callback, span)?;
+                let expr = self.callback_expr_to_closure_with_return_ty(
+                    bool_ty,
+                    callback,
+                    expected_param_tys,
+                    span,
+                    body,
+                );
+                Ok(ClosureCallback {
+                    expr,
+                    return_ty: bool_ty,
+                })
+            }
+            Err(error)
+                if Self::should_fallback_to_closure_body_for_callback(&error)
+                    && matches!(argument, Argument::ArrowFunctionExpression(_)) =>
+            {
+                let Argument::ArrowFunctionExpression(arrow) = argument else {
+                    return Err(error);
+                };
+                let expr = self.arrow_closure_body_expr(arrow, expected_param_tys, bool_ty, body)?;
+                Ok(ClosureCallback {
+                    expr,
+                    return_ty: bool_ty,
+                })
+            }
+            Err(error) => {
+                drop(error);
+                let callback =
+                    self.callback_argument(argument, expected_param_tys, context, body)?;
+                if callback.return_ty == bool_ty {
+                    Ok(callback)
+                } else {
+                    Err(SmeltError::unsupported(
+                        self.span(argument.span().start, argument.span().end),
+                        format!("{context} callback returns an unsupported type"),
+                    ))
+                }
+            }
+        }
+    }
+
+    /// Convert a callback expression result into the boolean value used by JS predicates.
+    fn coerce_callback_expr_to_truthy(
+        &mut self,
+        callback: CallbackExpr,
+        span: Span,
+    ) -> Result<CallbackExpr, SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        if callback.ty == bool_ty {
+            return Ok(callback);
+        }
+        match callback.kind {
+            CallbackExprKind::DynamicIndex { receiver, index } => Ok(CallbackExpr {
+                kind: CallbackExprKind::HasDynamicField {
+                    receiver,
+                    field: index,
+                },
+                ty: bool_ty,
+            }),
+            CallbackExprKind::Field { receiver, field } => Ok(CallbackExpr {
+                kind: CallbackExprKind::FieldTruthy { receiver, field },
+                ty: bool_ty,
+            }),
+            kind if self.ctx.krate.types.get(callback.ty) == Some(&Type::Unknown) => {
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::UnknownIs {
+                        value: Box::new(CallbackExpr {
+                            kind,
+                            ty: callback.ty,
+                        }),
+                        kind: UnknownKind::Bool,
+                    },
+                    ty: bool_ty,
+                })
+            }
+            kind if self.ctx.krate.types.get(callback.ty) == Some(&Type::String) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op: BinOp::NotEq,
+                        lhs: Box::new(CallbackExpr {
+                            kind,
+                            ty: callback.ty,
+                        }),
+                        rhs: Box::new(CallbackExpr {
+                            kind: CallbackExprKind::Literal(Literal::String(String::new())),
+                            ty: string_ty,
+                        }),
+                    },
+                    ty: bool_ty,
+                })
+            }
+            kind
+                if self.is_nullishable_type(callback.ty)
+                    || self.type_is_truthy_condition_surface(callback.ty) =>
+            {
+                let none_ty = self.ctx.krate.types.intern(Type::None);
+                Ok(CallbackExpr {
+                    kind: CallbackExprKind::Binary {
+                        op: BinOp::NotEq,
+                        lhs: Box::new(CallbackExpr {
+                            kind,
+                            ty: callback.ty,
+                        }),
+                        rhs: Box::new(CallbackExpr {
+                            kind: CallbackExprKind::Literal(Literal::None),
+                            ty: none_ty,
+                        }),
+                    },
+                    ty: bool_ty,
+                })
+            }
+            _ => Err(SmeltError::unsupported(
+                span,
+                "array predicate callback return cannot be coerced to boolean",
+            )),
+        }
     }
 
     /// Lower an array callback, falling back to a normal closure body when needed.

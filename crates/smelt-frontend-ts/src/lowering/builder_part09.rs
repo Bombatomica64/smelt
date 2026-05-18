@@ -908,7 +908,7 @@ impl ModuleBuilder<'_> {
         ))
     }
 
-    /// Lower TypeScript `fetch(url)` into an async HTTP GET text operation.
+    /// Lower TypeScript `fetch(url[, options])` into an async HTTP GET text operation.
     fn fetch_call(
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
@@ -923,24 +923,40 @@ impl ModuleBuilder<'_> {
         if callee.name != "fetch" {
             return Ok(None);
         }
-        if call.arguments.len() != 1 {
+        if !(1..=2).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "fetch lowering supports fetch(url) with one string argument",
+                "fetch lowering supports fetch(url[, options])",
             ));
         }
         let Some(url_argument) = call.arguments.first() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "fetch lowering supports fetch(url) with one string argument",
+                "fetch lowering supports fetch(url[, options])",
             ));
         };
-        let url = self.argument(url_argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "fetch requires a string URL argument",
-            ));
+        let mut url = self.argument(url_argument, body)?;
+        if let Some(options_argument) = call.arguments.get(1) {
+            let _ = self.argument(options_argument, body)?;
+        }
+        let url_ty = Self::expr_ty(body, url);
+        if self.ctx.krate.types.get(url_ty) != Some(&Type::String) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            if self.is_string_compatible_type(url_ty) || self.type_contains_unknown(url_ty) {
+                url = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: url,
+                        target: string_ty,
+                    },
+                    ty: string_ty,
+                    span: self.span(url_argument.span().start, url_argument.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "fetch requires a string-compatible URL argument",
+                ));
+            }
         }
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let ty = self.ctx.krate.types.intern(Type::Future(string_ty));

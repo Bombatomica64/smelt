@@ -352,13 +352,26 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         };
-        let operand = self.argument(argument, body)?;
-        let operand_ty = Self::expr_ty(body, operand);
+        let mut operand = self.argument(argument, body)?;
+        let mut operand_ty = Self::expr_ty(body, operand);
         if !self.is_numeric_like_type(operand_ty) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("Math.{} requires a number argument", member.property.name),
-            ));
+            if self.type_contains_unknown(operand_ty) {
+                let target = self.ctx.krate.types.intern(Type::Float);
+                operand = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: operand,
+                        target,
+                    },
+                    ty: target,
+                    span: self.span(argument.span().start, argument.span().end),
+                });
+                operand_ty = target;
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("Math.{} requires a number argument", member.property.name),
+                ));
+            }
         }
         let result_ty = self.type_param_constraint_or_self(operand_ty);
         Ok(Some(body.push_expr(Expr {

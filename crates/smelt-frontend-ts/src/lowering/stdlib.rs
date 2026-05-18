@@ -604,13 +604,7 @@ impl ModuleBuilder<'_> {
                 "JSON.parse<T>() target type must be JSON-compatible",
             ));
         }
-        let text = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(argument.span().start, argument.span().end),
-                "JSON.parse<T>() text argument must be a string",
-            ));
-        }
+        let text = self.json_parse_text_argument(argument, body, "JSON.parse<T>()")?;
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::JsonParse { text },
             ty,
@@ -654,18 +648,41 @@ impl ModuleBuilder<'_> {
                 "JSON.parse assertion target type must be JSON-compatible",
             ));
         }
-        let text = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(argument.span().start, argument.span().end),
-                "JSON.parse() text argument must be a string",
-            ));
-        }
+        let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::JsonParse { text },
             ty: target,
             span: self.span(span.start, span.end),
         })))
+    }
+
+    /// Lower and coerce the text operand accepted by `JSON.parse`.
+    fn json_parse_text_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+        source_name: &str,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let text = self.argument(argument, body)?;
+        let text_ty = Self::expr_ty(body, text);
+        if self.ctx.krate.types.get(text_ty) == Some(&Type::String) {
+            return Ok(text);
+        }
+        if self.is_string_compatible_type(text_ty) || self.type_contains_unknown(text_ty) {
+            let target = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: text,
+                    target,
+                },
+                ty: target,
+                span: self.span(argument.span().start, argument.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(argument.span().start, argument.span().end),
+            format!("{source_name} text argument must be a string"),
+        ))
     }
 
     /// Lower TypeScript `new RegExp(pattern).test(text)` to a regex boolean match.
@@ -978,6 +995,9 @@ impl ModuleBuilder<'_> {
             Type::Tuple(items) => items
                 .iter()
                 .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+            Type::Union(items) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
             Type::Dict(key, value) => {
                 matches!(self.ctx.krate.types.get(key), Some(Type::String))
                     && self.is_json_serializable_type_inner(value, seen)
@@ -998,9 +1018,8 @@ impl ModuleBuilder<'_> {
                     serializable
                 })
             }
-            Type::Never | Type::None | Type::Function(_) | Type::Future(_) | Type::Union(_) => {
-                false
-            }
+            Type::None => true,
+            Type::Never | Type::Function(_) | Type::Future(_) => false,
         }
     }
 

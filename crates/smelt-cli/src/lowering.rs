@@ -3,7 +3,11 @@
 //! This module owns source-language detection plus HIR lowering entrypoints
 //! used by CLI commands and manifest-driven builds.
 
-use std::{collections::HashMap, fs, io, path::Path};
+use std::{
+    collections::HashMap,
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use smelt_hir::{FileId, ModuleId};
 
@@ -167,10 +171,8 @@ pub(crate) fn lower_manifest_entries(
 ) -> Result<LoweredCrate, Box<dyn std::error::Error>> {
     let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let root_sources = timing::measure("manifest.read_roots", || {
-        config
-            .entries()
-            .iter()
-            .map(|path| resolve_manifest_path(manifest_dir, path))
+        manifest_root_paths(config, manifest_dir)?
+            .into_iter()
             .map(read_manifest_source)
             .collect::<Result<Vec<_>, _>>()
     })?;
@@ -200,6 +202,128 @@ pub(crate) fn lower_manifest_entries(
     timing::measure("manifest.frontend_lower", || {
         lower_ordered_manifest_sources(&ordered_sources)
     })
+}
+
+/// Returns explicitly listed entries plus test files discovered by glob.
+fn manifest_root_paths(
+    config: &crate::config::Config,
+    manifest_dir: &Path,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let mut paths = config
+        .entries()
+        .iter()
+        .map(|path| resolve_manifest_path(manifest_dir, path))
+        .collect::<Vec<_>>();
+    paths.extend(discover_test_paths(config, manifest_dir)?);
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+/// Discovers test files matching configured source-root-relative glob patterns.
+fn discover_test_paths(
+    config: &crate::config::Config,
+    manifest_dir: &Path,
+) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    if config.test_globs().is_empty() {
+        return Ok(Vec::new());
+    }
+    let roots = config
+        .source_roots()
+        .map_or_else(|| vec![PathBuf::from(".")], <[_]>::to_vec);
+    let mut paths = Vec::new();
+    for root in roots {
+        let absolute_root = resolve_manifest_path(manifest_dir, &root);
+        collect_matching_test_paths(
+            &absolute_root,
+            &absolute_root,
+            config.test_globs(),
+            &mut paths,
+        )?;
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+/// Recursively collects files below `dir` whose root-relative path matches a glob.
+fn collect_matching_test_paths(
+    root: &Path,
+    dir: &Path,
+    patterns: &[String],
+    paths: &mut Vec<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for read_result in fs::read_dir(dir)? {
+        let dir_entry = read_result?;
+        let path = dir_entry.path();
+        let file_type = dir_entry.file_type()?;
+        if file_type.is_dir() {
+            collect_matching_test_paths(root, &path, patterns, paths)?;
+        } else if file_type.is_file()
+            && let Ok(relative) = path.strip_prefix(root)
+            && patterns
+                .iter()
+                .any(|pattern| path_matches_glob(relative, pattern))
+        {
+            paths.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Returns whether a relative path matches a small glob syntax.
+///
+/// Supported syntax is intentionally narrow: `*` matches any characters inside
+/// one path segment and `**` matches zero or more path segments. Patterns are
+/// evaluated with `/` separators regardless of platform.
+fn path_matches_glob(path: &Path, pattern: &str) -> bool {
+    let path_segments = path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    let pattern_segments = pattern.split('/').collect::<Vec<_>>();
+    glob_segments_match(&path_segments, &pattern_segments)
+}
+
+/// Matches root-relative path segments against parsed glob pattern segments.
+fn glob_segments_match(path: &[&str], pattern: &[&str]) -> bool {
+    match pattern {
+        [] => path.is_empty(),
+        ["**", rest @ ..] => {
+            glob_segments_match(path, rest)
+                || path
+                    .split_first()
+                    .is_some_and(|(_, remaining)| glob_segments_match(remaining, pattern))
+        }
+        [head, rest @ ..] => path.split_first().is_some_and(|(segment, remaining)| {
+            glob_segment_match(segment, head) && glob_segments_match(remaining, rest)
+        }),
+    }
+}
+
+/// Matches one path segment against `*` wildcards.
+fn glob_segment_match(path: &str, pattern: &str) -> bool {
+    if pattern == "*" {
+        return true;
+    }
+    let parts = pattern.split('*').collect::<Vec<_>>();
+    if parts.len() == 1 {
+        return path == pattern;
+    }
+    if !pattern.starts_with('*') && parts.first().is_some_and(|part| !path.starts_with(part)) {
+        return false;
+    }
+    if !pattern.ends_with('*') && parts.last().is_some_and(|part| !path.ends_with(part)) {
+        return false;
+    }
+    let mut cursor = 0usize;
+    for part in parts.into_iter().filter(|part| !part.is_empty()) {
+        let Some(found) = path[cursor..].find(part) else {
+            return false;
+        };
+        cursor = cursor.saturating_add(found).saturating_add(part.len());
+    }
+    true
 }
 
 /// Lowers already ordered manifest files into one shared HIR crate.

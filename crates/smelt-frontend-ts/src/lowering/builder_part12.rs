@@ -129,6 +129,11 @@ impl ModuleBuilder<'_> {
         if expected == actual {
             return true;
         }
+        if matches!(self.ctx.krate.types.get(expected), Some(Type::Unknown))
+            || matches!(self.ctx.krate.types.get(actual), Some(Type::Unknown))
+        {
+            return !matches!(self.ctx.krate.types.get(actual), Some(Type::None));
+        }
         if let Some(Type::Union(items)) = self.ctx.krate.types.get(expected) {
             return items
                 .iter()
@@ -176,6 +181,19 @@ impl ModuleBuilder<'_> {
                 .all(|item| self.is_numeric_like_type(item)),
             _ => false,
         }
+    }
+
+    /// Return whether a value argument can be stored in a lowered map value slot.
+    fn map_value_type_compatible(
+        &self,
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+    ) -> bool {
+        let expected = self.type_param_constraint_or_self(expected);
+        let actual = self.type_param_constraint_or_self(actual);
+        self.numeric_type_compatible(expected, actual)
+            || matches!(self.ctx.krate.types.get(expected), Some(Type::Unknown))
+            || matches!(self.ctx.krate.types.get(actual), Some(Type::Unknown))
     }
 
     /// Lower supported string padding calls into HIR string runtime calls.
@@ -743,7 +761,7 @@ impl ModuleBuilder<'_> {
                 let key = self.argument(key_argument, body)?;
                 let value = self.argument(value_argument, body)?;
                 if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key))
-                    || !self.numeric_type_compatible(value_ty, Self::expr_ty(body, value))
+                    || !self.map_value_type_compatible(value_ty, Self::expr_ty(body, value))
                 {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),

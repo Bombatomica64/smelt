@@ -424,16 +424,49 @@ impl ModuleBuilder<'_> {
         &mut self,
         op: BinOp,
         lhs: smelt_hir::ExprId,
-        rhs: smelt_hir::ExprId,
+        mut rhs: smelt_hir::ExprId,
         span: oxc::span::Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
+        let lhs_ty = Self::expr_ty(body, lhs);
+        let rhs_ty = Self::expr_ty(body, rhs);
+        if lhs_ty != rhs_ty && self.assertion_type_contains_unknown(lhs_ty) {
+            rhs = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: rhs },
+                ty: lhs_ty,
+                span: self.span(span.start, span.end),
+            });
+        }
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         body.push_expr(Expr {
             kind: ExprKind::BinOp { op, lhs, rhs },
             ty: bool_ty,
             span: self.span(span.start, span.end),
         })
+    }
+
+    /// Return whether an assertion actual type contains erased unknown values.
+    ///
+    /// This is intentionally local to test assertions. The broader lowering
+    /// pipeline still uses the narrower `type_contains_unknown` helper because
+    /// treating every `Array<unknown>` as unknown-like changes overload choices
+    /// in normal library code.
+    fn assertion_type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Unknown | Type::TypeParam { .. }) => true,
+            Some(Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item)) => {
+                self.assertion_type_contains_unknown(*item)
+            }
+            Some(Type::Dict(key, value)) => {
+                self.assertion_type_contains_unknown(*key)
+                    || self.assertion_type_contains_unknown(*value)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.assertion_type_contains_unknown(item)),
+            _ => false,
+        }
     }
 
     /// Create a length expression for synthesized test assertions.
@@ -1186,7 +1219,7 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::String));
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
         let name = binding.name.as_str();
         let symbol = self.intern_source_name(name);
         let local = body.push_local(LocalDecl {
@@ -1537,6 +1570,31 @@ impl ModuleBuilder<'_> {
                 ));
             }
 
+            let declared_return_ty = function
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
+            let provisional_return_ty =
+                declared_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            let provisional_fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: param_tys.clone(),
+                return_ty: provisional_return_ty,
+                is_async: function.r#async,
+            }));
+            let function_symbol = self.intern_source_name(id.name.as_str());
+            let self_local = closure_body.push_local(LocalDecl {
+                name: Some(function_symbol),
+                ty: provisional_fn_ty,
+                mutable: false,
+                span: self.span(id.span.start, id.span.end),
+            });
+            param_names.insert(id.name.as_str().to_owned());
+            saved_locals.push((
+                id.name.as_str().to_owned(),
+                self.locals.insert(id.name.as_str().to_owned(), self_local),
+            ));
+
             let mut capture_names = Vec::new();
             for statement in &function_body.statements {
                 self.collect_statement_capture_names(statement, &param_names, &mut capture_names);
@@ -1578,11 +1636,6 @@ impl ModuleBuilder<'_> {
                 });
             }
 
-            let declared_return_ty = function
-                .return_type
-                .as_ref()
-                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                .transpose()?;
             let saved_return_ty = self.current_return_ty;
             let saved_async = self.current_async;
             self.current_return_ty = declared_return_ty;
@@ -1617,9 +1670,8 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 is_async: function.r#async,
             }));
-            let symbol = self.intern_source_name(id.name.as_str());
             let local = outer_body.push_local(LocalDecl {
-                name: Some(symbol),
+                name: Some(function_symbol),
                 ty: fn_ty,
                 mutable: false,
                 span: self.span(id.span.start, id.span.end),
@@ -1895,8 +1947,21 @@ impl ModuleBuilder<'_> {
                         ty: index_ty,
                         span: self.span(array.span.start, array.span.end),
                     });
+                    let extracted_kind = if tuple_items.is_some() {
+                        ExprKind::TupleIndex {
+                            tuple: receiver,
+                            index: usize::try_from(idx).map_err(|err| {
+                                SmeltError::unsupported(
+                                    self.span(array.span.start, array.span.end),
+                                    format!("array destructuring tuple index is too large: {err}"),
+                                )
+                            })?,
+                        }
+                    } else {
+                        ExprKind::Index { receiver, index }
+                    };
                     let extracted = body.push_expr(Expr {
-                        kind: ExprKind::Index { receiver, index },
+                        kind: extracted_kind,
                         ty: item_ty,
                         span: self.span(element.span().start, element.span().end),
                     });
