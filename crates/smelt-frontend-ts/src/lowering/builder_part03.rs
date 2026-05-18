@@ -242,7 +242,7 @@ impl ModuleBuilder<'_> {
         }
 
         let return_ty = declared_return_ty
-            .or_else(|| Self::last_return_type(&body))
+            .or_else(|| self.last_return_type(&body))
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
         let body_id = self.ctx.krate.push_body(body);
         let function_item = Function {
@@ -616,12 +616,7 @@ impl ModuleBuilder<'_> {
                         .as_ref()
                         .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                         .transpose()?
-                        .ok_or_else(|| {
-                            SmeltError::unsupported(
-                                self.span(method.span.start, method.span.end),
-                                "getters require explicit return types",
-                            )
-                        })?;
+                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
                     fields.push(Field {
                         name,
                         ty,
@@ -735,7 +730,7 @@ impl ModuleBuilder<'_> {
         let implements = class
             .implements
             .iter()
-            .map(|imp| self.implements_symbol(imp))
+            .filter_map(|imp| self.implements_symbol(imp).transpose())
             .collect::<Result<Vec<_>, _>>()?;
         let item = self.ctx.krate.push_item(Item::Class(Class {
             name: class_name,
@@ -840,7 +835,8 @@ impl ModuleBuilder<'_> {
                 | "URIError"
                 | "AggregateError"
         );
-        if !allowed_builtin && !self.classes.contains_key(name) {
+        if !allowed_builtin && !self.classes.contains_key(name) && !self.value_imports.contains(name)
+        {
             return Err(SmeltError::unsupported(
                 self.span(super_class.span().start, super_class.span().end),
                 format!("base class `{name}` is not declared"),
@@ -879,12 +875,14 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
-            .ok_or_else(|| {
-                SmeltError::unsupported(
-                    self.span(method.span.start, method.span.end),
-                    "abstract methods require explicit return types",
-                )
-            })?;
+            .unwrap_or_else(|| {
+                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                if method.value.r#async {
+                    self.ctx.krate.types.intern(Type::Future(unknown))
+                } else {
+                    unknown
+                }
+            });
         let mut params = Vec::new();
         for param in &method.value.params.items {
             let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
@@ -898,12 +896,13 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(param.span.start, param.span.end),
-                        "abstract method parameters require explicit types",
-                    )
-                })?;
+                .or_else(|| {
+                    param
+                        .initializer
+                        .as_ref()
+                        .and_then(|initializer| self.infer_module_global_initializer_type(initializer).ok())
+                })
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
             params.push(ParamSig {
                 name: self.intern_source_name(binding.name.as_str()),
                 ty,
@@ -959,12 +958,14 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(method.span.start, method.span.end),
-                        "methods require explicit return types",
-                    )
-                })?
+                .unwrap_or_else(|| {
+                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    if method.value.r#async {
+                        self.ctx.krate.types.intern(Type::Future(unknown))
+                    } else {
+                        unknown
+                    }
+                })
         };
         if method.value.r#async
             && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))

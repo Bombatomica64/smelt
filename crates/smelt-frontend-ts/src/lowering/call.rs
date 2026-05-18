@@ -92,6 +92,12 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.node_process_version_match_call(call, body) {
             return Ok(expr);
         }
+        if let Some(expr) = self.node_process_cwd_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.commonjs_require_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.math_unary_func_call(call, body)? {
             return Ok(expr);
         }
@@ -260,6 +266,32 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
+            let callee = self.computed_member(member, body)?;
+            let callee_ty = Self::expr_ty(body, callee);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() {
+                if args.len() < function.params.len() {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "computed member call argument count does not match function",
+                    ));
+                }
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall {
+                        callee,
+                        args: args.into_iter().take(function.params.len()).collect(),
+                    },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            if matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Unknown)) {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
             if let Some(first) = args.first().copied() {
                 return Ok(first);
             }
@@ -356,6 +388,17 @@ impl ModuleBuilder<'_> {
             let Some(function_ty) =
                 self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
             else {
+                if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
                 return Err(SmeltError::unsupported(
                     self.span(callee_call.span.start, callee_call.span.end),
                     "call expression callee must return a function",
@@ -437,6 +480,17 @@ impl ModuleBuilder<'_> {
                 }));
             }
             let Some(item) = self.items.get(callee_ident.name.as_str()).copied() else {
+                if self.value_imports.contains(callee_ident.name.as_str()) {
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
                 return Err(SmeltError::unsupported(
                     self.span(callee_ident.span.start, callee_ident.span.end),
                     format!("unresolved function `{}`", callee_ident.name),
@@ -453,6 +507,16 @@ impl ModuleBuilder<'_> {
                     function.return_ty,
                     function.is_async,
                 )
+            } else if self.value_imports.contains(callee_ident.name.as_str()) {
+                for arg in &call.arguments {
+                    let _ = self.argument(arg, body)?;
+                }
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             } else {
                 return Err(SmeltError::unsupported(
                     self.span(callee_ident.span.start, callee_ident.span.end),
@@ -551,6 +615,32 @@ impl ModuleBuilder<'_> {
             self.span(call.span.start, call.span.end),
             "call expression is not lowered yet",
         ))
+    }
+
+    /// Lower `CommonJS` `require(path)` as an opaque JSON-like module object.
+    fn commonjs_require_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "require") {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "require() requires exactly one module path argument",
+            ));
+        };
+        let _ = self.argument(argument, body)?;
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower `structuredClone(value)` as a typed value copy.

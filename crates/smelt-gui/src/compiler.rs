@@ -169,10 +169,10 @@ fn lower_combined(
 }
 
 /// Rename a lowered module body before MIR lowering chooses Rust function names.
-fn rename_module(krate: &mut smelt_hir::Crate, module: smelt_hir::ModuleId, name: &str) {
-    if let Ok(index) = usize::try_from(module.0)
+fn rename_module(krate: &mut smelt_hir::Crate, module_id: smelt_hir::ModuleId, name: &str) {
+    if let Ok(index) = usize::try_from(module_id.0)
         && let Some(module) = krate.modules.get_mut(index)
     {
-        module.name = name.to_owned();
+        name.clone_into(&mut module.name);
     }
 }

@@ -167,7 +167,8 @@ impl ModuleBuilder<'_> {
                 Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
-                | Type::String,
+                | Type::String
+                | Type::Bool,
             ) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -226,7 +227,8 @@ impl ModuleBuilder<'_> {
                 | Type::Unknown
                 | Type::TypeParam { .. }
                 | Type::Class { .. }
-                | Type::String,
+                | Type::String
+                | Type::Bool,
             ) => true,
             Some(Type::Union(items)) => items
                 .iter()
@@ -655,8 +657,7 @@ impl ModuleBuilder<'_> {
         let mut needle = self.argument(needle_argument, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let haystack_ty = Self::expr_ty(body, haystack);
-        if self.ctx.krate.types.get(haystack_ty) == Some(&Type::Unknown)
-            || self.type_contains_unknown(haystack_ty)
+        if self.is_string_compatible_type(haystack_ty) || self.type_contains_unknown(haystack_ty)
         {
             haystack = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: haystack },
@@ -665,8 +666,7 @@ impl ModuleBuilder<'_> {
             });
         }
         let needle_ty = Self::expr_ty(body, needle);
-        if self.ctx.krate.types.get(needle_ty) == Some(&Type::Unknown)
-            || self.type_contains_unknown(needle_ty)
+        if self.is_string_compatible_type(needle_ty) || self.type_contains_unknown(needle_ty)
         {
             needle = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: needle },

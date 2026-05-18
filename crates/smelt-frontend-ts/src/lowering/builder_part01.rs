@@ -148,6 +148,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
+        for statement in &program.body {
+            if let Statement::ImportDeclaration(import) = statement {
+                self.import_declaration(import, &mut module);
+            }
+        }
         let implemented_functions = implemented_function_names(program);
         self.shadow_cross_module_overloads(&implemented_functions);
         self.predeclare_type_alias_items(program);
@@ -166,8 +171,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
         }
         for statement in &program.body {
-            if let Statement::ImportDeclaration(import) = statement {
-                self.import_declaration(import, &mut module);
+            if let Statement::ImportDeclaration(_) = statement {
                 continue;
             }
             if let Statement::FunctionDeclaration(function) = statement {
@@ -1082,6 +1086,29 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 continue;
             }
             if let Some(item) = self.fp_wrapper_const_declaration(binding.name.as_str(), init)? {
+                items.push(item);
+                continue;
+            }
+            if Self::is_module_global_array_initializer(init)
+                && self.literal_const_expression(init).is_err()
+            {
+                let span = self.span(binding.span.start, binding.span.end);
+                let mut body = Body::new(None, span);
+                let expr = self.expression(init, &mut body)?;
+                let ty = Self::expr_ty(&body, expr);
+                let body_id = self.ctx.krate.push_body(body);
+                let name_text = binding.name.as_str();
+                let name = self.intern_source_name(name_text);
+                let item = self.ctx.krate.push_item(Item::Const(ConstItem {
+                    name,
+                    ty,
+                    value: expr,
+                    body: body_id,
+                    span,
+                }));
+                self.items.insert(name_text.to_owned(), item);
+                self.ctx.export_aliases.insert(name_text.to_owned(), item);
+                self.module_globals.insert(name_text.to_owned(), ty);
                 items.push(item);
                 continue;
             }

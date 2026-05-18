@@ -71,11 +71,11 @@ returned: int = adder(6)
 "#,
     );
 
-    assert!(source.contains("&mut dyn FnMut(i64) -> i64"));
+    assert!(source.contains("Rc<::std::cell::RefCell<dyn FnMut(i64) -> i64>>"));
     assert!(source.contains("(3)"));
     assert!(source.contains("apply(4,"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(adder.borrow_mut())(6)"));
+    assert!(source.contains("(&mut *adder.borrow_mut())(6)"));
     assert!(source.contains("move |"));
 }
 
@@ -113,7 +113,7 @@ result: int = adder(6)
 
     assert!(source.contains("move |"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(adder.borrow_mut())(6)"));
+    assert!(source.contains("(&mut *adder.borrow_mut())(6)"));
 }
 
 #[test]
@@ -331,6 +331,51 @@ values: list[int] = json.loads(text)
     assert!(py_source.contains("serde_json::from_str::<Vec<i64>>(&"));
     assert!(ts_source.contains(".expect(\"JSON parse failed\")"));
     assert!(py_source.contains(".expect(\"JSON parse failed\")"));
+}
+
+#[test]
+fn emits_untyped_json_parse_as_unknown_record() {
+    let ts_source = source_for(
+        r#"
+const text = "{\"enabled\":true}";
+const values = JSON.parse(text);
+"#,
+    );
+
+    assert!(
+        ts_source.contains(
+            "serde_json::from_str::<::std::collections::HashMap<String, SmeltUnknown>>(&"
+        )
+    );
+    assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
+}
+
+#[test]
+fn emits_json_parse_assertion_targets() {
+    let ts_source = source_for(
+        r#"
+interface ServerConfig {
+  host: string;
+  port: number;
+}
+
+const text = "{\"host\":\"localhost\",\"port\":1337}";
+const config = JSON.parse(text) as ServerConfig;
+const bag = JSON.parse(text) as Record<string, unknown>;
+"#,
+    );
+
+    assert!(ts_source.contains("#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]"));
+    assert!(
+        ts_source.contains("serde_json::from_str::<ServerConfig>(&")
+            || ts_source.contains("serde_json::from_str::<SmeltUnknown>(&")
+    );
+    assert!(
+        ts_source.contains(
+            "serde_json::from_str::<::std::collections::HashMap<String, SmeltUnknown>>(&"
+        )
+    );
+    assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
 }
 
 #[test]

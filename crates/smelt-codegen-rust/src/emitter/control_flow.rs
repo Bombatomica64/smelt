@@ -104,19 +104,19 @@ impl FunctionEmitter<'_> {
                     } else {
                         raw_rendered_value
                     };
+                if name == "SmeltUnknown::Null" {
+                    out.push_str(&format!("    let _ = {rendered_value};\n"));
+                    return Ok(());
+                }
                 if self.is_local_declared(*dest)
                     && (!matches!(local.kind, LocalKind::Temp)
-                        || self.mutable_locals.contains(dest))
+                        || self.mutable_locals.contains(dest)
+                        || self.predeclared_locals().contains(dest))
                 {
                     out.push_str(&format!("    {name} = {rendered_value};\n"));
                     return Ok(());
                 }
-                let mutability = if name != "_"
-                    && (self.local_binding_needs_mut(*dest)
-                        || matches!(
-                            self.mir.types.get(local.ty),
-                            Some(Type::Class { .. } | Type::Function(_))
-                        )) {
+                let mutability = if name != "_" && self.local_binding_needs_mut(*dest) {
                     "mut "
                 } else {
                     ""
@@ -157,6 +157,21 @@ impl FunctionEmitter<'_> {
                     out.push_str(&format!(
                         "    {}.insert({:?}.to_owned(), {rendered_value});\n",
                         self.local_name(*base)?,
+                        self.symbol_name(*field)?
+                    ));
+                    return Ok(());
+                }
+                if matches!(
+                    self.mir.types.get(base_ty),
+                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+                ) || self.is_erased_class_type(base_ty)
+                {
+                    let unknown_ty = self.type_id(Type::Unknown)?;
+                    let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
+                    out.push_str(&format!(
+                        "    match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert({:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(map); }} }}\n",
+                        self.local_name(*base)?,
+                        self.symbol_name(*field)?,
                         self.symbol_name(*field)?
                     ));
                     return Ok(());
@@ -203,11 +218,7 @@ impl FunctionEmitter<'_> {
         {
             let decl = self.local_decl(*local)?;
             let name = self.local_name(*local)?;
-            let mutability = if self.mutable_locals.contains(local)
-                || matches!(
-                    self.mir.types.get(decl.ty),
-                    Some(Type::Class { .. } | Type::Function(_))
-                ) {
+            let mutability = if self.mutable_locals.contains(local) {
                 "mut "
             } else {
                 ""
@@ -220,6 +231,10 @@ impl FunctionEmitter<'_> {
             return Ok(());
         }
         let assignment = self.assignment_place_text(place)?;
+        if assignment == "SmeltUnknown::Null" {
+            out.push_str(&format!("    let _ = {rendered_value};\n"));
+            return Ok(());
+        }
         out.push_str(&format!("    {assignment} = {rendered_value};\n"));
         Ok(())
     }
@@ -243,11 +258,7 @@ impl FunctionEmitter<'_> {
                 let local = self.local_decl(*dest)?;
                 let call_text = self.call_text_for_dest(callee, args, local.ty)?;
                 let name = self.local_name(*dest)?;
-                let mutability = if self.mutable_locals.contains(dest)
-                    || matches!(
-                        self.mir.types.get(local.ty),
-                        Some(Type::Class { .. } | Type::Function(_))
-                    ) {
+                let mutability = if self.local_binding_needs_mut(*dest) {
                     "mut "
                 } else {
                     ""

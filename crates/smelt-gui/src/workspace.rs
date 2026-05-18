@@ -120,7 +120,7 @@ impl SmeltWorkspace {
     }
 
     /// Keep the selectable output editor in sync with the generated text.
-    fn sync_output_input(&mut self, window: &mut Window, cx: &mut Context<'_, Self>) {
+    fn sync_output_input(&self, window: &mut Window, cx: &mut Context<'_, Self>) {
         if self.output_input.read(cx).value() == self.output {
             return;
         }
@@ -170,6 +170,10 @@ impl Render for SmeltWorkspace {
 }
 
 /// Top bar with logo and compile button.
+#[expect(
+    clippy::too_many_lines,
+    reason = "header layout is a single GPUI element tree"
+)]
 fn render_header(
     on_compile: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,
     on_reset: impl Fn(&ClickEvent, &mut Window, &mut gpui::App) + 'static,

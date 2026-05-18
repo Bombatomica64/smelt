@@ -9,21 +9,21 @@ struct User {
 
 
 fn main() {
-    let mut present: Option<User> = None;
-    let mut missing: Option<User> = None;
-    let mut name: Option<String> = None;
-    let mut absent_name: Option<String> = None;
-    let mut score: Option<f64> = None;
-    let mut label: Option<String> = None;
-    let mut _smelt_tmp_8: Option<String> = None;
-    let mut _smelt_tmp_9: Option<String> = None;
-    let mut _smelt_tmp_10: Option<Vec<f64>> = None;
-    let mut _smelt_tmp_11: Option<f64> = None;
-    let mut _smelt_tmp_12: Option<String> = None;
+    let mut present: Option<User> = None::<User>;
+    let mut missing: Option<User> = None::<User>;
+    let mut name: Option<String> = None::<String>;
+    let mut absent_name: Option<String> = None::<String>;
+    let mut score: Option<f64> = None::<f64>;
+    let mut label: Option<String> = None::<String>;
+    let mut _smelt_tmp_8: Option<String> = None::<String>;
+    let mut _smelt_tmp_9: Option<String> = None::<String>;
+    let mut _smelt_tmp_10: Option<Vec<f64>> = None::<Vec<f64>>;
+    let mut _smelt_tmp_11: Option<f64> = None::<f64>;
+    let mut _smelt_tmp_12: Option<String> = None::<String>;
     let _smelt_tmp_6: Vec<f64> = vec![3.0];
     let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6.clone());
     present = Some(_smelt_tmp_7.clone());
-    missing = None;
+    missing = None::<User>;
     _smelt_tmp_8 = present.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
     name = _smelt_tmp_8.clone();
     _smelt_tmp_9 = missing.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());

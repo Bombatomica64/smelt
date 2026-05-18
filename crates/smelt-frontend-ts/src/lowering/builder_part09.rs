@@ -7,6 +7,22 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let value = self.expression(&binary.left, body)?;
         let value_ty = Self::expr_ty(body, value);
+        if let Expression::StaticMemberExpression(member) = &binary.right
+            && (self
+                .namespace_member_name(member)
+                .is_some_and(|(namespace, _)| self.namespace_imports.contains(namespace))
+                || matches!(
+                    &member.object,
+                    Expression::Identifier(object) if self.value_imports.contains(object.name.as_str())
+                ))
+        {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(false)),
+                ty,
+                span: self.span(binary.span.start, binary.span.end),
+            }));
+        }
         let Expression::Identifier(class_ident) = &binary.right else {
             return Err(SmeltError::unsupported(
                 self.span(binary.right.span().start, binary.right.span().end),
@@ -135,6 +151,25 @@ impl ModuleBuilder<'_> {
                 binary.operator,
                 BinaryOperator::StrictInequality | BinaryOperator::Inequality
             );
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(result)),
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            })));
+        }
+        if kind_lit.value.as_str() == "undefined" {
+            let value = self.expression(&unary.argument, body)?;
+            let value_ty = Self::expr_ty(body, value);
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            let matches_kind = self.type_matches_typeof(value_ty, "undefined");
+            let result = if matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            ) {
+                !matches_kind
+            } else {
+                matches_kind
+            };
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(result)),
                 ty: bool_ty,
@@ -316,6 +351,9 @@ impl ModuleBuilder<'_> {
                 self.span(span.start, span.end),
                 "type assertion cannot construct a never value",
             ));
+        }
+        if let Some(parsed) = self.json_parse_call_with_target(expression, target, span, body)? {
+            return Ok(parsed);
         }
         let value = self.expression_with_hint(expression, body, Some(target))?;
         if Self::expr_ty(body, value) == target {

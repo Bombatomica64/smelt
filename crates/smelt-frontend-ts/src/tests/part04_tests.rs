@@ -1,6 +1,242 @@
 use super::*;
 
 #[test]
+fn lowers_imported_unknown_calls_inside_unannotated_block_arrow() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { importDefault } from "@strapi/utils";
+
+const loadJsFile = (file: string) => {
+  try {
+    const jsModule = importDefault(file);
+    return jsModule;
+  } catch (error) {
+    return {};
+  }
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_node_process_env_cwd_and_require_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import path from "path";
+
+const envPath = process.env.ENV_PATH;
+const mode = process.env.NODE_ENV || "development";
+const configDir = path.resolve(process.cwd(), "config");
+const pkg = require(path.resolve(configDir, "package.json"));
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DictLit(_))),
+        "expected require(...) to lower as an opaque record",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_namespace_import_member_calls_as_opaque() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as z from "zod/v4";
+
+const schema = z.record({}, {});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_namespace_import_member_reads_as_opaque() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as z from "zod/v4";
+
+const registry = z.globalRegistry;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_exported_const_assertion_array_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const BOOLEAN_LITERAL_VALUES = ["t", "1", "true", "f", "0", "false"] as const;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_void_block_arrow_const_without_return_annotation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const safeGlobalRegistrySet = (value: string) => {
+  console.log(value);
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_affix_on_opaque_class_like_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type SchemaUid = string & { readonly __brand: unique symbol };
+
+function builtin(id: SchemaUid): boolean {
+  return id.startsWith("plugin::") || id.startsWith("admin");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_keys_on_erased_optional_chain_fallback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const schema: unknown = {};
+const fieldCount = Object.keys((schema as any)?._def?.shape || {}).length || 0;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_instanceof_against_namespace_import_constructor_as_opaque_false() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as z from "zod/v4";
+
+function maybeArray(schema: unknown): boolean {
+  return schema instanceof z.ZodArray;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_url_constructor_with_unknown_string_source() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const adminAbsoluteUrl: unknown = {};
+const sameOrigin = new URL(adminAbsoluteUrl).origin === new URL(adminAbsoluteUrl).origin;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::UrlField { .. })),
+        "expected URL fields to lower with an unknown string-compatible source",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_primitive_object_spread_sources_as_empty_records() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const enabled = false;
+const value = { id: "1", ...enabled };
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let _body = module_body(&ctx, module)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_temporal_global_as_opaque_unknown_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function zone(): unknown {
+  return Temporal.Instant.fromEpochMilliseconds(0).toZonedDateTimeISO(
+    Temporal.Now.timeZoneId(),
+  );
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn skips_vitest_mock_dynamic_import_registration() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { vi } from "vitest";
+
+vi.mock(import("./index.ts"), () => ({ add: 1 }));
+
+await import("./test.ts");
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_array_shift_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -1023,6 +1259,26 @@ const name = user.name;
             Type::Class { name, .. } if ctx.krate.symbols.get(*name) == Some("User")
         )
     }));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unannotated_class_getters_as_unknown_fields() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Validator {
+  public get scalarFieldsEnum() {
+    return {};
+  }
+}
+const validator = new Validator();
+const value = validator.scalarFieldsEnum;
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -2618,6 +2874,58 @@ const values = JSON.parse<number[]>(text);
 }
 
 #[test]
+fn lowers_untyped_json_parse_to_unknown_record() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const text = "{\"enabled\":true}";
+const values = JSON.parse(text);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::JsonParse { .. })
+                && matches!(ctx.krate.types.get(expr.ty), Some(Type::Dict(_, _)))
+        }),
+        "expected untyped JSON.parse to lower as an unknown record",
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_json_parse_with_assertion_target() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface ServerConfig {
+  host: string;
+  port: number;
+}
+
+const text = "{\"host\":\"localhost\",\"port\":1337}";
+const config = JSON.parse(text) as ServerConfig;
+const bag = JSON.parse(text) as Record<string, unknown>;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure_eq!(
+        body.exprs
+            .iter()
+            .filter(|expr| matches!(expr.kind, ExprKind::JsonParse { .. }))
+            .count(),
+        2
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_regexp_test_call() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2705,14 +3013,14 @@ const text = JSON.stringify(user);
 #[test]
 fn rejects_unsupported_json_parse_forms() -> Result<(), String> {
     let mut ctx = HirCtx::new();
-    let missing_type = lowering_errors(
+    let too_many_args = lowering_errors(
         ts!(r#"
 const text = "[1,2]";
-const values = JSON.parse(text);
+const values = JSON.parse<number[]>(text, 1);
 "#),
         &mut ctx,
     )?;
-    assert_unsupported_ts(&missing_type, "explicit type argument")
+    assert_unsupported_ts(&too_many_args, "exactly one text argument")
 }
 
 #[test]
@@ -2984,6 +3292,68 @@ fn lowers_array_from_length_without_mapper() -> Result<(), String> {
             .any(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. })),
         "Array.from({{ length }}) did not lower"
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_zero_arg_computed_member_function_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type QueryParam = 'fields' | 'populate';
+
+const map: Record<QueryParam, () => string> = {
+  fields: () => 'fields',
+  populate: () => 'populate',
+};
+
+const param: QueryParam = 'fields';
+const value = map[param]();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCall { .. })),
+        "zero-argument computed member function call did not lower"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_typeof_undefined_checks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function shouldCount(withCount?: boolean): boolean {
+  if (typeof withCount === 'undefined') {
+    return false;
+  }
+
+  return typeof withCount !== 'undefined';
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_external_static_member_new_expressions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { errors } from '@strapi/utils';
+
+function fail(): never {
+  throw new errors.ValidationError('invalid');
+}
+"#),
+        &mut ctx,
+    )?;
     Ok(())
 }
 

@@ -234,7 +234,9 @@ impl FunctionEmitter<'_> {
                 self.operand_as_type_text(then_operand, dest_ty)?,
                 self.operand_as_type_text(else_operand, dest_ty)?
             )),
-            Rvalue::OptionalField { receiver, field } => self.optional_field_text(receiver, *field),
+            Rvalue::OptionalField { receiver, field } => {
+                self.optional_field_text_for_dest(receiver, *field, dest_ty)
+            }
             Rvalue::OptionalIndex { receiver, index } => self.optional_index_text(receiver, index),
             Rvalue::OptionalMethod {
                 receiver,
@@ -462,7 +464,7 @@ impl FunctionEmitter<'_> {
                     _ if self.is_borrowed_callback_capture_name(&callee_text) => {
                         format!("{callee_text}({args_text})")
                     }
-                    _ => format!("({callee_text}.borrow_mut())({args_text})"),
+                    _ => format!("(&mut *{callee_text}.borrow_mut())({args_text})"),
                 };
                 let source_ty = match self.mir.types.get(self.operand_ty(callee)?) {
                     Some(Type::Function(function)) => function.return_ty,
@@ -584,9 +586,15 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::JsonParse { text } => self.json_parse_text(text, dest_ty),
             Rvalue::HttpGetText { url } => self.http_get_text(url),
-            Rvalue::DateNow => Ok("chrono::Utc::now().timestamp_millis()".to_owned()),
+            Rvalue::DateNow => {
+                let text = "chrono::Utc::now().timestamp_millis()";
+                self.date_timestamp_result_text(text, dest_ty)
+            }
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
-            Rvalue::DateFromParts { parts } => self.date_from_parts_text(parts),
+            Rvalue::DateFromParts { parts } => {
+                let text = self.date_from_parts_text(parts)?;
+                self.date_timestamp_result_text(&text, dest_ty)
+            }
             Rvalue::DateGetPart { part, timestamp_ms } => {
                 self.date_get_part_text(*part, timestamp_ms)
             }
@@ -594,7 +602,10 @@ impl FunctionEmitter<'_> {
                 part,
                 timestamp_ms,
                 values,
-            } => self.date_set_part_text(*part, timestamp_ms, values),
+            } => {
+                let text = self.date_set_part_text(*part, timestamp_ms, values)?;
+                self.date_timestamp_result_text(&text, dest_ty)
+            }
             Rvalue::UrlField { field, url } => self.url_field_text(*field, url),
             Rvalue::FileReadText { path } => self.file_read_text(path),
             Rvalue::FileWriteText { path, text } => self.file_write_text(path, text),
@@ -908,22 +919,63 @@ impl FunctionEmitter<'_> {
         self.rendered_value_as_type_text(&value, inner, target)
     }
 
-    /// Emits Rust for a TypeScript optional-chain field read.
-    pub(super) fn optional_field_text(
+    /// Emits Rust for an optional-chain field read coerced to a destination type.
+    pub(super) fn optional_field_text_for_dest(
         &self,
         receiver: &Operand,
         field: Symbol,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
+        let field_ty = self.field_access_type(inner_ty, field)?;
         if is_optional {
             let value = self.field_access_text("_smelt_value", inner_ty, field)?;
+            if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
+                let mapped = self.rendered_value_as_type_text(&value, field_ty, *dest_inner)?;
+                return Ok(format!(
+                    "{receiver_text}.as_ref().map(|_smelt_value| {mapped})"
+                ));
+            }
+            let mapped = self.rendered_value_as_type_text(&value, field_ty, dest_ty)?;
             Ok(format!(
-                "{receiver_text}.as_ref().map(|_smelt_value| {value})"
+                "{receiver_text}.as_ref().map_or({}, |_smelt_value| {mapped})",
+                self.default_value(dest_ty)?
             ))
         } else {
             let value = self.field_access_text(&receiver_text, inner_ty, field)?;
-            Ok(format!("Some({value})"))
+            if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
+                let mapped = self.rendered_value_as_type_text(&value, field_ty, *dest_inner)?;
+                return Ok(format!("Some({mapped})"));
+            }
+            self.rendered_value_as_type_text(&value, field_ty, dest_ty)
         }
+    }
+
+    /// Returns the static type produced by a field read helper.
+    fn field_access_type(&self, receiver_ty: TypeId, field: Symbol) -> Result<TypeId, EmitError> {
+        if let Some(Type::Dict(_, value)) = self.mir.types.get(receiver_ty) {
+            return Ok(*value);
+        }
+        if matches!(
+            self.mir.types.get(receiver_ty),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+        ) || self.is_erased_class_type(receiver_ty)
+        {
+            return self.type_id(Type::Unknown);
+        }
+        let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
+            return self.type_id(Type::Unknown);
+        };
+        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) else {
+            return self.type_id(Type::Unknown);
+        };
+        Ok(crate::classes::effective_class_fields(self.mir, class)
+            .into_iter()
+            .find(|class_field| class_field.name == field)
+            .map_or_else(
+                || self.type_id(Type::Unknown),
+                |class_field| Ok(class_field.ty),
+            )?)
     }
 
     /// Emits Rust for a TypeScript optional-chain index read.

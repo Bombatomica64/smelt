@@ -200,7 +200,12 @@ impl FunctionEmitter<'_> {
                         EmitError::new("purry function is missing callback param")
                     })?;
                     let callback_ty = self.function_local_decl(function, *callback_param)?.ty;
-                    rendered_args.push(self.function_param_argument_text(first_arg, callback_ty)?);
+                    if self.function_parameter_requires_owned_in(function, *callback_param)? {
+                        rendered_args.push(self.operand_as_type_text(first_arg, callback_ty)?);
+                    } else {
+                        rendered_args
+                            .push(self.borrowed_function_argument_text(first_arg, callback_ty)?);
+                    }
                     rendered_args.push(self.operand_text(data_arg)?);
                     if let Some(lazy_arg) = args.get(2) {
                         let lazy_param = function.params.get(2).ok_or_else(|| {
@@ -223,11 +228,12 @@ impl FunctionEmitter<'_> {
                     .zip(function.params.iter())
                     .map(|(arg, param)| {
                         let local = self.function_local_decl(function, *param)?;
-                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
-                            self.function_param_argument_text(arg, local.ty)
-                        } else {
-                            self.operand_as_type_text(arg, local.ty)
+                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
+                            && !self.function_parameter_requires_owned_in(function, *param)?
+                        {
+                            return self.borrowed_function_argument_text(arg, local.ty);
                         }
+                        self.operand_as_type_text(arg, local.ty)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 for param in function.params.iter().skip(args.len()) {

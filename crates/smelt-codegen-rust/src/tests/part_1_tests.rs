@@ -53,11 +53,11 @@ const returned = adder(6);
 "#,
     );
 
-    assert!(source.contains("&mut dyn FnMut(f64) -> f64"));
+    assert!(source.contains("Rc<::std::cell::RefCell<dyn FnMut(f64) -> f64>>"));
     assert!(source.contains("(3.0)"));
     assert!(source.contains("apply(4.0,"));
     assert!(source.contains("make_adder(5.0)"));
-    assert!(source.contains("(adder.borrow_mut())(6.0)"));
+    assert!(source.contains("(&mut *adder.borrow_mut())(6.0)"));
     assert!(source.contains("move |"));
 }
 

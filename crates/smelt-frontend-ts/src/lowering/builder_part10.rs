@@ -193,13 +193,7 @@ impl ModuleBuilder<'_> {
                 "new URL() currently supports exactly one string URL argument",
             ));
         };
-        let url = self.argument(url_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL(text) requires a string URL argument",
-            ));
-        }
+        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::UrlField { field, url },
@@ -235,13 +229,7 @@ impl ModuleBuilder<'_> {
                 "new URL() currently supports exactly one string URL argument",
             ));
         };
-        let url = self.argument(url_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL(text) requires a string URL argument",
-            ));
-        }
+        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::UrlField {
@@ -251,6 +239,35 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower a `new URL(...)` argument into the string value used by URL helpers.
+    fn url_string_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+        url_span: oxc::span::Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let url = self.argument(argument, body)?;
+        let url_ty = Self::expr_ty(body, url);
+        if self.ctx.krate.types.get(url_ty) == Some(&Type::String) {
+            return Ok(url);
+        }
+        if self.is_string_compatible_type(url_ty) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: url,
+                    target: string_ty,
+                },
+                ty: string_ty,
+                span: self.span(argument.span().start, argument.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(url_span.start, url_span.end),
+            "new URL(text) requires a string URL argument",
+        ))
     }
 
     /// Lower direct TypeScript `Math.abs(...)` calls.
@@ -752,6 +769,34 @@ impl ModuleBuilder<'_> {
             ty: list_ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Lower `process.cwd()` as an opaque current-working-directory string.
+    fn node_process_cwd_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "cwd"
+            || !matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "process")
+        {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "process.cwd() requires no arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(String::new())),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower the small `Intl` surface used by date-fns timezone test labels.

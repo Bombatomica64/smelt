@@ -3,6 +3,28 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Coerce an `i64` JavaScript timestamp expression into the destination type.
+    pub(super) fn date_timestamp_result_text(
+        &self,
+        text: &str,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        match self.mir.types.get(dest_ty) {
+            Some(Type::Float) => Ok(format!("({text} as f64)")),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                Ok(format!("SmeltUnknown::Number({text} as f64)"))
+            }
+            Some(Type::Optional(inner)) => {
+                let inner_text = self.date_timestamp_result_text(text, *inner)?;
+                Ok(format!("Some({inner_text})"))
+            }
+            _ if self.is_erased_class_type(dest_ty) => {
+                Ok(format!("SmeltUnknown::Number({text} as f64)"))
+            }
+            _ => Ok(text.to_owned()),
+        }
+    }
+
     /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     pub(super) fn date_to_iso_string_text(
         &self,

@@ -22,6 +22,26 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.dynamic_date_constructor_expression(new_expr, body)? {
                 return Ok(expr);
             }
+            if let Expression::StaticMemberExpression(member) = &new_expr.callee {
+                let class_name = self.intern_type_name(member.property.name.as_str());
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: Vec::new(),
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: class_name,
+                        args,
+                    },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
+            }
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
                 "new expressions require a direct class name",
@@ -170,13 +190,7 @@ impl ModuleBuilder<'_> {
                 "new URL() currently supports exactly one string URL argument",
             ));
         };
-        let url = self.argument(url_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL(text) requires a string URL argument",
-            ));
-        }
+        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(body.push_expr(Expr {
             kind: ExprKind::UrlField {
@@ -637,14 +651,21 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let awaited = self.expression(&await_expr.argument, body)?;
-                let ty = self
-                    .future_inner_type(Self::expr_ty(body, awaited))
-                    .ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(await_expr.span.start, await_expr.span.end),
-                            "await expressions require a Promise<T> operand",
-                        )
-                    })?;
+                let awaited_ty = Self::expr_ty(body, awaited);
+                let Some(ty) = self.future_inner_type(awaited_ty) else {
+                    if self.ctx.krate.types.get(awaited_ty) == Some(&Type::Unknown) {
+                        let ty = self.ctx.krate.types.intern(Type::Unknown);
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::None),
+                            ty,
+                            span: self.span(await_expr.span.start, await_expr.span.end),
+                        }));
+                    }
+                    return Err(SmeltError::unsupported(
+                        self.span(await_expr.span.start, await_expr.span.end),
+                        "await expressions require a Promise<T> operand",
+                    ));
+                };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Await(awaited),
                     ty,

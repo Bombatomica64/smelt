@@ -44,6 +44,11 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
+                {
+                    return Ok("SmeltUnknown::Null".to_owned());
+                }
                 Ok(format!(
                     "{}.{}",
                     self.local_name(*base)?,
@@ -125,7 +130,12 @@ impl FunctionEmitter<'_> {
         len_expr: &str,
         index: &Operand,
     ) -> Result<String, EmitError> {
-        let index_text = self.operand_text(index)?;
+        let index_ty = self.operand_ty(index)?;
+        let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
+            self.operand_text(index)?
+        } else {
+            self.operand_as_type_text(index, self.type_id(Type::Float)?)?
+        };
         Ok(format!(
             "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"
         ))

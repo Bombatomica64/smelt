@@ -9,6 +9,7 @@
 )]
 
 use crate::{EmitError, compact_index, id_index, sanitize_ident};
+use literals::operand_local;
 use smelt_hir::{FileId, Span, Symbol, Type, TypeId};
 use smelt_mir::{
     BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir,
@@ -44,13 +45,15 @@ use literals::{assigned_locals, constant_text, hir_literal_text, method_mutates_
 /// Precomputed crate-level codegen facts shared by all function emitters.
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
-    none_ty: TypeId,
+    pub(crate) none_ty: TypeId,
     /// Rust function names keyed by MIR function ID.
     function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
     function_param_types: HashMap<String, Vec<TypeId>>,
     /// First emitted Rust name keyed by source callback symbol.
     callback_names: HashMap<Symbol, String>,
+    /// Function parameters that must use an owned callback handle.
+    owned_callback_params: HashSet<(FuncId, LocalId)>,
 }
 
 impl EmitContext {
@@ -116,13 +119,192 @@ impl EmitContext {
             function_param_types.insert(rust_name.clone(), params);
             function_names.insert(function.id, rust_name);
         }
+        let owned_callback_params = compute_owned_callback_params(mir)?;
 
         Ok(Self {
             none_ty,
             function_names,
             function_param_types,
             callback_names,
+            owned_callback_params,
         })
+    }
+}
+
+/// Computes which callback parameters need owned `Rc<RefCell<dyn FnMut...>>`.
+///
+/// A callback parameter needs ownership if it escapes its defining function, or
+/// if it is forwarded to another function parameter that itself needs
+/// ownership. The latter is a fixpoint because helper functions often pass
+/// callbacks through multiple layers before one layer returns or stores them.
+fn compute_owned_callback_params(mir: &Mir) -> Result<HashSet<(FuncId, LocalId)>, EmitError> {
+    let mut owned = HashSet::new();
+    for function in &mir.functions {
+        for param in &function.params {
+            let local = function
+                .locals
+                .get(id_index(param.0, "local index does not fit usize")?)
+                .ok_or_else(|| EmitError::new("function parameter references unknown local"))?;
+            if !matches!(mir.types.get(local.ty), Some(Type::Function(_))) {
+                continue;
+            }
+            if callback_param_escapes_locally(mir, function, *param)? {
+                owned.insert((function.id, *param));
+            }
+        }
+    }
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for function in &mir.functions {
+            for block in &function.blocks {
+                let Some(Terminator::Call {
+                    callee: Callee::Static(callee_id),
+                    args,
+                    ..
+                }) = &block.terminator
+                else {
+                    continue;
+                };
+                let Some(callee) = mir
+                    .functions
+                    .get(id_index(callee_id.0, "function index does not fit usize")?)
+                else {
+                    continue;
+                };
+                let closure_defs = closure_definitions(function)?;
+                for (arg, callee_param) in args.iter().zip(callee.params.iter()) {
+                    if !owned.contains(&(callee.id, *callee_param)) {
+                        continue;
+                    }
+                    let Some(arg_local) = operand_local(arg) else {
+                        continue;
+                    };
+                    if function.params.contains(&arg_local)
+                        && owned.insert((function.id, arg_local))
+                    {
+                        changed = true;
+                    }
+                    if let Some(closure_id) = closure_defs.get(&arg_local)
+                        && let Some(closure) = mir
+                            .closures
+                            .get(id_index(closure_id.0, "closure index does not fit usize")?)
+                    {
+                        for capture in &closure.captures {
+                            if function.params.contains(&capture.source_local)
+                                && owned.insert((function.id, capture.source_local))
+                            {
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(owned)
+}
+
+/// Returns whether a callback parameter escapes inside its own function body.
+fn callback_param_escapes_locally(
+    mir: &Mir,
+    function: &MirFunction,
+    local: LocalId,
+) -> Result<bool, EmitError> {
+    let directly_returned = function.blocks.iter().any(|block| {
+        matches!(
+            &block.terminator,
+            Some(Terminator::Return(Operand::Copy(place) | Operand::Move(place)))
+                if *place == Place::Local(local)
+        )
+    });
+    let closure_ids = function
+        .blocks
+        .iter()
+        .flat_map(|block| &block.statements)
+        .filter_map(|statement| match statement {
+            Statement::Assign {
+                value: Rvalue::Closure { id, .. },
+                ..
+            }
+            | Statement::AssignPlace {
+                value: Rvalue::Closure { id, .. },
+                ..
+            } => Some(*id),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+    let captured_by_any_closure = mir
+        .closures
+        .iter()
+        .filter(|closure| closure_ids.contains(&closure.id))
+        .any(|closure| {
+            closure
+                .captures
+                .iter()
+                .any(|capture| capture.source_local == local)
+        });
+    Ok(directly_returned
+        || type_contains_function(mir, function.return_ty)
+        || (matches!(mir.types.get(function.return_ty), Some(Type::Function(_)))
+            && captured_by_any_closure)
+        || mir.closures.iter().any(|closure| {
+            closure_ids.contains(&closure.id)
+                && closure.escapes
+                && closure
+                    .captures
+                    .iter()
+                    .any(|capture| capture.source_local == local)
+        }))
+}
+
+/// Return closure definitions in a function keyed by destination local.
+fn closure_definitions(
+    function: &MirFunction,
+) -> Result<HashMap<LocalId, smelt_mir::ClosureId>, EmitError> {
+    let mut definitions = HashMap::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            match statement {
+                Statement::Assign {
+                    dest,
+                    value: Rvalue::Closure { id, .. },
+                } => {
+                    definitions.insert(*dest, *id);
+                }
+                Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(Operand::Copy(place) | Operand::Move(place)),
+                } => {
+                    if let Place::Local(source) = place
+                        && let Some(id) = definitions.get(source).copied()
+                    {
+                        definitions.insert(*dest, id);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(definitions)
+}
+
+/// Return whether a type recursively contains a function value.
+fn type_contains_function(mir: &Mir, ty: TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Function(_)) => true,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            type_contains_function(mir, *item)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_contains_function(mir, *key) || type_contains_function(mir, *value)
+        }
+        Some(Type::Tuple(items) | Type::Union(items)) => {
+            items.iter().any(|item| type_contains_function(mir, *item))
+        }
+        _ => false,
     }
 }
 
@@ -140,6 +322,8 @@ pub(crate) struct FunctionEmitter<'mir> {
     mutable_locals: HashSet<LocalId>,
     /// Locals that have already been introduced in the generated Rust scope.
     declared_locals: RefCell<HashSet<LocalId>>,
+    /// Captured callback names that are emitted as borrowed `FnMut` values.
+    borrowed_callback_names: HashSet<String>,
     /// The type ID of the None type.
     none_ty: TypeId,
     /// Synthetic unknown local used when malformed MIR references a missing local.

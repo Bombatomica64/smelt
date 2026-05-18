@@ -175,6 +175,8 @@ pub struct MirClass {
 pub struct MirInterface {
     /// Name of the interface.
     pub name: Symbol,
+    /// Generic type parameters declared by the interface.
+    pub type_params: Vec<smelt_hir::TypeParamDef>,
     /// Fields defined in the interface.
     pub fields: Vec<MirField>,
     /// Method signatures in the interface.

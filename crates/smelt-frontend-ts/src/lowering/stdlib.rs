@@ -587,22 +587,20 @@ impl ModuleBuilder<'_> {
                 "JSON.parse<T>() currently supports exactly one text argument",
             ));
         };
-        let Some(type_args) = &call.type_arguments else {
+        let ty = if let Some(type_args) = &call.type_arguments {
+            let [target_ty] = type_args.params.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "JSON.parse requires exactly one type argument",
+                ));
+            };
+            self.ts_type_to_hir(target_ty)?
+        } else {
+            self.json_parse_fallback_type()
+        };
+        if !self.is_json_serializable_type(ty) && !self.is_erased_json_class_target(ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "JSON.parse requires an explicit type argument",
-            ));
-        };
-        let [target_ty] = type_args.params.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "JSON.parse requires exactly one type argument",
-            ));
-        };
-        let ty = self.ts_type_to_hir(target_ty)?;
-        if !self.is_json_serializable_type(ty) {
-            return Err(SmeltError::unsupported(
-                self.span(target_ty.span().start, target_ty.span().end),
                 "JSON.parse<T>() target type must be JSON-compatible",
             ));
         }
@@ -617,6 +615,56 @@ impl ModuleBuilder<'_> {
             kind: ExprKind::JsonParse { text },
             ty,
             span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Return the fallback type for untyped `JSON.parse(text)`.
+    fn json_parse_fallback_type(&mut self) -> smelt_hir::TypeId {
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+    }
+
+    /// Lower `JSON.parse(text) as T` using the assertion type as parse target.
+    pub(super) fn json_parse_call_with_target(
+        &mut self,
+        expression: &Expression<'_>,
+        target: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::CallExpression(call) = expression else {
+            return Ok(None);
+        };
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse) {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "JSON.parse() currently supports exactly one text argument",
+            ));
+        };
+        if call.type_arguments.is_some() {
+            return Ok(None);
+        }
+        if !self.is_json_serializable_type(target) && !self.is_erased_json_class_target(target) {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "JSON.parse assertion target type must be JSON-compatible",
+            ));
+        }
+        let text = self.argument(argument, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(argument.span().start, argument.span().end),
+                "JSON.parse() text argument must be a string",
+            ));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::JsonParse { text },
+            ty: target,
+            span: self.span(span.start, span.end),
         })))
     }
 
@@ -904,21 +952,82 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
-    fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-                self.is_json_serializable_type(*item)
+    fn is_json_serializable_type(&mut self, ty: smelt_hir::TypeId) -> bool {
+        self.is_json_serializable_type_inner(ty, &mut Vec::new())
+    }
+
+    /// Return whether a HIR type can be serialized without recursing forever.
+    fn is_json_serializable_type_inner(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        seen: &mut Vec<smelt_hir::Symbol>,
+    ) -> bool {
+        let Some(ty_kind) = self.ctx.krate.types.get(ty).cloned() else {
+            return false;
+        };
+        match ty_kind {
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::TypeParam { .. } => true,
+            Type::List(item) | Type::Set(item) | Type::Optional(item) => {
+                self.is_json_serializable_type_inner(item, seen)
             }
-            Some(Type::Tuple(items)) => items
+            Type::Tuple(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type(*item)),
-            Some(Type::Dict(key, value)) => {
-                matches!(self.ctx.krate.types.get(*key), Some(Type::String))
-                    && self.is_json_serializable_type(*value)
+                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+            Type::Dict(key, value) => {
+                matches!(self.ctx.krate.types.get(key), Some(Type::String))
+                    && self.is_json_serializable_type_inner(value, seen)
             }
-            _ => false,
+            Type::Class { name, args } => {
+                if self.class_by_symbol(name).is_some() {
+                    return false;
+                }
+                self.json_class_fields(name, &args).is_some_and(|fields| {
+                    if seen.contains(&name) {
+                        return true;
+                    }
+                    seen.push(name);
+                    let serializable = fields
+                        .iter()
+                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen));
+                    seen.pop();
+                    serializable
+                })
+            }
+            Type::Never | Type::None | Type::Function(_) | Type::Future(_) | Type::Union(_) => {
+                false
+            }
         }
+    }
+
+    /// Return fields for class-like TypeScript types that can map to JSON objects.
+    fn json_class_fields(
+        &mut self,
+        name: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+    ) -> Option<Vec<smelt_hir::Field>> {
+        if let Some(class) = self.class_by_symbol(name).cloned() {
+            let substitutions = self
+                .type_argument_substitution(&class.type_params, args, self.span(0, 0))
+                .ok()?;
+            return Some(self.substituted_fields(&class.fields, &substitutions));
+        }
+        if let Some(interface) = self.find_interface(name).cloned() {
+            let substitutions = self
+                .type_argument_substitution(&interface.type_params, args, self.span(0, 0))
+                .ok()?;
+            return Some(self.substituted_fields(&interface.fields, &substitutions));
+        }
+        self.type_alias_fields.get(&name).cloned()
+    }
+
+    /// Return whether a JSON parse target is a class-like shape whose fields are erased.
+    fn is_erased_json_class_target(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
     }
 
     /// Lower direct TypeScript `Array.prototype.shift` calls.

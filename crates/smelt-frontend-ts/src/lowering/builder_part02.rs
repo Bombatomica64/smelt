@@ -199,7 +199,7 @@ impl ModuleBuilder<'_> {
                     errors.push(error);
                 }
             }
-            inferred_return_ty = Self::last_return_type(&body);
+            inferred_return_ty = self.last_return_type(&body);
         }
         if arrow.r#async {
             body.build_async_state_machine();
@@ -211,8 +211,9 @@ impl ModuleBuilder<'_> {
             self.pop_type_parameter_scope();
             return Err(error);
         }
-        let inferred_return_ty = inferred_return_ty
-            .or_else(|| arrow.r#async.then(|| self.ctx.krate.types.intern(Type::None)));
+        let inferred_return_ty = inferred_return_ty.or_else(|| {
+            (arrow.r#async || !arrow.expression).then(|| self.ctx.krate.types.intern(Type::None))
+        });
         let return_ty = if arrow.r#async {
             declared_return_ty.or_else(|| {
                 inferred_return_ty.map(|inner| self.ctx.krate.types.intern(Type::Future(inner)))
@@ -256,13 +257,83 @@ impl ModuleBuilder<'_> {
             .intern(format!("__param{index}").as_str())
     }
 
-    /// Infer a block-bodied arrow return type from its final direct return.
-    fn last_return_type(body: &Body) -> Option<smelt_hir::TypeId> {
+    /// Infer a block-bodied arrow return type from reachable direct returns.
+    fn last_return_type(&mut self, body: &Body) -> Option<smelt_hir::TypeId> {
+        let mut found = Vec::new();
+        Self::collect_return_types_from_block(body, body.root, &mut found);
+        if let Some(first) = found.first().copied() {
+            if found.iter().all(|ty| *ty == first) {
+                return Some(first);
+            }
+            return Some(self.ctx.krate.types.intern(Type::Unknown));
+        }
         let root = body.blocks.get(usize::try_from(body.root.0).ok()?)?;
         let last_stmt = root.stmts.last()?;
         match body.stmts.get(usize::try_from(last_stmt.0).ok()?) {
             Some(Stmt::Return(Some(expr))) => Some(Self::expr_ty(body, *expr)),
             _ => None,
+        }
+    }
+
+    /// Collect return value types from a block and nested control-flow blocks.
+    fn collect_return_types_from_block(
+        body: &Body,
+        block: smelt_hir::BlockId,
+        out: &mut Vec<smelt_hir::TypeId>,
+    ) {
+        let Some(block) = body.blocks.get(usize::try_from(block.0).ok().unwrap_or(usize::MAX))
+        else {
+            return;
+        };
+        for stmt_id in &block.stmts {
+            Self::collect_return_types_from_stmt(body, *stmt_id, out);
+        }
+    }
+
+    /// Collect return value types from a statement and any nested statement bodies.
+    fn collect_return_types_from_stmt(body: &Body, stmt_id: smelt_hir::StmtId, out: &mut Vec<smelt_hir::TypeId>) {
+        let Some(stmt) = body.stmts.get(usize::try_from(stmt_id.0).ok().unwrap_or(usize::MAX))
+        else {
+            return;
+        };
+        match stmt {
+            Stmt::Return(Some(expr)) => out.push(Self::expr_ty(body, *expr)),
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::collect_return_types_from_block(body, *then_block, out);
+                if let Some(else_block) = else_block {
+                    Self::collect_return_types_from_block(body, *else_block, out);
+                }
+            }
+            Stmt::While { body: loop_body, .. } | Stmt::For { body: loop_body, .. } => {
+                Self::collect_return_types_from_block(body, *loop_body, out);
+            }
+            Stmt::Match { arms, default, .. } => {
+                for arm in arms {
+                    Self::collect_return_types_from_block(body, arm.body, out);
+                }
+                if let Some(default) = default {
+                    Self::collect_return_types_from_block(body, *default, out);
+                }
+            }
+            Stmt::TryCatch {
+                body: try_body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                Self::collect_return_types_from_block(body, *try_body, out);
+                if let Some(catch_body) = catch_body {
+                    Self::collect_return_types_from_block(body, *catch_body, out);
+                }
+                if let Some(finally_body) = finally_body {
+                    Self::collect_return_types_from_block(body, *finally_body, out);
+                }
+            }
+            _ => {}
         }
     }
 

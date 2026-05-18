@@ -1361,6 +1361,9 @@ impl ModuleBuilder<'_> {
         match receiver_type {
             Type::Dict(_, value) => Ok(value),
             Type::Unknown | Type::TypeParam { .. } => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            Type::Bool => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
             Type::Float | Type::Int
                 if self.ctx.krate.symbols.get(field) == Some("constructor") =>
             {
@@ -1543,6 +1546,20 @@ impl ModuleBuilder<'_> {
                         !self.class_fields.contains_key(sidecar_name)
                     })
                     && !interface_exists
+                {
+                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                }
+                if self
+                    .class_by_symbol(name)
+                    .is_some_and(|class| class.base.is_some())
+                    || self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(name)
+                        .is_some_and(|base_lookup_name| {
+                            self.class_bases.contains_key(base_lookup_name)
+                        })
                 {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 }
@@ -2178,7 +2195,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        if name == "RegExp" {
+        if matches!(name, "RegExp" | "Temporal") {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::DictLit(Vec::new()),
@@ -2230,6 +2247,10 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
+            if name == "strapi" {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return self.module_global_expression(ty, start, end, body);
+            }
             if self.value_imports.contains(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(ty, start, end, body);
@@ -2247,6 +2268,17 @@ impl ModuleBuilder<'_> {
                 format!("unresolved identifier `{name}`"),
             ));
         };
+        if usize::try_from(local.0)
+            .ok()
+            .is_none_or(|index| index >= body.locals.len())
+        {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(start, end),
+            }));
+        }
         let base_ty = Self::local_ty(body, local);
         let ty = self.narrowed_type(name).unwrap_or(base_ty);
         let local_expr = body.push_expr(Expr {

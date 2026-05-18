@@ -1609,7 +1609,7 @@ impl ModuleBuilder<'_> {
             lowering_result?;
 
             let return_ty = declared_return_ty
-                .or_else(|| Self::last_return_type(&closure_body))
+                .or_else(|| self.last_return_type(&closure_body))
                 .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
             let body_id = self.ctx.krate.push_body(closure_body);
             let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {

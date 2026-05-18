@@ -142,6 +142,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             smelt_hir::Item::Interface(interface) => {
                 mir.interfaces.push(crate::MirInterface {
                     name: interface.name,
+                    type_params: interface.type_params.clone(),
                     fields: interface
                         .fields
                         .iter()

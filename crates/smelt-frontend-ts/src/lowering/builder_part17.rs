@@ -72,10 +72,15 @@ impl ModuleBuilder<'_> {
     }
 
     /// Resolve a class `implements` clause entry to an interface symbol.
+    ///
+    /// Qualified external interface references are opaque to Smelt's local
+    /// interface validator, so they are ignored instead of blocking class
+    /// lowering. Direct identifiers are still validated against local
+    /// interfaces.
     fn implements_symbol(
         &mut self,
         item: &oxc::ast::ast::TSClassImplements<'_>,
-    ) -> Result<smelt_hir::Symbol, SmeltError> {
+    ) -> Result<Option<smelt_hir::Symbol>, SmeltError> {
         if item.type_arguments.is_some() {
             return Err(SmeltError::unsupported(
                 self.span(item.span.start, item.span.end),
@@ -83,12 +88,9 @@ impl ModuleBuilder<'_> {
             ));
         }
         let TSTypeName::IdentifierReference(name) = &item.expression else {
-            return Err(SmeltError::unsupported(
-                self.span(item.span.start, item.span.end),
-                "qualified implements clauses are not lowered yet",
-            ));
+            return Ok(None);
         };
-        Ok(self.intern_type_name(name.name.as_str()))
+        Ok(Some(self.intern_type_name(name.name.as_str())))
     }
 
     /// Convert an interface heritage clause to the referenced interface symbol and arguments.

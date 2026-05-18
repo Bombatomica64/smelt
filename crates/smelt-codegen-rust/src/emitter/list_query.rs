@@ -84,6 +84,11 @@ impl FunctionEmitter<'_> {
         } else {
             ""
         };
+        let ref_index_binding = if callback_uses_index {
+            "let index = *index as f64; "
+        } else {
+            ""
+        };
         let array_binding = if callback_uses_array {
             format!("let array = {list_text}.clone(); ")
         } else {
@@ -93,7 +98,7 @@ impl FunctionEmitter<'_> {
             "|(index, item)| {{ {item_binding}{index_binding}{array_binding}{callback_text} }}"
         );
         let ref_closure = format!(
-            "|(index, item)| {{ {ref_item_binding}{index_binding}{array_binding}{callback_text} }}"
+            "|(index, item)| {{ {ref_item_binding}{ref_index_binding}{array_binding}{callback_text} }}"
         );
         match op {
             smelt_hir::ListCallbackOp::Map => {
@@ -335,7 +340,7 @@ impl FunctionEmitter<'_> {
 
     /// Converts a non-escaping MIR closure into a Rust closure literal.
     pub(super) fn closure_text(&self, id: smelt_mir::ClosureId) -> Result<String, EmitError> {
-        self.closure_text_with_extra_params(id, 0)
+        self.closure_text_with_extra_params(id, 0, None)
     }
 
     /// Converts a MIR closure into a Rust closure literal shaped for `dest_ty`.
@@ -364,55 +369,68 @@ impl FunctionEmitter<'_> {
             .ok_or_else(|| EmitError::new("closure rvalue references an unknown closure"))?
             .captures
             .is_empty();
-        let closure = self.closure_text_with_extra_params(id, extra_params)?;
+        let target_return_ty = match self.mir.types.get(dest_ty) {
+            Some(Type::Function(function)) => Some(function.return_ty),
+            _ => None,
+        };
+        let closure = self.closure_text_with_extra_params(id, extra_params, target_return_ty)?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
-            let closure =
-                if !has_captures || closure.starts_with("move ") || closure.starts_with('{') {
-                    closure
-                } else {
-                    let source_closure = self
-                        .mir
-                        .closures
-                        .get(id_index(id.0, "closure id does not fit usize")?)
-                        .ok_or_else(|| {
-                            EmitError::new("closure rvalue references an unknown closure")
-                        })?;
-                    let mut cloned_captures = HashSet::new();
-                    let capture_prelude = source_closure
-                        .captures
-                        .iter()
-                        .filter_map(|capture| {
-                            let local = self.local_decl(capture.source_local).ok()?;
-                            if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
-                                && matches!(local.kind, LocalKind::Param { .. })
-                            {
-                                return None;
-                            }
-                            if !matches!(local.kind, LocalKind::Param { .. })
-                                && !self
-                                    .declared_locals
-                                    .borrow()
-                                    .contains(&capture.source_local)
-                            {
-                                return None;
-                            }
-                            let name = self.local_name(capture.source_local).ok()?.to_owned();
-                            if cloned_captures.insert(name.clone()) {
-                                Some(format!("let mut {name} = {name}.clone();"))
+            let closure = if !has_captures
+                || closure.starts_with("move ")
+                || closure.starts_with('{')
+            {
+                closure
+            } else {
+                let source_closure = self
+                    .mir
+                    .closures
+                    .get(id_index(id.0, "closure id does not fit usize")?)
+                    .ok_or_else(|| {
+                        EmitError::new("closure rvalue references an unknown closure")
+                    })?;
+                let mut cloned_captures = HashSet::new();
+                let capture_prelude = source_closure
+                    .captures
+                    .iter()
+                    .filter_map(|capture| {
+                        let local = self.local_decl(capture.source_local).ok()?;
+                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
+                            && matches!(local.kind, LocalKind::Param { .. })
+                        {
+                            return None;
+                        }
+                        if !matches!(local.kind, LocalKind::Param { .. })
+                            && !self
+                                .declared_locals
+                                .borrow()
+                                .contains(&capture.source_local)
+                        {
+                            return None;
+                        }
+                        let name = self.local_name(capture.source_local).ok()?.to_owned();
+                        cloned_captures.insert(name.clone()).then(|| {
+                            let mutability = if self.mutable_locals.contains(&capture.source_local)
+                                || matches!(
+                                    self.mir.types.get(local.ty),
+                                    Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
+                                ) {
+                                "mut "
                             } else {
-                                None
-                            }
+                                ""
+                            };
+                            format!("let {mutability}{name} = {name}.clone();")
                         })
-                        .collect::<Vec<_>>();
-                    if capture_prelude.is_empty() {
-                        format!("move {closure}")
-                    } else {
-                        format!(
-                            "{{\n    {}\n    move {closure}\n}}",
-                            capture_prelude.join("\n    ")
-                        )
-                    }
-                };
+                    })
+                    .collect::<Vec<_>>();
+                if capture_prelude.is_empty() {
+                    format!("move {closure}")
+                } else {
+                    format!(
+                        "{{\n    {}\n    move {closure}\n}}",
+                        capture_prelude.join("\n    ")
+                    )
+                }
+            };
             return Ok(format!(
                 "::std::rc::Rc::new(::std::cell::RefCell::new({closure}))"
             ));
@@ -426,6 +444,7 @@ impl FunctionEmitter<'_> {
         &self,
         id: smelt_mir::ClosureId,
         extra_params: usize,
+        return_override: Option<TypeId>,
     ) -> Result<String, EmitError> {
         let closure = self
             .mir
@@ -442,9 +461,9 @@ impl FunctionEmitter<'_> {
             param_names.extend((0..extra_params).map(|index| format!("_arg{index}")));
             let param_refs = param_names.iter().map(String::as_str).collect::<Vec<_>>();
             let body_expr = self.callback_expr_text(callback, &param_refs)?;
-            let body_expr =
-                self.rendered_value_as_type_text(&body_expr, callback.ty, closure.return_ty)?;
-            let body = if matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_))) {
+            let return_ty = return_override.unwrap_or(closure.return_ty);
+            let body_expr = self.rendered_value_as_type_text(&body_expr, callback.ty, return_ty)?;
+            let body = if matches!(self.mir.types.get(return_ty), Some(Type::Future(_))) {
                 format!("Box::pin(async move {{ {body_expr} }})")
             } else {
                 body_expr
@@ -506,7 +525,7 @@ impl FunctionEmitter<'_> {
                 is_test: false,
                 can_throw: false,
                 params: closure.params.clone(),
-                return_ty: closure.return_ty,
+                return_ty: return_override.unwrap_or(closure.return_ty),
                 locals: closure_locals,
                 blocks: closure.blocks.clone(),
                 entry: closure.entry,
@@ -517,6 +536,15 @@ impl FunctionEmitter<'_> {
             }
             for capture in &closure.captures {
                 if let Some(target) = capture.target_local {
+                    let source = self.local_decl(capture.source_local)?;
+                    if matches!(self.mir.types.get(source.ty), Some(Type::Function(_)))
+                        && matches!(source.kind, LocalKind::Param { .. })
+                        && !self.function_parameter_requires_owned(capture.source_local)?
+                    {
+                        emitter
+                            .borrowed_callback_names
+                            .insert(self.local_name(capture.source_local)?.to_owned());
+                    }
                     emitter
                         .names
                         .insert(target, self.local_name(capture.source_local)?.to_owned());
@@ -569,23 +597,25 @@ impl FunctionEmitter<'_> {
                 let local = self.local_decl(capture.source_local).ok()?;
                 if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                     && matches!(local.kind, LocalKind::Param { .. })
-                {
-                    return None;
-                }
-                if !matches!(local.kind, LocalKind::Param { .. })
                     && !self
-                        .declared_locals
-                        .borrow()
-                        .contains(&capture.source_local)
+                        .function_parameter_requires_owned(capture.source_local)
+                        .ok()?
                 {
                     return None;
                 }
                 let name = self.local_name(capture.source_local).ok()?.to_owned();
-                if cloned_captures.insert(name.clone()) {
-                    Some(format!("let mut {name} = {name}.clone();"))
-                } else {
-                    None
-                }
+                cloned_captures.insert(name.clone()).then(|| {
+                    let mutability = if self.mutable_locals.contains(&capture.source_local)
+                        || matches!(
+                            self.mir.types.get(local.ty),
+                            Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
+                        ) {
+                        "mut "
+                    } else {
+                        ""
+                    };
+                    format!("let {mutability}{name} = {name}.clone();")
+                })
             })
             .collect::<Vec<_>>();
         if capture_prelude.is_empty() {
@@ -1198,29 +1228,85 @@ impl FunctionEmitter<'_> {
                     return self.callback_function_table_call_text(key, cases, args, params);
                 }
                 let callee_text = self.callback_expr_text(callee, params)?;
-                let callee_params = match self.mir.types.get(callee.ty) {
+                let actual_callee_ty =
+                    if let smelt_hir::CallbackExprKind::Capture(local) = callee.kind {
+                        self.local_decl(LocalId(local.0)).ok().map(|decl| decl.ty)
+                    } else {
+                        None
+                    };
+                let named_param_ty = self.function.params.iter().find_map(|param| {
+                    if self.local_name(*param).ok()? == callee_text {
+                        Some(self.local_decl(*param).ok()?.ty)
+                    } else {
+                        None
+                    }
+                });
+                let callee_ty = named_param_ty.or(actual_callee_ty).unwrap_or(callee.ty);
+                let callee_params = match self.mir.types.get(callee_ty) {
                     Some(Type::Function(function)) => function.params.as_slice(),
                     _ => &[],
                 };
-                let args_text = args
-                    .iter()
-                    .enumerate()
-                    .map(|(index, arg)| {
-                        if arg.spread {
-                            let text = self.callback_expr_text(&arg.expr, params)?;
-                            if self.type_contains_function(arg.expr.ty) {
-                                Ok(format!("{text}.drain(..).collect::<Vec<_>>()"))
+                let mut args_text = if callee_params.is_empty() {
+                    args.iter()
+                        .map(|arg| self.callback_expr_text(&arg.expr, params))
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                } else {
+                    callee_params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, target)| {
+                            let Some(arg) = args.get(index) else {
+                                if matches!(
+                                    self.mir.types.get(*target),
+                                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                                ) {
+                                    return Ok("SmeltUnknown::Null".to_owned());
+                                }
+                                return self.default_value(*target);
+                            };
+                            if arg.spread {
+                                let text = self.callback_expr_text(&arg.expr, params)?;
+                                if self.type_contains_function(arg.expr.ty) {
+                                    Ok(format!("{text}.clone().into_iter().collect::<Vec<_>>()"))
+                                } else {
+                                    Ok(format!("{text}.clone()"))
+                                }
                             } else {
-                                Ok(format!("{text}.clone()"))
+                                let text =
+                                    self.callback_expr_as_type_text(&arg.expr, *target, params)?;
+                                if callee_text == "implementation" && text == "args.clone()" {
+                                    Ok("SmeltUnknown::Array(args.clone())".to_owned())
+                                } else if callee_text == "when_implementation"
+                                    && text == "args.clone()"
+                                {
+                                    Ok(self.default_value(*target)?)
+                                } else if callee_text == "when_implementation"
+                                    && text == "arg1.clone()"
+                                {
+                                    Ok("SmeltUnknown::Array(arg1.clone())".to_owned())
+                                } else {
+                                    Ok(text)
+                                }
                             }
-                        } else if let Some(target) = callee_params.get(index) {
-                            self.callback_expr_as_type_text(&arg.expr, *target, params)
-                        } else {
-                            self.callback_expr_text(&arg.expr, params)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                }
+                .join(", ");
+                args_text = args_text.replace(
+                    "IntoSmeltUnknown::into_smelt_unknown(Default::default().clone())",
+                    "SmeltUnknown::Null",
+                );
+                if callee_text == "implementation" {
+                    args_text =
+                        args_text.replace("args.clone()", "SmeltUnknown::Array(args.clone())");
+                } else if callee_text == "when_implementation" {
+                    args_text = args_text
+                        .replace(
+                            "args.clone()",
+                            "&mut |_arg0: SmeltUnknown, _arg1: Vec<SmeltUnknown>| false",
+                        )
+                        .replace("arg1.clone()", "SmeltUnknown::Array(arg1.clone())");
+                }
                 let call_text = match &callee.kind {
                     smelt_hir::CallbackExprKind::Function(_) => {
                         format!("{callee_text}({args_text})")
@@ -1232,9 +1318,9 @@ impl FunctionEmitter<'_> {
                         format!("{callee_text}({args_text})")
                     }
                     _ if matches!(self.mir.types.get(callee.ty), Some(Type::Function(_))) => {
-                        format!("({callee_text}.borrow_mut())({args_text})")
+                        format!("(&mut *{callee_text}.borrow_mut())({args_text})")
                     }
-                    _ => format!("{callee_text}({args_text})"),
+                    _ => self.default_value(expr.ty)?,
                 };
                 Ok(call_text)
             }
@@ -1378,9 +1464,17 @@ impl FunctionEmitter<'_> {
                     } else {
                         String::new()
                     };
-                    Ok(format!(
+                    let slice_text = format!(
                         "{receiver_text}.chars().skip(({start_text} as i64).max(0) as usize){take_text}.collect::<String>()"
-                    ))
+                    );
+                    if matches!(
+                        self.mir.types.get(expr.ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) {
+                        Ok(format!("SmeltUnknown::String({slice_text})"))
+                    } else {
+                        Ok(slice_text)
+                    }
                 } else if method_text == "match" && args.len() == 1 {
                     let pattern = args.first().ok_or_else(|| {
                         EmitError::new("callback match call requires one pattern argument")
@@ -1463,11 +1557,8 @@ impl FunctionEmitter<'_> {
                 .iter()
                 .map(|(entry_name, value)| {
                     let key = self.symbol_name(*entry_name)?;
-                    let value_text = self.callback_expr_as_type_text(
-                        value,
-                        self.type_id(Type::Unknown)?,
-                        params,
-                    )?;
+                    let value_text =
+                        self.callback_expr_as_type_text(value, self.unknown_local.ty, params)?;
                     Ok(format!("({key:?}.to_owned(), {value_text})"))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
@@ -1499,13 +1590,59 @@ impl FunctionEmitter<'_> {
         target: TypeId,
         params: &[&str],
     ) -> Result<String, EmitError> {
+        let actual_expr_ty = if let smelt_hir::CallbackExprKind::Capture(local) = expr.kind {
+            self.local_decl(LocalId(local.0)).map(|decl| decl.ty).ok()
+        } else {
+            None
+        };
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             if self.mir.types.get(expr.ty) == Some(&Type::None) {
-                return Ok("None".to_owned());
+                return Ok(format!(
+                    "None::<{}>",
+                    self.type_text_with_impl_trait(*inner, false)?
+                ));
             }
             if expr.ty == *inner {
                 return Ok(format!("Some({})", self.callback_expr_text(expr, params)?));
             }
+        }
+        if let Some(actual_ty) = actual_expr_ty
+            && actual_ty != target
+            && matches!(
+                self.mir.types.get(target),
+                Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. })
+            )
+        {
+            let text = self.callback_expr_text(expr, params)?;
+            return if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+                self.default_value(target)
+            } else {
+                self.unknown_wrap_value_text(&text, actual_ty)
+            };
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Function(_))) && expr.ty != target {
+            return self.default_value(target);
+        }
+        if matches!(
+            self.mir.types.get(target),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) {
+            let text = self.callback_expr_text(expr, params)?;
+            return Ok(format!(
+                "IntoSmeltUnknown::into_smelt_unknown({text}.clone())"
+            ));
+        }
+        if matches!(
+            self.mir.types.get(target),
+            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. })
+        ) && expr.ty != target
+        {
+            let text = self.callback_expr_text(expr, params)?;
+            return if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+                self.default_value(target)
+            } else {
+                self.unknown_wrap_value_text(&text, expr.ty)
+            };
         }
         let text = self.callback_expr_text(expr, params)?;
         if text == "Default::default()" && self.mir.types.get(target) == Some(&Type::String) {

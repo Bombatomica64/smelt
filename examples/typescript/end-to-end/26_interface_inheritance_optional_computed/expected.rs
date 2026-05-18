@@ -2,6 +2,17 @@
 #![allow(dead_code, unused_variables)]
 
 #[derive(Clone, Debug)]
+struct Entity {
+    id: String,
+}
+
+#[derive(Clone, Debug)]
+struct Named {
+    id: String,
+    name: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 struct User {
     id: String,
 }

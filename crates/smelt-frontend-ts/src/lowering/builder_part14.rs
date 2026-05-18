@@ -1484,10 +1484,15 @@ impl ModuleBuilder<'_> {
                 if self.object_method_erases_to_iterable_marker(object_property) {
                     continue;
                 }
-                return Err(SmeltError::unsupported(
-                    self.span(object_property.span.start, object_property.span.end),
-                    "object methods are not lowered yet",
-                ));
+                let key = self.object_property_key_expr(object_property, body)?;
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(object_property.span.start, object_property.span.end),
+                });
+                entries.push((key, value));
+                continue;
             }
             if Self::is_computed_symbol_key(object_property) {
                 continue;
@@ -1527,10 +1532,15 @@ impl ModuleBuilder<'_> {
                         if self.object_method_erases_to_iterable_marker(object_property) {
                             continue;
                         }
-                        return Err(SmeltError::unsupported(
-                            self.span(object_property.span.start, object_property.span.end),
-                            "object methods are not lowered yet",
-                        ));
+                        let key = self.object_property_key_expr(object_property, body)?;
+                        let ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let value = body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::None),
+                            ty,
+                            span: self.span(object_property.span.start, object_property.span.end),
+                        });
+                        pending_entries.push((key, value));
+                        continue;
                     }
                     let key = self.object_property_key_expr(object_property, body)?;
                     let value_hint = self.object_property_value_hint(object_property, record_ty);
@@ -1560,13 +1570,42 @@ impl ModuleBuilder<'_> {
                         sources.push(source);
                         continue;
                     }
-                    let source = self.expression_with_hint(&spread.argument, body, record_ty)?;
+                    let mut source = self.expression_with_hint(&spread.argument, body, record_ty)?;
                     let source_ty = Self::expr_ty(body, source);
-                    self.accept_object_spread_source(source_ty, record_ty, spread.span)?;
-                    if record_ty.is_none()
-                        && matches!(self.ctx.krate.types.get(source_ty), Some(Type::Dict(_, _)))
+                    if self.object_spread_source_erases_to_empty(source_ty) {
+                        let ty = record_ty.unwrap_or_else(|| {
+                            let key_ty = self.ctx.krate.types.intern(Type::String);
+                            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                            self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+                        });
+                        source = body.push_expr(Expr {
+                            kind: ExprKind::DictLit(Vec::new()),
+                            ty,
+                            span: self.span(spread.span.start, spread.span.end),
+                        });
+                    } else if self
+                        .accept_object_spread_source(source_ty, record_ty, spread.span)
+                        .is_err()
                     {
-                        record_ty = Some(source_ty);
+                        let ty = record_ty.unwrap_or_else(|| {
+                            let key_ty = self.ctx.krate.types.intern(Type::String);
+                            let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                            self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+                        });
+                        source = body.push_expr(Expr {
+                            kind: ExprKind::DictLit(Vec::new()),
+                            ty,
+                            span: self.span(spread.span.start, spread.span.end),
+                        });
+                    }
+                    let final_source_ty = Self::expr_ty(body, source);
+                    if record_ty.is_none()
+                        && matches!(
+                            self.ctx.krate.types.get(final_source_ty),
+                            Some(Type::Dict(_, _))
+                        )
+                    {
+                        record_ty = Some(final_source_ty);
                     }
                     sources.push(source);
                 }
@@ -2058,6 +2097,14 @@ impl ModuleBuilder<'_> {
         }
     }
 
+    /// Return whether JavaScript object spread treats a source as an empty object.
+    fn object_spread_source_erases_to_empty(&self, source_ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(source_ty),
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None)
+        )
+    }
+
     /// Extract a dictionary type from a contextual object-literal type hint.
     fn dict_type_from_hint(&self, type_hint: Option<smelt_hir::TypeId>) -> Option<smelt_hir::TypeId> {
         let ty = type_hint?;
@@ -2122,6 +2169,14 @@ impl ModuleBuilder<'_> {
             .copied()
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
+            if self.namespace_imports.contains(namespace) {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span,
+                })));
+            }
             return Err(SmeltError::unsupported(
                 span,
                 format!("namespace import has no exported member `{member_name}`"),

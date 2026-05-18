@@ -2,6 +2,11 @@
 #![allow(dead_code, unused_variables)]
 
 #[derive(Clone, Debug)]
+struct Named {
+    name: String,
+}
+
+#[derive(Clone, Debug)]
 struct User {
     name: String,
 }

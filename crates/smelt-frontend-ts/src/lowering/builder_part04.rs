@@ -248,6 +248,11 @@ impl ModuleBuilder<'_> {
                 if self.is_test_framework_statement(&expr_stmt.expression) {
                     return Ok(());
                 }
+                if Self::is_vitest_mock_statement(&expr_stmt.expression)
+                    || Self::is_top_level_dynamic_import_await(&expr_stmt.expression)
+                {
+                    return Ok(());
+                }
                 if let Expression::CallExpression(call) = &expr_stmt.expression
                     && self.for_each_statement(call, body, block)?
                 {
@@ -907,6 +912,26 @@ impl ModuleBuilder<'_> {
             return false;
         };
         self.is_test_framework_callee(&call.callee)
+    }
+
+    /// Return whether this is a top-level `vi.mock(...)` registration.
+    fn is_vitest_mock_statement(expression: &Expression<'_>) -> bool {
+        let Expression::CallExpression(call) = expression else {
+            return false;
+        };
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return false;
+        };
+        member.property.name == "mock"
+            && matches!(&member.object, Expression::Identifier(object) if object.name == "vi")
+    }
+
+    /// Return whether this is a top-level `await import("...")` side-effect load.
+    fn is_top_level_dynamic_import_await(expression: &Expression<'_>) -> bool {
+        let Expression::AwaitExpression(await_expr) = expression else {
+            return false;
+        };
+        matches!(&await_expr.argument, Expression::ImportExpression(_))
     }
 
     /// Return a supported top-level test case call, if this expression is one.
