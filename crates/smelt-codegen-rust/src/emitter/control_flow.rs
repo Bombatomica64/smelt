@@ -37,15 +37,28 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
-            for (idx, statement) in block.statements.iter().enumerate() {
-                if idx != cond_statement_idx {
-                    self.emit_statement(statement, out)?;
-                }
-            }
+            let has_header_work = block
+                .statements
+                .iter()
+                .enumerate()
+                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_locals_snapshot();
-            out.push_str(&format!("    while {cond} {{\n"));
+            if has_header_work {
+                out.push_str("    loop {\n");
+                for statement in &block.statements {
+                    self.emit_statement(statement, out)?;
+                }
+                out.push_str(&format!(
+                    "    if !({}) {{ break; }}\n",
+                    self.truthy_operand_text(&Operand::Copy(Place::Local(
+                        self.switch_cond_local(block)?
+                    )))?
+                ));
+            } else {
+                out.push_str(&format!("    while {cond} {{\n"));
+            }
             self.emit_block_until_goto(then, block.id, Some(else_block), out)?;
             out.push_str("    }\n");
             self.restore_declared_locals(loop_declared);
@@ -55,16 +68,29 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, latch_block, else_block, cond_statement_idx)) =
             self.while_header_with_latch(block)?
         {
-            for (idx, statement) in block.statements.iter().enumerate() {
-                if idx != cond_statement_idx {
-                    self.emit_statement(statement, out)?;
-                }
-            }
+            let has_header_work = block
+                .statements
+                .iter()
+                .enumerate()
+                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_locals_snapshot();
-            out.push_str(&format!("    while {cond} {{\n"));
+            if has_header_work {
+                out.push_str("    loop {\n");
+                for statement in &block.statements {
+                    self.emit_statement(statement, out)?;
+                }
+                out.push_str(&format!(
+                    "    if !({}) {{ break; }}\n",
+                    self.truthy_operand_text(&Operand::Copy(Place::Local(
+                        self.switch_cond_local(block)?
+                    )))?
+                ));
+            } else {
+                out.push_str(&format!("    while {cond} {{\n"));
+            }
             self.emit_block_until_goto(then, latch_block, Some(else_block), out)?;
             for statement in &latch.statements {
                 self.emit_statement(statement, out)?;
@@ -95,8 +121,11 @@ impl FunctionEmitter<'_> {
             Statement::Assign { dest, value } => {
                 let local = self.local_decl(*dest)?;
                 let name = self.local_name(*dest)?;
+                if matches!(value, Rvalue::Closure { .. }) && !self.local_has_uses(*dest) {
+                    return Ok(());
+                }
                 let raw_rendered_value = self.rvalue_text_for_dest(value, local.ty)?;
-                let rendered_value =
+                let mut rendered_value =
                     if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
                         && raw_rendered_value == "Default::default()"
                     {
@@ -104,19 +133,45 @@ impl FunctionEmitter<'_> {
                     } else {
                         raw_rendered_value
                     };
+                if let Some(Type::Function(function)) = self.mir.types.get(local.ty)
+                    && matches!(self.mir.types.get(function.return_ty), Some(Type::Float))
+                    && rendered_value.ends_with(".clone()")
+                    && rendered_value.starts_with("_smelt_tmp_")
+                {
+                    let function_value = rendered_value.trim_end_matches(".clone()");
+                    let params = function
+                        .params
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| {
+                            Ok(format!(
+                                "arg{index}: {}",
+                                self.type_text_with_impl_trait(*param, false)?
+                            ))
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                        .join(", ");
+                    let call_args = (0..function.params.len())
+                        .map(|index| format!("arg{index}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    rendered_value = format!(
+                        "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> f64 {{ (&mut *smelt_fn.borrow_mut())({call_args}).smelt_into_f64() }})) }}"
+                    );
+                }
+                if name == "SmeltUnknown::Null" {
+                    out.push_str(&format!("    let _ = {rendered_value};\n"));
+                    return Ok(());
+                }
                 if self.is_local_declared(*dest)
                     && (!matches!(local.kind, LocalKind::Temp)
-                        || self.mutable_locals.contains(dest))
+                        || self.mutable_locals.contains(dest)
+                        || self.predeclared_locals.contains(dest))
                 {
                     out.push_str(&format!("    {name} = {rendered_value};\n"));
                     return Ok(());
                 }
-                let mutability = if name != "_"
-                    && (self.local_binding_needs_mut(*dest)
-                        || matches!(
-                            self.mir.types.get(local.ty),
-                            Some(Type::Class { .. } | Type::Function(_))
-                        )) {
+                let mutability = if name != "_" && self.local_binding_needs_mut(*dest) {
                     "mut "
                 } else {
                     ""
@@ -126,7 +181,7 @@ impl FunctionEmitter<'_> {
                     if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
                         String::new()
                     } else {
-                        format!(": {}", self.type_text(local.ty)?)
+                        format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
                     }
                 ));
                 self.mark_local_declared(*dest);
@@ -157,6 +212,21 @@ impl FunctionEmitter<'_> {
                     out.push_str(&format!(
                         "    {}.insert({:?}.to_owned(), {rendered_value});\n",
                         self.local_name(*base)?,
+                        self.symbol_name(*field)?
+                    ));
+                    return Ok(());
+                }
+                if matches!(
+                    self.mir.types.get(base_ty),
+                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+                ) || self.is_erased_class_type(base_ty)
+                {
+                    let unknown_ty = self.type_id(Type::Unknown)?;
+                    let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
+                    out.push_str(&format!(
+                        "    match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert({:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(map); }} }}\n",
+                        self.local_name(*base)?,
+                        self.symbol_name(*field)?,
                         self.symbol_name(*field)?
                     ));
                     return Ok(());
@@ -203,23 +273,23 @@ impl FunctionEmitter<'_> {
         {
             let decl = self.local_decl(*local)?;
             let name = self.local_name(*local)?;
-            let mutability = if self.mutable_locals.contains(local)
-                || matches!(
-                    self.mir.types.get(decl.ty),
-                    Some(Type::Class { .. } | Type::Function(_))
-                ) {
+            let mutability = if self.mutable_locals.contains(local) {
                 "mut "
             } else {
                 ""
             };
             out.push_str(&format!(
                 "    let {mutability}{name}: {} = {rendered_value};\n",
-                self.type_text(decl.ty)?
+                self.type_text_with_impl_trait(decl.ty, false)?
             ));
             self.mark_local_declared(*local);
             return Ok(());
         }
         let assignment = self.assignment_place_text(place)?;
+        if assignment == "SmeltUnknown::Null" {
+            out.push_str(&format!("    let _ = {rendered_value};\n"));
+            return Ok(());
+        }
         out.push_str(&format!("    {assignment} = {rendered_value};\n"));
         Ok(())
     }
@@ -233,37 +303,19 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         match terminator {
-            Terminator::Goto(target) => self.emit_block(self.block(*target)?, out),
+            Terminator::Goto(target) => {
+                if target.0 <= current.0 {
+                    return self.emit_fallthrough_return(out);
+                }
+                self.emit_block(self.block(*target)?, out)
+            }
             Terminator::Call {
                 callee,
                 args,
                 dest,
                 target,
             } => {
-                let local = self.local_decl(*dest)?;
-                let call_text = self.call_text_for_dest(callee, args, local.ty)?;
-                let name = self.local_name(*dest)?;
-                let mutability = if self.mutable_locals.contains(dest)
-                    || matches!(
-                        self.mir.types.get(local.ty),
-                        Some(Type::Class { .. } | Type::Function(_))
-                    ) {
-                    "mut "
-                } else {
-                    ""
-                };
-                if matches!(
-                    self.mir.types.get(local.ty),
-                    Some(Type::Future(_) | Type::Function(_))
-                ) {
-                    out.push_str(&format!("    let {mutability}{name} = {call_text};\n"));
-                } else {
-                    out.push_str(&format!(
-                        "    let {mutability}{name}: {} = {call_text};\n",
-                        self.type_text(local.ty)?
-                    ));
-                }
-                self.mark_local_declared(*dest);
+                self.emit_call_terminator_statement(callee, args, *dest, out)?;
                 self.emit_block(self.block(*target)?, out)
             }
             Terminator::Switch {
@@ -303,9 +355,21 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                 } else if self.function.return_ty == self.none_ty {
-                    if !matches!(operand, Operand::Const(Constant::None)) {
+                    if !matches!(operand, Operand::Const(Constant::None))
+                        && self.operand_ty(operand)? != self.none_ty
+                    {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
+                } else if self.mir.types.get(self.function.return_ty) == Some(&Type::Unknown)
+                    && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
+                        operand
+                    && let Some(source) = self.single_assignment_unknown_cast_source(*local)
+                    && self.mir.types.get(self.operand_ty(source)?) == Some(&Type::Unknown)
+                {
+                    out.push_str(&format!(
+                        "    return {};\n",
+                        self.operand_as_type_text(source, self.function.return_ty)?
+                    ));
                 } else {
                     out.push_str(&format!(
                         "    return {};\n",
@@ -326,6 +390,37 @@ impl FunctionEmitter<'_> {
                 Ok(())
             }
         }
+    }
+
+    /// Emits the assignment part of a call terminator without following it.
+    fn emit_call_terminator_statement(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+        dest: LocalId,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let local = self.local_decl(dest)?;
+        let call_text = self.call_text_for_dest(callee, args, local.ty)?;
+        let name = self.local_name(dest)?;
+        let mutability = if self.local_binding_needs_mut(dest) {
+            "mut "
+        } else {
+            ""
+        };
+        if matches!(
+            self.mir.types.get(local.ty),
+            Some(Type::Future(_) | Type::Function(_))
+        ) {
+            out.push_str(&format!("    let {mutability}{name} = {call_text};\n"));
+        } else {
+            out.push_str(&format!(
+                "    let {mutability}{name}: {} = {call_text};\n",
+                self.type_text_with_impl_trait(local.ty, false)?
+            ));
+        }
+        self.mark_local_declared(dest);
+        Ok(())
     }
 
     /// Emits an if/else or while loop from a switch terminator.
@@ -395,7 +490,7 @@ impl FunctionEmitter<'_> {
                 let else_text = self.rvalue_text_for_dest(else_value, local.ty)?;
                 out.push_str(&format!(
                     "    let {name}: {} = if {} {{ {then_text} }} else {{ {else_text} }};\n",
-                    self.type_text(local.ty)?,
+                    self.type_text_with_impl_trait(local.ty, false)?,
                     self.truthy_operand_text(cond)?
                 ));
                 self.mark_local_declared(*then_dest);
@@ -591,6 +686,9 @@ impl FunctionEmitter<'_> {
         block_id: smelt_mir::BlockId,
         visiting: &mut HashSet<smelt_mir::BlockId>,
     ) -> Result<bool, EmitError> {
+        if let Some(result) = self.termination_cache.borrow().get(&block_id).copied() {
+            return Ok(result);
+        }
         if !visiting.insert(block_id) {
             return Ok(false);
         }
@@ -630,6 +728,7 @@ impl FunctionEmitter<'_> {
         };
 
         visiting.remove(&block_id);
+        self.termination_cache.borrow_mut().insert(block_id, result);
         Ok(result)
     }
 
@@ -639,6 +738,9 @@ impl FunctionEmitter<'_> {
         &self,
         block: &BasicBlock,
     ) -> Result<Option<(String, smelt_mir::BlockId, smelt_mir::BlockId, usize)>, EmitError> {
+        if self.while_header_with_latch(block)?.is_some() {
+            return Ok(None);
+        }
         let Some(Terminator::Switch {
             cond: Operand::Copy(Place::Local(cond_local)),
             then_block,
@@ -671,6 +773,20 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Returns the local that stores a structured switch condition.
+    fn switch_cond_local(&self, block: &BasicBlock) -> Result<LocalId, EmitError> {
+        let Some(Terminator::Switch {
+            cond: Operand::Copy(Place::Local(cond_local)),
+            ..
+        }) = &block.terminator
+        else {
+            return Err(EmitError::new(
+                "structured loop header must switch on a local",
+            ));
+        };
+        Ok(*cond_local)
+    }
+
     /// Checks if a block eventually exits to a loop target.
     /// Checks if a block eventually exits to a loop target.
     pub(super) fn block_exits_to_loop(
@@ -680,10 +796,14 @@ impl FunctionEmitter<'_> {
         break_target: smelt_mir::BlockId,
         visited: &mut HashSet<smelt_mir::BlockId>,
     ) -> Result<bool, EmitError> {
+        let cache_key = (block.id, continue_target, break_target);
+        if let Some(result) = self.loop_exit_cache.borrow().get(&cache_key).copied() {
+            return Ok(result);
+        }
         if !visited.insert(block.id) {
             return Ok(true);
         }
-        match &block.terminator {
+        let result = match &block.terminator {
             Some(Terminator::Goto(target)) => {
                 if *target == continue_target || *target == break_target {
                     Ok(true)
@@ -696,6 +816,12 @@ impl FunctionEmitter<'_> {
                     )
                 }
             }
+            Some(Terminator::Call { target, .. }) => self.block_exits_to_loop(
+                self.block(*target)?,
+                continue_target,
+                break_target,
+                visited,
+            ),
             Some(Terminator::Switch {
                 then_block,
                 else_block,
@@ -712,7 +838,9 @@ impl FunctionEmitter<'_> {
                 visited,
             )?),
             _ => Ok(false),
-        }
+        }?;
+        self.loop_exit_cache.borrow_mut().insert(cache_key, result);
+        Ok(result)
     }
 
     /// Checks if a block starts a while loop with a latch block.
@@ -776,6 +904,22 @@ impl FunctionEmitter<'_> {
         break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
     ) -> Result<(), EmitError> {
+        self.emit_block_until_goto_inner(block, stop, break_target, out, &mut HashSet::new())
+    }
+
+    /// Emits a block until a target while avoiding repeated unstructured cycles.
+    fn emit_block_until_goto_inner(
+        &self,
+        block: &BasicBlock,
+        stop: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+        out: &mut String,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        if !visited.insert(block.id) {
+            out.push_str("    continue;\n");
+            return Ok(());
+        }
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
         }
@@ -786,7 +930,28 @@ impl FunctionEmitter<'_> {
                 Ok(())
             }
             Some(Terminator::Goto(target)) => {
-                self.emit_block_until_goto(self.block(*target)?, stop, break_target, out)
+                let target_block = self.block(*target)?;
+                if self.while_header_with_latch(target_block)?.is_some()
+                    || self.while_header(target_block)?.is_some()
+                {
+                    return self.emit_block(target_block, out);
+                }
+                self.emit_block_until_goto_inner(target_block, stop, break_target, out, visited)
+            }
+            Some(Terminator::Call {
+                callee,
+                args,
+                dest,
+                target,
+            }) => {
+                self.emit_call_terminator_statement(callee, args, *dest, out)?;
+                self.emit_block_until_goto_inner(
+                    self.block(*target)?,
+                    stop,
+                    break_target,
+                    out,
+                    visited,
+                )
             }
             Some(Terminator::Switch {
                 cond,
@@ -855,26 +1020,46 @@ impl FunctionEmitter<'_> {
                 out,
                 visited,
             ),
+            Some(Terminator::Call {
+                callee,
+                args,
+                dest,
+                target,
+            }) => {
+                self.emit_call_terminator_statement(callee, args, *dest, out)?;
+                self.emit_loop_branch_inner(
+                    self.block(*target)?,
+                    continue_target,
+                    break_target,
+                    out,
+                    visited,
+                )
+            }
             Some(Terminator::Switch {
                 cond,
                 then_block,
                 else_block,
             }) => {
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                // Each branch can legitimately converge on the same join block.
+                // Sharing the recursion guard across siblings makes the later
+                // branch look cyclic and incorrectly emits `continue`.
+                let mut then_visited = visited.clone();
                 self.emit_loop_branch_inner(
                     self.block(*then_block)?,
                     continue_target,
                     break_target,
                     out,
-                    visited,
+                    &mut then_visited,
                 )?;
                 out.push_str("    } else {\n");
+                let mut else_visited = visited.clone();
                 self.emit_loop_branch_inner(
                     self.block(*else_block)?,
                     continue_target,
                     break_target,
                     out,
-                    visited,
+                    &mut else_visited,
                 )?;
                 out.push_str("    }\n");
                 Ok(())

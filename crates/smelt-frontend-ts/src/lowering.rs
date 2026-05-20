@@ -17,7 +17,8 @@ use oxc::ast::ast::{
     Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
     ImportOrExportKind, MethodDefinitionKind, MethodDefinitionType, ModuleExportName,
     ObjectPropertyKind, Program, PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility,
-    TSSignature, TSTupleElement, TSType, TSTypeName, TSTypeQueryExprName,
+    TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature, TSTupleElement, TSType,
+    TSTypeName, TSTypeQueryExprName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -31,8 +32,8 @@ use smelt_hir::{
     Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
     NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
     PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, TypeParamDef,
-    UnaryOp, UnknownKind, UrlField, Visibility,
+    StringCaseOp, StringNormalizeForm, StringPadOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Type, TypeParamDef, UnaryOp, UnknownKind, UrlField, Visibility,
 };
 use smelt_stdlib::RuleId;
 
@@ -60,6 +61,17 @@ struct ConstLiteral {
     literal: Literal,
     /// HIR type of the literal.
     ty: smelt_hir::TypeId,
+}
+
+/// Literal collection value visible to nested function bodies in the same module.
+#[derive(Debug, Clone)]
+struct ConstCollection {
+    /// Literal elements in source order.
+    items: Vec<ConstLiteral>,
+    /// HIR type of the collection value.
+    ty: smelt_hir::TypeId,
+    /// Whether the collection should lower as a `Set` instead of an array.
+    is_set: bool,
 }
 
 /// A function that narrows one argument after it returns successfully.
@@ -271,6 +283,8 @@ struct ModuleBuilder<'ctx> {
     items: HashMap<String, smelt_hir::ItemId>,
     /// Class definitions by name.
     classes: HashMap<String, smelt_hir::ItemId>,
+    /// Class names declared later in the current module.
+    pending_class_names: HashSet<String>,
     /// Interface definitions by name.
     interfaces: HashMap<String, smelt_hir::ItemId>,
     /// Fields for each class.
@@ -283,10 +297,14 @@ struct ModuleBuilder<'ctx> {
     type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses for resolving fields after cyclic type imports settle.
     interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
+    /// Value types declared by interface string index signatures.
+    interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// Interface call signatures for callable interface types.
     interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Fields attached to callable intersection types.
     callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
+    /// Namespace path currently qualifying type-only declarations.
+    type_namespace_prefix: Vec<String>,
     /// Currently processing class name, if any.
     current_class: Option<String>,
     /// Whether the current lowered function body is async.
@@ -311,6 +329,8 @@ struct ModuleBuilder<'ctx> {
     const_literals: HashMap<String, ConstLiteral>,
     /// Object literal constants visible from current and already-lowered modules.
     const_objects: HashMap<String, ObjectConst>,
+    /// Literal array/set constants visible from nested function bodies.
+    const_collections: HashMap<String, ConstCollection>,
     /// User assertion functions declared with `asserts value is T`.
     assertion_functions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.

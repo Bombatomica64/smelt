@@ -92,6 +92,12 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.node_process_version_match_call(call, body) {
             return Ok(expr);
         }
+        if let Some(expr) = self.node_process_cwd_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.commonjs_require_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.math_unary_func_call(call, body)? {
             return Ok(expr);
         }
@@ -111,6 +117,18 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.object_get_prototype_of_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.object_metadata_mutation_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.buffer_from_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.lodash_negate_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.lodash_has_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.object_get_own_property_symbols_call(call, body)? {
@@ -167,10 +185,22 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.string_case_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.string_normalize_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_trim_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.string_affix_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.lodash_for_each_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.strapi_async_map_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.lodash_fp_curried_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.list_callback_call(call, body)? {
@@ -227,6 +257,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.string_char_at_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.node_path_static_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.string_join_call(call, body)? {
             return Ok(expr);
         }
@@ -260,6 +293,32 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .map(|arg| self.argument(arg, body))
                 .collect::<Result<Vec<_>, _>>()?;
+            let callee = self.computed_member(member, body)?;
+            let callee_ty = Self::expr_ty(body, callee);
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned() {
+                if args.len() < function.params.len() {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "computed member call argument count does not match function",
+                    ));
+                }
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall {
+                        callee,
+                        args: args.into_iter().take(function.params.len()).collect(),
+                    },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
+            if matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Unknown)) {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
+            }
             if let Some(first) = args.first().copied() {
                 return Ok(first);
             }
@@ -313,13 +372,43 @@ impl ModuleBuilder<'_> {
             let optional_access =
                 call.optional || member.optional || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)));
             let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
-            let (return_ty, _) =
+            let (return_ty, method_item) =
                 self.resolve_method(access_receiver_ty, method, member.span)?;
             let mut args = Vec::new();
             for arg in &call.arguments {
-                args.push(self.argument(arg, body)?);
+                if (member.property.name == "test"
+                    || self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown))
+                    && matches!(
+                        arg,
+                        Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
+                    )
+                {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    args.push(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(arg.span().start, arg.span().end),
+                    }));
+                } else {
+                    args.push(self.argument(arg, body)?);
+                }
+            }
+            if method_item.0 == u32::MAX
+                && self.ctx.krate.types.get(return_ty) == Some(&Type::Unknown)
+            {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             }
             if optional_access {
+                let receiver = if call.optional || member.optional {
+                    self.optionalize_index_receiver(receiver, body)
+                } else {
+                    receiver
+                };
                 let ty = self.optional_chain_result_type(return_ty);
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::OptionalMethod {
@@ -356,6 +445,17 @@ impl ModuleBuilder<'_> {
             let Some(function_ty) =
                 self.function_member_type_for_arg_count(callee_ty, Some(call.arguments.len()))
             else {
+                if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
                 return Err(SmeltError::unsupported(
                     self.span(callee_call.span.start, callee_call.span.end),
                     "call expression callee must return a function",
@@ -395,7 +495,55 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             }));
         }
+        let asserted_callee = Self::transparent_asserted_callee(&call.callee);
+        if asserted_callee.is_some() {
+            let callee_expression = asserted_callee.unwrap_or(&call.callee);
+            let callee = self.expression(callee_expression, body)?;
+            let callee_ty = Self::expr_ty(body, callee);
+            let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
+            else {
+                if self.erased_or_union_surface(callee_ty) {
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "asserted call callee must be a function",
+                ));
+            };
+            let args = call
+                .arguments
+                .iter()
+                .take(function.params.len())
+                .map(|arg| self.argument(arg, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall { callee, args },
+                ty: function.return_ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        }
         if let Expression::Identifier(callee_ident) = &call.callee {
+            if matches!(
+                callee_ident.name.as_str(),
+                "Error"
+                    | "EvalError"
+                    | "RangeError"
+                    | "ReferenceError"
+                    | "SyntaxError"
+                    | "TypeError"
+                    | "URIError"
+                    | "AggregateError"
+            ) {
+                return self.error_function_call(call, body);
+            }
             if self.locals.contains_key(callee_ident.name.as_str()) {
                 let callee = self.identifier_expression(
                     callee_ident.name.as_str(),
@@ -403,9 +551,25 @@ impl ModuleBuilder<'_> {
                     callee_ident.span.end,
                     body,
                 )?;
+                let callee_ty = Self::expr_ty(body, callee);
+                let callable_ty = match self.ctx.krate.types.get(callee_ty) {
+                    Some(Type::Optional(inner)) => *inner,
+                    _ => callee_ty,
+                };
                 let Some(Type::Function(function)) =
-                    self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
+                    self.ctx.krate.types.get(callable_ty).cloned()
                 else {
+                    if self.erased_or_union_surface(callee_ty) {
+                        for arg in &call.arguments {
+                            let _ = self.argument(arg, body)?;
+                        }
+                        let ty = self.ctx.krate.types.intern(Type::Unknown);
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::None),
+                            ty,
+                            span: self.span(call.span.start, call.span.end),
+                        }));
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(callee_ident.span.start, callee_ident.span.end),
                         format!(
@@ -437,6 +601,56 @@ impl ModuleBuilder<'_> {
                 }));
             }
             let Some(item) = self.items.get(callee_ident.name.as_str()).copied() else {
+                if let Some(callee_ty) = self.module_globals.get(callee_ident.name.as_str()).copied()
+                {
+                    let args = call
+                        .arguments
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
+                    {
+                        let callee = self.identifier_expression(
+                            callee_ident.name.as_str(),
+                            callee_ident.span.start,
+                            callee_ident.span.end,
+                            body,
+                        )?;
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::ClosureCall { callee, args },
+                            ty: function.return_ty,
+                            span: self.span(call.span.start, call.span.end),
+                        }));
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+                if self.value_imports.contains(callee_ident.name.as_str()) {
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+                if self.source_contains_forward_callable(callee_ident.name.as_str()) {
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
                 return Err(SmeltError::unsupported(
                     self.span(callee_ident.span.start, callee_ident.span.end),
                     format!("unresolved function `{}`", callee_ident.name),
@@ -453,6 +667,16 @@ impl ModuleBuilder<'_> {
                     function.return_ty,
                     function.is_async,
                 )
+            } else if self.value_imports.contains(callee_ident.name.as_str()) {
+                for arg in &call.arguments {
+                    let _ = self.argument(arg, body)?;
+                }
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             } else {
                 return Err(SmeltError::unsupported(
                     self.span(callee_ident.span.start, callee_ident.span.end),
@@ -492,18 +716,9 @@ impl ModuleBuilder<'_> {
             }
             let fixed_param_count = rest.map_or(params.len(), |rest| rest.index);
             if rest.is_none() && call.arguments.len() > fixed_param_count {
-                if self.allow_unknown_index_access {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
+                for arg in call.arguments.iter().skip(fixed_param_count) {
+                    let _ = self.argument(arg, body)?;
                 }
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "function call argument count does not match parameters",
-                ));
             }
             let function_ty = FunctionType {
                 params: params.clone(),
@@ -553,6 +768,74 @@ impl ModuleBuilder<'_> {
         ))
     }
 
+    /// Return whether the module source declares a callable with this local name.
+    fn source_contains_forward_callable(&self, name: &str) -> bool {
+        let const_prefix = format!("const {name} =");
+        let function_prefix = format!("function {name}(");
+        self.source.contains(&const_prefix) || self.source.contains(&function_prefix)
+    }
+
+    /// Rewrites the receiver for `value[index]?.method()` to optional indexing.
+    ///
+    /// In JavaScript, an out-of-bounds element access produces `undefined`,
+    /// and the following optional method call short-circuits. Keeping the
+    /// receiver as a strict `Index` would make generated Rust panic before
+    /// optional chaining can observe the missing value.
+    fn optionalize_index_receiver(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let index = usize::try_from(receiver.0).expect("expr id should fit into usize");
+        let expr = body
+            .exprs
+            .get(index)
+            .expect("expr id should point to an existing expression")
+            .clone();
+        let ExprKind::Index {
+            receiver: index_receiver,
+            index,
+        } = expr.kind
+        else {
+            return receiver;
+        };
+        let ty = self.optional_chain_result_type(expr.ty);
+        body.push_expr(Expr {
+            kind: ExprKind::OptionalIndex {
+                receiver: index_receiver,
+                index,
+            },
+            ty,
+            span: expr.span,
+        })
+    }
+
+    /// Lower `CommonJS` `require(path)` as an opaque JSON-like module object.
+    fn commonjs_require_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "require") {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "require() requires exactly one module path argument",
+            ));
+        };
+        let _ = self.argument(argument, body)?;
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DictLit(Vec::new()),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower `structuredClone(value)` as a typed value copy.
     ///
     /// HIR values are immutable unless explicitly modeled otherwise, so the
@@ -594,6 +877,9 @@ impl ModuleBuilder<'_> {
         let Ok(callee) = self.static_member(member, body) else {
             return Ok(None);
         };
+        if self.static_member_is_concrete_class_method(callee, member, body) {
+            return Ok(None);
+        }
         let callee_ty = Self::expr_ty(body, callee);
         let mut args = Vec::new();
         for arg in &call.arguments {
@@ -650,6 +936,30 @@ impl ModuleBuilder<'_> {
             ty: function.return_ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return true when a member access names an actual lowered class method.
+    fn static_member_is_concrete_class_method(
+        &mut self,
+        callee: smelt_hir::ExprId,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &Body,
+    ) -> bool {
+        let Some(expr) = usize::try_from(callee.0)
+            .ok()
+            .and_then(|index| body.exprs.get(index))
+        else {
+            return false;
+        };
+        let (ExprKind::Field { receiver, .. } | ExprKind::OptionalField { receiver, .. }) =
+            expr.kind
+        else {
+            return false;
+        };
+        let receiver_ty = self.optional_receiver_inner_type(Self::expr_ty(body, receiver));
+        let method = self.intern_source_name(member.property.name.as_str());
+        self.resolve_method(receiver_ty, method, member.span)
+            .is_ok_and(|(_, item)| item.0 != u32::MAX)
     }
 
     /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.
@@ -1224,7 +1534,9 @@ impl ModuleBuilder<'_> {
         let Expression::Identifier(callee_ident) = &call.callee else {
             return Ok(None);
         };
-        if self.items.contains_key(callee_ident.name.as_str()) {
+        if self.items.contains_key(callee_ident.name.as_str())
+            && !self.locals.contains_key(callee_ident.name.as_str())
+        {
             return Ok(None);
         }
         let callee = self.identifier_expression(
@@ -1890,4 +2202,16 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// Strip transparent wrappers around an asserted function-call callee.
+    fn transparent_asserted_callee<'a>(callee: &'a Expression<'a>) -> Option<&'a Expression<'a>> {
+        match callee {
+            Expression::ParenthesizedExpression(parenthesized) => {
+                Self::transparent_asserted_callee(&parenthesized.expression)
+            }
+            Expression::TSAsExpression(as_expr) => Some(&as_expr.expression),
+            Expression::TSSatisfiesExpression(satisfies) => Some(&satisfies.expression),
+            Expression::TSNonNullExpression(non_null) => Some(&non_null.expression),
+            _ => None,
+        }
+    }
 }

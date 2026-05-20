@@ -8,22 +8,35 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let function_hint = self.contextual_function_type(type_hint);
         let _type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
-        let declared_return_ty = match arrow
+        let explicit_return_ty = match arrow
             .return_type
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()
         {
-            Ok(value) => value.or_else(|| function_hint.as_ref().map(|function| function.return_ty)),
+            Ok(value) => value,
             Err(error) => {
                 self.pop_type_parameter_scope();
                 return Err(error);
             }
         };
+        let contextual_return_ty = function_hint.as_ref().map(|function| function.return_ty);
+        let declared_return_ty = if arrow.r#async {
+            explicit_return_ty.map_or_else(
+                || {
+                    contextual_return_ty.filter(|ty| {
+                    matches!(self.ctx.krate.types.get(*ty), Some(Type::Future(_)))
+                    })
+                },
+                Some,
+            )
+        } else {
+            explicit_return_ty.or(contextual_return_ty)
+        };
         if arrow.r#async
-            && declared_return_ty.is_some()
+            && explicit_return_ty.is_some()
             && !matches!(
-                declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
+                explicit_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
                 Some(Type::Future(_))
             )
         {
@@ -194,12 +207,22 @@ impl ModuleBuilder<'_> {
                 )),
             }
         } else {
+            if let Err(error) =
+                self.predeclare_local_function_declarations(&arrow.body.statements, &mut body)
+            {
+                errors.push(error);
+            }
+            if let Err(error) =
+                self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut body)
+            {
+                errors.push(error);
+            }
             for statement in &arrow.body.statements {
                 if let Err(error) = self.statement(statement, &mut body) {
                     errors.push(error);
                 }
             }
-            inferred_return_ty = Self::last_return_type(&body);
+            inferred_return_ty = self.last_return_type(&body);
         }
         if arrow.r#async {
             body.build_async_state_machine();
@@ -211,14 +234,15 @@ impl ModuleBuilder<'_> {
             self.pop_type_parameter_scope();
             return Err(error);
         }
-        let inferred_return_ty = inferred_return_ty
-            .or_else(|| arrow.r#async.then(|| self.ctx.krate.types.intern(Type::None)));
+        let inferred_return_ty = inferred_return_ty.or_else(|| {
+            (arrow.r#async || !arrow.expression).then(|| self.ctx.krate.types.intern(Type::None))
+        });
         let return_ty = if arrow.r#async {
             declared_return_ty.or_else(|| {
                 inferred_return_ty.map(|inner| self.ctx.krate.types.intern(Type::Future(inner)))
             })
         } else {
-            declared_return_ty.or(inferred_return_ty)
+            self.arrow_const_return_type(declared_return_ty, inferred_return_ty)
         }
             .ok_or_else(|| {
                 self.pop_type_parameter_scope();
@@ -248,6 +272,41 @@ impl ModuleBuilder<'_> {
         Ok(item)
     }
 
+    /// Pick the public return type for a lowered arrow-const function item.
+    fn arrow_const_return_type(
+        &mut self,
+        declared_return_ty: Option<smelt_hir::TypeId>,
+        inferred_return_ty: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
+        match (declared_return_ty, inferred_return_ty) {
+            (Some(declared), Some(inferred))
+                if matches!(self.ctx.krate.types.get(declared), Some(Type::Class { .. }))
+                    && matches!(self.ctx.krate.types.get(inferred), Some(Type::Function(_))) =>
+            {
+                Some(self.erase_opaque_callable_return(inferred))
+            }
+            (Some(declared), _) => Some(declared),
+            (None, inferred) => inferred,
+        }
+    }
+
+    /// Preserve callable parameters from an erased API surface while dropping precise return data.
+    fn erase_opaque_callable_return(&mut self, inferred: smelt_hir::TypeId) -> smelt_hir::TypeId {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(inferred).cloned() else {
+            return inferred;
+        };
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let return_ty = match self.ctx.krate.types.get(function.return_ty) {
+            Some(Type::Future(_)) => self.ctx.krate.types.intern(Type::Future(unknown_ty)),
+            _ => unknown_ty,
+        };
+        self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: function.params,
+            return_ty,
+            is_async: function.is_async,
+        }))
+    }
+
     /// Create a stable internal symbol for a destructured parameter slot.
     fn synthetic_param_symbol(&mut self, index: usize) -> smelt_hir::Symbol {
         self.ctx
@@ -256,13 +315,87 @@ impl ModuleBuilder<'_> {
             .intern(format!("__param{index}").as_str())
     }
 
-    /// Infer a block-bodied arrow return type from its final direct return.
-    fn last_return_type(body: &Body) -> Option<smelt_hir::TypeId> {
+    /// Infer a block-bodied arrow return type from reachable direct returns.
+    fn last_return_type(&mut self, body: &Body) -> Option<smelt_hir::TypeId> {
+        let mut found = Vec::new();
+        Self::collect_return_types_from_block(body, body.root, &mut found);
+        if let Some(first) = found.first().copied() {
+            if found.iter().all(|ty| *ty == first) {
+                return Some(first);
+            }
+            return Some(self.ctx.krate.types.intern(Type::Unknown));
+        }
         let root = body.blocks.get(usize::try_from(body.root.0).ok()?)?;
         let last_stmt = root.stmts.last()?;
         match body.stmts.get(usize::try_from(last_stmt.0).ok()?) {
             Some(Stmt::Return(Some(expr))) => Some(Self::expr_ty(body, *expr)),
             _ => None,
+        }
+    }
+
+    /// Collect return value types from a block and nested control-flow blocks.
+    fn collect_return_types_from_block(
+        body: &Body,
+        block: smelt_hir::BlockId,
+        out: &mut Vec<smelt_hir::TypeId>,
+    ) {
+        let Some(block) = body.blocks.get(usize::try_from(block.0).ok().unwrap_or(usize::MAX))
+        else {
+            return;
+        };
+        for stmt_id in &block.stmts {
+            Self::collect_return_types_from_stmt(body, *stmt_id, out);
+        }
+    }
+
+    /// Collect return value types from a statement and any nested statement bodies.
+    fn collect_return_types_from_stmt(body: &Body, stmt_id: smelt_hir::StmtId, out: &mut Vec<smelt_hir::TypeId>) {
+        let Some(stmt) = body.stmts.get(usize::try_from(stmt_id.0).ok().unwrap_or(usize::MAX))
+        else {
+            return;
+        };
+        match stmt {
+            Stmt::Return(Some(expr)) => out.push(Self::expr_ty(body, *expr)),
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::collect_return_types_from_block(body, *then_block, out);
+                if let Some(else_block) = else_block {
+                    Self::collect_return_types_from_block(body, *else_block, out);
+                }
+            }
+            Stmt::While { body: loop_body, .. }
+            | Stmt::WhileUpdate {
+                body: loop_body, ..
+            }
+            | Stmt::For { body: loop_body, .. } => {
+                Self::collect_return_types_from_block(body, *loop_body, out);
+            }
+            Stmt::Match { arms, default, .. } => {
+                for arm in arms {
+                    Self::collect_return_types_from_block(body, arm.body, out);
+                }
+                if let Some(default) = default {
+                    Self::collect_return_types_from_block(body, *default, out);
+                }
+            }
+            Stmt::TryCatch {
+                body: try_body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                Self::collect_return_types_from_block(body, *try_body, out);
+                if let Some(catch_body) = catch_body {
+                    Self::collect_return_types_from_block(body, *catch_body, out);
+                }
+                if let Some(finally_body) = finally_body {
+                    Self::collect_return_types_from_block(body, *finally_body, out);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -546,12 +679,28 @@ impl ModuleBuilder<'_> {
                 _ => {}
             }
         }
-        let pattern = literal.regex.pattern.text.to_string();
+        let pattern = Self::rust_regex_pattern_text(&literal.regex.pattern.text);
         if inline_flags.is_empty() {
             pattern
         } else {
             format!("(?{inline_flags}){pattern}")
         }
+    }
+
+    /// Convert a JavaScript regex literal pattern without applying flags.
+    fn regex_literal_pattern_text_without_flags(
+        literal: &oxc::ast::ast::RegExpLiteral<'_>,
+    ) -> String {
+        Self::rust_regex_pattern_text(&literal.regex.pattern.text)
+    }
+
+    /// Translate JavaScript regex syntax accepted by Smelt into Rust regex syntax.
+    fn rust_regex_pattern_text(pattern: &str) -> String {
+        pattern
+            .replace("(?<", "(?P<")
+            .replace("\\.{0,4096}", "\\.*")
+            .replace(".{0,4096}?", ".*?")
+            .replace("[^.[\\]]", "[^.\\[\\]]")
     }
 
     /// Return whether an exported const has known metadata value that is safe to skip.

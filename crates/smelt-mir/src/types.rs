@@ -175,6 +175,8 @@ pub struct MirClass {
 pub struct MirInterface {
     /// Name of the interface.
     pub name: Symbol,
+    /// Generic type parameters declared by the interface.
+    pub type_params: Vec<smelt_hir::TypeParamDef>,
     /// Fields defined in the interface.
     pub fields: Vec<MirField>,
     /// Method signatures in the interface.
@@ -610,6 +612,13 @@ pub enum Rvalue {
         /// String operand to transform.
         operand: Operand,
     },
+    /// Normalize a Unicode string value.
+    StringNormalize {
+        /// Normalization form to apply.
+        form: smelt_hir::StringNormalizeForm,
+        /// String operand to normalize.
+        operand: Operand,
+    },
     /// Trim whitespace from a string value.
     StringTrim {
         /// Which side of the string to trim.
@@ -729,6 +738,13 @@ pub enum Rvalue {
     RegexFind {
         /// Regex pattern text.
         pattern: Operand,
+        /// String value to search.
+        haystack: Operand,
+    },
+    /// Execute a JavaScript-like `RegExp` value and return a match object.
+    RegexExec {
+        /// `RegExp` value.
+        regex: Operand,
         /// String value to search.
         haystack: Operand,
     },

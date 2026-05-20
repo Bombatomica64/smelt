@@ -96,8 +96,10 @@ pub(crate) fn build_rust_crate(
         .unwrap_or_else(|| config.project_name())
         .replace('-', "_");
     timing::measure("rust.emit_crate", || {
-        smelt_codegen_rust::emit_crate(
+        smelt_codegen_rust::emit_crate_with_modules(
             &mir,
+            &krate,
+            &modules,
             &output_dir,
             &smelt_codegen_rust::EmitOptions::new(crate_name),
         )

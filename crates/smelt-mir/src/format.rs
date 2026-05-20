@@ -345,6 +345,15 @@ fn rvalue_text(value: &Rvalue) -> String {
             };
             format!("string_{op_text} {}", operand_text(operand))
         }
+        Rvalue::StringNormalize { form, operand } => {
+            let form_text = match form {
+                smelt_hir::StringNormalizeForm::Nfc => "nfc",
+                smelt_hir::StringNormalizeForm::Nfd => "nfd",
+                smelt_hir::StringNormalizeForm::Nfkc => "nfkc",
+                smelt_hir::StringNormalizeForm::Nfkd => "nfkd",
+            };
+            format!("string_normalize_{form_text} {}", operand_text(operand))
+        }
         Rvalue::StringTrim { side, operand } => {
             let side_text = match side {
                 smelt_hir::StringTrimSide::Both => "both",
@@ -515,6 +524,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             format!(
                 "regex_find {}, {}",
                 operand_text(pattern),
+                operand_text(haystack)
+            )
+        }
+        Rvalue::RegexExec { regex, haystack } => {
+            format!(
+                "regex_exec {}, {}",
+                operand_text(regex),
                 operand_text(haystack)
             )
         }

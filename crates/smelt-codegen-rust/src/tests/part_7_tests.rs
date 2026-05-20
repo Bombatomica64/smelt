@@ -89,6 +89,92 @@ const date = new UTCDate();
 }
 
 #[test]
+fn deduplicates_interface_fields_after_inheritance_expansion() {
+    let source = source_for(
+        r#"
+interface ContextOptions {
+  in?: unknown;
+}
+interface FormatOptions extends ContextOptions {
+  locale?: string;
+  in?: unknown;
+}
+const options: FormatOptions = { locale: "en", in: null };
+const text = JSON.stringify(options);
+"#,
+    );
+
+    assert!(source.contains("struct FormatOptions"), "{source}");
+    let format_options = source
+        .split("struct FormatOptions")
+        .nth(1)
+        .and_then(|text| text.split("}\n").next())
+        .expect("FormatOptions struct should be emitted");
+    assert_eq!(
+        format_options.matches("in_: Option<SmeltUnknown>,").count(),
+        1,
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_interface_storage_without_json_dependency() {
+    let source = source_for(
+        r#"
+interface Options {
+  flag?: boolean;
+}
+function enabled(options?: Options): boolean {
+  return true;
+}
+"#,
+    );
+
+    assert!(source.contains("struct Options"), "{source}");
+    assert!(source.contains("flag: Option<bool>,"), "{source}");
+    assert!(!source.contains("serde::Serialize"), "{source}");
+}
+
+#[test]
+fn derives_clone_for_function_bearing_interface_storage() {
+    let source = source_for(
+        r#"
+interface Callbacks {
+  run: () => number;
+}
+function copy(callbacks: Callbacks): Callbacks {
+  return callbacks;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("#[derive(Clone)]\n#[allow(dead_code)]\nstruct Callbacks"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_generic_interface_storage_with_phantom_parameter() {
+    let source = source_for(
+        r#"
+interface Boxed<T> {
+  value: T;
+}
+declare const boxed: Boxed<number>;
+const copied: Boxed<number> = boxed;
+"#,
+    );
+
+    assert!(source.contains("struct Boxed<T>"), "{source}");
+    assert!(
+        source.contains("_smelt_phantom: ::std::marker::PhantomData<(T)>,"),
+        "{source}"
+    );
+    assert!(source.contains("boxed: Boxed<f64>"), "{source}");
+}
+
+#[test]
 fn emits_date_getters_and_setters_for_erased_datearg_surfaces() {
     let source = source_for(
         r#"
@@ -123,12 +209,14 @@ function apply(isTwoDigitYear: boolean, year: number, date: number): number {
     );
 
     let normalized = source
-        .find("normalized_two_digit_year: f64 =")
+        .find("normalized_two_digit_year =")
+        .or_else(|| source.find("normalized_two_digit_year: f64 ="))
         .unwrap_or_else(|| panic!("{source}"));
     let setter = source
         .find("date.with_year(normalized_two_digit_year.clone()")
         .unwrap_or_else(|| panic!("{source}"));
     assert!(normalized < setter, "{source}");
+    assert!(source.contains(" as f64"), "{source}");
 }
 
 #[test]
@@ -205,6 +293,21 @@ function isArray(value: unknown): boolean {
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::String(_))"));
     assert!(source.contains("if let SmeltUnknown::String("));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::Array(_))"));
+}
+
+#[test]
+fn emits_runtime_index_for_erased_string_generics() {
+    let source = source_for(
+        r#"
+function first<S extends string>(value: S): string {
+  return value[0];
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
+    assert!(source.contains("value.chars().nth(index)"), "{source}");
+    assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
 }
 
 #[test]
@@ -329,7 +432,7 @@ function empty(flag: boolean): unknown[] | unknown {
 }
 
 #[test]
-fn emits_loop_with_join_blocks_as_while() {
+fn emits_loop_with_join_blocks_as_loop() {
     let source = source_for(
         r#"
 function countPresent(values: string[]): Record<string, number> {
@@ -347,7 +450,7 @@ function countPresent(values: string[]): Record<string, number> {
 "#,
     );
 
-    assert!(source.contains("while "), "{source}");
+    assert!(source.contains("loop {"), "{source}");
     assert!(source.contains("return out.clone();"), "{source}");
 }
 
@@ -382,7 +485,7 @@ function label(values: string[]): string[] {
 }
 
 #[test]
-fn emits_synthetic_default_for_missing_callback_arguments() {
+fn emits_strict_panic_for_erased_non_function_callback_cast() {
     let source = source_for(
         r#"
 function invoke(callback: (value: number) => number, fallback?: (value: number) => number): number {
@@ -393,7 +496,7 @@ function invoke(callback: (value: number) => number, fallback?: (value: number) 
     );
 
     assert!(
-        source.contains("::std::rc::Rc::new(::std::cell::RefCell::new(move |arg0: f64| 0.0))"),
+        source.contains("panic!(\"unknown is not function\")"),
         "{source}"
     );
 }
@@ -489,7 +592,10 @@ function truncateDifference(left: bigint, right: number): bigint {
 "#,
     );
 
-    assert!(source.contains("right.clone().trunc() as i64"), "{source}");
+    assert!(
+        source.contains("((right.clone() as f64).trunc() as i64)"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -553,7 +659,9 @@ function truthy(value: unknown): boolean {
     );
 
     assert!(source.contains("SmeltUnknown::Null => false"));
-    assert!(source.contains("SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => true"));
+    assert!(source.contains(
+        "SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true"
+    ));
 }
 
 #[test]
@@ -567,9 +675,12 @@ function makeDataLast(fn: (value: number, extra: number) => number, extra: numbe
 "#,
     );
 
-    assert!(source.contains("|closure_arg_0: f64| {"), "{source}");
     assert!(
-        source.contains("fn_(closure_arg_0.clone(), extra.clone())"),
+        source.contains("fn_: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(f64, f64) -> f64>>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(&mut *fn_.borrow_mut())(closure_arg_0.clone(), extra.clone())"),
         "{source}"
     );
 }
@@ -608,9 +719,58 @@ console.log(user.name);
         "{source}"
     );
     assert!(
-        source.contains("user.get(\"name\").cloned().expect(\"missing field\")"),
+        source.contains("user.get(&\"name\".to_owned()).cloned().expect(\"missing field\")"),
         "{source}"
     );
+}
+
+#[test]
+fn emits_unknown_field_assignment_as_object_insert() {
+    let source = source_for(
+        r#"
+function assign(value: unknown): unknown {
+  value.name = "Grace";
+  return value;
+}
+"#,
+    );
+
+    assert!(source.contains("match &mut value"), "{source}");
+    assert!(
+        source.contains("SmeltUnknown::Object(map) => { map.insert(\"name\".to_owned(), SmeltUnknown::String(\"Grace\".to_owned())); }"),
+        "{source}"
+    );
+    assert!(
+        source.contains("*other = SmeltUnknown::Object(map);"),
+        "{source}"
+    );
+}
+
+#[test]
+fn coerces_optional_unknown_field_to_optional_callable_destination() {
+    let source = source_for(
+        r#"
+type Context = ((value: unknown) => unknown) | undefined;
+interface Options {
+  in?: Context;
+}
+
+function apply(value: unknown, context?: Context): unknown {
+  return value;
+}
+
+function run(options?: Options): unknown {
+  return apply(null, options?.in);
+}
+"#,
+    );
+
+    assert!(source.contains(".as_ref().map(|_smelt_value|"), "{source}");
+    assert!(
+        !source.contains("= options.clone().as_ref().map(|_smelt_value| SmeltUnknown::Null);"),
+        "{source}"
+    );
+    assert!(source.contains("Option<::std::rc::Rc"), "{source}");
 }
 
 #[test]
@@ -628,7 +788,7 @@ console.log(user[key]);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone()).cloned().expect(\"index out of bounds\")"),
+        source.contains("user.get(&key.clone().clone()).cloned().expect(\"index out of bounds\")"),
         "{source}"
     );
 }
@@ -706,7 +866,7 @@ const sortByImplementation = <T>(
     );
 
     assert!(
-        source.contains("(closure_arg_1.borrow_mut())(left.clone(), right.clone())"),
+        source.contains("(&mut *closure_arg_1.borrow_mut())((left.clone()).into_smelt_unknown(), (right.clone()).into_smelt_unknown())"),
         "{source}"
     );
 }
@@ -748,7 +908,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("SmeltUnknown::Object((&mut *callback)(arg0))"),
+        source.contains("SmeltUnknown::Object((&mut *_smelt_adapted_callback.borrow_mut())(arg0))"),
         "{source}"
     );
 }
@@ -811,7 +971,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("if let SmeltUnknown::Array(value) = arg0"),
+        source.contains("SmeltUnknown::Array(value) => value"),
         "{source}"
     );
     assert!(source.contains("Some(arg1)"), "{source}");
@@ -853,4 +1013,39 @@ function invoke(
     );
     assert!(source.contains("smelt_tuple_values.get(0)"), "{source}");
     assert!(source.contains("smelt_tuple_values.get(1)"), "{source}");
+}
+
+#[test]
+fn wraps_function_return_values_from_unknown_adapters() {
+    let source = source_for(
+        r#"
+function outer(make: () => (value: unknown) => unknown): unknown {
+  return [make];
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Function"), "{source}");
+    assert!(!source.contains("()).into_smelt_unknown()"), "{source}");
+}
+
+#[test]
+fn owns_callback_params_that_escape_through_unknown_values() {
+    let source = source_for(
+        r#"
+function expose(callback: (value: unknown) => unknown): unknown {
+  return { callback };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn expose(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(SmeltUnknown) -> SmeltUnknown>>)"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("fn expose(callback: &mut dyn FnMut"),
+        "{source}"
+    );
+    assert!(source.contains("SmeltUnknown::Function"), "{source}");
 }

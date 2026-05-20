@@ -39,6 +39,7 @@
 pub mod cli_parser;
 pub mod config;
 pub mod config_parser;
+mod diagnostics;
 mod lowering;
 mod manifest;
 mod pipeline;
@@ -63,6 +64,20 @@ fn main() -> CliResult<()> {
         let schema = schemars::schema_for!(Config);
         let mut stdout = io::stdout().lock();
         writeln!(stdout, "{}", serde_json::to_string_pretty(&schema)?)?;
+        return Ok(());
+    }
+    if let Command::RustDiagnostics {
+        cargo_manifest,
+        output,
+    } = &args.command
+    {
+        let report = diagnostics::rust_diagnostics_markdown(&PathBuf::from(cargo_manifest))?;
+        if let Some(output_path) = output {
+            std::fs::write(output_path, report)?;
+        } else {
+            let mut stdout = io::stdout().lock();
+            write!(stdout, "{report}")?;
+        }
         return Ok(());
     }
 
@@ -107,8 +122,8 @@ fn main() -> CliResult<()> {
                     .into());
             }
         },
+        Command::RustDiagnostics { .. } | Command::DumpSchema => return Ok(()),
         Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
-        Command::DumpSchema => return Ok(()),
     }
     Ok(())
 }

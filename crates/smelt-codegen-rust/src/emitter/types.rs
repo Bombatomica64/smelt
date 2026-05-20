@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("!{operand_text}.is_empty()"))
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Unknown) => Ok(format!(
-                "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => true }}"
+                "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
             )),
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(_)) => {
                 Ok(format!("{operand_text}.is_some()"))
@@ -51,7 +51,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("if {operand_text} {{ 1_i64 }} else {{ 0_i64 }}"))
             }
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Float) => {
-                Ok(format!("{operand_text}.trunc() as i64"))
+                Ok(format!("({operand_text} as f64).trunc() as i64"))
             }
             (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::String) => Ok(format!(
                 "{operand_text}.parse::<i64>().expect(\"int() parse failed\")"
@@ -68,6 +68,9 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
             )),
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Unknown) => Ok(format!(
+                "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => 0.0 }}"
+            )),
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
                 "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
             )),
@@ -81,6 +84,9 @@ impl FunctionEmitter<'_> {
                 ) =>
             {
                 Ok(format!("{operand_text}.unwrap_or_default().to_string()"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, _) => {
+                self.string_like_operand_text(operand, "String")
             }
             (_, Type::Bool, _) => Ok("false".to_owned()),
             (_, Type::Int, _) => Ok("0_i64".to_owned()),
@@ -101,7 +107,7 @@ impl FunctionEmitter<'_> {
     /// Returns whether a type is supported by the current JSON serializer path.
     pub(super) fn is_json_serializable_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
+            Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::Unknown) => true,
             Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
                 self.is_json_serializable_type(*item)
             }
@@ -111,6 +117,24 @@ impl FunctionEmitter<'_> {
             Some(Type::Dict(key, value)) => {
                 matches!(self.mir.types.get(*key), Some(Type::String))
                     && self.is_json_serializable_type(*value)
+            }
+            Some(Type::Class { name, .. }) => {
+                if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+                    crate::classes::effective_class_fields(self.mir, class)
+                        .iter()
+                        .all(|field| self.is_json_serializable_type(field.ty))
+                } else {
+                    self.mir
+                        .interfaces
+                        .iter()
+                        .find(|interface| interface.name == *name)
+                        .is_some_and(|interface| {
+                            interface
+                                .fields
+                                .iter()
+                                .all(|field| self.is_json_serializable_type(field.ty))
+                        })
+                }
             }
             _ => false,
         }
@@ -148,6 +172,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::List(item)) => Ok(*item),
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::String) => self.type_id(Type::String),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
                     _ => self.type_id(Type::Unknown),
                 }
             }
@@ -198,6 +223,18 @@ impl FunctionEmitter<'_> {
         self.type_text(ty)
     }
 
+    /// Convert a concrete function parameter declaration to Rust.
+    pub(super) fn parameter_decl_type_text(&self, local: LocalId) -> Result<String, EmitError> {
+        let ty = self.local_decl(local)?.ty;
+        if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
+            if !self.function_parameter_requires_owned(local)? {
+                return self.param_type_text(ty);
+            }
+            return self.type_text_with_impl_trait(ty, false);
+        }
+        self.param_type_text(ty)
+    }
+
     /// Convert a type ID to Rust, controlling whether root `impl Trait` is legal.
     pub(super) fn type_text_with_impl_trait(
         &self,
@@ -218,7 +255,16 @@ impl FunctionEmitter<'_> {
             Type::Never => Ok("SmeltUnknown".to_owned()),
             Type::TypeParam { .. } => Ok("SmeltUnknown".to_owned()),
             Type::Class { name, args } => {
-                if !self.mir.classes.iter().any(|class| class.name == *name) {
+                if self.symbol_name(*name)? == "RegExp" {
+                    return Ok("SmeltRegExp".to_owned());
+                }
+                if !self.mir.classes.iter().any(|class| class.name == *name)
+                    && !self
+                        .mir
+                        .interfaces
+                        .iter()
+                        .any(|interface| interface.name == *name)
+                {
                     return Ok("SmeltUnknown".to_owned());
                 }
                 let name = sanitize_ident(self.symbol_name(*name)?);
@@ -238,8 +284,12 @@ impl FunctionEmitter<'_> {
                 "Vec<{}>",
                 self.type_text_with_impl_trait(*item, false)?
             )),
-            Type::Set(item) => Ok(format!(
+            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(format!(
                 "::std::collections::HashSet<{}>",
+                self.type_text_with_impl_trait(*item, false)?
+            )),
+            Type::Set(item) => Ok(format!(
+                "Vec<{}>",
                 self.type_text_with_impl_trait(*item, false)?
             )),
             Type::Dict(key, value) => Ok(format!(
@@ -315,9 +365,15 @@ impl FunctionEmitter<'_> {
             Type::Never => Ok("SmeltUnknown::Null".to_owned()),
             Type::None => Ok("()".to_owned()),
             Type::List(_) => Ok("Vec::new()".to_owned()),
-            Type::Set(_) => Ok("::std::collections::HashSet::new()".to_owned()),
+            Type::Set(item) if self.type_is_hash_set_key_safe(*item) => {
+                Ok("::std::collections::HashSet::new()".to_owned())
+            }
+            Type::Set(_) => Ok("Vec::new()".to_owned()),
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
-            Type::Optional(_) => Ok("None".to_owned()),
+            Type::Optional(inner) => Ok(format!(
+                "None::<{}>",
+                self.type_text_with_impl_trait(*inner, false)?
+            )),
             Type::Tuple(items) => {
                 let items_text = items
                     .iter()
@@ -330,9 +386,11 @@ impl FunctionEmitter<'_> {
                     Ok(format!("({items_text})"))
                 }
             }
-            Type::Class { .. } | Type::TypeParam { .. } | Type::Union(_) => {
-                Ok("Default::default()".to_owned())
+            Type::TypeParam { .. } | Type::Union(_) => Ok("SmeltUnknown::Null".to_owned()),
+            Type::Class { name, .. } if self.symbol_name(*name)? == "RegExp" => {
+                Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
             }
+            Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
                 let params = function
                     .params
@@ -347,11 +405,17 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
                 let return_text = self.default_value(function.return_ty)?;
+                let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
+                let function_type = self.type_text_with_impl_trait(ty, false)?;
                 Ok(format!(
-                    "::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| {return_text}))"
+                    "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ {return_text} }})); smelt_default_callback }}"
                 ))
             }
-            Type::Future(_) => Ok("Default::default()".to_owned()),
+            Type::Future(item) => Ok(format!(
+                "Box::pin(async move {{ {} }}) as {}",
+                self.default_value(*item)?,
+                self.type_text_with_impl_trait(ty, false)?
+            )),
         }
     }
 

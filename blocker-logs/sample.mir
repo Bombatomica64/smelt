@@ -1,0 +1,93 @@
+fn sample (FuncId(0)) -> Unknown
+  locals
+    %0 param args: List<Unknown>
+    %1 temp: Dict<String, Unknown>
+    %2 temp: Unknown
+    %3 temp: fn(List<T>, Float) -> List<T>
+    %4 temp: Unknown
+  bb0:
+    %1 = {}
+    %2 = unknown_cast copy %1 as t0
+    %3 = closure ClosureId(0) []
+    %4 = closure_call copy %2(copy %3, copy %0)
+    return copy %4
+
+fn sample_implementation (FuncId(1)) -> List<T>
+  locals
+    %0 param data: List<T>
+    %1 param sample_size: Float
+    %2 user actual_sample_size: Float
+    %3 user sample_indices: Set<Float>
+    %4 user random_index: Float
+    %5 temp: Bool
+    %6 temp: List<T>
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: Float
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Set<Float>
+    %13 temp: Float
+    %14 temp: Bool
+    %15 temp: Float
+    %16 temp: Float
+    %17 temp: Float
+    %18 temp: Float
+    %19 temp: Set<Float>
+    %20 temp: Bool
+    %21 temp: List<Float>
+    %22 temp: List<Float>
+    %23 temp: fn(Float, Int, List<Float>) -> T
+    %24 temp: List<T>
+    %25 temp: fn(T, Int, List<T>) -> Bool
+    %26 temp: List<T>
+  bb0:
+    %5 = copy %1 <= 0.0
+    switch copy %5 ? bb1 : bb2
+  bb1:
+    %6 = []
+    return copy %6
+  bb2:
+    %7 = len copy %0
+    %8 = copy %1 >= copy %7
+    switch copy %8 ? bb3 : bb4
+  bb3:
+    return copy %0
+  bb4:
+    %9 = len copy %0
+    %10 = copy %9 - copy %1
+    %11 = numeric_min copy %1, copy %10
+    %2 = copy %11
+    %12 = set{}
+    %3 = copy %12
+    goto bb5
+  bb5:
+    %13 = len copy %3
+    %14 = copy %13 < copy %2
+    switch copy %14 ? bb6 : bb7
+  bb6:
+    %15 = numeric_random
+    %16 = len copy %0
+    %17 = copy %15 * copy %16
+    %18 = numeric_floor copy %17
+    %4 = copy %18
+    %19 = set_add copy %3, copy %4
+    goto bb5
+  bb7:
+    %20 = copy %1 == copy %2
+    switch copy %20 ? bb8 : bb9
+  bb8:
+    %21 = set_values copy %3
+    %22 = list_sort copy %21 <comparator>
+    %23 = closure ClosureId(1) [copy %0]
+    %24 = list_map copy %22, copy %23
+    return copy %24
+  bb9:
+    %25 = closure ClosureId(2) [copy %3]
+    %26 = list_filter copy %0, copy %25
+    return copy %26
+
+fn main (FuncId(2)) -> None
+  bb0:
+    return none
+

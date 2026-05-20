@@ -1,11 +1,20 @@
 impl ModuleBuilder<'_> {
+    /// Prefix a local type declaration with the active TypeScript namespace path.
+    fn qualified_type_declaration_name(&self, name: &str) -> String {
+        if self.type_namespace_prefix.is_empty() {
+            return name.to_owned();
+        }
+        format!("{}.{}", self.type_namespace_prefix.join("."), name)
+    }
+
     /// Lower a TypeScript type alias declaration to HIR.
     fn type_alias_declaration(
         &mut self,
         alias: &oxc::ast::ast::TSTypeAliasDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let name_text = alias.id.name.as_str();
-        let name = self.intern_type_name(name_text);
+        let local_name_text = alias.id.name.as_str();
+        let name_text = self.qualified_type_declaration_name(local_name_text);
+        let name = self.intern_type_name(&name_text);
         let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
         let result = self.ts_type_to_hir(&alias.type_annotation);
         let fields = self.type_fields_from_ts(&alias.type_annotation).ok();
@@ -23,7 +32,7 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(alias.span.start, alias.span.end),
         }));
-        self.items.insert(name_text.to_owned(), item);
+        self.items.insert(name_text, item);
         Ok(item)
     }
 
@@ -32,12 +41,14 @@ impl ModuleBuilder<'_> {
         &mut self,
         interface: &oxc::ast::ast::TSInterfaceDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let name_text = interface.id.name.as_str();
-        let name = self.intern_type_name(name_text);
+        let local_name_text = interface.id.name.as_str();
+        let name_text = self.qualified_type_declaration_name(local_name_text);
+        let name = self.intern_type_name(&name_text);
         let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut call_signatures = Vec::new();
+        let mut index_value_ty = None;
 
         let mut heritage_refs = Vec::new();
         let result = (|| {
@@ -59,6 +70,7 @@ impl ModuleBuilder<'_> {
                         .unwrap_or("<unknown>");
                     if parent_name_text == "ContextOptions"
                         || parent_name_text.starts_with("Intl.")
+                        || parent_name_text.contains('.')
                         || self.type_only_imports.contains(parent_name_text)
                     {
                         continue;
@@ -110,50 +122,58 @@ impl ModuleBuilder<'_> {
                     TSSignature::TSMethodSignature(method) => {
                         if (method.computed && !is_static_property_key(&method.key))
                             || method.optional
-                            || method.type_parameters.is_some()
                             || method.this_param.is_some()
                         {
                             return Err(SmeltError::unsupported(
                                 self.span(method.span.start, method.span.end),
-                                "generic, optional, dynamic computed, and this-parameter interface methods are not lowered yet",
+                                "optional, dynamic computed, and this-parameter interface methods are not lowered yet",
                             ));
                         }
-                        let return_ty = method
-                            .return_type
-                            .as_ref()
-                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                            .transpose()?
-                            .ok_or_else(|| {
-                                SmeltError::unsupported(
-                                    self.span(method.span.start, method.span.end),
-                                    "interface methods require explicit return types",
-                                )
-                            })?;
-                        let mut params = Vec::new();
-                        for param in &method.params.items {
-                            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                                return Err(SmeltError::unsupported(
-                                    self.span(param.span.start, param.span.end),
-                                    "destructured interface method parameters are not lowered yet",
-                                ));
-                            };
-                            let ty = param
-                                .type_annotation
+                        let _method_type_params =
+                            self.push_type_parameter_scope(method.type_parameters.as_deref())?;
+                        let result = (|| {
+                            let return_ty = method
+                                .return_type
                                 .as_ref()
                                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                                 .transpose()?
                                 .ok_or_else(|| {
                                     SmeltError::unsupported(
-                                        self.span(param.span.start, param.span.end),
-                                        "interface method parameters require explicit types",
+                                        self.span(method.span.start, method.span.end),
+                                        "interface methods require explicit return types",
                                     )
                                 })?;
-                            params.push(ParamSig {
-                                name: self.intern_source_name(binding.name.as_str()),
-                                ty,
-                                span: self.span(binding.span.start, binding.span.end),
-                            });
-                        }
+                            let mut params = Vec::new();
+                            for param in &method.params.items {
+                                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                                    return Err(SmeltError::unsupported(
+                                        self.span(param.span.start, param.span.end),
+                                        "destructured interface method parameters are not lowered yet",
+                                    ));
+                                };
+                                let ty = param
+                                    .type_annotation
+                                    .as_ref()
+                                    .map(|annotation| {
+                                        self.ts_type_to_hir(&annotation.type_annotation)
+                                    })
+                                    .transpose()?
+                                    .ok_or_else(|| {
+                                        SmeltError::unsupported(
+                                            self.span(param.span.start, param.span.end),
+                                            "interface method parameters require explicit types",
+                                        )
+                                    })?;
+                                params.push(ParamSig {
+                                    name: self.intern_source_name(binding.name.as_str()),
+                                    ty,
+                                    span: self.span(binding.span.start, binding.span.end),
+                                });
+                            }
+                            Ok((return_ty, params))
+                        })();
+                        self.pop_type_parameter_scope();
+                        let (return_ty, params) = result?;
                         methods.push(MethodSig {
                             name: self.property_key_symbol(&method.key)?,
                             params,
@@ -192,8 +212,11 @@ impl ModuleBuilder<'_> {
                             ),
                         });
                     }
-                    TSSignature::TSConstructSignatureDeclaration(_)
-                    | TSSignature::TSIndexSignature(_) => {}
+                    TSSignature::TSIndexSignature(index) => {
+                        index_value_ty =
+                            Some(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
+                    }
+                    TSSignature::TSConstructSignatureDeclaration(_) => {}
                 }
             }
             Ok(())
@@ -215,8 +238,84 @@ impl ModuleBuilder<'_> {
         self.ctx
             .interface_call_signatures
             .insert(name, call_signatures);
-        self.interfaces.insert(name_text.to_owned(), item);
+        if let Some(index_value_ty) = index_value_ty {
+            self.interface_index_values.insert(name, index_value_ty);
+            self.ctx.interface_index_values.insert(name, index_value_ty);
+        }
+        self.interfaces.insert(name_text, item);
         Ok(item)
+    }
+
+    /// Lower TypeScript namespace declarations that contain exported type declarations.
+    fn type_namespace_declaration(
+        &mut self,
+        module_decl: &oxc::ast::ast::TSModuleDeclaration<'_>,
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let Some(namespace_name) = Self::type_namespace_name(&module_decl.id) else {
+            return Ok(Vec::new());
+        };
+        self.type_namespace_prefix.push(namespace_name);
+        let result = self.type_namespace_body(module_decl.body.as_ref());
+        self.type_namespace_prefix.pop();
+        result
+    }
+
+    /// Return the source namespace identifier for namespace declarations.
+    fn type_namespace_name(name: &TSModuleDeclarationName<'_>) -> Option<String> {
+        match name {
+            TSModuleDeclarationName::Identifier(ident) => Some(ident.name.to_string()),
+            TSModuleDeclarationName::StringLiteral(_) => None,
+        }
+    }
+
+    /// Lower exported type declarations from a namespace body.
+    fn type_namespace_body(
+        &mut self,
+        body: Option<&TSModuleDeclarationBody<'_>>,
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let Some(body) = body else {
+            return Ok(Vec::new());
+        };
+        match body {
+            TSModuleDeclarationBody::TSModuleDeclaration(module_decl) => {
+                self.type_namespace_declaration(module_decl)
+            }
+            TSModuleDeclarationBody::TSModuleBlock(block) => {
+                let mut items = Vec::new();
+                for statement in &block.body {
+                    match statement {
+                        Statement::TSTypeAliasDeclaration(alias) => {
+                            items.push(self.type_alias_declaration(alias)?);
+                        }
+                        Statement::TSInterfaceDeclaration(interface) => {
+                            items.push(self.interface_declaration(interface)?);
+                        }
+                        Statement::TSModuleDeclaration(module_decl) => {
+                            items.extend(self.type_namespace_declaration(module_decl)?);
+                        }
+                        Statement::ExportNamedDeclaration(export) => {
+                            let Some(decl) = &export.declaration else {
+                                continue;
+                            };
+                            match decl {
+                                Declaration::TSTypeAliasDeclaration(alias) => {
+                                    items.push(self.type_alias_declaration(alias)?);
+                                }
+                                Declaration::TSInterfaceDeclaration(interface) => {
+                                    items.push(self.interface_declaration(interface)?);
+                                }
+                                Declaration::TSModuleDeclaration(module_decl) => {
+                                    items.extend(self.type_namespace_declaration(module_decl)?);
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(items)
+            }
+        }
     }
 
     /// Lower a statement within a specific block.
@@ -244,8 +343,14 @@ impl ModuleBuilder<'_> {
                 self.interface_declaration(interface)?;
                 Ok(())
             }
+            Statement::TSModuleDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
                 if self.is_test_framework_statement(&expr_stmt.expression) {
+                    return Ok(());
+                }
+                if Self::is_vitest_mock_statement(&expr_stmt.expression)
+                    || Self::is_top_level_dynamic_import_await(&expr_stmt.expression)
+                {
                     return Ok(());
                 }
                 if let Expression::CallExpression(call) = &expr_stmt.expression
@@ -264,7 +369,9 @@ impl ModuleBuilder<'_> {
                     return Ok(());
                 }
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
-                    if self.module_global_assignment_statement(assign, body, block)? {
+                    if block == body.root
+                        && self.module_global_assignment_statement(assign, body, block)?
+                    {
                         return Ok(());
                     }
                     let (target, value) = self.assignment_parts(assign, body)?;
@@ -334,6 +441,20 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::WhileStatement(while_stmt) => {
+                if let Some((cond, loop_body, update_target, update_value)) =
+                    self.while_assignment_condition_body(while_stmt, body, block)?
+                {
+                    body.push_stmt_to_block(
+                        block,
+                        Stmt::WhileUpdate {
+                            cond,
+                            body: loop_body,
+                            update_target,
+                            update_value,
+                        },
+                    );
+                    return Ok(());
+                }
                 let cond = self.condition_expression(&while_stmt.test, body)?;
                 let loop_body = self.block_from_statement(&while_stmt.body, body)?;
                 body.push_stmt_to_block(
@@ -381,13 +502,17 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForOfStatement(for_stmt) => {
-                if for_stmt.r#await {
-                    return Err(SmeltError::unsupported(
-                        self.span(for_stmt.span.start, for_stmt.span.end),
-                        "for await...of is async control flow and is not lowered yet",
-                    ));
+                let mut iter = self.expression(&for_stmt.right, body)?;
+                if for_stmt.r#await
+                    && let Some(Type::Future(inner)) =
+                        self.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
+                {
+                    iter = body.push_expr(Expr {
+                        kind: ExprKind::Await(iter),
+                        ty: inner,
+                        span: self.span(for_stmt.right.span().start, for_stmt.right.span().end),
+                    });
                 }
-                let iter = self.expression(&for_stmt.right, body)?;
                 let iter = self.for_of_iterable(iter, &for_stmt.right, body);
                 let destructured =
                     self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
@@ -491,6 +616,25 @@ impl ModuleBuilder<'_> {
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     let mut saw_break = false;
                     for case_statement in &case.consequent {
+                        if let Statement::BlockStatement(block_stmt) = case_statement {
+                            for nested_statement in &block_stmt.body {
+                                if matches!(nested_statement, Statement::ContinueStatement(_)) {
+                                    return Err(SmeltError::unsupported(
+                                        self.statement_span(nested_statement),
+                                        "switch continue lowering is not implemented yet",
+                                    ));
+                                }
+                                if matches!(nested_statement, Statement::BreakStatement(_)) {
+                                    saw_break = true;
+                                    break;
+                                }
+                                self.statement_in_block(nested_statement, body, case_block)?;
+                            }
+                            if saw_break {
+                                break;
+                            }
+                            continue;
+                        }
                         if matches!(case_statement, Statement::ContinueStatement(_)) {
                             return Err(SmeltError::unsupported(
                                 self.statement_span(case_statement),
@@ -650,13 +794,55 @@ impl ModuleBuilder<'_> {
                 "array forEach callbacks require an item parameter",
             ));
         };
-        let iter = self.expression(&member.object, body)?;
+        let mut iter = self.expression(&member.object, body)?;
         let iter_ty = Self::expr_ty(body, iter);
-        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(iter_ty).cloned() else {
-            return Err(SmeltError::unsupported(
-                self.span(member.object.span().start, member.object.span().end),
-                "array forEach statement receiver must be an array",
-            ));
+        let item_ty = match self.ctx.krate.types.get(iter_ty).cloned() {
+            Some(Type::List(item_ty)) => item_ty,
+            Some(Type::Dict(_, value_ty)) => {
+                let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Values,
+                        dict: iter,
+                    },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                value_ty
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: iter },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                item_ty
+            }
+            Some(Type::Union(items))
+                if items.iter().any(|item| {
+                    matches!(
+                        self.ctx.krate.types.get(*item),
+                        Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                    )
+                }) =>
+            {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: iter },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                item_ty
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(member.object.span().start, member.object.span().end),
+                    "array forEach statement receiver must be an array",
+                ));
+            }
         };
         let item_binding = match &item_param.pattern {
             BindingPattern::BindingIdentifier(binding) => Some(binding),
@@ -887,12 +1073,82 @@ impl ModuleBuilder<'_> {
         let AssignmentTarget::AssignmentTargetIdentifier(target) = &assign.left else {
             return Ok(false);
         };
+        if assign.operator != AssignmentOperator::Assign {
+            return Ok(false);
+        }
         if !self.module_globals.contains_key(target.name.as_str()) {
             return Ok(false);
         }
         let value = self.expression(&assign.right, body)?;
         body.push_stmt_to_block(block, Stmt::Expr(value));
         Ok(true)
+    }
+
+    /// Lower `while ((target = value) !== null)` without dropping the assignment.
+    fn while_assignment_condition_body(
+        &mut self,
+        while_stmt: &oxc::ast::ast::WhileStatement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<
+        Option<(
+            smelt_hir::ExprId,
+            smelt_hir::BlockId,
+            smelt_hir::ExprId,
+            smelt_hir::ExprId,
+        )>,
+        SmeltError,
+    > {
+        let test = Self::unparenthesized_expression(&while_stmt.test);
+        let Expression::BinaryExpression(binary) = test else {
+            return Ok(None);
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ) || !matches!(&binary.right, Expression::NullLiteral(_))
+        {
+            return Ok(None);
+        }
+        let left = Self::unparenthesized_expression(&binary.left);
+        let Expression::AssignmentExpression(assign) = left else {
+            return Ok(None);
+        };
+        let (target, value) = self.assignment_parts(assign, body)?;
+        body.push_stmt_to_block(block, Stmt::Assign { target, value });
+        let null_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: self.ctx.krate.types.intern(Type::None),
+            span: self.span(binary.right.span().start, binary.right.span().end),
+        });
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: target,
+                rhs: null_expr,
+            },
+            ty: self.ctx.krate.types.intern(Type::Bool),
+            span: self.span(binary.span.start, binary.span.end),
+        });
+        let loop_body = body.push_block(self.statement_span(&while_stmt.body));
+        if let Statement::BlockStatement(block_stmt) = &while_stmt.body {
+            for statement in &block_stmt.body {
+                self.statement_in_block(statement, body, loop_body)?;
+            }
+        } else {
+            self.statement_in_block(&while_stmt.body, body, loop_body)?;
+        }
+        let (update_target, update_value) = self.assignment_parts(assign, body)?;
+        Ok(Some((cond, loop_body, update_target, update_value)))
+    }
+
+    /// Strip transparent parentheses from a TypeScript expression.
+    fn unparenthesized_expression<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+        let mut current = expression;
+        while let Expression::ParenthesizedExpression(parenthesized) = current {
+            current = &parenthesized.expression;
+        }
+        current
     }
 
     /// Return whether an expression is a top-level Vitest organization call.
@@ -907,6 +1163,26 @@ impl ModuleBuilder<'_> {
             return false;
         };
         self.is_test_framework_callee(&call.callee)
+    }
+
+    /// Return whether this is a top-level `vi.mock(...)` registration.
+    fn is_vitest_mock_statement(expression: &Expression<'_>) -> bool {
+        let Expression::CallExpression(call) = expression else {
+            return false;
+        };
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return false;
+        };
+        member.property.name == "mock"
+            && matches!(&member.object, Expression::Identifier(object) if object.name == "vi")
+    }
+
+    /// Return whether this is a top-level `await import("...")` side-effect load.
+    fn is_top_level_dynamic_import_await(expression: &Expression<'_>) -> bool {
+        let Expression::AwaitExpression(await_expr) = expression else {
+            return false;
+        };
+        matches!(&await_expr.argument, Expression::ImportExpression(_))
     }
 
     /// Return a supported top-level test case call, if this expression is one.

@@ -55,6 +55,7 @@ impl ModuleBuilder<'_> {
                     span: self.span(literal.span.start, literal.span.end),
                 }))
             }
+            PropertyKey::StaticMemberExpression(member) => self.static_member(member, body),
             PropertyKey::ComputedMemberExpression(member) => self.computed_member(member, body),
             PropertyKey::TSAsExpression(assertion) => self.expression(&assertion.expression, body),
             PropertyKey::TSSatisfiesExpression(assertion) => {
@@ -72,10 +73,15 @@ impl ModuleBuilder<'_> {
     }
 
     /// Resolve a class `implements` clause entry to an interface symbol.
+    ///
+    /// Qualified external interface references are opaque to Smelt's local
+    /// interface validator, so they are ignored instead of blocking class
+    /// lowering. Direct identifiers are still validated against local
+    /// interfaces.
     fn implements_symbol(
         &mut self,
         item: &oxc::ast::ast::TSClassImplements<'_>,
-    ) -> Result<smelt_hir::Symbol, SmeltError> {
+    ) -> Result<Option<smelt_hir::Symbol>, SmeltError> {
         if item.type_arguments.is_some() {
             return Err(SmeltError::unsupported(
                 self.span(item.span.start, item.span.end),
@@ -83,12 +89,9 @@ impl ModuleBuilder<'_> {
             ));
         }
         let TSTypeName::IdentifierReference(name) = &item.expression else {
-            return Err(SmeltError::unsupported(
-                self.span(item.span.start, item.span.end),
-                "qualified implements clauses are not lowered yet",
-            ));
+            return Ok(None);
         };
-        Ok(self.intern_type_name(name.name.as_str()))
+        Ok(Some(self.intern_type_name(name.name.as_str())))
     }
 
     /// Convert an interface heritage clause to the referenced interface symbol and arguments.
@@ -98,13 +101,14 @@ impl ModuleBuilder<'_> {
     ) -> Result<(smelt_hir::Symbol, Vec<smelt_hir::TypeId>), SmeltError> {
         let name_text = match &item.expression {
             Expression::Identifier(name) => name.name.to_string(),
-            Expression::StaticMemberExpression(member)
-                if matches!(
-                    &member.object,
-                    Expression::Identifier(object) if object.name == "Intl"
-                ) =>
-            {
-                format!("Intl.{}", member.property.name)
+            Expression::StaticMemberExpression(member) => {
+                let Expression::Identifier(object) = &member.object else {
+                    return Err(SmeltError::unsupported(
+                        self.span(item.span.start, item.span.end),
+                        "qualified interface inheritance is not lowered yet",
+                    ));
+                };
+                format!("{}.{}", object.name, member.property.name)
             }
             _ => {
                 return Err(SmeltError::unsupported(

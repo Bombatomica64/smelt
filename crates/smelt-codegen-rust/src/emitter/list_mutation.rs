@@ -23,20 +23,13 @@ impl FunctionEmitter<'_> {
                 ));
             }
         };
-        if self.operand_ty(item)? != *item_ty {
-            return Ok(if returns_length {
-                "0.0".to_owned()
-            } else {
-                "()".to_owned()
-            });
-        }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list push receiver must be a mutable local for now",
             ));
         };
         let list_text = self.local_name(*local)?;
-        let item_text = self.operand_text(item)?;
+        let item_text = self.operand_as_type_text(item, *item_ty)?;
         if returns_length {
             Ok(format!(
                 "{{ {list_text}.push({item_text}); {list_text}.len() as f64 }}"
@@ -63,9 +56,15 @@ impl FunctionEmitter<'_> {
                 "list extend argument must match the receiver list type",
             ));
         }
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
-            return Err(EmitError::new("list extend destination must be None"));
-        }
+        let returns_length = match self.mir.types.get(dest_ty) {
+            Some(Type::Float) => true,
+            Some(Type::None) => false,
+            _ => {
+                return Err(EmitError::new(
+                    "list extend destination must be number or None",
+                ));
+            }
+        };
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list extend receiver must be a mutable local for now",
@@ -73,9 +72,15 @@ impl FunctionEmitter<'_> {
         };
         let list_text = self.local_name(*local)?;
         let other_text = self.operand_text(other)?;
-        Ok(format!(
-            "{{ {list_text}.extend({other_text}.iter().cloned()); () }}"
-        ))
+        if returns_length {
+            Ok(format!(
+                "{{ {list_text}.extend({other_text}.iter().cloned()); {list_text}.len() as f64 }}"
+            ))
+        } else {
+            Ok(format!(
+                "{{ {list_text}.extend({other_text}.iter().cloned()); () }}"
+            ))
+        }
     }
 
     /// Converts a list insert operation to Rust text.

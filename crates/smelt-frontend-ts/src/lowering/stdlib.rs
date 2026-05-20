@@ -102,7 +102,7 @@ impl ModuleBuilder<'_> {
         };
         let mut target = self.argument_with_hint(target_arg, body, Some(record_ty))?;
         if Self::expr_ty(body, target) != record_ty
-            && self.object_assign_object_like_source(Self::expr_ty(body, target))
+            && self.object_assign_castable_target(Self::expr_ty(body, target))
         {
             target = body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
@@ -129,10 +129,14 @@ impl ModuleBuilder<'_> {
             });
         }
         if Self::expr_ty(body, target) != record_ty {
-            return Err(SmeltError::unsupported(
-                self.span(target_arg.span().start, target_arg.span().end),
-                "Object.assign target must share the source record type",
-            ));
+            target = body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: target,
+                    target: record_ty,
+                },
+                ty: record_ty,
+                span: self.span(target_arg.span().start, target_arg.span().end),
+            });
         }
 
         Ok(Some(body.push_expr(Expr {
@@ -165,6 +169,12 @@ impl ModuleBuilder<'_> {
                 .all(|item| self.object_assign_object_like_source(item)),
             _ => false,
         }
+    }
+
+    /// Return whether an `Object.assign` target can be coerced to the merged record type.
+    fn object_assign_castable_target(&self, target_ty: smelt_hir::TypeId) -> bool {
+        self.object_assign_object_like_source(target_ty)
+            || matches!(self.ctx.krate.types.get(target_ty), Some(Type::None))
     }
 
     /// Build the fallback record type for object-like assign sources without a record source.
@@ -587,37 +597,102 @@ impl ModuleBuilder<'_> {
                 "JSON.parse<T>() currently supports exactly one text argument",
             ));
         };
-        let Some(type_args) = &call.type_arguments else {
+        let ty = if let Some(type_args) = &call.type_arguments {
+            let [target_ty] = type_args.params.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "JSON.parse requires exactly one type argument",
+                ));
+            };
+            self.ts_type_to_hir(target_ty)?
+        } else {
+            self.json_parse_fallback_type()
+        };
+        if !self.is_json_serializable_type(ty) && !self.is_erased_json_class_target(ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "JSON.parse requires an explicit type argument",
-            ));
-        };
-        let [target_ty] = type_args.params.as_slice() else {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "JSON.parse requires exactly one type argument",
-            ));
-        };
-        let ty = self.ts_type_to_hir(target_ty)?;
-        if !self.is_json_serializable_type(ty) {
-            return Err(SmeltError::unsupported(
-                self.span(target_ty.span().start, target_ty.span().end),
                 "JSON.parse<T>() target type must be JSON-compatible",
             ));
         }
-        let text = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, text)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(argument.span().start, argument.span().end),
-                "JSON.parse<T>() text argument must be a string",
-            ));
-        }
+        let text = self.json_parse_text_argument(argument, body, "JSON.parse<T>()")?;
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::JsonParse { text },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return the fallback type for untyped `JSON.parse(text)`.
+    fn json_parse_fallback_type(&mut self) -> smelt_hir::TypeId {
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+    }
+
+    /// Lower `JSON.parse(text) as T` using the assertion type as parse target.
+    pub(super) fn json_parse_call_with_target(
+        &mut self,
+        expression: &Expression<'_>,
+        target: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::CallExpression(call) = expression else {
+            return Ok(None);
+        };
+        if stdlib_dispatch::call_rule(call) != Some(RuleId::TsJsonParse) {
+            return Ok(None);
+        }
+        let [argument] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "JSON.parse() currently supports exactly one text argument",
+            ));
+        };
+        if call.type_arguments.is_some() {
+            return Ok(None);
+        }
+        if !self.is_json_serializable_type(target) && !self.is_erased_json_class_target(target) {
+            return Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                "JSON.parse assertion target type must be JSON-compatible",
+            ));
+        }
+        let text = self.json_parse_text_argument(argument, body, "JSON.parse()")?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::JsonParse { text },
+            ty: target,
+            span: self.span(span.start, span.end),
+        })))
+    }
+
+    /// Lower and coerce the text operand accepted by `JSON.parse`.
+    fn json_parse_text_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+        source_name: &str,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let text = self.argument(argument, body)?;
+        let text_ty = Self::expr_ty(body, text);
+        if self.ctx.krate.types.get(text_ty) == Some(&Type::String) {
+            return Ok(text);
+        }
+        if self.is_string_compatible_type(text_ty) || self.type_contains_unknown(text_ty) {
+            let target = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: text,
+                    target,
+                },
+                ty: target,
+                span: self.span(argument.span().start, argument.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(argument.span().start, argument.span().end),
+            format!("{source_name} text argument must be a string"),
+        ))
     }
 
     /// Lower TypeScript `new RegExp(pattern).test(text)` to a regex boolean match.
@@ -633,16 +708,14 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let is_known_regexp_test = stdlib_dispatch::call_rule(call) == Some(RuleId::TsRegExpTest);
+        if !is_known_regexp_test && !self.could_be_regexp_test_receiver(&member.object, body) {
+            return Ok(None);
+        }
         let [haystack_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "RegExp.test() requires exactly one string argument",
             ));
-        };
-        let Some(pattern) =
-            self.regexp_pattern_expression(&member.object, body, is_known_regexp_test)?
-        else {
-            return Ok(None);
         };
         let haystack = self.argument(haystack_argument, body)?;
         let Some(haystack) = self.regexp_text_operand(haystack, body) else {
@@ -650,6 +723,40 @@ impl ModuleBuilder<'_> {
                 self.span(call.span.start, call.span.end),
                 "RegExp.test() requires a string haystack",
             ));
+        };
+        let receiver = self.expression(&member.object, body)?;
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, receiver)), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
+        {
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let optional_unknown_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
+            let exec = body.push_expr(Expr {
+                kind: ExprKind::RegexExec {
+                    regex: receiver,
+                    haystack,
+                },
+                ty: optional_unknown_ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+            let none = body.push_expr(Expr {
+                kind: ExprKind::Literal(smelt_hir::Literal::None),
+                ty: self.ctx.krate.types.intern(Type::None),
+                span: self.span(call.span.start, call.span.end),
+            });
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    lhs: exec,
+                    rhs: none,
+                },
+                ty: bool_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        let Some(pattern) =
+            self.regexp_pattern_expression(&member.object, body, is_known_regexp_test)?
+        else {
+            return Ok(None);
         };
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
@@ -661,6 +768,61 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether an untagged `.test(...)` receiver is plausibly a `RegExp` value.
+    ///
+    /// Many validation libraries expose their own `.test(...)` APIs. Smelt only
+    /// routes untagged calls into regex lowering when the receiver is a direct
+    /// regex-producing expression or a local/module value with a regex-like type
+    /// surface.
+    fn could_be_regexp_test_receiver(&self, expression: &Expression<'_>, body: &Body) -> bool {
+        match expression {
+            Expression::NewExpression(new_expr) => {
+                matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp")
+            }
+            Expression::CallExpression(call_expr) => {
+                matches!(&call_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp")
+            }
+            Expression::RegExpLiteral(_) => true,
+            Expression::Identifier(identifier) => self
+                .locals
+                .get(identifier.name.as_str())
+                .and_then(|local| {
+                    usize::try_from(local.0)
+                        .ok()
+                        .and_then(|index| body.locals.get(index))
+                        .map(|decl| decl.ty)
+                })
+                .or_else(|| self.module_globals.get(identifier.name.as_str()).copied())
+                .is_some_and(|ty| self.regexp_receiver_type(ty)),
+            _ => false,
+        }
+    }
+
+    /// Return whether a HIR type can represent a regex value in TS lowering.
+    fn regexp_receiver_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::String) => true,
+            Some(Type::Class { name, .. }) => {
+                self.ctx
+                    .krate
+                    .symbols
+                    .get(*name)
+                    .or_else(|| self.ctx.krate.names.get(*name))
+                    == Some("RegExp")
+            }
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.regexp_receiver_type(item)),
+            _ => false,
+        }
     }
 
     /// Lower TypeScript `pattern.exec(text)` to an optional match array.
@@ -681,9 +843,7 @@ impl ModuleBuilder<'_> {
                 "RegExp.exec() requires exactly one string argument",
             ));
         };
-        let Some(pattern) = self.regexp_pattern_expression(&member.object, body, false)? else {
-            return Ok(None);
-        };
+        let regex = self.expression(&member.object, body)?;
         let haystack = self.argument(haystack_argument, body)?;
         let Some(haystack) = self.regexp_text_operand(haystack, body) else {
             return Err(SmeltError::unsupported(
@@ -691,11 +851,10 @@ impl ModuleBuilder<'_> {
                 "RegExp.exec() requires a string haystack",
             ));
         };
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
-        let ty = self.ctx.krate.types.intern(Type::Optional(list_ty));
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::RegexFind { pattern, haystack },
+            kind: ExprKind::RegexExec { regex, haystack },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -770,12 +929,35 @@ impl ModuleBuilder<'_> {
             ));
         };
         let pattern = self.argument(pattern_argument, body)?;
-        self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
+        let pattern = self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
                 "RegExp construction requires a string pattern",
             )
-        })
+        })?;
+        let flags = if let Some(flags_argument) = new_expr.arguments.get(1) {
+            let flags = self.argument(flags_argument, body)?;
+            self.regexp_text_operand(flags, body).ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(flags_argument.span().start, flags_argument.span().end),
+                    "RegExp flags must be string-compatible",
+                )
+            })?
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(smelt_hir::Literal::String(String::new())),
+                ty: self.ctx.krate.types.intern(Type::String),
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            })
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::New {
+                class: self.intern_type_name("RegExp"),
+                args: vec![pattern, flags],
+            },
+            ty: self.regexp_type(),
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
     }
 
     /// Extract a pattern string from a supported TypeScript RegExp-producing expression.
@@ -788,12 +970,18 @@ impl ModuleBuilder<'_> {
         match expression {
             Expression::NewExpression(new_expr) => {
                 let Expression::Identifier(callee) = &new_expr.callee else {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
                     ));
                 };
                 if callee.name != "RegExp" {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
@@ -811,12 +999,18 @@ impl ModuleBuilder<'_> {
             }
             Expression::CallExpression(call_expr) => {
                 let Expression::Identifier(callee) = &call_expr.callee else {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(call_expr.span.start, call_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
                     ));
                 };
                 if callee.name != "RegExp" {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(call_expr.span.start, call_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
@@ -904,21 +1098,84 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return whether a HIR type can be serialized by the JSON mapping.
-    fn is_json_serializable_type(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(ty) {
-            Some(Type::Bool | Type::Int | Type::Float | Type::String) => true,
-            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
-                self.is_json_serializable_type(*item)
+    fn is_json_serializable_type(&mut self, ty: smelt_hir::TypeId) -> bool {
+        self.is_json_serializable_type_inner(ty, &mut Vec::new())
+    }
+
+    /// Return whether a HIR type can be serialized without recursing forever.
+    fn is_json_serializable_type_inner(
+        &mut self,
+        ty: smelt_hir::TypeId,
+        seen: &mut Vec<smelt_hir::Symbol>,
+    ) -> bool {
+        let Some(ty_kind) = self.ctx.krate.types.get(ty).cloned() else {
+            return false;
+        };
+        match ty_kind {
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::TypeParam { .. } => true,
+            Type::List(item) | Type::Set(item) | Type::Optional(item) => {
+                self.is_json_serializable_type_inner(item, seen)
             }
-            Some(Type::Tuple(items)) => items
+            Type::Tuple(items) => items
                 .iter()
-                .all(|item| self.is_json_serializable_type(*item)),
-            Some(Type::Dict(key, value)) => {
-                matches!(self.ctx.krate.types.get(*key), Some(Type::String))
-                    && self.is_json_serializable_type(*value)
+                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+            Type::Union(items) => items
+                .iter()
+                .all(|item| self.is_json_serializable_type_inner(*item, seen)),
+            Type::Dict(key, value) => {
+                matches!(self.ctx.krate.types.get(key), Some(Type::String))
+                    && self.is_json_serializable_type_inner(value, seen)
             }
-            _ => false,
+            Type::Class { name, args } => {
+                if self.class_by_symbol(name).is_some() {
+                    return false;
+                }
+                self.json_class_fields(name, &args).is_some_and(|fields| {
+                    if seen.contains(&name) {
+                        return true;
+                    }
+                    seen.push(name);
+                    let serializable = fields
+                        .iter()
+                        .all(|field| self.is_json_serializable_type_inner(field.ty, seen));
+                    seen.pop();
+                    serializable
+                })
+            }
+            Type::None => true,
+            Type::Never | Type::Function(_) | Type::Future(_) => false,
         }
+    }
+
+    /// Return fields for class-like TypeScript types that can map to JSON objects.
+    fn json_class_fields(
+        &mut self,
+        name: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+    ) -> Option<Vec<smelt_hir::Field>> {
+        if let Some(class) = self.class_by_symbol(name).cloned() {
+            let substitutions = self
+                .type_argument_substitution(&class.type_params, args, self.span(0, 0))
+                .ok()?;
+            return Some(self.substituted_fields(&class.fields, &substitutions));
+        }
+        if let Some(interface) = self.find_interface(name).cloned() {
+            let substitutions = self
+                .type_argument_substitution(&interface.type_params, args, self.span(0, 0))
+                .ok()?;
+            return Some(self.substituted_fields(&interface.fields, &substitutions));
+        }
+        self.type_alias_fields.get(&name).cloned()
+    }
+
+    /// Return whether a JSON parse target is a class-like shape whose fields are erased.
+    fn is_erased_json_class_target(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
     }
 
     /// Lower direct TypeScript `Array.prototype.shift` calls.
@@ -1097,7 +1354,27 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
-        let item = self.argument(item_argument, body)?;
+        if let Argument::SpreadElement(spread) = item_argument {
+            let other = self.expression(&spread.argument, body)?;
+            let other_ty = Self::expr_ty(body, other);
+            let other = if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
+                other
+            } else {
+                let list_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: other },
+                    ty: list_ty,
+                    span: self.span(spread.span.start, spread.span.end),
+                })
+            };
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListExtend { list, other },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        let mut item = self.argument(item_argument, body)?;
         let item_ty = Self::expr_ty(body, item);
         let compatible = self.array_item_type_compatible(item_ty, element_ty)
             || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
@@ -1112,10 +1389,18 @@ impl ModuleBuilder<'_> {
                 (Some(Type::TypeParam { .. }), _) | (_, Some(Type::TypeParam { .. }))
             );
         if !compatible {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array push argument must match the array element type",
-            ));
+            if self.erased_or_union_surface(item_ty) || self.erased_or_union_surface(element_ty) {
+                item = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: item },
+                    ty: element_ty,
+                    span: self.span(item_argument.span().start, item_argument.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array push argument must match the array element type",
+                ));
+            }
         }
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
@@ -1540,7 +1825,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collapse a tuple used as an array element into the item type produced by flattening it.
-    fn flattened_tuple_item_type(&mut self, items: Vec<smelt_hir::TypeId>) -> smelt_hir::TypeId {
+    pub(super) fn flattened_tuple_item_type(
+        &mut self,
+        items: Vec<smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
         match items.as_slice() {
             [] => self.ctx.krate.types.intern(Type::Never),
             [single] => *single,
@@ -1737,6 +2025,9 @@ impl ModuleBuilder<'_> {
         expected: smelt_hir::TypeId,
     ) -> bool {
         if self.type_assignable_to(actual, expected) {
+            return true;
+        }
+        if self.erased_or_union_surface(actual) || self.erased_or_union_surface(expected) {
             return true;
         }
         if matches!(

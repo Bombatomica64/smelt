@@ -1,0 +1,135 @@
+   Compiling smelt-codegen-rust v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-codegen-rust)
+   Compiling smelt-cli v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.41s
+     Running `target/debug/smelt --manifest-path third_party/remeda/Smelt.toml build`
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+call to_camel_case_implementation arg=0 local=Some(TypeId(5)) emitted=Some(TypeId(5)) target=TypeId(5) source=Some(Union([TypeId(2417), TypeId(5)])) target_ty=Some(String)
+call to_camel_case_implementation arg=1 local=Some(TypeId(2417)) emitted=Some(TypeId(2417)) target=TypeId(2417) source=Some(Optional(TypeId(2417))) target_ty=Some(Class { name: Symbol(1681), args: [] })
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+signature to_camel_case id=FuncId(879) source=to_camel_case test=false origin=Body(BodyId(1778)) priority=2 params=[TypeId(2425), TypeId(2426)]
+signature to_camel_case_implementation id=FuncId(880) source=to_camel_case_implementation test=false origin=Body(BodyId(1776)) priority=2 params=[TypeId(5), TypeId(2417)]
+signature test_data_first_on_camel_case_1942 id=FuncId(1942) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3537)) priority=0 params=[]
+signature test_data_last_on_camel_case_1950 id=FuncId(1950) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3545)) priority=0 params=[]
+signature test_data_first_on_camel_case_1989 id=FuncId(1989) source=test_data_first_on_camel_case test=true origin=Body(BodyId(3586)) priority=0 params=[]
+signature test_data_last_on_camel_case_1997 id=FuncId(1997) source=test_data_last_on_camel_case test=true origin=Body(BodyId(3594)) priority=0 params=[]
+signature test_camelcase id=FuncId(2022) source=test_camelcase test=true origin=Body(BodyId(3620)) priority=0 params=[]
+call to_camel_case_implementation arg=0 local=Some(TypeId(5)) emitted=Some(TypeId(5)) target=TypeId(5) source=Some(Union([TypeId(2417), TypeId(5)])) target_ty=Some(String)
+call to_camel_case_implementation arg=1 local=Some(TypeId(2417)) emitted=Some(TypeId(2417)) target=TypeId(2417) source=Some(Optional(TypeId(2417))) target_ty=Some(Class { name: Symbol(1681), args: [] })
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))
+call to_camel_case arg=0 local=Some(TypeId(2425)) emitted=Some(TypeId(2425)) target=TypeId(2425) source=Some(String) target_ty=Some(Union([TypeId(2417), TypeId(5)]))
+call to_camel_case arg=1 local=Some(TypeId(2426)) emitted=Some(TypeId(2426)) target=TypeId(2426) source=Some(Dict(TypeId(5), TypeId(6))) target_ty=Some(Optional(TypeId(2417)))

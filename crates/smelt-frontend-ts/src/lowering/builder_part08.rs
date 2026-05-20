@@ -22,6 +22,26 @@ impl ModuleBuilder<'_> {
             if let Some(expr) = self.dynamic_date_constructor_expression(new_expr, body)? {
                 return Ok(expr);
             }
+            if let Expression::StaticMemberExpression(member) = &new_expr.callee {
+                let class_name = self.intern_type_name(member.property.name.as_str());
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: Vec::new(),
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: class_name,
+                        args,
+                    },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
+            }
             return Err(SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
                 "new expressions require a direct class name",
@@ -58,7 +78,29 @@ impl ModuleBuilder<'_> {
             return self.url_constructor_expression(new_expr, body);
         }
         let Some(item) = self.classes.get(callee.name.as_str()).copied() else {
-            if self.value_imports.contains(callee.name.as_str()) {
+            if self.pending_class_names.contains(callee.name.as_str()) {
+                let class_name = self.intern_type_name(callee.name.as_str());
+                let args = new_expr
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ty = self.ctx.krate.types.intern(Type::Class {
+                    name: class_name,
+                    args: Vec::new(),
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: class_name,
+                        args,
+                    },
+                    ty,
+                    span: self.span(new_expr.span.start, new_expr.span.end),
+                }));
+            }
+            if self.value_imports.contains(callee.name.as_str())
+                || self.module_globals.contains_key(callee.name.as_str())
+            {
                 let class_name = self.intern_type_name(callee.name.as_str());
                 let args = new_expr
                     .arguments
@@ -170,13 +212,7 @@ impl ModuleBuilder<'_> {
                 "new URL() currently supports exactly one string URL argument",
             ));
         };
-        let url = self.argument(url_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL(text) requires a string URL argument",
-            ));
-        }
+        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(body.push_expr(Expr {
             kind: ExprKind::UrlField {
@@ -306,6 +342,46 @@ impl ModuleBuilder<'_> {
         ))
     }
 
+    /// Lower `Error(message)`-style calls to the message value used by HIR throws.
+    fn error_function_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if call.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Error function lowering supports at most one message argument",
+            ));
+        }
+        let Some(message_arg) = call.arguments.first() else {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String("Error".to_owned())),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            }));
+        };
+        let message = self.argument(message_arg, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, message)) == Some(&Type::String) {
+            return Ok(message);
+        }
+        if self.is_string_compatible_type(Self::expr_ty(body, message))
+            || self.type_contains_unknown(Self::expr_ty(body, message))
+        {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: message },
+                ty,
+                span: self.span(message_arg.span().start, message_arg.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(message_arg.span().start, message_arg.span().end),
+            "Error function message must be a string",
+        ))
+    }
+
     /// Lower an expression while preserving a caller-supplied type hint when possible.
     fn expression_with_hint(
         &mut self,
@@ -359,10 +435,24 @@ impl ModuleBuilder<'_> {
                 self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
             }
             Expression::RegExpLiteral(literal) => {
-                let ty = self.ctx.krate.types.intern(Type::String);
-                let value = Self::regex_literal_pattern_text(literal);
+                let ty = self.regexp_type();
+                let pattern = Self::regex_literal_pattern_text_without_flags(literal);
+                let flags = literal.regex.flags.to_string();
+                let pattern = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(pattern)),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                    span: self.span(literal.span.start, literal.span.end),
+                });
+                let flags = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(flags)),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                    span: self.span(literal.span.start, literal.span.end),
+                });
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(value)),
+                    kind: ExprKind::New {
+                        class: self.intern_type_name("RegExp"),
+                        args: vec![pattern, flags],
+                    },
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 }))
@@ -637,14 +727,15 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let awaited = self.expression(&await_expr.argument, body)?;
-                let ty = self
-                    .future_inner_type(Self::expr_ty(body, awaited))
-                    .ok_or_else(|| {
-                        SmeltError::unsupported(
-                            self.span(await_expr.span.start, await_expr.span.end),
-                            "await expressions require a Promise<T> operand",
-                        )
-                    })?;
+                let awaited_ty = Self::expr_ty(body, awaited);
+                let Some(ty) = self.future_inner_type(awaited_ty) else {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(await_expr.span.start, await_expr.span.end),
+                    }));
+                };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Await(awaited),
                     ty,

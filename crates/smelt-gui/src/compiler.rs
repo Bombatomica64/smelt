@@ -97,6 +97,27 @@ mod tests {
             CompileResult::Err(e) => panic!("Cross-import compile failed: {e}"),
         }
     }
+
+    #[test]
+    fn cross_import_emits_one_rust_main() {
+        let ts = "export function add(a: number, b: number): number {\n    return a + b;\n}\n";
+        let py = "from lib import add\n\nresult: float = add(2.0, 3.0)\nprint(result)\n";
+        let result = compile(ts, py);
+        match &result {
+            CompileResult::Ok(rust) => {
+                assert_eq!(
+                    rust.matches("fn main(").count(),
+                    1,
+                    "expected one Rust entrypoint: {rust}"
+                );
+                assert!(
+                    rust.contains("fn lib()"),
+                    "expected TS module body to be renamed away from main: {rust}"
+                );
+            }
+            CompileResult::Err(e) => panic!("Cross-import compile failed: {e}"),
+        }
+    }
 }
 
 /// Lower TS then Python into one shared HIR crate, mirroring the CLI's
@@ -111,15 +132,18 @@ fn lower_combined(
     let mut ts_ctx = smelt_frontend_ts::HirCtx::new();
 
     if ts_has_content {
-        smelt_frontend_ts::to_hir_with_path(ts_source, FileId(0), TS_PATH, &mut ts_ctx).map_err(
-            |errors| {
-                errors
-                    .iter()
-                    .map(|e| format!("{e:?}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            },
-        )?;
+        let module =
+            smelt_frontend_ts::to_hir_with_path(ts_source, FileId(0), TS_PATH, &mut ts_ctx)
+                .map_err(|errors| {
+                    errors
+                        .iter()
+                        .map(|e| format!("{e:?}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })?;
+        if py_has_content {
+            rename_module(&mut ts_ctx.krate, module, "lib");
+        }
     }
 
     if py_has_content {
@@ -128,17 +152,27 @@ fn lower_combined(
             module_namespaces: std::collections::HashMap::new(),
             enum_members: std::collections::HashMap::new(),
         };
-        smelt_frontend_py::to_hir_with_path(py_source, FileId(1), PY_PATH, &mut py_ctx).map_err(
-            |errors| {
-                errors
-                    .iter()
-                    .map(|e| format!("{e:?}"))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            },
-        )?;
+        let module =
+            smelt_frontend_py::to_hir_with_path(py_source, FileId(1), PY_PATH, &mut py_ctx)
+                .map_err(|errors| {
+                    errors
+                        .iter()
+                        .map(|e| format!("{e:?}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                })?;
+        rename_module(&mut py_ctx.krate, module, "main");
         Ok(py_ctx.krate)
     } else {
         Ok(ts_ctx.krate)
+    }
+}
+
+/// Rename a lowered module body before MIR lowering chooses Rust function names.
+fn rename_module(krate: &mut smelt_hir::Crate, module_id: smelt_hir::ModuleId, name: &str) {
+    if let Ok(index) = usize::try_from(module_id.0)
+        && let Some(module) = krate.modules.get_mut(index)
+    {
+        name.clone_into(&mut module.name);
     }
 }

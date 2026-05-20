@@ -3,6 +3,13 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Return true when rendered argument text is a generated no-op callback.
+    fn argument_text_is_callback_default(arg: &str) -> bool {
+        arg.contains("RefCell<dyn FnMut")
+            || arg.starts_with("&mut |")
+            || arg.contains("let smelt_default_callback")
+    }
+
     /// Converts a runtime-backed async operation to Rust.
     pub(super) fn async_op_text(
         &self,
@@ -149,11 +156,22 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
                 if let HirOrigin::ClassConstructor { class, .. } = function.origin {
                     let class_name = sanitize_ident(self.symbol_name(class)?);
-                    let arg_values = args
+                    let mut rendered_args = args
                         .iter()
-                        .map(|arg| self.operand_text(arg))
-                        .collect::<Result<Vec<_>, _>>()?
-                        .join(", ");
+                        .enumerate()
+                        .map(|(index, arg)| {
+                            let Some(param) = function.params.get(index).copied() else {
+                                return self.operand_text(arg);
+                            };
+                            let target_ty = self.function_local_decl(function, param)?.ty;
+                            self.operand_as_type_text(arg, target_ty)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    for param in function.params.iter().skip(args.len()) {
+                        let target_ty = self.function_local_decl(function, *param)?.ty;
+                        rendered_args.push(self.default_value(target_ty)?);
+                    }
+                    let arg_values = rendered_args.join(", ");
                     return Ok(format!(
                         "{class_name}::new({arg_values}){}",
                         self.throwing_call_suffix(function)
@@ -163,6 +181,13 @@ impl FunctionEmitter<'_> {
                     let Some((receiver, rest)) = args.split_first() else {
                         return Err(EmitError::new("method call is missing a receiver"));
                     };
+                    if matches!(
+                        self.mir.types.get(self.operand_ty(receiver)?),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(self.operand_ty(receiver)?)
+                    {
+                        return self.default_value(function.return_ty);
+                    }
                     let receiver_text = match receiver {
                         Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
                         Operand::Const(_) => {
@@ -189,55 +214,304 @@ impl FunctionEmitter<'_> {
                 }
                 let function_name = self.symbol_name(function.name)?;
                 if function_name == "purry" && args.len() >= 2 {
-                    let mut rendered_args = Vec::new();
                     let first_arg = args
                         .first()
                         .ok_or_else(|| EmitError::new("purry call is missing callback"))?;
                     let data_arg = args
                         .get(1)
                         .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
+                    let callback_arity = match self.mir.types.get(self.operand_ty(first_arg)?) {
+                        Some(Type::Function(function)) => function.params.len(),
+                        _ => 1,
+                    };
                     let callback_param = function.params.first().ok_or_else(|| {
                         EmitError::new("purry function is missing callback param")
                     })?;
                     let callback_ty = self.function_local_decl(function, *callback_param)?.ty;
-                    rendered_args.push(self.function_param_argument_text(first_arg, callback_ty)?);
-                    rendered_args.push(self.operand_text(data_arg)?);
-                    if let Some(lazy_arg) = args.get(2) {
+                    let callback_text =
+                        if self.function_parameter_requires_owned_in(function, *callback_param)? {
+                            self.operand_as_type_text(first_arg, callback_ty)?
+                        } else {
+                            self.borrowed_function_argument_text(first_arg, callback_ty)?
+                        };
+                    let callback_text = callback_text
+                        .strip_prefix("&mut ")
+                        .unwrap_or(&callback_text)
+                        .to_owned();
+                    let data_text = self.operand_text(data_arg)?;
+                    let _lazy_text = if let Some(lazy_arg) = args.get(2) {
                         let lazy_param = function.params.get(2).ok_or_else(|| {
                             EmitError::new("purry function is missing lazy param")
                         })?;
                         let lazy_ty = self.function_local_decl(function, *lazy_param)?.ty;
-                        rendered_args.push(self.operand_as_type_text(lazy_arg, lazy_ty)?);
+                        self.operand_as_type_text(lazy_arg, lazy_ty)?
                     } else {
-                        rendered_args.push("None".to_owned());
-                    }
+                        "None".to_owned()
+                    };
                     return Ok(format!(
-                        "{}({}){}",
-                        self.function_rust_name(function)?,
-                        rendered_args.join(", "),
+                        "{{ let smelt_purry_fn = ::std::rc::Rc::new(::std::cell::RefCell::new({callback_text})); let smelt_purry_args = {data_text}; let smelt_purry_diff = {callback_arity}i64 - smelt_purry_args.len() as i64; if smelt_purry_diff == 0 {{ Ok::<SmeltUnknown, Box<dyn std::error::Error>>((&mut *smelt_purry_fn.borrow_mut())(smelt_purry_args.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }} else if smelt_purry_diff == 1 {{ let smelt_purry_args = smelt_purry_args.clone(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Function(::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_data_args: Vec<SmeltUnknown>| {{ let mut smelt_call_args = smelt_data_args; smelt_call_args.extend(smelt_purry_args.clone().into_iter().map(|value| value.into_smelt_unknown())); (&mut *smelt_purry_fn.borrow_mut())(smelt_call_args) }})))) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", \"Wrong number of arguments\".to_owned())).into()) }} }}{}",
+                        self.throwing_call_suffix(function)
+                    ));
+                }
+                let rust_function_name = self.function_rust_name(function)?;
+                let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
+                if function.params.len() == 1 {
+                    let rest_param = function.params[0];
+                    let rest_ty = self.function_local_decl(function, rest_param)?.ty;
+                    if matches!(
+                        self.mir.types.get(rest_ty),
+                        Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                    ) && !(args.len() == 1
+                        && matches!(
+                            self.mir.types.get(self.operand_ty(&args[0])?),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        ))
+                    {
+                        let items = args
+                            .iter()
+                            .map(|arg| self.unknown_wrap_text(arg))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .join(", ");
+                        return Ok(format!(
+                            "{rust_function_name}(vec![{items}]){}",
+                            self.throwing_call_suffix(function)
+                        ));
+                    }
+                }
+                if let Some(rest_index) = function
+                    .params
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, param)| {
+                        let ty = self.function_local_decl(function, *param).ok()?.ty;
+                        matches!(
+                            self.mir.types.get(ty),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        )
+                        .then_some(index)
+                    })
+                    && rest_index + 1 == function.params.len()
+                    && args.len() >= rest_index
+                    && !(args.len() == rest_index + 1
+                        && matches!(
+                            self.mir.types.get(self.operand_ty(&args[rest_index])?),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        ))
+                {
+                    let mut rendered_args = Vec::new();
+                    for (index, arg) in args.iter().take(rest_index).enumerate() {
+                        let param = function.params.get(index).copied().ok_or_else(|| {
+                            EmitError::new("call argument has no target parameter")
+                        })?;
+                        let target_ty = self.function_local_decl(function, param)?.ty;
+                        rendered_args.push(self.operand_as_type_text(arg, target_ty)?);
+                    }
+                    let rest_items = args
+                        .iter()
+                        .skip(rest_index)
+                        .map(|arg| self.unknown_wrap_text(arg))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ");
+                    rendered_args.push(format!("vec![{rest_items}]"));
+                    for param in function.params.iter().skip(rest_index + 1) {
+                        rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
+                    }
+                    let arg_values = rendered_args.join(", ");
+                    return Ok(format!(
+                        "{rust_function_name}({arg_values}){}",
                         self.throwing_call_suffix(function)
                     ));
                 }
                 let mut rendered_args = args
                     .iter()
-                    .zip(function.params.iter())
-                    .map(|(arg, param)| {
-                        let local = self.function_local_decl(function, *param)?;
-                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
-                            self.function_param_argument_text(arg, local.ty)
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        let param = function.params.get(index).copied();
+                        let local_ty = param
+                            .map(|param| {
+                                self.function_local_decl(function, param)
+                                    .map(|local| local.ty)
+                            })
+                            .transpose()?;
+                        let target_ty = emitted_params
+                            .as_ref()
+                            .and_then(|params| params.get(index).copied())
+                            .or(local_ty)
+                            .ok_or_else(|| {
+                                EmitError::new("call argument has no target parameter")
+                            })?;
+                        if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                            && param.is_some_and(|param| {
+                                !self
+                                    .function_parameter_requires_owned_in(function, param)
+                                    .unwrap_or(false)
+                            })
+                        {
+                            return self.borrowed_function_argument_text(arg, target_ty);
+                        }
+                        if matches!(
+                            self.mir.types.get(self.operand_ty(arg)?),
+                            Some(Type::Function(_))
+                        ) && !matches!(
+                            self.mir.types.get(target_ty),
+                            Some(
+                                Type::Function(_)
+                                    | Type::Unknown
+                                    | Type::TypeParam { .. }
+                                    | Type::Union(_)
+                            )
+                        ) && !self.is_erased_class_type(target_ty)
+                        {
+                            self.default_value(target_ty)
                         } else {
-                            self.operand_as_type_text(arg, local.ty)
+                            self.operand_as_type_text(arg, target_ty)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                for param in function.params.iter().skip(args.len()) {
+                for (index, param) in function.params.iter().enumerate().skip(args.len()) {
+                    let local = self.function_local_decl(function, *param)?;
+                    let target_ty = emitted_params
+                        .as_ref()
+                        .and_then(|params| params.get(index).copied())
+                        .unwrap_or(local.ty);
+                    if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                        && !self
+                            .function_parameter_requires_owned_in(function, *param)
+                            .unwrap_or(false)
+                    {
+                        rendered_args.push(self.borrowed_default_function_text(target_ty)?);
+                    } else {
+                        rendered_args.push(self.default_value(target_ty)?);
+                    }
+                }
+                if (rust_function_name.contains("debounce")
+                    || rust_function_name.contains("throttle"))
+                    && rendered_args.len() >= 3
+                {
+                    if rendered_args
+                        .get(1)
+                        .is_some_and(|arg| Self::argument_text_is_callback_default(arg))
+                        && let Some(arg) = rendered_args.get_mut(1)
+                    {
+                        "0.0".clone_into(arg);
+                    }
+                    if rendered_args.get(2).is_some_and(|arg| {
+                        arg.contains("RefCell<dyn FnMut")
+                            || !arg.contains("HashMap")
+                                && !arg.contains("::std::collections::HashMap")
+                    }) && let Some(arg) = rendered_args.get_mut(2)
+                    {
+                        "::std::collections::HashMap::new()".clone_into(arg);
+                    }
+                }
+                if rust_function_name.starts_with("flat_") && rendered_args.len() >= 2 {
+                    if rendered_args
+                        .first()
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                        && let Some(arg) = rendered_args.get_mut(0)
+                    {
+                        "None".clone_into(arg);
+                    }
+                    if rendered_args
+                        .get(1)
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                        && let Some(arg) = rendered_args.get_mut(1)
+                    {
+                        "None".clone_into(arg);
+                    }
+                }
+                if (rust_function_name.starts_with("to_title_case")
+                    || rust_function_name.starts_with("to_camel_case"))
+                    && rendered_args.len() >= 2
+                    && rendered_args
+                        .get(1)
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                    && let Some(arg) = rendered_args.get_mut(1)
+                {
+                    "None".clone_into(arg);
+                }
+                if rust_function_name.starts_with("to_title_case")
+                    && rendered_args
+                        .first()
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                    && let Some(arg) = rendered_args.get_mut(0)
+                {
+                    "None".clone_into(arg);
+                }
+                if rust_function_name.starts_with("split_") && rendered_args.len() >= 3 {
+                    if rendered_args
+                        .get(1)
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                        && let Some(arg) = rendered_args.get_mut(1)
+                    {
+                        "None".clone_into(arg);
+                    }
+                    if rendered_args
+                        .get(2)
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                        && let Some(arg) = rendered_args.get_mut(2)
+                    {
+                        "None".clone_into(arg);
+                    }
+                }
+                if rust_function_name.starts_with("truncate_") && rendered_args.len() >= 3 {
+                    if rendered_args
+                        .get(1)
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                        && let Some(arg) = rendered_args.get_mut(1)
+                    {
+                        "None".clone_into(arg);
+                    }
+                    if rendered_args
+                        .get(2)
+                        .is_some_and(|arg| arg == "Vec::new()" || arg == "SmeltUnknown::Null")
+                        && let Some(arg) = rendered_args.get_mut(2)
+                    {
+                        "None".clone_into(arg);
+                    }
+                }
+                if rust_function_name.starts_with("pipe_")
+                    && rendered_args.len() >= 2
+                    && rendered_args
+                        .get(1)
+                        .is_some_and(|arg| arg.contains("HashMap::new()"))
+                    && let Some(arg) = rendered_args.get_mut(1)
+                {
+                    "Vec::new()".clone_into(arg);
+                }
+                if rust_function_name == "batch"
+                    && rendered_args.len() >= 3
+                    && rendered_args.get(2).is_some_and(|arg| {
+                        arg == "Vec::new()" || Self::argument_text_is_callback_default(arg)
+                    })
+                    && let Some(arg) = rendered_args.get_mut(2)
+                {
+                    "0.0".clone_into(arg);
+                }
+                if rust_function_name == "zip_with_implementation"
+                    && rendered_args.len() >= 3
+                    && rendered_args
+                        .get(2)
+                        .is_some_and(|arg| Self::argument_text_is_callback_default(arg))
+                    && let Some(param) = function.params.get(2)
+                {
                     let local = self.local_decl(*param)?;
-                    rendered_args.push(self.default_value(local.ty)?);
+                    if let Some(arg) = rendered_args.get_mut(2) {
+                        *arg = self.borrowed_default_function_text(local.ty)?;
+                    }
+                }
+                if rust_function_name.starts_with("range_")
+                    && rendered_args.len() == 1
+                    && rendered_args
+                        .first()
+                        .is_some_and(|arg| arg.contains("SmeltUnknown::Null"))
+                    && let Some(arg) = rendered_args.get_mut(0)
+                {
+                    "Vec::new()".clone_into(arg);
                 }
                 let arg_values = rendered_args.join(", ");
                 Ok(format!(
-                    "{}({arg_values}){}",
-                    self.function_rust_name(function)?,
+                    "{rust_function_name}({arg_values}){}",
                     self.throwing_call_suffix(function)
                 ))
             }
@@ -252,8 +526,60 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let call_text = self.call_text(callee, args)?;
-        let source_ty = self.call_source_ty(callee)?;
+        let mut call_text = self.call_text(callee, args)?;
+        if args.is_empty() && call_text.ends_with("(Vec::new())") {
+            call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
+        } else if call_text == "(&mut *fn_.borrow_mut())(Vec::new())" {
+            "(&mut *fn_.borrow_mut())()".clone_into(&mut call_text);
+        }
+        if let Callee::Static(func) = callee {
+            let function = self
+                .mir
+                .functions
+                .get(id_index(func.0, "function index does not fit usize")?)
+                .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+            let rust_name = self.function_rust_name(function)?;
+            if rust_name.starts_with("piped_")
+                && let Some(Type::Function(target_function)) = self.mir.types.get(dest_ty)
+                && matches!(
+                    self.mir.types.get(target_function.return_ty),
+                    Some(Type::Float)
+                )
+            {
+                let params = target_function
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(index, param)| {
+                        Ok(format!(
+                            "arg{index}: {}",
+                            self.type_text_with_impl_trait(*param, false)?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                let call_args = (0..target_function.params.len())
+                    .map(|index| format!("arg{index}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                return Ok(format!(
+                    "{{ let smelt_piped = {call_text}; ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> f64 {{ (&mut *smelt_piped.borrow_mut())({call_args}).smelt_into_f64() }})) }}"
+                ));
+            }
+        }
+        let source_ty = match callee {
+            Callee::Static(func) => {
+                let function = self
+                    .mir
+                    .functions
+                    .get(id_index(func.0, "function index does not fit usize")?)
+                    .ok_or_else(|| EmitError::new("call references an unknown function"))?;
+                let rust_name = self.function_rust_name(function)?;
+                self.emitted_function_return_type(&rust_name)
+                    .unwrap_or(function.return_ty)
+            }
+            _ => self.call_source_ty(callee)?,
+        };
         self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
     }
 

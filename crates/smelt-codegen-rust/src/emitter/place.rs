@@ -9,12 +9,21 @@ impl FunctionEmitter<'_> {
             Place::Local(local) => self.local_name(*local).map(str::to_owned),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
-                if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty)
-                    && self.mir.types.get(*key) == Some(&Type::String)
-                {
+                if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty) {
                     let field_name = self.symbol_name(*field)?;
+                    let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
+                        format!("{field_name:?}.to_owned()")
+                    } else if matches!(
+                        self.mir.types.get(*key),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(*key)
+                    {
+                        format!("SmeltUnknown::String({field_name:?}.to_owned())")
+                    } else {
+                        self.default_value(*key)?
+                    };
                     return Ok(format!(
-                        "{}.get({field_name:?}).cloned().expect(\"missing field\")",
+                        "{}.get(&{key_text}).cloned().expect(\"missing field\")",
                         self.local_name(*base)?
                     ));
                 }
@@ -44,6 +53,14 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }
+                if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
+                    return self.string_field_text(self.local_name(*base)?, *field);
+                }
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
+                {
+                    return Ok("SmeltUnknown::Null".to_owned());
+                }
                 Ok(format!(
                     "{}.{}",
                     self.local_name(*base)?,
@@ -62,7 +79,13 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                     Some(Type::Dict(key_ty, _)) => {
-                        let key_text = self.operand_as_type_text(index, *key_ty)?;
+                        let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                            let source_key = self.operand_ty(index)?;
+                            let index_text = self.operand_text(index)?;
+                            self.property_key_to_string_text(&index_text, source_key)?
+                        } else {
+                            self.operand_as_type_text(index, *key_ty)?
+                        };
                         Ok(format!(
                             "{}.get(&{key_text}).cloned().expect(\"index out of bounds\")",
                             self.local_name(*base)?
@@ -77,6 +100,9 @@ impl FunctionEmitter<'_> {
                         Ok(format!(
                             "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
                         ))
+                    }
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                        self.unknown_index_text(self.local_name(*base)?, index)
                     }
                     _ => Ok("SmeltUnknown::Null".to_owned()),
                 }
@@ -98,7 +124,13 @@ impl FunctionEmitter<'_> {
                         Ok(format!("{base_text}[{index_text}]"))
                     }
                     Some(Type::Dict(key_ty, _)) => {
-                        let key_text = self.operand_as_type_text(index, *key_ty)?;
+                        let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                            let source_key = self.operand_ty(index)?;
+                            let index_text = self.operand_text(index)?;
+                            self.property_key_to_string_text(&index_text, source_key)?
+                        } else {
+                            self.operand_as_type_text(index, *key_ty)?
+                        };
                         Ok(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
                             self.local_name(*base)?
@@ -125,9 +157,76 @@ impl FunctionEmitter<'_> {
         len_expr: &str,
         index: &Operand,
     ) -> Result<String, EmitError> {
-        let index_text = self.operand_text(index)?;
+        let index_ty = self.operand_ty(index)?;
+        let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
+            self.operand_text(index)?
+        } else {
+            self.operand_as_type_text(index, self.type_id(Type::Float)?)?
+        };
         Ok(format!(
             "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"
+        ))
+    }
+
+    /// Emit a runtime index read for values whose concrete shape is erased.
+    ///
+    /// TypeScript generic and unknown receivers may still be strings, arrays,
+    /// or objects at runtime. Returning `Null` here hides lowering bugs and
+    /// breaks later casts, so the generated Rust dispatches on `SmeltUnknown`
+    /// and panics only when the runtime value is not indexable.
+    pub(super) fn unknown_index_text(
+        &self,
+        base_text: &str,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        let index_ty = self.operand_ty(index)?;
+        let index_text = self.operand_text(index)?;
+        let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
+        if matches!(self.mir.types.get(index_ty), Some(Type::String)) {
+            return Ok(format!(
+                r#"match {base_text}.clone() {{
+                    SmeltUnknown::Object(values) => values.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null),
+                    _ => panic!("unknown is not object"),
+                }}"#
+            ));
+        }
+        let numeric_index_text = match self.mir.types.get(index_ty) {
+            Some(Type::Int | Type::Float) => index_text,
+            Some(Type::Bool) => format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}"),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            | Some(Type::Class { .. })
+                if self.is_erased_class_type(index_ty)
+                    || matches!(
+                        self.mir.types.get(index_ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) =>
+            {
+                format!(
+                    "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                )
+            }
+            _ => "f64::NAN".to_owned(),
+        };
+
+        Ok(format!(
+            r#"match {base_text}.clone() {{
+                SmeltUnknown::String(value) => {{
+                    let len = value.chars().count() as i64;
+                    let index = {numeric_index_text} as i64;
+                    let normalized = if index < 0 {{ len + index }} else {{ index }};
+                    let index = usize::try_from(normalized).expect("negative index out of bounds");
+                    SmeltUnknown::String(value.chars().nth(index).map(|ch| ch.to_string()).expect("index out of bounds"))
+                }}
+                SmeltUnknown::Array(values) => {{
+                    let len = values.len() as i64;
+                    let index = {numeric_index_text} as i64;
+                    let normalized = if index < 0 {{ len + index }} else {{ index }};
+                    let index = usize::try_from(normalized).expect("negative index out of bounds");
+                    values.get(index).cloned().expect("index out of bounds")
+                }}
+                SmeltUnknown::Object(values) => values.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null),
+                _ => panic!("unknown is not indexable"),
+            }}"#
         ))
     }
 

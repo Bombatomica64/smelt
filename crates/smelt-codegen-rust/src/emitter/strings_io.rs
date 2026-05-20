@@ -3,6 +3,28 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Coerce an `i64` JavaScript timestamp expression into the destination type.
+    pub(super) fn date_timestamp_result_text(
+        &self,
+        text: &str,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        match self.mir.types.get(dest_ty) {
+            Some(Type::Float) => Ok(format!("({text} as f64)")),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                Ok(format!("SmeltUnknown::Number({text} as f64)"))
+            }
+            Some(Type::Optional(inner)) => {
+                let inner_text = self.date_timestamp_result_text(text, *inner)?;
+                Ok(format!("Some({inner_text})"))
+            }
+            _ if self.is_erased_class_type(dest_ty) => {
+                Ok(format!("SmeltUnknown::Number({text} as f64)"))
+            }
+            _ => Ok(text.to_owned()),
+        }
+    }
+
     /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     pub(super) fn date_to_iso_string_text(
         &self,
@@ -48,7 +70,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 Ok(format!(
-                    "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => f64::NAN }}"
+                    "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
                 ))
             }
             _ => Ok("f64::NAN".to_owned()),

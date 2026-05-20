@@ -1,0 +1,98 @@
+module third_party/remeda/packages/remeda/src/stringToPath.ts (ModuleId(0))
+  body BodyId(1)
+  items
+    type StringToPath = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | S) | (S) | List<String | Float>
+    type StringToPathImpl = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | S) | (S)
+    fn string_to_path owner Module
+  locals
+    %0 const NON_NEGATIVE_INTEGER_RE: RegExp
+  exprs
+    #0: String = "^(?:0|[1-9][0-9]*)$"
+    #1: String = "u"
+    #2: RegExp = new RegExp(#0, #1)
+  stmts
+    s0: let %0: RegExp = #2
+
+interned types
+  t0 = S
+  t1 = StringToPathImpl<S>
+  t2 = String
+  t3 = Float
+  t4 = String | Float
+  t5 = List<String | Float>
+  t6 = StringToPathImpl<S> | List<String | Float>
+  t7 = Tail
+  t8 = StringToPathImpl<Tail>
+  t9 = StringToPathImpl<Tail> | List<String | Float>
+  t10 = Head
+  t11 = StringToPathImpl<Head>
+  t12 = StringToPathImpl<Head> | List<String | Float>
+  t13 = Quoted
+  t14 = (Quoted)
+  t15 = DoubleQuoted
+  t16 = (DoubleQuoted)
+  t17 = Unknown
+  t18 = Unquoted
+  t19 = StringToPathImpl<Unquoted>
+  t20 = StringToPathImpl<Unquoted> | List<String | Float>
+  t21 = List<Unknown>
+  t22 = ()
+  t23 = N
+  t24 = N | S
+  t25 = (N | S)
+  t26 = (S)
+  t27 = (N | S) | (S)
+  t28 = () | (N | S) | (S)
+  t29 = List<Unknown> | () | (N | S) | (S)
+  t30 = List<Unknown> | List<Unknown> | () | (N | S) | (S)
+  t31 = (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | S) | (S)
+  t32 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | S) | (S)
+  t33 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | S) | (S) | List<String | Float>
+  t34 = N | Tail
+  t35 = (N | Tail)
+  t36 = (Tail)
+  t37 = (N | Tail) | (Tail)
+  t38 = () | (N | Tail) | (Tail)
+  t39 = List<Unknown> | () | (N | Tail) | (Tail)
+  t40 = List<Unknown> | List<Unknown> | () | (N | Tail) | (Tail)
+  t41 = (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Tail) | (Tail)
+  t42 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Tail) | (Tail)
+  t43 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Tail) | (Tail) | List<String | Float>
+  t44 = N | Head
+  t45 = (N | Head)
+  t46 = (Head)
+  t47 = (N | Head) | (Head)
+  t48 = () | (N | Head) | (Head)
+  t49 = List<Unknown> | () | (N | Head) | (Head)
+  t50 = List<Unknown> | List<Unknown> | () | (N | Head) | (Head)
+  t51 = (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Head) | (Head)
+  t52 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Head) | (Head)
+  t53 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Head) | (Head) | List<String | Float>
+  t54 = N | Unquoted
+  t55 = (N | Unquoted)
+  t56 = (Unquoted)
+  t57 = (N | Unquoted) | (Unquoted)
+  t58 = () | (N | Unquoted) | (Unquoted)
+  t59 = List<Unknown> | () | (N | Unquoted) | (Unquoted)
+  t60 = List<Unknown> | List<Unknown> | () | (N | Unquoted) | (Unquoted)
+  t61 = (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Unquoted) | (Unquoted)
+  t62 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Unquoted) | (Unquoted)
+  t63 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Unquoted) | (Unquoted) | List<String | Float>
+  t64 = RegExp
+  t65 = Path
+  t66 = N | Path
+  t67 = (N | Path)
+  t68 = (Path)
+  t69 = (N | Path) | (Path)
+  t70 = () | (N | Path) | (Path)
+  t71 = List<Unknown> | () | (N | Path) | (Path)
+  t72 = List<Unknown> | List<Unknown> | () | (N | Path) | (Path)
+  t73 = (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Path) | (Path)
+  t74 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Path) | (Path)
+  t75 = (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Path) | (Path) | List<String | Float>
+  t76 = fn(Path) -> (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Path) | (Path) | List<String | Float>
+  t77 = RegExpExecArray
+  t78 = None
+  t79 = Optional<RegExpExecArray>
+  t80 = Optional<Unknown>
+  t81 = Bool

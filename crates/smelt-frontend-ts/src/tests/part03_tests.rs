@@ -126,6 +126,29 @@ const upper = word.toUpperCase();
 }
 
 #[test]
+fn lowers_string_case_methods_on_erased_receivers() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+declare const value: unknown;
+const lower = value.toLowerCase();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::StringCase {
+            op: StringCaseOp::Lower,
+            ..
+        }
+    )));
+    Ok(())
+}
+
+#[test]
 fn lowers_string_trim_method() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

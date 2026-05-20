@@ -226,6 +226,17 @@ pub enum Stmt {
         /// The loop body.
         body: BlockId,
     },
+    /// While loop with an update assignment that runs before each next test.
+    WhileUpdate {
+        /// The loop condition.
+        cond: ExprId,
+        /// The loop body.
+        body: BlockId,
+        /// Assignment target updated after each iteration.
+        update_target: ExprId,
+        /// Assignment value evaluated after each iteration.
+        update_value: ExprId,
+    },
     /// For-in loop with pattern, iterator, and body.
     For {
         /// The pattern binding the iterator value.

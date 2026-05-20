@@ -1,0 +1,120 @@
+fn range (FuncId(0)) -> Unknown
+  locals
+    %0 param args: List<Unknown>
+    %1 temp: Dict<String, Unknown>
+    %2 temp: Unknown
+    %3 temp: fn(Float, Float | RangeOptions) -> List<Float>
+    %4 temp: Unknown
+  bb0:
+    %1 = {}
+    %2 = unknown_cast copy %1 as t0
+    %3 = closure ClosureId(0) []
+    %4 = closure_call copy %2(copy %3, copy %0)
+    return copy %4
+
+fn range_implementation (FuncId(1)) -> List<Float> throws
+  locals
+    %0 param start: Float
+    %1 param end_or_options: Float | RangeOptions
+    %2 user step: Unknown
+    %3 user end: Unknown
+    %4 user length: Float
+    %5 temp: Bool
+    %6 temp: Unknown
+    %7 temp: Bool
+    %8 temp: Bool
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Unknown
+    %12 temp: Float
+    %13 temp: Bool
+    %14 temp: List<Float>
+    %15 temp: fn(Unknown, Float) -> Float
+    %16 temp: List<Float>
+  bb0:
+    %5 = unknown_is Object copy %1
+    switch copy %5 ? bb1 : bb2
+  bb1:
+    %6 = copy %1.field3
+    goto bb3
+  bb2:
+    %6 = 1.0
+    goto bb3
+  bb3:
+    %2 = copy %6
+    %7 = copy %2 == 0.0
+    switch copy %7 ? bb4 : bb5
+  bb4:
+    throw "range: step cannot be zero (0)!"
+  bb5:
+    %8 = unknown_is Object copy %1
+    switch copy %8 ? bb6 : bb7
+  bb6:
+    %9 = copy %1.field2
+    goto bb8
+  bb7:
+    %9 = copy %1
+    goto bb8
+  bb8:
+    %3 = copy %9
+    %10 = copy %3 - copy %0
+    %11 = copy %10 / copy %2
+    %12 = call fn2(copy %11) -> bb9
+  bb9:
+    %4 = copy %12
+    %13 = copy %4 <= 0.0
+    switch copy %13 ? bb10 : bb11
+  bb10:
+    %14 = []
+    return copy %14
+  bb11:
+    %15 = closure ClosureId(1) [copy %2, copy %0]
+    %16 = list_from_length_map copy %4, copy %15
+    return copy %16
+
+fn ceiling_with_snap (FuncId(2)) -> Float
+  locals
+    %0 param raw: Float
+    %1 user rounded: Float
+    %2 temp: Bool
+    %3 temp: Float
+    %4 temp: Float
+    %5 temp: Float
+    %6 temp: Float
+    %7 temp: Float
+    %8 temp: Bool
+    %9 temp: Float
+    %10 temp: Float
+  bb0:
+    %2 = copy %0 == 0.0
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    return 0.0
+  bb2:
+    %3 = numeric_round copy %0
+    %1 = copy %3
+    %4 = copy %0 - copy %1
+    %5 = numeric_abs copy %4
+    %6 = numeric_abs copy %0
+    %7 = copy %5 / copy %6
+    %8 = copy %7 < 0.000000000001
+    switch copy %8 ? bb3 : bb4
+  bb3:
+    %9 = copy %1
+    goto bb5
+  bb4:
+    %10 = numeric_ceil copy %0
+    %9 = copy %10
+    goto bb5
+  bb5:
+    return copy %9
+
+fn main (FuncId(3)) -> None
+  locals
+    %0 user default_step: Float
+    %1 user snap_tolerance: Float
+  bb0:
+    %0 = 1.0
+    %1 = 0.000000000001
+    return none
+

@@ -29,6 +29,7 @@ pub(super) fn stmt_text(krate: &Crate, body: &Body, stmt: &Stmt) -> String {
         Stmt::Continue => "continue".to_owned(),
         Stmt::If { .. }
         | Stmt::While { .. }
+        | Stmt::WhileUpdate { .. }
         | Stmt::For { .. }
         | Stmt::Match { .. }
         | Stmt::Throw(_)
@@ -53,6 +54,18 @@ fn control_stmt_text(body: &Body, stmt: &Stmt) -> String {
             cond,
             body: loop_body,
         } => format!("while {} {:?}", expr_ref(*cond), loop_body),
+        Stmt::WhileUpdate {
+            cond,
+            body: loop_body,
+            update_target,
+            update_value,
+        } => format!(
+            "while {} {:?} update {} = {}",
+            expr_ref(*cond),
+            loop_body,
+            expr_ref(*update_target),
+            expr_ref(*update_value)
+        ),
         Stmt::For {
             pat,
             iter,

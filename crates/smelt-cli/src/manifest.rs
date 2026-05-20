@@ -159,6 +159,8 @@ struct DependencyCollector {
     ts_resolver: Resolver,
     /// Parsed TypeScript barrel export maps keyed by normalized path.
     barrel_exports: HashMap<PathBuf, HashMap<String, String>>,
+    /// Bare package import targets discovered from workspace package metadata.
+    workspace_packages: HashMap<String, Option<PathBuf>>,
 }
 
 impl Default for DependencyCollector {
@@ -169,6 +171,7 @@ impl Default for DependencyCollector {
             seen: HashSet::new(),
             ts_resolver: typescript_resolver(),
             barrel_exports: HashMap::new(),
+            workspace_packages: HashMap::new(),
         }
     }
 }
@@ -235,11 +238,44 @@ impl DependencyCollector {
         let Some(candidate) =
             resolve_typescript_path(&self.ts_resolver, importer_path, &import.module)?
         else {
-            return Ok(Vec::new());
+            return self.resolve_workspace_package_import(importer_path, import);
         };
         self.resolve_barrel_import_targets(&candidate, import)
             .or_else(|| Some(vec![candidate.canonicalize().ok()?]))
             .ok_or_else(|| "failed to canonicalize TypeScript import candidate".into())
+    }
+
+    /// Resolve a bare package import through workspace package metadata.
+    fn resolve_workspace_package_import(
+        &mut self,
+        importer_path: &Path,
+        import: &ManifestImport,
+    ) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+        if import.module.starts_with('.') || import.module.starts_with('/') {
+            return Ok(Vec::new());
+        }
+        let package_name = bare_package_name(&import.module);
+        if !self.workspace_packages.contains_key(&package_name) {
+            let root = workspace_search_root(importer_path);
+            let target = find_workspace_package_entry(&root, &package_name)?;
+            self.workspace_packages.insert(package_name.clone(), target);
+        }
+        let Some(entry) = self
+            .workspace_packages
+            .get(&package_name)
+            .cloned()
+            .flatten()
+        else {
+            return Ok(Vec::new());
+        };
+        let import = ManifestImport {
+            module: entry.display().to_string(),
+            names: import.names.clone(),
+            python_relative_level: None,
+        };
+        self.resolve_barrel_import_targets(&entry, &import)
+            .or_else(|| Some(vec![entry.canonicalize().ok()?]))
+            .ok_or_else(|| "failed to canonicalize workspace package import candidate".into())
     }
 
     /// Resolves named imports from an `index.ts` barrel to matching re-export files.
@@ -372,6 +408,98 @@ fn manifest_import_candidates(base: &Path) -> Vec<PathBuf> {
         candidates.push(base.join("__init__.pyi"));
     }
     candidates
+}
+
+/// Return the package name part of a bare TypeScript import specifier.
+fn bare_package_name(module: &str) -> String {
+    let mut parts = module.split('/');
+    let Some(first) = parts.next() else {
+        return module.to_owned();
+    };
+    if first.starts_with('@')
+        && let Some(second) = parts.next()
+    {
+        return format!("{first}/{second}");
+    }
+    first.to_owned()
+}
+
+/// Choose a bounded root for scanning workspace packages.
+fn workspace_search_root(importer_path: &Path) -> PathBuf {
+    let mut candidate = importer_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf();
+    for ancestor in importer_path.ancestors() {
+        if ancestor.join("pnpm-workspace.yaml").exists()
+            || ancestor.join("yarn.lock").exists()
+            || ancestor.join("package.json").exists() && ancestor.join("packages").is_dir()
+        {
+            candidate = ancestor.to_path_buf();
+        }
+    }
+    candidate
+}
+
+/// Find a workspace package entry file by its package.json `name`.
+fn find_workspace_package_entry(
+    root: &Path,
+    package_name: &str,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        if dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| matches!(name, "node_modules" | "dist" | "target" | ".git"))
+        {
+            continue;
+        }
+        let package_json = dir.join("package.json");
+        if package_json.exists()
+            && let Some(entry) = workspace_package_entry(&package_json, package_name)?
+        {
+            return Ok(Some(entry));
+        }
+        let Ok(children) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for child in children.flatten() {
+            let Ok(file_type) = child.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                stack.push(child.path());
+            }
+        }
+    }
+    Ok(None)
+}
+
+/// Return a supported source entry for a matching workspace package.
+fn workspace_package_entry(
+    package_json: &Path,
+    package_name: &str,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    let value: serde_json::Value = serde_json::from_str(&fs::read_to_string(package_json)?)?;
+    if value.get("name").and_then(serde_json::Value::as_str) != Some(package_name) {
+        return Ok(None);
+    }
+    let Some(package_dir) = package_json.parent() else {
+        return Ok(None);
+    };
+    for field in ["source", "types", "typings", "main"] {
+        let Some(entry) = value.get(field).and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        for candidate in manifest_import_candidates(&package_dir.join(entry)) {
+            if candidate.exists() && SourceLang::from_path(&candidate.display().to_string()).is_ok()
+            {
+                return Ok(Some(candidate));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Maps simple named exports in a TypeScript barrel file to their module specifiers.

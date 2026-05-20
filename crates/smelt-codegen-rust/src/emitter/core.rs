@@ -24,6 +24,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .unwrap_or(none_ty);
         let names = Self::local_names(mir, function)?;
         let declared_locals = function.params.iter().copied().collect();
+        let predeclared_locals = predeclared_locals_for_function(function);
         Ok(Self {
             mir,
             context,
@@ -31,6 +32,10 @@ impl<'mir> FunctionEmitter<'mir> {
             names,
             mutable_locals: assigned_locals(mir, function),
             declared_locals: RefCell::new(declared_locals),
+            predeclared_locals,
+            termination_cache: RefCell::new(HashMap::new()),
+            loop_exit_cache: RefCell::new(HashMap::new()),
+            borrowed_callback_names: HashSet::new(),
             none_ty,
             unknown_local: LocalDecl {
                 ty: unknown_ty,
@@ -112,11 +117,10 @@ impl<'mir> FunctionEmitter<'mir> {
                 .params
                 .iter()
                 .map(|param| {
-                    let local = self.local_decl(*param)?;
                     Ok(format!(
                         "mut {}: {}",
                         self.local_name(*param)?,
-                        self.param_type_text(local.ty)?
+                        self.parameter_decl_type_text(*param)?
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
@@ -159,10 +163,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 .params
                 .iter()
                 .map(|param| {
-                    let local = self.local_decl(*param)?;
-                    let mutability = if self.mutable_locals.contains(param)
-                        || self.type_contains_function(local.ty)
-                    {
+                    let mutability = if self.mutable_locals.contains(param) {
                         "mut "
                     } else {
                         ""
@@ -170,7 +171,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     Ok(format!(
                         "{mutability}{}: {}",
                         self.local_name(*param)?,
-                        self.param_type_text(local.ty)?
+                        self.parameter_decl_type_text(*param)?
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
@@ -185,7 +186,9 @@ impl<'mir> FunctionEmitter<'mir> {
 
         self.emit_mutable_local_preludes(out)?;
         self.emit_block(self.entry_block()?, out)?;
-        if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())? {
+        if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())?
+            && !emitted_tail_returns(out)
+        {
             self.emit_fallthrough_return(out)?;
         }
         out.push_str("}\n");
@@ -199,15 +202,14 @@ impl<'mir> FunctionEmitter<'mir> {
     /// fall through, Rust would otherwise infer `()` and report E0308; returning
     /// the type default keeps the generated crate type-correct until the CFG
     /// shape is represented more precisely.
-    fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
-        if self.function.return_ty == self.none_ty {
-            return Ok(());
-        }
+    pub(super) fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
         if self.function.can_throw {
             out.push_str(&format!(
                 "    return Ok({});\n",
                 self.default_value(self.function.return_ty)?
             ));
+        } else if self.function.return_ty == self.none_ty {
+            return Ok(());
         } else {
             out.push_str(&format!(
                 "    return {};\n",
@@ -225,13 +227,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// later reassigned outside the branch.
     pub(super) fn emit_mutable_local_preludes(&self, out: &mut String) -> Result<(), EmitError> {
         let params = self.function.params.iter().copied().collect::<HashSet<_>>();
-        let prelude_locals = self.predeclared_locals();
-        let mut locals = self
-            .mutable_locals
-            .iter()
-            .copied()
-            .filter(|local| prelude_locals.contains(local))
-            .collect::<Vec<_>>();
+        let mut locals = self.predeclared_locals().into_iter().collect::<Vec<_>>();
         locals.sort_by_key(|local| local.0);
         for local in locals {
             if params.contains(&local) || self.is_local_declared(local) {
@@ -250,12 +246,27 @@ impl<'mir> FunctionEmitter<'mir> {
             {
                 continue;
             }
-            out.push_str(&format!(
-                "    let mut {}: {} = {};\n",
-                name,
-                self.type_text_with_impl_trait(decl.ty, false)?,
-                self.default_value(decl.ty)?
-            ));
+            let mutability = if self.local_binding_needs_mut(local) {
+                "mut "
+            } else {
+                ""
+            };
+            if self.predeclared_local_needs_default(local)?
+                || self.local_may_be_used_before_assignment(local)?
+            {
+                out.push_str(&format!(
+                    "    let {mutability}{}: {} = {};\n",
+                    name,
+                    self.type_text_with_impl_trait(decl.ty, false)?,
+                    self.default_value(decl.ty)?
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    let {mutability}{}: {};\n",
+                    name,
+                    self.type_text_with_impl_trait(decl.ty, false)?
+                ));
+            }
             self.mark_local_declared(local);
         }
         Ok(())
@@ -267,46 +278,52 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Rust branch scope and then reused by a sibling or follow-up block. Moving
     /// those bindings to function scope preserves MIR's function-local storage
     /// without perturbing straight-line entry-block declarations.
-    fn predeclared_locals(&self) -> HashSet<LocalId> {
-        let mut locals = self.reassigned_locals();
-        if self.function.blocks.len() <= 1 {
-            return locals;
-        }
-        for block in &self.function.blocks {
-            if block.id == self.function.entry {
-                continue;
-            }
-            for statement in &block.statements {
-                if let Statement::Assign { dest, .. } = statement {
-                    locals.insert(*dest);
-                }
-            }
-        }
-        locals
+    pub(super) fn predeclared_locals(&self) -> HashSet<LocalId> {
+        self.predeclared_locals.clone()
     }
 
-    /// Returns locals that have more than one explicit MIR assignment.
-    ///
-    /// These locals need a single outer Rust binding when branch emission can
-    /// otherwise introduce sibling scoped declarations for the same MIR local.
-    pub(super) fn reassigned_locals(&self) -> HashSet<LocalId> {
-        let mut seen = self.function.params.iter().copied().collect::<HashSet<_>>();
-        let mut repeated = HashSet::new();
-        for block in &self.function.blocks {
-            for statement in &block.statements {
-                if let Statement::Assign { dest, .. } = statement
-                    && !seen.insert(*dest)
-                {
-                    repeated.insert(*dest);
-                }
-            }
+    /// Returns whether a predeclared local should keep a concrete default.
+    fn predeclared_local_needs_default(&self, local: LocalId) -> Result<bool, EmitError> {
+        let decl = self.local_decl(local)?;
+        let name = self.local_name(local)?;
+        let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
+            || self
+                .type_text_with_impl_trait(decl.ty, false)?
+                .contains("FnMut");
+        if is_callable
+            && (name.starts_with("_smelt_tmp_")
+                || self.local_assignment_count(local) == 0
+                || self.local_first_access_is_read(local))
+        {
+            return Ok(true);
         }
-        repeated
+        Ok(matches!(self.mir.types.get(decl.ty), Some(Type::Float))
+            && name.starts_with("index")
+            && (name.contains('_') || self.local_first_access_is_read(local)))
     }
 
     /// Returns whether the first Rust binding for `local` must be mutable.
     pub(super) fn local_binding_needs_mut(&self, local: LocalId) -> bool {
-        if self.reassigned_locals().contains(&local) {
+        if self
+            .local_decl(local)
+            .ok()
+            .and_then(|decl| self.mir.types.get(decl.ty))
+            .is_some_and(|ty| matches!(ty, Type::Class { .. }))
+        {
+            return true;
+        }
+        if self.predeclared_locals.contains(&local)
+            && (self.predeclared_local_needs_default(local).unwrap_or(true)
+                || self
+                    .local_may_be_used_before_assignment(local)
+                    .unwrap_or(true))
+        {
+            return true;
+        }
+        if self.local_may_be_assigned_after_assignment(local) {
+            return true;
+        }
+        if self.local_assignment_count(local) > 1 {
             return true;
         }
         if self.first_assignment_is_outside_entry(local) {
@@ -315,6 +332,11 @@ impl<'mir> FunctionEmitter<'mir> {
         for block in &self.function.blocks {
             for statement in &block.statements {
                 match statement {
+                    Statement::Assign { dest, .. } if *dest == local => {
+                        if self.block_can_repeat(block.id, &mut HashSet::new()) {
+                            return true;
+                        }
+                    }
                     Statement::AssignPlace {
                         place:
                             Place::Local(candidate)
@@ -330,12 +352,41 @@ impl<'mir> FunctionEmitter<'mir> {
                         if self.rvalue_mutates_local(value, local) {
                             return true;
                         }
+                        if let Rvalue::Closure { id, .. } = value
+                            && let Some(closure) = self
+                                .mir
+                                .closures
+                                .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                            && closure.captures.iter().any(|capture| {
+                                capture.source_local == local
+                                    && self.closure_capture_needs_shared_access(closure, capture)
+                            })
+                        {
+                            return true;
+                        }
                     }
                     _ => {}
                 }
             }
         }
         false
+    }
+
+    /// Count direct assignments to a MIR local.
+    fn local_assignment_count(&self, local: LocalId) -> usize {
+        self.function
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .filter(|statement| match statement {
+                Statement::Assign { dest, .. } => *dest == local,
+                Statement::AssignPlace {
+                    place: Place::Local(candidate),
+                    ..
+                } => *candidate == local,
+                _ => false,
+            })
+            .count()
     }
 
     /// Returns whether `local` is first assigned outside the entry block.
@@ -352,12 +403,241 @@ impl<'mir> FunctionEmitter<'mir> {
         false
     }
 
+    /// Returns whether the first MIR access to a local reads the previous value.
+    fn local_first_access_is_read(&self, local: LocalId) -> bool {
+        for block in &self.function.blocks {
+            for phi in &block.phis {
+                if phi
+                    .incoming
+                    .iter()
+                    .any(|(_, operand)| operand_uses_local(operand, local))
+                {
+                    return true;
+                }
+                if phi.dest == local {
+                    return false;
+                }
+            }
+            for statement in &block.statements {
+                match statement {
+                    Statement::Assign { dest, value } => {
+                        if rvalue_uses_local(value, local) {
+                            return true;
+                        }
+                        if *dest == local {
+                            return false;
+                        }
+                    }
+                    Statement::AssignPlace { place, value } => {
+                        if assignment_place_reads_local(place, local)
+                            || rvalue_uses_local(value, local)
+                        {
+                            return true;
+                        }
+                        if matches!(place, Place::Local(candidate) if *candidate == local) {
+                            return false;
+                        }
+                    }
+                    Statement::StorageLive(_) | Statement::StorageDead(_) => {}
+                }
+            }
+            if block
+                .terminator
+                .as_ref()
+                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Return whether control flow from `block_id` can reach `block_id` again.
+    fn block_can_repeat(
+        &self,
+        block_id: smelt_mir::BlockId,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> bool {
+        let Some(block) = self
+            .function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+        else {
+            return true;
+        };
+        let Some(terminator) = &block.terminator else {
+            return false;
+        };
+        terminator_successors(terminator)
+            .into_iter()
+            .any(|successor| {
+                successor == block_id
+                    || visited.insert(successor)
+                        && self
+                            .function
+                            .blocks
+                            .iter()
+                            .find(|block| block.id == successor)
+                            .and_then(|block| block.terminator.as_ref())
+                            .is_some_and(|terminator| {
+                                terminator_successors(terminator).into_iter().any(|next| {
+                                    next == block_id
+                                        || self.block_can_reach(next, block_id, &mut HashSet::new())
+                                })
+                            })
+            })
+    }
+
+    /// Return whether a successor path can reach `target`.
+    fn block_can_reach(
+        &self,
+        block_id: smelt_mir::BlockId,
+        target: smelt_mir::BlockId,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> bool {
+        if block_id == target {
+            return true;
+        }
+        if !visited.insert(block_id) {
+            return false;
+        }
+        self.function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+            .and_then(|block| block.terminator.as_ref())
+            .is_some_and(|terminator| {
+                terminator_successors(terminator)
+                    .into_iter()
+                    .any(|next| self.block_can_reach(next, target, visited))
+            })
+    }
+
+    /// Returns whether a local is read anywhere in the function body.
+    pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
+        self.function.blocks.iter().any(|block| {
+            block.phis.iter().any(|phi| {
+                phi.incoming
+                    .iter()
+                    .any(|(_, operand)| operand_uses_local(operand, local))
+            }) || block.statements.iter().any(|statement| match statement {
+                Statement::Assign { value, .. } => rvalue_uses_local(value, local),
+                Statement::AssignPlace { place, value } => {
+                    assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
+                }
+                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
+            }) || block
+                .terminator
+                .as_ref()
+                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+        })
+    }
+
+    /// Returns the source operand for a single-assignment unknown cast local.
+    ///
+    /// TypeScript type assertions and control-flow narrows do not convert the
+    /// runtime value. When a narrowed temporary is immediately returned as
+    /// `unknown`, the original tagged value should flow through instead of
+    /// being unwrapped and rewrapped as the narrowed shape.
+    pub(super) fn single_assignment_unknown_cast_source(&self, local: LocalId) -> Option<&Operand> {
+        let mut found = None;
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                let Statement::Assign {
+                    dest,
+                    value: Rvalue::UnknownCast { value, target: _ },
+                } = statement
+                else {
+                    continue;
+                };
+                if *dest != local {
+                    continue;
+                }
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(value);
+            }
+        }
+        found
+    }
+
+    /// Return whether some control-flow path writes to `local` after it already
+    /// has a value. Immutable Rust locals can be initialized from sibling
+    /// branches, but any second assignment on one path requires `mut`.
+    fn local_may_be_assigned_after_assignment(&self, local: LocalId) -> bool {
+        let assigned = self.function.params.contains(&local);
+        self.block_may_assign_local_after_assignment(
+            self.function.entry,
+            local,
+            assigned,
+            &mut HashSet::new(),
+        )
+    }
+
+    /// Walk one control-flow path while tracking whether `local` is initialized.
+    fn block_may_assign_local_after_assignment(
+        &self,
+        block_id: smelt_mir::BlockId,
+        local: LocalId,
+        mut assigned: bool,
+        seen: &mut HashSet<(smelt_mir::BlockId, bool)>,
+    ) -> bool {
+        if !seen.insert((block_id, assigned)) {
+            return false;
+        }
+        let Some(block) = self
+            .function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+        else {
+            return true;
+        };
+        for phi in &block.phis {
+            if phi.dest == local {
+                if assigned {
+                    return true;
+                }
+                assigned = true;
+            }
+        }
+        for statement in &block.statements {
+            let writes_local = match statement {
+                Statement::Assign { dest, .. } => *dest == local,
+                Statement::AssignPlace {
+                    place: Place::Local(candidate),
+                    ..
+                } => *candidate == local,
+                Statement::AssignPlace { .. }
+                | Statement::StorageLive(_)
+                | Statement::StorageDead(_) => false,
+            };
+            if writes_local {
+                if assigned {
+                    return true;
+                }
+                assigned = true;
+            }
+        }
+        block
+            .terminator
+            .as_ref()
+            .into_iter()
+            .flat_map(terminator_successors)
+            .any(|successor| {
+                self.block_may_assign_local_after_assignment(successor, local, assigned, seen)
+            })
+    }
+
     /// Returns whether evaluating `value` mutates `local` in-place.
-    fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
+    pub(super) fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
         let mutated = match value {
             Rvalue::ListPush { list, .. }
             | Rvalue::ListExtend { list, .. }
             | Rvalue::ListInsert { list, .. }
+            | Rvalue::ListSplice { list, .. }
             | Rvalue::ListReverse { list }
             | Rvalue::ListFill { list, .. }
             | Rvalue::ListCopyWithin { list, .. }
@@ -378,6 +658,139 @@ impl<'mir> FunctionEmitter<'mir> {
             _ => return false,
         };
         operand_local(mutated) == Some(local)
+    }
+
+    /// Returns whether a non-escaping capture must share outer storage.
+    ///
+    /// JavaScript closures observe the same binding as the outer scope. The
+    /// generated Rust only uses shared local storage when the closure body
+    /// writes through that capture; read-only captures can remain cloned.
+    pub(super) fn closure_capture_needs_shared_access(
+        &self,
+        closure: &MirClosure,
+        capture: &smelt_mir::MirClosureCapture,
+    ) -> bool {
+        if closure.escapes || capture.mode == smelt_hir::CaptureMode::ByValue {
+            return false;
+        }
+        if capture.mode == smelt_hir::CaptureMode::ByMut {
+            return true;
+        }
+        self.closure_capture_body_writes(closure, capture)
+    }
+
+    /// Returns whether a closure body assigns to or mutates a captured local.
+    pub(super) fn closure_capture_body_writes(
+        &self,
+        closure: &MirClosure,
+        capture: &smelt_mir::MirClosureCapture,
+    ) -> bool {
+        let Some(target) = capture.target_local else {
+            return false;
+        };
+        closure.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| match statement {
+                Statement::Assign { dest, .. } if *dest == target => true,
+                Statement::AssignPlace {
+                    place:
+                        Place::Local(candidate)
+                        | Place::Field {
+                            base: candidate, ..
+                        }
+                        | Place::Index {
+                            base: candidate, ..
+                        },
+                    ..
+                } if *candidate == target => true,
+                Statement::Assign { value, .. } => self.rvalue_mutates_local(value, target),
+                _ => false,
+            })
+        })
+    }
+
+    /// Returns whether `local` may be read before a real MIR assignment.
+    fn local_may_be_used_before_assignment(&self, local: LocalId) -> Result<bool, EmitError> {
+        let assigned = self.function.params.contains(&local);
+        self.block_may_use_local_before_assignment(
+            self.function.entry,
+            local,
+            assigned,
+            &mut HashSet::new(),
+        )
+    }
+
+    /// Walk one control-flow path while tracking definite assignment for `local`.
+    fn block_may_use_local_before_assignment(
+        &self,
+        block_id: smelt_mir::BlockId,
+        local: LocalId,
+        mut assigned: bool,
+        seen: &mut HashSet<(smelt_mir::BlockId, bool)>,
+    ) -> Result<bool, EmitError> {
+        if !seen.insert((block_id, assigned)) {
+            return Ok(false);
+        }
+        let block = self.block(block_id)?;
+        for phi in &block.phis {
+            if phi
+                .incoming
+                .iter()
+                .any(|(_, operand)| operand_uses_local(operand, local))
+                && !assigned
+            {
+                return Ok(true);
+            }
+            if phi.dest == local {
+                assigned = true;
+            }
+        }
+        for statement in &block.statements {
+            match statement {
+                Statement::Assign { dest, value } => {
+                    if rvalue_uses_local(value, local) && !assigned {
+                        return Ok(true);
+                    }
+                    if *dest == local {
+                        assigned = true;
+                    }
+                }
+                Statement::AssignPlace { place, value } => {
+                    if assignment_place_reads_local(place, local) && !assigned {
+                        return Ok(true);
+                    }
+                    if rvalue_uses_local(value, local) && !assigned {
+                        return Ok(true);
+                    }
+                    if matches!(place, Place::Local(candidate) if *candidate == local) {
+                        assigned = true;
+                    }
+                }
+                Statement::StorageLive(_) | Statement::StorageDead(_) => {}
+            }
+        }
+        let Some(terminator) = &block.terminator else {
+            return Ok(false);
+        };
+        if terminator_uses_local(terminator, local) && !assigned {
+            return Ok(true);
+        }
+        for successor in terminator_successors(terminator) {
+            let successor_assigned = if matches!(terminator, Terminator::Call { dest, .. } if *dest == local)
+            {
+                true
+            } else {
+                assigned
+            };
+            if self.block_may_use_local_before_assignment(
+                successor,
+                local,
+                successor_assigned,
+                seen,
+            )? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Returns whether `source` can be coerced before wrapping into `Option`.
@@ -423,6 +836,25 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(self.context.function_param_types.get(rust_name).cloned())
     }
 
+    /// Returns the emitted return type of a generated function by its Rust name.
+    ///
+    /// Cross-module calls can reference an imported overload signature in the
+    /// caller's MIR while resolving to a concrete Rust function emitted from the
+    /// source module. This is the return-side counterpart to emitted parameter
+    /// lookup, and lets call sites adapt from the actual Rust ABI.
+    pub(super) fn emitted_function_return_type(&self, rust_name: &str) -> Option<TypeId> {
+        self.context.function_return_types.get(rust_name).copied()
+    }
+
+    /// Return whether an emitted Rust function has a `Result` return ABI.
+    pub(super) fn emitted_function_can_throw(&self, rust_name: &str) -> bool {
+        self.context
+            .function_can_throw
+            .get(rust_name)
+            .copied()
+            .unwrap_or(false)
+    }
+
     /// Return the emitted Rust name for a callback function symbol.
     pub(super) fn callback_function_rust_name(
         &self,
@@ -445,11 +877,10 @@ impl<'mir> FunctionEmitter<'mir> {
                     .params
                     .iter()
                     .map(|param| {
-                        let local = self.local_decl(*param)?;
                         Ok(format!(
                             "{}: {}",
                             self.local_name(*param)?,
-                            self.param_type_text(local.ty)?
+                            self.parameter_decl_type_text(*param)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -471,11 +902,10 @@ impl<'mir> FunctionEmitter<'mir> {
                     .iter()
                     .skip(1)
                     .map(|param| {
-                        let local = self.local_decl(*param)?;
                         Ok(format!(
                             "{}: {}",
                             self.local_name(*param)?,
-                            self.param_type_text(local.ty)?
+                            self.parameter_decl_type_text(*param)?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -520,6 +950,10 @@ impl<'mir> FunctionEmitter<'mir> {
             names: HashMap::new(),
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
+            predeclared_locals: HashSet::new(),
+            termination_cache: RefCell::new(HashMap::new()),
+            loop_exit_cache: RefCell::new(HashMap::new()),
+            borrowed_callback_names: HashSet::new(),
             none_ty: ty,
             unknown_local: LocalDecl {
                 ty,
@@ -545,7 +979,11 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         match operand {
             Operand::Copy(place) => {
-                if self.type_contains_function(self.place_ty(place)?) {
+                if matches!(
+                    self.mir.types.get(self.place_ty(place)?),
+                    Some(Type::Function(_))
+                ) || self.type_contains_noncloneable(self.place_ty(place)?)
+                {
                     self.place_text(place)
                 } else {
                     Ok(format!("{}.clone()", self.place_text(place)?))
@@ -582,6 +1020,14 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             let operand_ty = self.operand_ty(operand)?;
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
+                && (matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(*inner))
+            {
+                return self.operand_text(operand);
+            }
             if self.mir.types.get(operand_ty) == Some(&Type::None) {
                 return Ok("None".to_owned());
             }
@@ -597,6 +1043,30 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.operand_as_type_text(operand, *inner)?
                 ));
             }
+            if matches!(
+                self.mir.types.get(*inner),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_erased_class_type(*inner)
+            {
+                return Ok(format!(
+                    "Some({})",
+                    self.operand_as_type_text(operand, *inner)?
+                ));
+            }
+            if matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
+                && matches!(self.mir.types.get(operand_ty), Some(Type::Function(_)))
+            {
+                return Ok(format!(
+                    "Some({})",
+                    self.operand_as_type_text(operand, *inner)?
+                ));
+            }
+            if matches!(
+                self.mir.types.get(operand_ty),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_))
+            ) {
+                return Ok("None".to_owned());
+            }
         }
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
@@ -604,6 +1074,22 @@ impl<'mir> FunctionEmitter<'mir> {
         ) || self.is_erased_class_type(self.operand_ty(operand)?)
         {
             return self.unknown_cast_text(operand, target);
+        }
+        if matches!(self.mir.types.get(target), Some(Type::String))
+            && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
+            && self.symbol_name(*name)? == "RegExp"
+        {
+            return Ok(format!("{}.source.clone()", self.operand_text(operand)?));
+        }
+        if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Function(_))
+        ) && !matches!(
+            self.mir.types.get(target),
+            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && !self.is_erased_class_type(target)
+        {
+            return self.default_value(target);
         }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Int)
@@ -613,7 +1099,10 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
         {
-            return Ok(format!("({}.trunc() as i64)", self.operand_text(operand)?));
+            return Ok(format!(
+                "(({} as f64).trunc() as i64)",
+                self.operand_text(operand)?
+            ));
         }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
@@ -636,13 +1125,35 @@ impl<'mir> FunctionEmitter<'mir> {
                 return Ok(adapter);
             }
             let text = self.operand_text(operand)?;
+            if let Operand::Copy(place) | Operand::Move(place) = operand
+                && self.is_function_parameter_place(place)?
+            {
+                return self.borrowed_function_handle_text(&text, target);
+            }
             if self.is_borrowed_callback_capture_name(&text) {
                 return self.borrowed_function_handle_text(&text, target);
             }
             return Ok(format!("{text}.clone()"));
         }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
+            && *inner == target
+            && matches!(self.mir.types.get(target), Some(Type::Function(_)))
+        {
+            return Ok(format!(
+                "{}.clone().unwrap_or({})",
+                self.operand_text(operand)?,
+                self.default_value(target)?
+            ));
+        }
         if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return self.default_value(target);
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
+        {
+            return Ok(format!("{}.clone().flatten()", self.operand_text(operand)?));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
             && *inner == target
@@ -672,7 +1183,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                 ) || self.is_erased_class_type(*target_item))
             {
-                "IntoSmeltUnknown::into_smelt_unknown(value)".to_owned()
+                "value.into_smelt_unknown()".to_owned()
             } else {
                 self.rendered_value_as_type_text("value", *source_item, *target_item)?
             };
@@ -681,12 +1192,55 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.operand_text(operand)?
             ));
         }
+        if let Some(Type::List(target_item)) = self.mir.types.get(target)
+            && matches!(
+                self.mir.types.get(*target_item),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && !matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_))
+            )
+        {
+            return Ok(format!(
+                "vec![{}]",
+                self.operand_as_type_text(operand, *target_item)?
+            ));
+        }
         if let (Some(Type::Dict(_, _)), Some(Type::List(target_item))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
         ) && matches!(self.mir.types.get(*target_item), Some(Type::Function(_)))
         {
             return Ok("Vec::new()".to_owned());
+        }
+        if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let value_text =
+                self.rendered_value_as_type_text("value", *source_value, *target_item)?;
+            return Ok(format!(
+                "{}.into_iter().map(|(_, value)| {value_text}).collect::<Vec<_>>()",
+                self.operand_text(operand)?
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Dict(target_key, target_value))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let int_ty = self.type_id(Type::Int)?;
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                "index.to_string()".to_owned()
+            } else {
+                self.rendered_value_as_type_text("index as i64", int_ty, *target_key)?
+            };
+            let value_text =
+                self.rendered_value_as_type_text("value", *source_item, *target_value)?;
+            return Ok(format!(
+                "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<::std::collections::HashMap<_, _>>()",
+                self.operand_text(operand)?
+            ));
         }
         if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) = (
             self.mir.types.get(self.operand_ty(operand)?),
@@ -720,13 +1274,17 @@ impl<'mir> FunctionEmitter<'mir> {
         ) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
-        ) && self.mir.types.get(*target_key) == Some(&Type::String)
-            && source_key != target_key
-            && source_value == target_value
+        ) && (source_key != target_key || source_value != target_value)
         {
-            let key_text = self.property_key_to_string_text("key", *source_key)?;
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                self.property_key_to_string_text("key", *source_key)?
+            } else {
+                self.rendered_value_as_type_text("key", *source_key, *target_key)?
+            };
+            let mapped_value_text =
+                self.rendered_value_as_type_text("value", *source_value, *target_value)?;
             return Ok(format!(
-                "{}.into_iter().map(|(key, value)| ({key_text}, value)).collect::<::std::collections::HashMap<_, _>>()",
+                "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<::std::collections::HashMap<_, _>>()",
                 self.operand_text(operand)?
             ));
         }
@@ -749,13 +1307,131 @@ impl<'mir> FunctionEmitter<'mir> {
         self.operand_text(operand)
     }
 
+    /// Return true when a place names a borrowed function parameter.
+    pub(super) fn is_function_parameter_place(&self, place: &Place) -> Result<bool, EmitError> {
+        let Place::Local(local_id) = place else {
+            return Ok(false);
+        };
+        let local_decl = self.local_decl(*local_id)?;
+        if self.local_name(*local_id)?.starts_with("closure_arg_") {
+            return Ok(false);
+        }
+        Ok(matches!(local_decl.kind, LocalKind::Param { .. })
+            && matches!(self.mir.types.get(local_decl.ty), Some(Type::Function(_)))
+            && !self.function_parameter_requires_owned(*local_id)?)
+    }
+
+    /// Return whether a function-typed parameter needs an owned callback handle.
+    pub(super) fn function_parameter_requires_owned(
+        &self,
+        local: LocalId,
+    ) -> Result<bool, EmitError> {
+        self.function_parameter_requires_owned_in(self.function, local)
+    }
+
+    /// Return whether a function-typed parameter in `function` needs ownership.
+    pub(super) fn function_parameter_requires_owned_in(
+        &self,
+        function: &MirFunction,
+        local: LocalId,
+    ) -> Result<bool, EmitError> {
+        let Some(local_decl) = function
+            .locals
+            .get(id_index(local.0, "local index does not fit usize")?)
+        else {
+            return Ok(false);
+        };
+        if !matches!(local_decl.kind, LocalKind::Param { .. })
+            || !matches!(self.mir.types.get(local_decl.ty), Some(Type::Function(_)))
+        {
+            return Ok(false);
+        }
+        Ok(self
+            .context
+            .owned_callback_params
+            .contains(&(function.id, local)))
+    }
+
+    /// Return true when emitted text names a source function parameter.
+    ///
+    /// Callback bodies can reference captured source parameters through MIR
+    /// locals that are not themselves in the nested closure parameter list. The
+    /// emitted Rust type is still `&mut dyn FnMut`, so calls must use direct
+    /// callable syntax instead of the `Rc<RefCell<_>>` handle path.
+    pub(super) fn is_function_parameter_name(&self, name: &str) -> Result<bool, EmitError> {
+        if name.starts_with("closure_arg_") {
+            return Ok(false);
+        }
+        Ok(self.function.params.iter().any(|param| {
+            self.local_name(*param)
+                .is_ok_and(|param_name| param_name == name)
+                && self.local_decl(*param).is_ok_and(|local| {
+                    matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
+                })
+                && !self
+                    .function_parameter_requires_owned(*param)
+                    .unwrap_or(false)
+        }))
+    }
+
+    /// Return true for captured callback parameters that keep borrowed Rust type.
+    ///
+    /// Closure MIR currently records captured outer callback parameters as
+    /// ordinary function-typed locals, so name shape is the remaining signal
+    /// that the emitted Rust value is a borrowed `&mut dyn FnMut` rather than
+    /// an owned callable handle.
+    pub(super) fn is_borrowed_callback_capture_name(&self, name: &str) -> bool {
+        self.borrowed_callback_names.contains(name)
+    }
+
+    /// Return true when a captured local is a borrowed callback parameter.
+    ///
+    /// Such captures must not force a `move` closure: moving the `&mut dyn
+    /// FnMut` borrow prevents later direct uses in the same generated function.
+    pub(super) fn capture_is_borrowed_callback_param(
+        &self,
+        local: LocalId,
+    ) -> Result<bool, EmitError> {
+        let decl = self.local_decl(local)?;
+        let local_name = self.local_name(local)?.to_owned();
+        Ok(
+            matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
+                && self.function.params.iter().any(|param| {
+                    self.local_name(*param)
+                        .is_ok_and(|param_name| param_name == local_name)
+                        && self
+                            .function_parameter_requires_owned(*param)
+                            .is_ok_and(|requires_owned| !requires_owned)
+                }),
+        )
+    }
+
+    /// Return true when a closure capture symbol names a borrowed callback parameter.
+    pub(super) fn capture_symbol_is_borrowed_callback_param(
+        &self,
+        symbol: Symbol,
+        ty: TypeId,
+    ) -> Result<bool, EmitError> {
+        if !matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
+            return Ok(false);
+        }
+        let capture_name = self.symbol_name(symbol)?;
+        Ok(self.function.params.iter().any(|param| {
+            self.local_name(*param)
+                .is_ok_and(|param_name| param_name == capture_name)
+                && self
+                    .function_parameter_requires_owned(*param)
+                    .is_ok_and(|requires_owned| !requires_owned)
+        }))
+    }
+
     /// Render a callback argument for a borrowed function parameter.
     ///
-    /// Function parameters are emitted as `&mut dyn FnMut`; forwarding a
-    /// callback therefore needs a reborrow instead of an owning `Box::new`.
-    /// Shape adapters are emitted as temporary closures borrowed for the
-    /// duration of the call expression.
-    pub(super) fn function_param_argument_text(
+    /// Borrowed callback params are used only when crate-level callback ABI
+    /// analysis proves the callee does not retain the callback. Owned callback
+    /// values are borrowed from their `Rc<RefCell<_>>` handle for the duration
+    /// of the call; already-borrowed callback parameters are reborrowed.
+    pub(super) fn borrowed_function_argument_text(
         &self,
         operand: &Operand,
         target: TypeId,
@@ -775,9 +1451,7 @@ impl<'mir> FunctionEmitter<'mir> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 let place_text = self.place_text(place)?;
-                if self.is_function_parameter_place(place)?
-                    && !place_text.starts_with("closure_arg_")
-                {
+                if self.is_function_parameter_place(place)? {
                     Ok(format!("&mut *{place_text}"))
                 } else {
                     Ok(format!("&mut *{place_text}.borrow_mut()"))
@@ -787,12 +1461,7 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
-    /// Render an inline no-op callback for a borrowed function parameter.
-    ///
-    /// Owned function values use `Rc<RefCell<dyn FnMut...>>`, but function
-    /// parameters are emitted as `&mut dyn FnMut...`. When MIR has an erased or
-    /// missing callback operand for such a parameter, the fallback must be a
-    /// borrowed closure temporary rather than an owned default handle.
+    /// Render an inline typed no-op callback for a borrowed function parameter.
     pub(super) fn borrowed_default_function_text(
         &self,
         target: TypeId,
@@ -816,58 +1485,6 @@ impl<'mir> FunctionEmitter<'mir> {
             .join(", ");
         let return_text = self.default_value(function.return_ty)?;
         Ok(format!("&mut |{params}| {return_text}"))
-    }
-
-    /// Return true when a place names a function-typed parameter.
-    pub(super) fn is_function_parameter_place(&self, place: &Place) -> Result<bool, EmitError> {
-        let Place::Local(local_id) = place else {
-            return Ok(false);
-        };
-        let local_decl = self.local_decl(*local_id)?;
-        Ok(
-            self.is_function_parameter_name(self.local_name(*local_id)?)?
-                && matches!(local_decl.kind, LocalKind::Param { .. })
-                && matches!(self.mir.types.get(local_decl.ty), Some(Type::Function(_))),
-        )
-    }
-
-    /// Return true when emitted text names a source function parameter.
-    ///
-    /// Callback bodies can reference captured source parameters through MIR
-    /// locals that are not themselves in the nested closure parameter list. The
-    /// emitted Rust type is still `&mut dyn FnMut`, so calls must use direct
-    /// callable syntax instead of the `Rc<RefCell<_>>` handle path.
-    pub(super) fn is_function_parameter_name(&self, name: &str) -> Result<bool, EmitError> {
-        if name.starts_with("closure_arg_") {
-            return Ok(false);
-        }
-        for param in &self.function.params {
-            if self.local_name(*param)? == name
-                && matches!(
-                    self.mir.types.get(self.local_decl(*param)?.ty),
-                    Some(Type::Function(_))
-                )
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Return true for captured callback parameters that keep borrowed Rust type.
-    ///
-    /// Closure MIR currently records captured outer callback parameters as
-    /// ordinary function-typed locals, so name shape is the remaining signal
-    /// that the emitted Rust value is a borrowed `&mut dyn FnMut` rather than
-    /// an owned callable handle.
-    pub(super) fn is_borrowed_callback_capture_name(&self, name: &str) -> bool {
-        !name.starts_with("closure_arg_")
-            && !name.starts_with("_smelt_tmp_")
-            && (name == "fn_"
-                || name == "cmp"
-                || name == "callback"
-                || name == "rounding_fn"
-                || name.ends_with("_callback"))
     }
 
     /// Wrap a borrowed callback parameter in a cloneable owned callable handle.
@@ -918,6 +1535,15 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             return Ok(format!("{value_text}.clone()"));
         }
+        if let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let awaited =
+                self.rendered_value_as_type_text("smelt_future_value", *source_item, *target_item)?;
+            return Ok(format!(
+                "Box::pin(async move {{ let smelt_future_value = {value_text}.await; {awaited} }})"
+            ));
+        }
         if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
             (self.mir.types.get(source), self.mir.types.get(target))
             && source_items.len() == target_items.len()
@@ -960,6 +1586,15 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return self.unknown_cast_value_text(value_text, target);
         }
+        if matches!(self.mir.types.get(source), Some(Type::Function(_)))
+            && !matches!(
+                self.mir.types.get(target),
+                Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && !self.is_erased_class_type(target)
+        {
+            return self.default_value(target);
+        }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::Int)
         {
@@ -968,7 +1603,7 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.mir.types.get(target) == Some(&Type::Int)
             && self.mir.types.get(source) == Some(&Type::Float)
         {
-            return Ok(format!("({value_text}.trunc() as i64)"));
+            return Ok(format!("(({value_text} as f64).trunc() as i64)"));
         }
         if self.mir.types.get(target) == Some(&Type::Float)
             && self.mir.types.get(source) == Some(&Type::String)
@@ -979,6 +1614,21 @@ impl<'mir> FunctionEmitter<'mir> {
             && source == *inner
         {
             return Ok(format!("Some({value_text})"));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            if self.mir.types.get(source) == Some(&Type::None) {
+                return Ok("None".to_owned());
+            }
+            if self.can_coerce_to_optional_inner(source, *inner) {
+                let mapped_value = self.rendered_value_as_type_text(value_text, source, *inner)?;
+                return Ok(format!("Some({mapped_value})"));
+            }
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
+        {
+            return Ok(format!("{value_text}.clone().flatten()"));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(source)
             && *inner == target
@@ -1005,6 +1655,19 @@ impl<'mir> FunctionEmitter<'mir> {
                 "{value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>()"
             ));
         }
+        if let Some(Type::List(target_item)) = self.mir.types.get(target)
+            && matches!(
+                self.mir.types.get(*target_item),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && !matches!(
+                self.mir.types.get(source),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_))
+            )
+        {
+            let item_text = self.rendered_value_as_type_text(value_text, source, *target_item)?;
+            return Ok(format!("vec![{item_text}]"));
+        }
         if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) =
             (self.mir.types.get(source), self.mir.types.get(target))
         {
@@ -1029,17 +1692,45 @@ impl<'mir> FunctionEmitter<'mir> {
                 "{{ let smelt_tuple_values = {value_text}.clone(); {tuple_text} }}"
             ));
         }
+        if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let item_text =
+                self.rendered_value_as_type_text("value", *source_value, *target_item)?;
+            return Ok(format!(
+                "{value_text}.into_iter().map(|(_, value)| {item_text}).collect::<Vec<_>>()"
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Dict(target_key, target_value))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let int_ty = self.type_id(Type::Int)?;
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                "index.to_string()".to_owned()
+            } else {
+                self.rendered_value_as_type_text("index as i64", int_ty, *target_key)?
+            };
+            let item_text =
+                self.rendered_value_as_type_text("value", *source_item, *target_value)?;
+            return Ok(format!(
+                "{value_text}.into_iter().enumerate().map(|(index, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>()"
+            ));
+        }
         if let (
             Some(Type::Dict(source_key, source_value)),
             Some(Type::Dict(target_key, target_value)),
         ) = (self.mir.types.get(source), self.mir.types.get(target))
-            && self.mir.types.get(*target_key) == Some(&Type::String)
-            && source_key != target_key
-            && source_value == target_value
+            && (source_key != target_key || source_value != target_value)
         {
-            let key_text = self.property_key_to_string_text("key", *source_key)?;
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                self.property_key_to_string_text("key", *source_key)?
+            } else {
+                self.rendered_value_as_type_text("key", *source_key, *target_key)?
+            };
+            let mapped_value_text =
+                self.rendered_value_as_type_text("value", *source_value, *target_value)?;
             return Ok(format!(
-                "{value_text}.into_iter().map(|(key, value)| ({key_text}, value)).collect::<::std::collections::HashMap<_, _>>()"
+                "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<::std::collections::HashMap<_, _>>()"
             ));
         }
         Ok(value_text.to_owned())
@@ -1053,11 +1744,22 @@ impl<'mir> FunctionEmitter<'mir> {
     ) -> Result<String, EmitError> {
         match self.mir.types.get(source_key) {
             Some(Type::String) => Ok(format!("{value_text}.clone()")),
-            Some(Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => Ok(format!(
-                "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }}"
-            )),
-            _ => Ok(format!("{value_text}.to_string()")),
+            Some(Type::Bool | Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
+            Some(Type::Optional(inner)) => {
+                let inner_text = self.property_key_to_string_text("value", *inner)?;
+                Ok(format!(
+                    "{value_text}.clone().map_or(String::new(), |value| {inner_text})"
+                ))
+            }
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
+                Ok(format!("{value_text}.source.clone()"))
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
+                Ok(format!(
+                    "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
+                ))
+            }
+            _ => Ok("\"[object Object]\".to_owned()".to_owned()),
         }
     }
 
@@ -1107,10 +1809,19 @@ impl<'mir> FunctionEmitter<'mir> {
         let call = if is_borrowed_param {
             format!("{function_text}({args})")
         } else {
-            format!("({function_text}.borrow_mut())({args})")
+            format!("(&mut *{function_text}.borrow_mut())({args})")
         };
         let return_text =
             self.rendered_value_as_type_text(&call, source.return_ty, target_function.return_ty)?;
+        let return_text = if return_text == "Default::default()"
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) {
+            "SmeltUnknown::Null".to_owned()
+        } else {
+            return_text
+        };
         let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
         Ok(Some(if borrowed {
             format!("&mut {closure}")
@@ -1132,14 +1843,15 @@ impl<'mir> FunctionEmitter<'mir> {
         ) else {
             return Ok(None);
         };
-        let parameter_mismatch = source.params.len() == target_function.params.len()
-            && source
+        let parameter_mismatch = source.params.len() != target_function.params.len()
+            || source
                 .params
                 .iter()
                 .zip(target_function.params.iter())
                 .any(|(source_param, target_param)| source_param != target_param);
-        if source.params.len() >= target_function.params.len()
-            && !parameter_mismatch
+        let return_mismatch = source.return_ty != target_function.return_ty;
+        if !parameter_mismatch
+            && !return_mismatch
             && !matches!(
                 self.mir.types.get(target_function.return_ty),
                 Some(Type::Unknown)
@@ -1155,32 +1867,66 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             self.place_text(place)?
         };
-        let args = target_function
+        let arg_decls = target_function
             .params
             .iter()
             .enumerate()
-            .map(|(index, _)| format!("arg{index}"))
-            .collect::<Vec<_>>();
-        let forwarded = args
+            .map(|(index, param)| {
+                Ok(format!(
+                    "arg{index}: {}",
+                    self.type_text_with_impl_trait(*param, false)?
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        let forwarded = source
+            .params
             .iter()
-            .zip(source.params.iter())
-            .zip(target_function.params.iter())
-            .map(|((arg, source_param), target_param)| {
-                self.rendered_value_as_type_text(arg, *target_param, *source_param)
+            .enumerate()
+            .map(|(index, source_param)| {
+                if let Some(target_param) = target_function.params.get(index) {
+                    self.rendered_value_as_type_text(
+                        &format!("arg{index}"),
+                        *target_param,
+                        *source_param,
+                    )
+                } else {
+                    self.default_value(*source_param)
+                }
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let call_text = if self.is_function_parameter_place(place)? {
-            format!("({function_text})({forwarded})")
+        let (call_text, callback_prelude) = if self.is_function_parameter_place(place)? {
+            (format!("({function_text})({forwarded})"), None)
         } else {
-            format!("({function_text}.borrow_mut())({forwarded})")
+            (
+                format!("(&mut *_smelt_adapted_callback.borrow_mut())({forwarded})"),
+                Some(format!(
+                    "let mut _smelt_adapted_callback = {function_text};"
+                )),
+            )
         };
         let return_text = self.rendered_value_as_type_text(
             &call_text,
             source.return_ty,
             target_function.return_ty,
         )?;
-        let closure = format!("move |{}| {return_text}", args.join(", "));
+        let return_text = if return_text == "Default::default()"
+            && matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) {
+            "SmeltUnknown::Null".to_owned()
+        } else {
+            return_text
+        };
+        let closure = if let Some(prelude) = callback_prelude {
+            format!(
+                "{{ {prelude} move |{}| {return_text} }}",
+                arg_decls.join(", ")
+            )
+        } else {
+            format!("move |{}| {return_text}", arg_decls.join(", "))
+        };
         Ok(Some(if borrowed {
             format!("&mut {closure}")
         } else {
@@ -1212,12 +1958,13 @@ impl<'mir> FunctionEmitter<'mir> {
             Operand::Copy(place) | Operand::Move(place)
                 if !self.is_function_parameter_place(place)? =>
             {
-                format!("({function_text}.borrow_mut())({args})")
+                format!("(&mut *{function_text}.borrow_mut())({args})")
             }
             _ => format!("{function_text}({args})"),
         };
+        let return_text = self.unknown_wrap_value_text(&call, source.return_ty)?;
         Ok(Some(format!(
-            "::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| IntoSmeltUnknown::into_smelt_unknown({call})))"
+            "::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}))"
         )))
     }
 
@@ -1262,10 +2009,81 @@ impl<'mir> FunctionEmitter<'mir> {
         }
     }
 
+    /// Returns whether a type contains values that cannot be cloned by the
+    /// generated Rust representation.
+    pub(super) fn type_contains_noncloneable(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Future(_)) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item)) => {
+                self.type_contains_noncloneable(*item)
+            }
+            Some(Type::Dict(key, value)) => {
+                self.type_contains_noncloneable(*key) || self.type_contains_noncloneable(*value)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => items
+                .iter()
+                .any(|item| self.type_contains_noncloneable(*item)),
+            _ => false,
+        }
+    }
+
+    /// Returns whether a type contains an erased `SmeltUnknown` value.
+    pub(super) fn type_contains_unknown(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
+            Some(
+                Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item),
+            ) => self.type_contains_unknown(*item),
+            Some(Type::Dict(key, value)) => {
+                self.type_contains_unknown(*key) || self.type_contains_unknown(*value)
+            }
+            Some(Type::Tuple(items)) => items.iter().any(|item| self.type_contains_unknown(*item)),
+            Some(
+                Type::None
+                | Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Never
+                | Type::Function(_)
+                | Type::Class { .. },
+            )
+            | None => false,
+        }
+    }
+
+    /// Returns whether a Rust `HashSet` can store values of this type.
+    pub(super) fn type_is_hash_set_key_safe(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Float | Type::Dict(_, _) | Type::Set(_) | Type::Function(_)) => false,
+            Some(Type::List(_) | Type::Tuple(_)) => false,
+            Some(Type::Optional(inner) | Type::Future(inner)) => {
+                self.type_is_hash_set_key_safe(*inner)
+            }
+            Some(Type::Union(items)) => items
+                .iter()
+                .all(|item| self.type_is_hash_set_key_safe(*item)),
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::String
+                | Type::Unknown
+                | Type::Never
+                | Type::TypeParam { .. }
+                | Type::None
+                | Type::Class { .. },
+            )
+            | None => true,
+        }
+    }
+
     /// Returns whether a class-shaped type is emitted as `SmeltUnknown`.
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Class { name, .. }) => {
+                if self.symbol_name(*name).is_ok_and(|name| name == "RegExp") {
+                    return false;
+                }
                 !self.mir.classes.iter().any(|class| class.name == *name)
             }
             _ => false,
@@ -1395,6 +2213,218 @@ fn unique_local_name(base_name: String, used: &mut HashSet<String>) -> String {
         }
         suffix = suffix.saturating_add(1);
     }
+}
+
+/// Return whether an operand reads a specific local.
+fn operand_uses_local(operand: &Operand, local: LocalId) -> bool {
+    match operand {
+        Operand::Copy(place) | Operand::Move(place) => place_reads_local(place, local),
+        Operand::Const(_) => false,
+    }
+}
+
+/// Return whether reading a place observes a specific local.
+fn place_reads_local(place: &Place, local: LocalId) -> bool {
+    match place {
+        Place::Local(candidate)
+        | Place::Field {
+            base: candidate, ..
+        } => *candidate == local,
+        Place::Index { base, index } => *base == local || operand_uses_local(index, local),
+    }
+}
+
+/// Return whether an assignment place reads a local before writing.
+fn assignment_place_reads_local(place: &Place, local: LocalId) -> bool {
+    match place {
+        Place::Local(_) => false,
+        Place::Field { base, .. } => *base == local,
+        Place::Index { base, index } => *base == local || operand_uses_local(index, local),
+    }
+}
+
+/// Return whether an rvalue may read a local.
+fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
+    match value {
+        Rvalue::Use(operand)
+        | Rvalue::Len(operand)
+        | Rvalue::NumericAbs(operand)
+        | Rvalue::PrimitiveCast { operand, .. }
+        | Rvalue::StringCase { operand, .. }
+        | Rvalue::StringTrim { operand, .. }
+        | Rvalue::Await(operand) => operand_uses_local(operand, local),
+        Rvalue::List(items)
+        | Rvalue::Set(items)
+        | Rvalue::Tuple(items)
+        | Rvalue::Closure {
+            captures: items, ..
+        }
+        | Rvalue::NumericExtrema { args: items, .. }
+        | Rvalue::NumericHypot { args: items }
+        | Rvalue::AsyncOp { args: items, .. } => items
+            .iter()
+            .any(|operand| operand_uses_local(operand, local)),
+        Rvalue::Dict(entries) => entries.iter().any(|(key, entry_value)| {
+            operand_uses_local(key, local) || operand_uses_local(entry_value, local)
+        }),
+        Rvalue::Binary { lhs, rhs, .. }
+        | Rvalue::NumericPow {
+            base: lhs,
+            exponent: rhs,
+        }
+        | Rvalue::NumericAtan2 { y: lhs, x: rhs }
+        | Rvalue::StringAffix {
+            haystack: lhs,
+            needle: rhs,
+            ..
+        }
+        | Rvalue::StringSearch {
+            haystack: lhs,
+            needle: rhs,
+            ..
+        }
+        | Rvalue::StringContains {
+            haystack: lhs,
+            needle: rhs,
+        }
+        | Rvalue::ListContains {
+            list: lhs,
+            item: rhs,
+        }
+        | Rvalue::SetContains {
+            set: lhs,
+            item: rhs,
+        }
+        | Rvalue::ListCallback {
+            list: lhs,
+            callback: rhs,
+            ..
+        }
+        | Rvalue::DictContainsKey {
+            dict: lhs,
+            key: rhs,
+        }
+        | Rvalue::StringJoin {
+            items: lhs,
+            separator: rhs,
+        } => operand_uses_local(lhs, local) || operand_uses_local(rhs, local),
+        Rvalue::Unary { operand, .. }
+        | Rvalue::NumericRound { operand, .. }
+        | Rvalue::NumericPredicate { operand, .. }
+        | Rvalue::NumericUnaryFunc { operand, .. }
+        | Rvalue::UnknownIs { value: operand, .. }
+        | Rvalue::UnknownCast { value: operand, .. }
+        | Rvalue::InstanceOf { value: operand, .. } => operand_uses_local(operand, local),
+        Rvalue::Conditional {
+            cond,
+            then_operand,
+            else_operand,
+        } => {
+            operand_uses_local(cond, local)
+                || operand_uses_local(then_operand, local)
+                || operand_uses_local(else_operand, local)
+        }
+        Rvalue::OptionalField { receiver, .. } => operand_uses_local(receiver, local),
+        Rvalue::OptionalIndex { receiver, index } => {
+            operand_uses_local(receiver, local) || operand_uses_local(index, local)
+        }
+        Rvalue::OptionalMethod { receiver, args, .. } => {
+            operand_uses_local(receiver, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        Rvalue::OptionalCoalesce { optional, fallback } => {
+            operand_uses_local(optional, local) || operand_uses_local(fallback, local)
+        }
+        Rvalue::Struct { fields, .. } | Rvalue::CallableObjectAssign { props: fields, .. } => {
+            fields
+                .iter()
+                .any(|(_, field_value)| operand_uses_local(field_value, local))
+        }
+        Rvalue::ExternalClassInstance { args, .. } => args
+            .iter()
+            .any(|operand| operand_uses_local(operand, local)),
+        Rvalue::ClosureCall { callee, args } => {
+            operand_uses_local(callee, local)
+                || args
+                    .iter()
+                    .any(|operand| operand_uses_local(operand, local))
+        }
+        _ => false,
+    }
+}
+
+/// Return whether a terminator may read a local.
+fn terminator_uses_local(terminator: &Terminator, local: LocalId) -> bool {
+    match terminator {
+        Terminator::Goto(_) | Terminator::Unreachable => false,
+        Terminator::Call { callee, args, .. } => {
+            matches!(callee, Callee::Indirect(operand) if operand_uses_local(operand, local))
+                || args.iter().any(|arg| operand_uses_local(arg, local))
+        }
+        Terminator::Switch { cond, .. } => operand_uses_local(cond, local),
+        Terminator::Match { scrutinee, .. } => operand_uses_local(scrutinee, local),
+        Terminator::Return(operand) | Terminator::Throw(operand) => {
+            operand_uses_local(operand, local)
+        }
+    }
+}
+
+/// Return all direct successor blocks of a terminator.
+fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
+    match terminator {
+        Terminator::Goto(target) => vec![*target],
+        Terminator::Call { target, .. } => vec![*target],
+        Terminator::Switch {
+            then_block,
+            else_block,
+            ..
+        } => vec![*then_block, *else_block],
+        Terminator::Match { arms, default, .. } => arms
+            .iter()
+            .map(|arm| arm.target)
+            .chain(default.iter().copied())
+            .collect(),
+        Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable => Vec::new(),
+    }
+}
+
+/// Compute locals that need function-scope bindings before Rust block emission.
+fn predeclared_locals_for_function(function: &MirFunction) -> HashSet<LocalId> {
+    let mut seen = function.params.iter().copied().collect::<HashSet<_>>();
+    let mut locals = HashSet::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            if let Statement::Assign { dest, .. } = statement
+                && !seen.insert(*dest)
+            {
+                locals.insert(*dest);
+            }
+        }
+    }
+    if function.blocks.len() <= 1 {
+        return locals;
+    }
+    for block in &function.blocks {
+        if block.id == function.entry {
+            continue;
+        }
+        for statement in &block.statements {
+            if let Statement::Assign { dest, .. } = statement {
+                locals.insert(*dest);
+            }
+        }
+    }
+    locals
+}
+
+/// Return whether the current emitted function body already ends in a return.
+fn emitted_tail_returns(out: &str) -> bool {
+    out.lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .is_some_and(|line| line.trim_start().starts_with("return "))
 }
 
 // Constant formatting continues in `literals.rs`.

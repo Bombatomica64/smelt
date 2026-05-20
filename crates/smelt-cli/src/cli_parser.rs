@@ -66,6 +66,17 @@ pub enum Command {
         file: String,
     },
 
+    /// Run cargo check for a Rust crate and summarize diagnostics as Markdown
+    RustDiagnostics {
+        /// Path to the generated crate Cargo.toml.
+        #[arg(long = "cargo-manifest")]
+        cargo_manifest: String,
+
+        /// Optional path to write the Markdown report instead of stdout.
+        #[arg(long)]
+        output: Option<String>,
+    },
+
     /// Remove the output target directory
     Clean,
     /// Print the JSON Schema for Smelt.toml

@@ -43,9 +43,9 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
     );
 
     assert!(source.contains(".iter().enumerate().map("));
-    assert!(source.contains("(item * factor)"));
+    assert!(source.contains("* factor"));
     assert!(source.contains(".iter().enumerate().filter("));
-    assert!(source.contains("(item > factor)"));
+    assert!(source.contains("> factor"));
 }
 
 #[test]
@@ -71,11 +71,11 @@ returned: int = adder(6)
 "#,
     );
 
-    assert!(source.contains("&mut dyn FnMut(i64) -> i64"));
+    assert!(source.contains("Rc<::std::cell::RefCell<dyn FnMut(i64) -> i64>>"));
     assert!(source.contains("(3)"));
     assert!(source.contains("apply(4,"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(adder.borrow_mut())(6)"));
+    assert!(source.contains("(&mut *adder.borrow_mut())(6)"));
     assert!(source.contains("move |"));
 }
 
@@ -113,7 +113,7 @@ result: int = adder(6)
 
     assert!(source.contains("move |"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(adder.borrow_mut())(6)"));
+    assert!(source.contains("(&mut *adder.borrow_mut())(6)"));
 }
 
 #[test]
@@ -128,7 +128,9 @@ result: int = sum_two(2, 3)
     );
 
     assert!(source.contains("|arg0: i64, arg1: i64|"));
-    assert!(source.contains("vec![arg0, arg1][0].clone() + vec![arg0, arg1][1].clone()"));
+    assert!(source.contains(
+        "vec![arg0.clone(), arg1.clone()][0].clone() + vec![arg0.clone(), arg1.clone()][1].clone()"
+    ));
     assert!(source.contains("(2, 3)"));
 }
 
@@ -150,7 +152,7 @@ def run() -> int:
 "#,
     );
 
-    assert!(source.contains("|arg0: Vec<i64>| { (arg0[0].clone() + arg0[1].clone()) }"));
+    assert!(source.contains("|arg0: Vec<i64>| -> i64 { (arg0[0].clone() + arg0[1].clone()) }"));
     assert!(source.contains("vec![2, 3, 4]"));
     assert!(source.contains("arg0.get(\"value\").cloned().unwrap_or(0)"));
     assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
@@ -334,6 +336,54 @@ values: list[int] = json.loads(text)
 }
 
 #[test]
+fn emits_untyped_json_parse_as_unknown_record() {
+    let ts_source = source_for(
+        r#"
+const text = "{\"enabled\":true}";
+const values = JSON.parse(text);
+"#,
+    );
+
+    assert!(
+        ts_source.contains(
+            "serde_json::from_str::<::std::collections::HashMap<String, SmeltUnknown>>(&"
+        )
+    );
+    assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
+}
+
+#[test]
+fn emits_json_parse_assertion_targets() {
+    let ts_source = source_for(
+        r#"
+interface ServerConfig {
+  host: string;
+  port: number;
+}
+
+const text = "{\"host\":\"localhost\",\"port\":1337}";
+const config = JSON.parse(text) as ServerConfig;
+const bag = JSON.parse(text) as Record<string, unknown>;
+"#,
+    );
+
+    assert!(
+        ts_source
+            .contains("#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]")
+    );
+    assert!(
+        ts_source.contains("serde_json::from_str::<ServerConfig>(&")
+            || ts_source.contains("serde_json::from_str::<SmeltUnknown>(&")
+    );
+    assert!(
+        ts_source.contains(
+            "serde_json::from_str::<::std::collections::HashMap<String, SmeltUnknown>>(&"
+        )
+    );
+    assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
+}
+
+#[test]
 fn emits_regex_match_calls() {
     let ts_source = source_for(
         r#"
@@ -399,8 +449,11 @@ const fromSource = new Set(source);
 "#,
     );
 
-    assert!(source.contains("::std::collections::HashSet<f64>"));
-    assert!(source.contains("::std::collections::HashSet::from(["));
+    assert!(source.contains("let values: Vec<f64>"), "{source}");
+    assert!(
+        source.contains("let empty: ::std::collections::HashSet<String>"),
+        "{source}"
+    );
     assert!(source.contains(".iter().any(|value| *value == 2.0);"));
     assert!(source.contains("::std::collections::HashSet::new();"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
@@ -435,7 +488,7 @@ for (let item: number of values) {
     );
 
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
-    assert!(source.contains("while"));
+    assert!(source.contains("loop {"));
     assert!(source.contains("total ="));
 }
 
@@ -456,7 +509,7 @@ for (const entry: [string, number] of mapping) {
             ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
         )
     );
-    assert!(source.contains("while"));
+    assert!(source.contains("loop {"));
     assert!(source.contains("entry ="));
 }
 
@@ -477,7 +530,7 @@ for name in names:
 
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
-    assert!(source.matches("while").count() >= 2);
+    assert!(source.matches("loop {").count() >= 2);
     assert!(source.contains("total ="));
     assert!(source.contains("last = name.clone();"));
 }

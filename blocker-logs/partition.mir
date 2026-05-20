@@ -1,0 +1,76 @@
+fn partition (FuncId(0)) -> Unknown
+  locals
+    %0 param args: List<Unknown>
+    %1 temp: Dict<String, Unknown>
+    %2 temp: Unknown
+    %3 temp: fn(List<T>, fn(T, Float, List<T>) -> Bool) -> (List<S>, List<T>)
+    %4 temp: Unknown
+  bb0:
+    %1 = {}
+    %2 = unknown_cast copy %1 as t0
+    %3 = closure ClosureId(0) []
+    %4 = closure_call copy %2(copy %3, copy %0)
+    return copy %4
+
+fn partition_implementation (FuncId(1)) -> (List<S>, List<T>)
+  locals
+    %0 param data: List<T>
+    %1 param predicate: fn(T, Float, List<T>) -> Bool
+    %2 user ret: (List<S>, List<T>)
+    %3 user __smelt_for_item: (Int, T)
+    %4 user index: Int
+    %5 user item: T
+    %6 temp: List<S>
+    %7 temp: List<T>
+    %8 temp: (List<S>, List<T>)
+    %9 temp: List<(Int, T)>
+    %10 temp: Float
+    %11 temp: Float
+    %12 temp: Bool
+    %13 temp: Int
+    %14 temp: T
+    %15 temp: Bool
+    %16 temp: List<S>
+    %17 temp: Float
+    %18 temp: List<T>
+    %19 temp: Float
+  bb0:
+    %6 = []
+    %7 = []
+    %8 = (copy %6, copy %7)
+    %2 = copy %8
+    %9 = list_entries copy %0
+    %10 = 0.0
+    goto bb1
+  bb1:
+    %11 = len copy %9
+    %12 = copy %10 < copy %11
+    switch copy %12 ? bb2 : bb4
+  bb2:
+    %3 = copy %9[copy %10]
+    %13 = tuple_index copy %3, 0
+    %4 = copy %13
+    %14 = tuple_index copy %3, 1
+    %5 = copy %14
+    %15 = closure_call copy %1(copy %5, copy %4, copy %0)
+    switch copy %15 ? bb5 : bb6
+  bb3:
+    %10 = copy %10 + 1.0
+    goto bb1
+  bb4:
+    return copy %2
+  bb5:
+    %16 = tuple_index copy %2, 0
+    %17 = list_push copy %16, copy %5
+    goto bb7
+  bb6:
+    %18 = tuple_index copy %2, 1
+    %19 = list_push copy %18, copy %5
+    goto bb7
+  bb7:
+    goto bb3
+
+fn main (FuncId(2)) -> None
+  bb0:
+    return none
+

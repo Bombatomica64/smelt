@@ -142,6 +142,7 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             smelt_hir::Item::Interface(interface) => {
                 mir.interfaces.push(crate::MirInterface {
                     name: interface.name,
+                    type_params: interface.type_params.clone(),
                     fields: interface
                         .fields
                         .iter()
@@ -696,6 +697,12 @@ impl<'hir> LoweringCtx<'hir> {
                 default,
             } => self.lower_match(*scrutinee, arms, *default),
             HirStmt::While { cond, body } => self.lower_while(*cond, *body),
+            HirStmt::WhileUpdate {
+                cond,
+                body,
+                update_target,
+                update_value,
+            } => self.lower_while_update(*cond, *body, *update_target, *update_value),
             HirStmt::For { pat, iter, body } => self.lower_for(*pat, *iter, *body),
             HirStmt::Throw(expr) => {
                 let lowered_operand = self.lower_expr(*expr)?;
@@ -883,6 +890,54 @@ impl<'hir> LoweringCtx<'hir> {
             self.set_terminator(Terminator::Goto(header))?;
         }
         self.loops.pop();
+        self.current_block = after;
+        Ok(())
+    }
+
+    /// Lowers a while loop whose next-condition update must run on `continue`.
+    fn lower_while_update(
+        &mut self,
+        cond: ExprId,
+        body_hir: smelt_hir::BlockId,
+        update_target: ExprId,
+        update_value: ExprId,
+    ) -> Result<(), LowerError> {
+        let preheader_span = self.block()?.span;
+        let header = self.function.push_block(preheader_span);
+        self.set_terminator(Terminator::Goto(header))?;
+        self.current_block = header;
+        let body_span = self.hir_block(body_hir)?.span;
+        let body_mir = self.function.push_block(body_span);
+        let latch = self.function.push_block(body_span);
+        let after = self.function.push_block(preheader_span);
+        let lowered_cond = self.lower_expr(cond)?;
+        self.set_terminator(Terminator::Switch {
+            cond: lowered_cond,
+            then_block: body_mir,
+            else_block: after,
+        })?;
+
+        self.loops.push(LoopTargets {
+            break_target: after,
+            continue_target: latch,
+        });
+        self.current_block = body_mir;
+        self.lower_block_stmts(body_hir)?;
+        if self.block()?.terminator.is_none() {
+            self.set_terminator(Terminator::Goto(latch))?;
+        }
+        self.loops.pop();
+
+        self.current_block = latch;
+        let place = self.lower_place(update_target)?;
+        let value = self.lower_expr(update_value)?;
+        self.block_mut()?.statements.push(Statement::AssignPlace {
+            place,
+            value: Rvalue::Use(value),
+        });
+        if self.block()?.terminator.is_none() {
+            self.set_terminator(Terminator::Goto(header))?;
+        }
         self.current_block = after;
         Ok(())
     }
@@ -1489,6 +1544,18 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::StringNormalize { form, operand } => {
+                let lowered_operand = self.lower_expr(*operand)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::StringNormalize {
+                        form: *form,
+                        operand: lowered_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::StringTrim { side, operand } => {
                 let lowered_operand = self.lower_expr(*operand)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -1716,6 +1783,19 @@ impl<'hir> LoweringCtx<'hir> {
                     dest,
                     value: Rvalue::RegexFind {
                         pattern: pattern_operand,
+                        haystack: haystack_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::RegexExec { regex, haystack } => {
+                let regex_operand = self.lower_expr(*regex)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::RegexExec {
+                        regex: regex_operand,
                         haystack: haystack_operand,
                     },
                 });
@@ -3199,6 +3279,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::NumericToStringRadix { .. }
             | ExprKind::PrimitiveCast { .. }
             | ExprKind::StringCase { .. }
+            | ExprKind::StringNormalize { .. }
             | ExprKind::StringTrim { .. }
             | ExprKind::StringAffix { .. }
             | ExprKind::StringSearch { .. }
@@ -3213,6 +3294,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::RegexReplaceFirstMatchUppercase { .. }
             | ExprKind::RegexSplit { .. }
             | ExprKind::RegexFind { .. }
+            | ExprKind::RegexExec { .. }
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringCharCodeAt { .. }
             | ExprKind::StringContains { .. }

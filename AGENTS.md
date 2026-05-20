@@ -6,6 +6,11 @@ cargo test
 cargo check
 cargo clippy
 
+## Generated Rust diagnostics
+when working on generated Rust warnings or blockers, use:
+`cargo run --bin smelt -- rust-diagnostics --cargo-manifest <generated-crate>/Cargo.toml --output blocker-logs/<name>.md`
+This produces a grouped Markdown report sorted by diagnostic count so LLMs can start with the biggest warning/error classes.
+
 ## Style
 put docstrings in modules and functions
 
@@ -21,6 +26,10 @@ put new feature code into existing focused modules where practical, then do a de
 ## Frontend validation boundaries
 when `tsc` or Python compile/type checks would reject invalid source before Smelt runs, it is ok for HIR/MIR to use interchangeable internal representations such as Map and Record sharing Dict
 do not block useful mappings only because source spelling is erased internally; keep frontend checks/tests for shapes Smelt can cheaply validate itself
+
+## Type lowering
+WE DO NOT DO SPECIAL CASES FOR CODE, everything must lower through general rules, except test functions
+qualified type references must preserve or resolve the full alias path instead of blindly turning `Namespace.Member` into `Class(Member)`
 
 ## NEVERS
 

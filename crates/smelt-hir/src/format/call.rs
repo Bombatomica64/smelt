@@ -132,6 +132,15 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             };
             format!("string_{op_name} {}", expr_ref(*operand))
         }
+        ExprKind::StringNormalize { form, operand } => {
+            let form_name = match form {
+                crate::expr::StringNormalizeForm::Nfc => "nfc",
+                crate::expr::StringNormalizeForm::Nfd => "nfd",
+                crate::expr::StringNormalizeForm::Nfkc => "nfkc",
+                crate::expr::StringNormalizeForm::Nfkd => "nfkd",
+            };
+            format!("string_normalize_{form_name} {}", expr_ref(*operand))
+        }
         ExprKind::StringTrim { side, operand } => {
             let side_name = match side {
                 crate::expr::StringTrimSide::Both => "both",
@@ -296,6 +305,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::RegexFind { pattern, haystack } => {
             format!("regex_find {}, {}", expr_ref(*pattern), expr_ref(*haystack))
+        }
+        ExprKind::RegexExec { regex, haystack } => {
+            format!("regex_exec {}, {}", expr_ref(*regex), expr_ref(*haystack))
         }
         ExprKind::StringCharAt { operand, index } => {
             format!(

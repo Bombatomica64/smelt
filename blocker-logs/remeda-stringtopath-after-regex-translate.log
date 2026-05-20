@@ -1,0 +1,602 @@
+   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.68s
+     Running unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-911ff339d45e5376)
+
+running 49 tests
+
+thread 'stringToPath_test::test_dot_notation_array_index_before' (445131) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test stringToPath_test::test_dot_notation_array_index_before ... FAILED
+
+thread 'stringToPath_test::test_dot_notation_array_index_after' (445130) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_edge_cases_missing_quote' (445138) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_dot_notation_array_index_after ... FAILED
+test stringToPath_test::test_edge_cases_missing_quote ... FAILED
+
+thread 'stringToPath_test::test_edge_cases_array_index_with_leading_zeros' (445134) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_edge_cases_array_index_with_leading_zeros ... FAILED
+
+thread 'stringToPath_test::test_dot_notation_long_chain' (445132) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_dot_notation_long_chain ... FAILED
+
+thread 'stringToPath_test::test_edge_cases_dots' (445135) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_dot_notation_short_chain' (445133) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_edge_cases_dots ... FAILED
+
+thread 'stringToPath_test::test_edge_cases_empty_quoted_access' (445136) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_edge_cases_square_brackets' (445142) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_edge_cases_hyphens' (445137) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_edge_cases_numbers' (445140) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_edge_cases_non_matching_quotes' (445139) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_edge_cases_spaces' (445141) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_edge_cases_underscores' (445143) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_dot_notation_short_chain ... FAILED
+test stringToPath_test::test_edge_cases_empty_quoted_access ... FAILED
+test stringToPath_test::test_edge_cases_square_brackets ... FAILED
+test stringToPath_test::test_edge_cases_hyphens ... FAILED
+test stringToPath_test::test_edge_cases_numbers ... FAILED
+test stringToPath_test::test_edge_cases_non_matching_quotes ... FAILED
+test stringToPath_test::test_edge_cases_spaces ... FAILED
+test stringToPath_test::test_edge_cases_underscores ... FAILED
+
+thread 'stringToPath_test::test_empty_string_1785' (445144) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_known_type_limitations_empty_unquoted_access' (445145) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_known_type_limitations_two_sequential_dots' (445146) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_empty_string_1785 ... FAILED
+test stringToPath_test::test_known_type_limitations_empty_unquoted_access ... FAILED
+test stringToPath_test::test_known_type_limitations_two_sequential_dots ... FAILED
+
+thread 'stringToPath_test::test_known_type_limitations_whitespace_handling_around_dots' (445150) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_the_quotes' (445154) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_known_type_limitations_whitespace_handling_around_dots ... FAILED
+test stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_the_quotes ... FAILED
+
+thread 'stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_an_array_index' (445152) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_an_array_index ... FAILED
+
+thread 'stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_the_property' (445153) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_malformed_input_s_1824' (445155) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_the_property ... FAILED
+test stringToPath_test::test_malformed_input_s_1824 ... FAILED
+
+thread 'stringToPath_test::test_malformed_input_s_1827' (445158) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_malformed_input_s_1827 ... FAILED
+
+thread 'stringToPath_test::test_malformed_input_s_1828' (445159) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_malformed_input_s_1828 ... FAILED
+
+thread 'stringToPath_test::test_malformed_input_s_1829' (445160) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_malformed_input_s_1829 ... FAILED
+
+thread 'stringToPath_test::test_malformed_input_s_1830' (445161) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_malformed_input_s_1830 ... FAILED
+
+thread 'stringToPath_test::test_known_type_limitations_using_a_backslash_to_escape_a_backslash' (445147) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_known_type_limitations_using_backslash_to_escape_a_double_quote' (445148) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_malformed_input_s_1831' (445162) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_known_type_limitations_whitespace_handling_around_prop_names' (445151) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_known_type_limitations_using_backslash_to_escape_a_quote' (445149) panicked at test stringToPath_test::test_known_type_limitations_using_a_backslash_to_escape_a_backslash ... src/stringToPath.rsFAILED:
+30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_malformed_input_s_1832' (445163) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_known_type_limitations_using_backslash_to_escape_a_double_quote ... FAILED
+test stringToPath_test::test_malformed_input_s_1831 ... FAILED
+test stringToPath_test::test_known_type_limitations_whitespace_handling_around_prop_names ... FAILED
+test stringToPath_test::test_known_type_limitations_using_backslash_to_escape_a_quote ... FAILED
+
+thread 'stringToPath_test::test_malformed_input_s_1825' (445156) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_malformed_input_s_1832 ... FAILED
+test stringToPath_test::test_malformed_input_s_1825 ... FAILED
+
+thread 'stringToPath_test::test_malformed_input_s_1826' (445157) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_square_bracket_notation_array_index_with_dot_notation_after_access' (445169) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_malformed_input_s_1833' (445164) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_single_array_index' (445165) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_single_property' (445166) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_square_bracket_notation_array_index' (445168) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_malformed_input_s_1826 ... FAILED
+test stringToPath_test::test_square_bracket_notation_array_index_with_dot_notation_after_access ... FAILED
+test stringToPath_test::test_malformed_input_s_1833 ... FAILED
+test stringToPath_test::test_single_array_index ... FAILED
+test stringToPath_test::test_single_property ... FAILED
+test stringToPath_test::test_square_bracket_notation_array_index ... FAILED
+
+thread 'stringToPath_test::test_square_bracket_notation_array_index_with_dot_notation_before_access' (445170) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_square_bracket_notation_array_index_with_dot_notation_before_access ... FAILED
+
+thread 'stringToPath_test::test_square_bracket_notation_2d_array_access' (445167) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_square_bracket_notation_2d_array_access ... FAILED
+
+thread 'stringToPath_test::test_square_bracket_notation_unquoted_object_property_access' (445178) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_square_bracket_notation_unquoted_object_property_access ... FAILED
+
+thread 'stringToPath_test::test_square_bracket_notation_square_bracket_for_a_number' (445177) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_square_bracket_notation_square_bracket_for_a_number ... FAILED
+
+thread 'stringToPath_test::test_square_bracket_notation_complex_mix_of_array_index_and_chained_properties' (445171) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_square_bracket_notation_double_quoted_object_property_access' (445172) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_square_bracket_notation_properties_with_numbers' (445173) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_square_bracket_notation_recursive_chained_properties' (445174) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_square_bracket_notation_sequential_array_index_accesses' (445175) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+
+thread 'stringToPath_test::test_square_bracket_notation_single_quoted_object_property_access' (445176) panicked at src/stringToPath.rs:30:56:
+regex compile failed: Syntax(
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+regex parse error:
+    \.{0,4096}(?P<propName>[^.[\]]+)|\['(?P<quoted>.{0,4096}?)'\]|\["(?P<doubleQuoted>.{0,4096}?)"\]|\[(?P<unquoted>.{0,4096}?)\]
+                           ^^
+error: unclosed character class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+)
+test stringToPath_test::test_square_bracket_notation_complex_mix_of_array_index_and_chained_properties ... FAILED
+test stringToPath_test::test_square_bracket_notation_double_quoted_object_property_access ... FAILED
+test stringToPath_test::test_square_bracket_notation_properties_with_numbers ... FAILED
+test stringToPath_test::test_square_bracket_notation_recursive_chained_properties ... FAILED
+test stringToPath_test::test_square_bracket_notation_sequential_array_index_accesses ... FAILED
+test stringToPath_test::test_square_bracket_notation_single_quoted_object_property_access ... FAILED
+
+failures:
+
+failures:
+    stringToPath_test::test_dot_notation_array_index_after
+    stringToPath_test::test_dot_notation_array_index_before
+    stringToPath_test::test_dot_notation_long_chain
+    stringToPath_test::test_dot_notation_short_chain
+    stringToPath_test::test_edge_cases_array_index_with_leading_zeros
+    stringToPath_test::test_edge_cases_dots
+    stringToPath_test::test_edge_cases_empty_quoted_access
+    stringToPath_test::test_edge_cases_hyphens
+    stringToPath_test::test_edge_cases_missing_quote
+    stringToPath_test::test_edge_cases_non_matching_quotes
+    stringToPath_test::test_edge_cases_numbers
+    stringToPath_test::test_edge_cases_spaces
+    stringToPath_test::test_edge_cases_square_brackets
+    stringToPath_test::test_edge_cases_underscores
+    stringToPath_test::test_empty_string_1785
+    stringToPath_test::test_known_type_limitations_empty_unquoted_access
+    stringToPath_test::test_known_type_limitations_two_sequential_dots
+    stringToPath_test::test_known_type_limitations_using_a_backslash_to_escape_a_backslash
+    stringToPath_test::test_known_type_limitations_using_backslash_to_escape_a_double_quote
+    stringToPath_test::test_known_type_limitations_using_backslash_to_escape_a_quote
+    stringToPath_test::test_known_type_limitations_whitespace_handling_around_dots
+    stringToPath_test::test_known_type_limitations_whitespace_handling_around_prop_names
+    stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_an_array_index
+    stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_the_property
+    stringToPath_test::test_known_type_limitations_whitespace_handling_between_the_brackets_and_the_quotes
+    stringToPath_test::test_malformed_input_s_1824
+    stringToPath_test::test_malformed_input_s_1825
+    stringToPath_test::test_malformed_input_s_1826
+    stringToPath_test::test_malformed_input_s_1827
+    stringToPath_test::test_malformed_input_s_1828
+    stringToPath_test::test_malformed_input_s_1829
+    stringToPath_test::test_malformed_input_s_1830
+    stringToPath_test::test_malformed_input_s_1831
+    stringToPath_test::test_malformed_input_s_1832
+    stringToPath_test::test_malformed_input_s_1833
+    stringToPath_test::test_single_array_index
+    stringToPath_test::test_single_property
+    stringToPath_test::test_square_bracket_notation_2d_array_access
+    stringToPath_test::test_square_bracket_notation_array_index
+    stringToPath_test::test_square_bracket_notation_array_index_with_dot_notation_after_access
+    stringToPath_test::test_square_bracket_notation_array_index_with_dot_notation_before_access
+    stringToPath_test::test_square_bracket_notation_complex_mix_of_array_index_and_chained_properties
+    stringToPath_test::test_square_bracket_notation_double_quoted_object_property_access
+    stringToPath_test::test_square_bracket_notation_properties_with_numbers
+    stringToPath_test::test_square_bracket_notation_recursive_chained_properties
+    stringToPath_test::test_square_bracket_notation_sequential_array_index_accesses
+    stringToPath_test::test_square_bracket_notation_single_quoted_object_property_access
+    stringToPath_test::test_square_bracket_notation_square_bracket_for_a_number
+    stringToPath_test::test_square_bracket_notation_unquoted_object_property_access
+
+test result: FAILED. 0 passed; 49 failed; 0 ignored; 0 measured; 1740 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

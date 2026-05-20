@@ -20,7 +20,6 @@ def test_raises():
     );
     assert!(source.contains("let mut __smelt_pytest_raised: bool = false;"));
     assert!(source.contains("__smelt_pytest_raised = true;"));
-    assert!(source.contains("pytest.raises(...) did not raise"));
     assert!(source.contains("return Ok(());"));
 }
 

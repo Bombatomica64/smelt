@@ -1,0 +1,1973 @@
+   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+src/main.rs:5:16: warning: unused import: `ArrayAt::*`
+src/main.rs:7:16: warning: unused import: `ArrayRequiredPrefix::*`
+src/main.rs:9:16: warning: unused import: `BoundedPartial::*`
+src/main.rs:11:16: warning: unused import: `BrandedReturn::*`
+src/main.rs:13:16: warning: unused import: `ClampedIntegerSubtract::*`
+src/main.rs:15:16: warning: unused import: `CoercedArray::*`
+src/main.rs:17:16: warning: unused import: `CompareFunction::*`
+src/main.rs:19:16: warning: unused import: `Deduped::*`
+src/main.rs:21:16: warning: unused import: `DisjointUnionFields::*`
+src/main.rs:23:16: warning: unused import: `EnumerableStringKeyOf::*`
+src/main.rs:25:16: warning: unused import: `EnumerableStringKeyedValueOf::*`
+src/main.rs:27:16: warning: unused import: `FilteredArray::*`
+src/main.rs:29:16: warning: unused import: `GuardType::*`
+src/main.rs:31:16: warning: unused import: `HasWritableKeys::*`
+src/main.rs:33:16: warning: unused import: `IntRangeInclusive::*`
+src/main.rs:35:16: warning: unused import: `IsBounded::*`
+src/main.rs:37:16: warning: unused import: `IsBoundedRecord::*`
+src/main.rs:39:16: warning: unused import: `IterableContainer::*`
+src/main.rs:41:16: warning: unused import: `LazyDefinition::*`
+src/main.rs:43:16: warning: unused import: `LazyEvaluator::*`
+src/main.rs:45:16: warning: unused import: `LazyResult::*`
+src/main.rs:47:16: warning: unused import: `Mapped::*`
+src/main.rs:49:16: warning: unused import: `NTuple::*`
+src/main.rs:51:16: warning: unused import: `NarrowedTo::*`
+src/main.rs:53:16: warning: unused import: `NonEmptyArray::*`
+src/main.rs:55:16: warning: unused import: `OptionalOptionsWithDefaults::*`
+src/main.rs:57:16: warning: unused import: `PartialArray::*`
+src/main.rs:59:16: warning: unused import: `PartitionByUnion::*`
+src/main.rs:61:16: warning: unused import: `RemedaTypeError::*`
+src/main.rs:63:16: warning: unused import: `ReorderedArray::*`
+src/main.rs:65:16: warning: unused import: `SimplifiedWritable::*`
+src/main.rs:67:16: warning: unused import: `StrictFunction::*`
+src/main.rs:69:16: warning: unused import: `StringLength::*`
+src/main.rs:71:16: warning: unused import: `ToString::*`
+src/main.rs:73:16: warning: unused import: `TupleParts::*`
+src/main.rs:75:16: warning: unused import: `TupleSplits::*`
+src/main.rs:77:16: warning: unused import: `UpsertProp::*`
+src/main.rs:83:16: warning: unused import: `addProp_test::*`
+src/add_test.rs:40:54: warning: unnecessary parentheses around function argument
+src/add_test.rs:48:54: warning: unnecessary parentheses around function argument
+src/main.rs:85:16: warning: unused import: `add_test::*`
+src/allPass_test.rs:85:91: warning: unnecessary parentheses around block return value
+src/allPass_test.rs:86:91: warning: unnecessary parentheses around block return value
+src/main.rs:89:16: warning: unused import: `allPass_test::*`
+src/anyPass_test.rs:85:91: warning: unnecessary parentheses around block return value
+src/anyPass_test.rs:86:91: warning: unnecessary parentheses around block return value
+src/main.rs:93:16: warning: unused import: `anyPass_test::*`
+src/binarySearchCutoffIndex_test.rs:98:100: warning: unnecessary parentheses around block return value
+src/binarySearchCutoffIndex_test.rs:113:111: warning: unnecessary parentheses around block return value
+src/binarySearchCutoffIndex_test.rs:129:111: warning: unnecessary parentheses around block return value
+src/binarySearchCutoffIndex_test.rs:145:111: warning: unnecessary parentheses around block return value
+src/binarySearchCutoffIndex_test.rs:161:111: warning: unnecessary parentheses around block return value
+src/binarySearchCutoffIndex_test.rs:177:111: warning: unnecessary parentheses around block return value
+src/main.rs:97:16: warning: unused import: `binarySearchCutoffIndex_test::*`
+src/main.rs:101:16: warning: unused import: `capitalize_test::*`
+src/main.rs:105:16: warning: unused import: `ceil_test::*`
+src/main.rs:109:16: warning: unused import: `chunk_test::*`
+src/main.rs:113:16: warning: unused import: `clamp_test::*`
+src/clone_test.rs:475:90: warning: unnecessary parentheses around block return value
+src/main.rs:117:16: warning: unused import: `clone_test::*`
+src/main.rs:121:16: warning: unused import: `concat_test::*`
+src/main.rs:123:16: warning: unused import: `conditional::*`
+src/main.rs:125:16: warning: unused import: `conditional_test::*`
+src/main.rs:129:16: warning: unused import: `constant_test::*`
+src/countBy.rs:44:53: warning: unnecessary parentheses around function argument
+src/main.rs:131:16: warning: unused import: `countBy::*`
+src/countBy_test.rs:116:125: warning: unnecessary parentheses around `if` condition
+src/countBy_test.rs:255:125: warning: unnecessary parentheses around `if` condition
+src/main.rs:133:16: warning: unused import: `countBy_test::*`
+src/main.rs:135:16: warning: unused import: `debounce::*`
+src/main.rs:137:16: warning: unused import: `debounce_test::*`
+src/main.rs:141:16: warning: unused import: `defaultTo_test::*`
+src/main.rs:145:16: warning: unused import: `differenceWith::*`
+src/differenceWith_test.rs:35:120: warning: unnecessary parentheses around block return value
+src/differenceWith_test.rs:80:120: warning: unnecessary parentheses around block return value
+src/main.rs:147:16: warning: unused import: `differenceWith_test::*`
+src/main.rs:149:16: warning: unused import: `difference_test::*`
+src/divide_test.rs:25:54: warning: unnecessary parentheses around function argument
+src/main.rs:153:16: warning: unused import: `divide_test::*`
+src/main.rs:157:16: warning: unused import: `doNothing_test::*`
+src/main.rs:161:16: warning: unused import: `dropFirstBy::*`
+src/main.rs:163:16: warning: unused import: `dropFirstBy_test::*`
+src/main.rs:169:16: warning: unused import: `dropLastWhile_test::*`
+src/main.rs:171:16: warning: unused import: `dropLast_test::*`
+src/dropWhile.rs:40:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:58:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:76:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:94:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:112:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:130:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:148:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:166:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:184:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:202:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:220:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:238:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:256:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:274:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:292:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:310:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:328:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:346:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:364:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:382:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:400:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:418:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:436:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:454:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:472:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:490:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:508:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:526:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:544:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:562:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:580:45: warning: unnecessary parentheses around function argument
+src/dropWhile.rs:598:45: warning: unnecessary parentheses around function argument
+src/main.rs:175:16: warning: unused import: `dropWhile_test::*`
+src/main.rs:177:16: warning: unused import: `drop_test::*`
+src/main.rs:181:16: warning: unused import: `endsWith_test::*`
+src/main.rs:183:16: warning: unused import: `entries::*`
+src/main.rs:185:16: warning: unused import: `entries_test::*`
+src/evolve_test.rs:218:113: warning: unnecessary parentheses around block return value
+src/evolve_test.rs:508:116: warning: unnecessary parentheses around block return value
+src/main.rs:189:16: warning: unused import: `evolve_test::*`
+src/filter.rs:18:237: warning: unnecessary parentheses around function argument
+src/filter_test.rs:17:91: warning: unnecessary parentheses around block return value
+src/filter_test.rs:62:120: warning: unnecessary parentheses around block return value
+src/filter_test.rs:90:91: warning: unnecessary parentheses around block return value
+src/filter_test.rs:165:120: warning: unnecessary parentheses around block return value
+src/find.rs:19:238: warning: unnecessary parentheses around function argument
+src/main.rs:195:16: warning: unused import: `find::*`
+src/findIndex.rs:17:223: warning: unnecessary parentheses around function argument
+src/main.rs:199:16: warning: unused import: `findIndex_test::*`
+src/main.rs:201:16: warning: unused import: `findLast::*`
+src/findLastIndex_test.rs:10:91: warning: unnecessary parentheses around block return value
+src/findLastIndex_test.rs:58:91: warning: unnecessary parentheses around block return value
+src/main.rs:205:16: warning: unused import: `findLastIndex_test::*`
+src/findLast_test.rs:11:91: warning: unnecessary parentheses around block return value
+src/findLast_test.rs:28:120: warning: unnecessary parentheses around block return value
+src/findLast_test.rs:80:91: warning: unnecessary parentheses around block return value
+src/findLast_test.rs:100:120: warning: unnecessary parentheses around block return value
+src/main.rs:207:16: warning: unused import: `findLast_test::*`
+src/find_test.rs:16:100: warning: unnecessary parentheses around block return value
+src/find_test.rs:39:120: warning: unnecessary parentheses around block return value
+src/find_test.rs:75:97: warning: unnecessary parentheses around block return value
+src/find_test.rs:119:117: warning: unnecessary parentheses around block return value
+src/main.rs:209:16: warning: unused import: `find_test::*`
+src/main.rs:213:16: warning: unused import: `firstBy::*`
+src/main.rs:215:16: warning: unused import: `firstBy_test::*`
+src/first_test.rs:262:97: warning: unnecessary parentheses around block return value
+src/first_test.rs:272:88: warning: unnecessary parentheses around block return value
+src/main.rs:217:16: warning: unused import: `first_test::*`
+src/main.rs:221:16: warning: unused import: `flatMap::*`
+src/main.rs:223:16: warning: unused import: `flatMap_test::*`
+src/flat_test.rs:416:88: warning: unnecessary parentheses around block return value
+src/flat_test.rs:476:88: warning: unnecessary parentheses around block return value
+src/flat_test.rs:707:88: warning: unnecessary parentheses around block return value
+src/flat_test.rs:817:88: warning: unnecessary parentheses around block return value
+src/main.rs:225:16: warning: unused import: `flat_test::*`
+src/main.rs:229:16: warning: unused import: `floor_test::*`
+src/main.rs:235:16: warning: unused import: `forEachObj_test::*`
+src/main.rs:237:16: warning: unused import: `forEach_test::*`
+src/main.rs:241:16: warning: unused import: `fromEntries_test::*`
+src/fromKeys.rs:35:86: warning: unnecessary parentheses around function argument
+src/main.rs:245:16: warning: unused import: `fromKeys_test::*`
+src/funnel.rs:122:69: warning: unnecessary parentheses around method argument
+src/funnel.rs:183:69: warning: unnecessary parentheses around method argument
+src/main.rs:249:16: warning: unused import: `funnel_lodash_debounce_test::*`
+src/main.rs:251:16: warning: unused import: `funnel_lodash_debounce_with_cached_value_test::*`
+src/main.rs:253:16: warning: unused import: `funnel_lodash_throttle_test::*`
+src/main.rs:255:16: warning: unused import: `funnel_lodash_throttle_with_cached_value_test::*`
+src/main.rs:257:16: warning: unused import: `funnel_reference_batch_test::*`
+src/main.rs:259:16: warning: unused import: `funnel_remeda_debounce_test::*`
+src/main.rs:261:16: warning: unused import: `funnel_test::*`
+src/main.rs:263:16: warning: unused import: `groupBy::*`
+src/main.rs:267:16: warning: unused import: `groupByProp_test::*`
+src/groupBy_test.rs:90:113: warning: unnecessary parentheses around `if` condition
+src/groupBy_test.rs:119:133: warning: unnecessary parentheses around `if` condition
+src/main.rs:269:16: warning: unused import: `groupBy_test::*`
+src/main.rs:273:16: warning: unused import: `hasAtLeast_test::*`
+src/main.rs:277:16: warning: unused import: `hasProp_test::*`
+src/main.rs:281:16: warning: unused import: `hasSubObject_test::*`
+src/main.rs:285:16: warning: unused import: `heap_test::*`
+src/main.rs:289:16: warning: unused import: `identity_test::*`
+src/indexBy.rs:36:42: warning: unnecessary parentheses around function argument
+src/main.rs:291:16: warning: unused import: `indexBy::*`
+src/main.rs:293:16: warning: unused import: `indexBy_test::*`
+src/main.rs:295:16: warning: unused import: `intersection::*`
+src/main.rs:297:16: warning: unused import: `intersectionWith::*`
+src/intersectionWith_test.rs:12:120: warning: unnecessary parentheses around block return value
+src/intersectionWith_test.rs:32:120: warning: unnecessary parentheses around block return value
+src/main.rs:299:16: warning: unused import: `intersectionWith_test::*`
+src/main.rs:301:16: warning: unused import: `intersection_test::*`
+src/main.rs:305:16: warning: unused import: `invert_test::*`
+src/main.rs:309:16: warning: unused import: `isArray_test::*`
+src/main.rs:313:16: warning: unused import: `isBigInt_test::*`
+src/main.rs:317:16: warning: unused import: `isBoolean_test::*`
+src/main.rs:321:16: warning: unused import: `isDate_test::*`
+src/main.rs:325:16: warning: unused import: `isDeepEqual_test::*`
+src/main.rs:329:16: warning: unused import: `isDefined_test::*`
+src/main.rs:333:16: warning: unused import: `isEmpty_test::*`
+src/main.rs:337:16: warning: unused import: `isEmptyish_test::*`
+src/main.rs:341:16: warning: unused import: `isError_test::*`
+src/main.rs:345:16: warning: unused import: `isFunction_test::*`
+src/main.rs:349:16: warning: unused import: `isIncludedIn_test::*`
+src/main.rs:353:16: warning: unused import: `isNonNull_test::*`
+src/main.rs:357:16: warning: unused import: `isNonNullish_test::*`
+src/main.rs:361:16: warning: unused import: `isNot_test::*`
+src/main.rs:365:16: warning: unused import: `isNullish_test::*`
+src/main.rs:369:16: warning: unused import: `isNumber_test::*`
+src/main.rs:373:16: warning: unused import: `isObjectType_test::*`
+src/main.rs:377:16: warning: unused import: `isPlainObject_test::*`
+src/main.rs:381:16: warning: unused import: `isPromise_test::*`
+src/main.rs:385:16: warning: unused import: `isShallowEqual_test::*`
+src/main.rs:389:16: warning: unused import: `isStrictEqual_test::*`
+src/main.rs:393:16: warning: unused import: `isString_test::*`
+src/main.rs:397:16: warning: unused import: `isSymbol_test::*`
+src/main.rs:401:16: warning: unused import: `isTruthy_test::*`
+src/main.rs:403:16: warning: unused import: `join::*`
+src/main.rs:405:16: warning: unused import: `join_test::*`
+src/main.rs:409:16: warning: unused import: `keys_test::*`
+src/main.rs:413:16: warning: unused import: `last_test::*`
+src/main.rs:421:16: warning: unused import: `length_test::*`
+src/main.rs:427:16: warning: unused import: `mapKeys_test::*`
+src/mapToObj.rs:39:42: warning: unnecessary parentheses around function argument
+src/main.rs:429:16: warning: unused import: `mapToObj::*`
+src/main.rs:431:16: warning: unused import: `mapToObj_test::*`
+src/main.rs:435:16: warning: unused import: `mapValues_test::*`
+src/main.rs:439:16: warning: unused import: `mapWithFeedback_test::*`
+src/map_test.rs:205:88: warning: unnecessary parentheses around block return value
+src/main.rs:441:16: warning: unused import: `map_test::*`
+src/main.rs:443:16: warning: unused import: `mean::*`
+src/meanBy.rs:45:39: warning: unnecessary parentheses around function argument
+src/main.rs:447:16: warning: unused import: `meanBy_test::*`
+src/main.rs:449:16: warning: unused import: `mean_test::*`
+src/main.rs:451:16: warning: unused import: `median::*`
+src/main.rs:453:16: warning: unused import: `median_test::*`
+src/main.rs:455:16: warning: unused import: `merge::*`
+src/main.rs:459:16: warning: unused import: `mergeAll_test::*`
+src/main.rs:463:16: warning: unused import: `mergeDeep_test::*`
+src/main.rs:465:16: warning: unused import: `merge_test::*`
+src/multiply_test.rs:25:54: warning: unnecessary parentheses around function argument
+src/main.rs:469:16: warning: unused import: `multiply_test::*`
+src/main.rs:471:16: warning: unused import: `nthBy::*`
+src/main.rs:473:16: warning: unused import: `nthBy_test::*`
+src/main.rs:475:16: warning: unused import: `objOf::*`
+src/main.rs:477:16: warning: unused import: `objOf_test::*`
+src/main.rs:483:16: warning: unused import: `omitBy_test::*`
+src/main.rs:485:16: warning: unused import: `omit_test::*`
+src/main.rs:489:16: warning: unused import: `once_test::*`
+src/main.rs:493:16: warning: unused import: `only_test::*`
+src/main.rs:495:16: warning: unused import: `partialBind::*`
+src/main.rs:497:16: warning: unused import: `partialBind_test::*`
+src/main.rs:499:16: warning: unused import: `partialLastBind::*`
+src/main.rs:501:16: warning: unused import: `partialLastBind_test::*`
+src/partition.rs:41:45: warning: unnecessary parentheses around function argument
+src/main.rs:503:16: warning: unused import: `partition::*`
+src/partition_test.rs:22:100: warning: unnecessary parentheses around block return value
+src/partition_test.rs:145:100: warning: unnecessary parentheses around block return value
+src/main.rs:505:16: warning: unused import: `partition_test::*`
+src/main.rs:509:16: warning: unused import: `pathOr_test::*`
+src/main.rs:515:16: warning: unused import: `pickBy_test::*`
+src/main.rs:517:16: warning: unused import: `pick_test::*`
+src/pipe_test.rs:24:90: warning: unnecessary parentheses around block return value
+src/pipe_test.rs:40:90: warning: unnecessary parentheses around block return value
+src/pipe_test.rs:41:90: warning: unnecessary parentheses around block return value
+src/pipe_test.rs:117:87: warning: unnecessary parentheses around block return value
+src/main.rs:521:16: warning: unused import: `pipe_test::*`
+src/piped_test.rs:11:90: warning: unnecessary parentheses around block return value
+src/piped_test.rs:29:90: warning: unnecessary parentheses around block return value
+src/piped_test.rs:30:90: warning: unnecessary parentheses around block return value
+src/main.rs:525:16: warning: unused import: `piped_test::*`
+src/main.rs:529:16: warning: unused import: `product_test::*`
+src/main.rs:533:16: warning: unused import: `prop_test::*`
+src/pullObject.rs:38:49: warning: unnecessary parentheses around function argument
+src/pullObject.rs:40:51: warning: unnecessary parentheses around function argument
+src/main.rs:537:16: warning: unused import: `pullObject_test::*`
+src/main.rs:543:16: warning: unused import: `purryFromLazy_test::*`
+src/purryOrderRules.rs:225:120: warning: unnecessary parentheses around block return value
+src/purryOrderRules.rs:226:120: warning: unnecessary parentheses around block return value
+src/main.rs:549:16: warning: unused import: `purry_test::*`
+src/randomBigInt.rs:351:12: warning: unnecessary parentheses around `return` value
+src/randomBigInt_test.rs:317:44: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:317:76: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:342:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:342:89: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:382:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:382:106: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:415:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:415:90: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:441:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:441:104: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:479:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:479:89: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:511:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:511:89: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:552:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:552:89: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:604:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:604:106: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:649:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:649:90: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:687:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:687:104: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:737:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:737:89: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:781:58: warning: unnecessary parentheses around function argument
+src/randomBigInt_test.rs:781:89: warning: unnecessary parentheses around function argument
+src/main.rs:555:16: warning: unused import: `randomBigInt_test::*`
+src/main.rs:559:16: warning: unused import: `randomInteger_test::*`
+src/main.rs:563:16: warning: unused import: `randomString_test::*`
+src/range.rs:45:195: warning: unnecessary parentheses around `if` condition
+src/range.rs:45:243: warning: unnecessary parentheses around block return value
+src/main.rs:567:16: warning: unused import: `range_test::*`
+src/rankBy_test.rs:39:132: warning: unnecessary parentheses around assigned value
+src/main.rs:571:16: warning: unused import: `rankBy_test::*`
+src/main.rs:575:16: warning: unused import: `reduce_test::*`
+src/main.rs:579:16: warning: unused import: `reverse_test::*`
+src/main.rs:583:16: warning: unused import: `round_test::*`
+src/sample.rs:68:128: warning: unnecessary parentheses around assigned value
+src/sample_test.rs:19:57: warning: unnecessary parentheses around closure body
+src/main.rs:587:16: warning: unused import: `sample_test::*`
+src/main.rs:593:16: warning: unused import: `setPath_test::*`
+src/main.rs:595:16: warning: unused import: `set_test::*`
+src/main.rs:599:16: warning: unused import: `shuffle_test::*`
+src/main.rs:605:16: warning: unused import: `sliceString_test::*`
+src/main.rs:611:16: warning: unused import: `sortBy_test::*`
+src/sort_test.rs:12:101: warning: unnecessary parentheses around block return value
+src/sort_test.rs:32:101: warning: unnecessary parentheses around block return value
+src/main.rs:613:16: warning: unused import: `sort_test::*`
+src/sortedIndex.rs:18:41: warning: unnecessary parentheses around block return value
+src/main.rs:619:16: warning: unused import: `sortedIndexBy_test::*`
+src/main.rs:623:16: warning: unused import: `sortedIndexWith_test::*`
+src/main.rs:625:16: warning: unused import: `sortedIndex_test::*`
+src/sortedLastIndex.rs:18:41: warning: unnecessary parentheses around block return value
+src/main.rs:631:16: warning: unused import: `sortedLastIndexBy_test::*`
+src/main.rs:633:16: warning: unused import: `sortedLastIndex_test::*`
+src/main.rs:637:16: warning: unused import: `splice_test::*`
+src/splitAt.rs:37:45: warning: unnecessary parentheses around method argument
+src/main.rs:641:16: warning: unused import: `splitAt::*`
+src/main.rs:643:16: warning: unused import: `splitAt_test::*`
+src/splitWhen.rs:23:223: warning: unnecessary parentheses around function argument
+src/main.rs:645:16: warning: unused import: `splitWhen::*`
+src/main.rs:647:16: warning: unused import: `splitWhen_test::*`
+src/main.rs:649:16: warning: unused import: `split_test::*`
+src/main.rs:651:16: warning: unused import: `src_index::*`
+src/main.rs:655:16: warning: unused import: `startsWith_test::*`
+src/main.rs:659:16: warning: unused import: `stringToPath_test::*`
+src/subtract_test.rs:40:54: warning: unnecessary parentheses around function argument
+src/subtract_test.rs:48:54: warning: unnecessary parentheses around function argument
+src/main.rs:663:16: warning: unused import: `subtract_test::*`
+src/sumBy.rs:51:46: warning: unnecessary parentheses around function argument
+src/main.rs:669:16: warning: unused import: `sumBy_test::*`
+src/main.rs:671:16: warning: unused import: `sum_test::*`
+src/main.rs:677:16: warning: unused import: `swapIndices_test::*`
+src/main.rs:681:16: warning: unused import: `swapProps_test::*`
+src/take.rs:31:102: warning: unnecessary parentheses around assigned value
+src/take.rs:31:224: warning: unnecessary parentheses around function argument
+src/main.rs:685:16: warning: unused import: `takeFirstBy::*`
+src/main.rs:687:16: warning: unused import: `takeFirstBy_test::*`
+src/main.rs:691:16: warning: unused import: `takeLastWhile::*`
+src/main.rs:693:16: warning: unused import: `takeLastWhile_test::*`
+src/main.rs:695:16: warning: unused import: `takeLast_test::*`
+src/takeWhile.rs:37:45: warning: unnecessary parentheses around function argument
+src/main.rs:697:16: warning: unused import: `takeWhile::*`
+src/main.rs:699:16: warning: unused import: `takeWhile_test::*`
+src/main.rs:701:16: warning: unused import: `take_test::*`
+src/main.rs:703:16: warning: unused import: `tap::*`
+src/main.rs:705:16: warning: unused import: `tap_test::*`
+src/main.rs:709:16: warning: unused import: `times_test::*`
+src/toCamelCase.rs:37:130: warning: unnecessary parentheses around `if` condition
+src/toCamelCase.rs:39:187: warning: unnecessary parentheses around `if` condition
+src/main.rs:713:16: warning: unused import: `toCamelCase_test::*`
+src/main.rs:717:16: warning: unused import: `toKebabCase_test::*`
+src/main.rs:721:16: warning: unused import: `toLowerCase_test::*`
+src/main.rs:727:16: warning: unused import: `toSnakeCase_test::*`
+src/main.rs:731:16: warning: unused import: `toTitleCase_test::*`
+src/main.rs:735:16: warning: unused import: `toUpperCase_test::*`
+src/main.rs:739:16: warning: unused import: `truncate_test::*`
+src/main.rs:741:16: warning: unused import: `typesDataProvider::*`
+src/main.rs:745:16: warning: unused import: `uncapitalize_test::*`
+src/main.rs:751:16: warning: unused import: `uniqueBy_test::*`
+src/uniqueWith_test.rs:44:124: warning: unnecessary parentheses around `if` condition
+src/uniqueWith_test.rs:44:168: warning: unnecessary parentheses around block return value
+src/main.rs:755:16: warning: unused import: `uniqueWith_test::*`
+src/main.rs:757:16: warning: unused import: `unique_test::*`
+src/main.rs:763:16: warning: unused import: `values_test::*`
+src/main.rs:765:16: warning: unused import: `when::*`
+src/main.rs:767:16: warning: unused import: `when_test::*`
+src/withPrecision.rs:27:21: warning: unnecessary parentheses around assigned value
+src/main.rs:771:16: warning: unused import: `withPrecision_test::*`
+src/main.rs:775:16: warning: unused import: `words_test::*`
+src/main.rs:779:16: warning: unused import: `zipWith::*`
+src/main.rs:781:16: warning: unused import: `zipWith_test::*`
+src/main.rs:783:16: warning: unused import: `zip_test::*`
+src/binarySearchCutoffIndex.rs:33:5: warning: unreachable statement: unreachable statement
+src/clone.rs:544:5: warning: unreachable statement: unreachable statement
+src/clone.rs:1043:5: warning: unreachable statement: unreachable statement
+src/conditional.rs:446:5: warning: unreachable statement: unreachable statement
+src/countBy.rs:67:5: warning: unreachable statement: unreachable statement
+src/difference.rs:70:5: warning: unreachable statement: unreachable statement
+src/dropFirstBy.rs:396:5: warning: unreachable statement: unreachable statement
+src/dropLastWhile.rs:625:5: warning: unreachable statement: unreachable statement
+src/dropWhile.rs:606:5: warning: unreachable statement: unreachable statement
+src/evolve.rs:394:5: warning: unreachable statement: unreachable statement
+src/findLast.rs:495:5: warning: unreachable statement: unreachable statement
+src/findLastIndex.rs:495:5: warning: unreachable statement: unreachable statement
+src/firstBy.rs:51:5: warning: unreachable statement: unreachable statement
+src/forEachObj.rs:38:5: warning: unreachable statement: unreachable statement
+src/fromKeys.rs:40:5: warning: unreachable statement: unreachable statement
+src/groupBy.rs:63:5: warning: unreachable statement: unreachable statement
+src/groupByProp.rs:60:5: warning: unreachable statement: unreachable statement
+src/hasSubObject.rs:508:5: warning: unreachable statement: unreachable statement
+src/indexBy.rs:42:5: warning: unreachable statement: unreachable statement
+src/intersection.rs:88:5: warning: unreachable statement: unreachable statement
+src/invert.rs:38:5: warning: unreachable statement: unreachable statement
+src/isDeepEqual.rs:1020:5: warning: unreachable statement: unreachable statement
+src/isDeepEqual.rs:1485:5: warning: unreachable statement: unreachable statement
+src/isDeepEqual.rs:1978:5: warning: unreachable statement: unreachable statement
+src/isShallowEqual.rs:810:5: warning: unreachable statement: unreachable statement
+src/isShallowEqual.rs:1477:5: warning: unreachable statement: unreachable statement
+src/isShallowEqual.rs:1880:5: warning: unreachable statement: unreachable statement
+src/mapKeys.rs:43:5: warning: unreachable statement: unreachable statement
+src/mapToObj.rs:48:5: warning: unreachable statement: unreachable statement
+src/mapValues.rs:43:5: warning: unreachable statement: unreachable statement
+src/meanBy.rs:53:5: warning: unreachable statement: unreachable statement
+src/mergeAll.rs:24:5: warning: unreachable statement: unreachable statement
+src/omit.rs:62:5: warning: unreachable statement: unreachable statement
+src/omitBy.rs:48:5: warning: unreachable statement: unreachable statement
+src/partition.rs:55:5: warning: unreachable statement: unreachable statement
+src/pathOr.rs:43:5: warning: unreachable statement: unreachable statement
+src/pick.rs:35:5: warning: unreachable statement: unreachable statement
+src/pickBy.rs:47:5: warning: unreachable statement: unreachable statement
+src/product.rs:34:5: warning: unreachable statement: unreachable statement
+src/prop.rs:484:5: warning: unreachable statement: unreachable statement
+src/pullObject.rs:46:5: warning: unreachable statement: unreachable statement
+src/randomBigInt.rs:330:5: warning: unreachable statement: unreachable statement
+src/randomBigInt.rs:352:5: warning: unreachable statement: unreachable statement
+src/randomBigInt.rs:374:5: warning: unreachable statement: unreachable statement
+src/randomBigInt_test.rs:310:5: warning: unreachable statement: unreachable statement
+src/randomInteger_test.rs:310:5: warning: unreachable statement: unreachable statement
+src/randomString.rs:42:5: warning: unreachable statement: unreachable statement
+src/rankBy.rs:40:5: warning: unreachable statement: unreachable statement
+src/sample.rs:83:5: warning: unreachable statement: unreachable statement
+src/shuffle.rs:45:5: warning: unreachable statement: unreachable statement
+src/sum.rs:34:5: warning: unreachable statement: unreachable statement
+src/sumBy.rs:58:5: warning: unreachable statement: unreachable statement
+src/takeFirstBy.rs:297:5: warning: unreachable statement: unreachable statement
+src/takeLastWhile.rs:581:5: warning: unreachable statement: unreachable statement
+src/takeWhile.rs:48:5: warning: unreachable statement: unreachable statement
+src/times.rs:51:5: warning: unreachable statement: unreachable statement
+src/truncate.rs:144:5: warning: unreachable statement: unreachable statement
+src/words.rs:102:5: warning: unreachable statement: unreachable statement
+src/main.rs:1254:5: warning: unreachable statement: unreachable statement
+src/addProp_test.rs:8:36: warning: value assigned to `actual` is never read
+src/addProp_test.rs:26:36: warning: value assigned to `actual` is never read
+src/binarySearchCutoffIndex.rs:7:32: warning: value assigned to `pivot_index` is never read
+src/binarySearchCutoffIndex.rs:8:35: warning: value assigned to `pivot` is never read
+src/ceil_test.rs:94:9: warning: variable does not need to be mutable
+src/ceil_test.rs:110:9: warning: variable does not need to be mutable
+src/ceil_test.rs:125:9: warning: variable does not need to be mutable
+src/ceil_test.rs:144:9: warning: variable does not need to be mutable
+src/ceil_test.rs:138:33: warning: value assigned to `did_throw_1` is never read
+src/ceil_test.rs:185:5: warning: value assigned to `precision` is never read
+src/ceil_test.rs:212:5: warning: value assigned to `precision` is never read
+src/ceil_test.rs:239:5: warning: value assigned to `precision` is never read
+src/ceil_test.rs:332:9: warning: variable does not need to be mutable
+src/ceil_test.rs:350:9: warning: variable does not need to be mutable
+src/ceil_test.rs:367:9: warning: variable does not need to be mutable
+src/ceil_test.rs:389:9: warning: variable does not need to be mutable
+src/ceil_test.rs:381:33: warning: value assigned to `did_throw_1` is never read
+src/ceil_test.rs:434:5: warning: value assigned to `precision` is never read
+src/ceil_test.rs:463:5: warning: value assigned to `precision` is never read
+src/ceil_test.rs:492:5: warning: value assigned to `precision` is never read
+src/chunk_test.rs:118:9: warning: variable does not need to be mutable
+src/chunk_test.rs:136:9: warning: variable does not need to be mutable
+src/chunk_test.rs:151:36: warning: value assigned to `result` is never read
+src/chunk_test.rs:182:36: warning: value assigned to `result` is never read
+src/clone.rs:15:57: warning: variable does not need to be mutable
+src/clone.rs:16:39: warning: value assigned to `prototype` is never read
+src/clone.rs:17:24: warning: value assigned to `idx` is never read
+src/clone.rs:80:83: warning: variable does not need to be mutable
+src/clone.rs:82:25: warning: value assigned to `k` is never read
+src/clone.rs:83:31: warning: value assigned to `v` is never read
+src/clone.rs:547:82: warning: variable does not need to be mutable
+src/clone.rs:549:26: warning: value assigned to `index` is never read
+src/clone.rs:550:34: warning: value assigned to `item` is never read
+src/clone_test.rs:105:73: warning: value assigned to `cloned` is never read
+src/clone_test.rs:146:141: warning: value assigned to `cloned` is never read
+src/clone_test.rs:190:36: warning: value assigned to `cloned` is never read
+src/clone_test.rs:339:32: warning: value assigned to `cloned` is never read
+src/clone_test.rs:382:36: warning: value assigned to `cloned` is never read
+src/clone_test.rs:465:124: warning: value assigned to `cloned` is never read
+src/clone_test.rs:512:27: warning: value assigned to `cloned` is never read
+src/clone_test.rs:547:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:603:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:659:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:715:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:771:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:827:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:883:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:939:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:995:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:1051:30: warning: value assigned to `cloned` is never read
+src/clone_test.rs:1107:36: warning: value assigned to `cloned` is never read
+src/clone_test.rs:1146:46: warning: value assigned to `cloned` is never read
+src/clone_test.rs:1179:106: warning: value assigned to `cloned` is never read
+src/concat_test.rs:8:41: warning: value assigned to `actual` is never read
+src/concat_test.rs:27:41: warning: value assigned to `actual` is never read
+src/conditional.rs:436:5: warning: value assigned to `current` is never read
+src/conditional.rs:420:5: warning: value assigned to `current` is never read
+src/conditional.rs:404:5: warning: value assigned to `current` is never read
+src/conditional.rs:388:5: warning: value assigned to `current` is never read
+src/conditional.rs:372:5: warning: value assigned to `current` is never read
+src/conditional.rs:356:5: warning: value assigned to `current` is never read
+src/conditional.rs:340:5: warning: value assigned to `current` is never read
+src/conditional.rs:324:5: warning: value assigned to `current` is never read
+src/conditional.rs:308:5: warning: value assigned to `current` is never read
+src/conditional.rs:292:5: warning: value assigned to `current` is never read
+src/conditional.rs:276:5: warning: value assigned to `current` is never read
+src/conditional.rs:260:5: warning: value assigned to `current` is never read
+src/conditional.rs:244:5: warning: value assigned to `current` is never read
+src/conditional.rs:228:5: warning: value assigned to `current` is never read
+src/conditional.rs:212:5: warning: value assigned to `current` is never read
+src/conditional.rs:196:5: warning: value assigned to `current` is never read
+src/conditional.rs:180:5: warning: value assigned to `current` is never read
+src/conditional.rs:164:5: warning: value assigned to `current` is never read
+src/conditional.rs:148:5: warning: value assigned to `current` is never read
+src/conditional.rs:132:5: warning: value assigned to `current` is never read
+src/conditional.rs:116:5: warning: value assigned to `current` is never read
+src/conditional.rs:100:5: warning: value assigned to `current` is never read
+src/conditional.rs:84:5: warning: value assigned to `current` is never read
+src/conditional.rs:68:5: warning: value assigned to `current` is never read
+src/conditional.rs:52:5: warning: value assigned to `current` is never read
+src/conditional.rs:36:5: warning: value assigned to `current` is never read
+src/conditional.rs:21:283: warning: value assigned to `when` is never read
+src/conditional.rs:22:320: warning: value assigned to `then` is never read
+src/conditional.rs:440:5: warning: value assigned to `then` is never read
+src/conditional.rs:471:5: warning: value assigned to `when` is never read
+src/conditional.rs:472:5: warning: value assigned to `then` is never read
+src/conditional.rs:452:39: warning: value assigned to `rest` is never read
+src/conditional_test.rs:135:9: warning: variable does not need to be mutable
+src/conditional_test.rs:155:35: warning: value assigned to `value` is never read
+src/constant_test.rs:8:334: warning: value assigned to `one` is never read
+src/constant_test.rs:26:340: warning: value assigned to `empty_obj` is never read
+src/constant_test.rs:27:46: warning: value assigned to `first_invocation` is never read
+src/constant_test.rs:91:334: warning: value assigned to `one` is never read
+src/constant_test.rs:151:334: warning: value assigned to `one` is never read
+src/countBy.rs:7:104: warning: variable does not need to be mutable
+src/countBy.rs:34:9: warning: variable does not need to be mutable
+src/countBy.rs:17:26: warning: value assigned to `index` is never read
+src/countBy.rs:18:34: warning: value assigned to `item` is never read
+src/countBy.rs:19:46: warning: value assigned to `category` is never read
+src/countBy.rs:20:34: warning: value assigned to `count` is never read
+src/debounce.rs:68:9: warning: variable does not need to be mutable
+src/debounce.rs:75:9: warning: variable does not need to be mutable
+src/debounce.rs:78:9: warning: variable does not need to be mutable
+src/debounce.rs:88:9: warning: variable does not need to be mutable
+src/debounce.rs:91:9: warning: variable does not need to be mutable
+src/debounce.rs:114:9: warning: variable does not need to be mutable
+src/debounce.rs:133:9: warning: variable does not need to be mutable
+src/debounce.rs:140:9: warning: variable does not need to be mutable
+src/debounce.rs:170:9: warning: variable does not need to be mutable
+src/debounce.rs:175:9: warning: variable does not need to be mutable
+src/debounce.rs:176:9: warning: variable does not need to be mutable
+src/debounce.rs:210:9: warning: variable does not need to be mutable
+src/debounce.rs:215:9: warning: variable does not need to be mutable
+src/debounce.rs:216:9: warning: variable does not need to be mutable
+src/debounce.rs:219:9: warning: variable does not need to be mutable
+src/debounce.rs:227:9: warning: variable does not need to be mutable
+src/debounce.rs:228:9: warning: variable does not need to be mutable
+src/debounce.rs:231:9: warning: variable does not need to be mutable
+src/debounce.rs:209:5: warning: value assigned to `timeout_id` is never read
+src/debounce.rs:226:5: warning: value assigned to `timeout_id_1` is never read
+src/debounce.rs:214:5: warning: value assigned to `timeout_id_1` is never read
+src/debounce.rs:188:5: warning: value assigned to `timeout_id` is never read
+src/debounce.rs:183:5: warning: value assigned to `timeout_id` is never read
+src/debounce.rs:185:5: warning: value assigned to `cool_down_timeout_id` is never read
+src/debounce.rs:190:5: warning: value assigned to `cool_down_timeout_id` is never read
+src/debounce.rs:113:5: warning: value assigned to `timeout_id` is never read
+src/debounce.rs:67:5: warning: value assigned to `timeout_id` is never read
+src/debounce.rs:59:39: warning: value assigned to `args` is never read
+src/debounce.rs:7:241: warning: value assigned to `handle_invoke` is never read
+src/debounce.rs:8:248: warning: value assigned to `handle_cool_down_end` is never read
+src/debounce.rs:10:58: warning: value assigned to `cool_down_timeout_id` is never read
+src/debounce.rs:11:57: warning: value assigned to `max_wait_timeout_id` is never read
+src/debounce.rs:12:59: warning: value assigned to `latest_call_args` is never read
+src/debounce.rs:13:44: warning: value assigned to `result` is never read
+src/debounce_test.rs:53:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:119:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:161:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:197:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:248:5: warning: value assigned to `with_leading` is never read
+src/debounce_test.rs:257:5: warning: value assigned to `with_leading_and_trailing` is never read
+src/debounce_test.rs:301:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:345:5: warning: value assigned to `with_trailing` is never read
+src/debounce_test.rs:394:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:454:5: warning: value assigned to `with_max_wait` is never read
+src/debounce_test.rs:457:5: warning: value assigned to `without_max_wait` is never read
+src/debounce_test.rs:430:26: warning: value assigned to `start` is never read
+src/debounce_test.rs:495:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:527:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:572:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:613:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:600:31: warning: value assigned to `did_throw` is never read
+src/debounce_test.rs:681:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:756:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:743:31: warning: value assigned to `did_throw` is never read
+src/debounce_test.rs:798:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:823:39: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:860:39: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:911:39: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:977:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:1022:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:1065:5: warning: value assigned to `debouncer` is never read
+src/debounce_test.rs:1089:9: warning: variable does not need to be mutable
+src/difference.rs:13:73: warning: value assigned to `remaining` is never read
+src/difference.rs:14:35: warning: value assigned to `value` is never read
+src/differenceWith_test.rs:125:5: warning: value assigned to `counter` is never read
+src/differenceWith_test.rs:97:41: warning: value assigned to `result` is never read
+src/difference_test.rs:42:32: warning: value assigned to `result` is never read
+src/difference_test.rs:233:36: warning: value assigned to `result` is never read
+src/doNothing_test.rs:8:297: warning: value assigned to `does_nothing` is never read
+src/doNothing_test.rs:9:31: warning: value assigned to `did_throw` is never read
+src/doNothing_test.rs:24:297: warning: value assigned to `does_nothing` is never read
+src/doNothing_test.rs:25:31: warning: value assigned to `did_throw` is never read
+src/doNothing_test.rs:26:33: warning: value assigned to `did_throw_1` is never read
+src/doNothing_test.rs:27:33: warning: value assigned to `did_throw_2` is never read
+src/doNothing_test.rs:28:33: warning: value assigned to `did_throw_3` is never read
+src/doNothing_test.rs:29:33: warning: value assigned to `did_throw_4` is never read
+src/drop.rs:38:9: warning: variable does not need to be mutable
+src/drop.rs:17:25: warning: value assigned to `left` is never read
+src/dropFirstBy.rs:7:104: warning: variable does not need to be mutable
+src/dropFirstBy.rs:16:39: warning: value assigned to `heap` is never read
+src/dropFirstBy.rs:17:38: warning: value assigned to `out` is never read
+src/dropFirstBy.rs:18:39: warning: value assigned to `rest` is never read
+src/dropFirstBy.rs:19:34: warning: value assigned to `item` is never read
+src/dropFirstBy.rs:20:51: warning: value assigned to `previous_head` is never read
+src/dropFirstBy_test.rs:89:41: warning: value assigned to `result` is never read
+src/dropFirstBy_test.rs:221:32: warning: value assigned to `result` is never read
+src/dropLastWhile.rs:7:99: warning: variable does not need to be mutable
+src/dropLastWhile_test.rs:80:41: warning: value assigned to `result` is never read
+src/dropLastWhile_test.rs:194:41: warning: value assigned to `result` is never read
+src/dropLast_test.rs:111:41: warning: value assigned to `result` is never read
+src/dropWhile.rs:7:99: warning: variable does not need to be mutable
+src/dropWhile.rs:17:26: warning: value assigned to `index` is never read
+src/dropWhile.rs:18:34: warning: value assigned to `item` is never read
+src/dropWhile_test.rs:80:41: warning: value assigned to `result` is never read
+src/dropWhile_test.rs:194:41: warning: value assigned to `result` is never read
+src/drop_test.rs:81:36: warning: value assigned to `result` is never read
+src/evolve.rs:38:27: warning: variable does not need to be mutable
+src/evolve.rs:16:70: warning: value assigned to `out` is never read
+src/evolve.rs:390:5: warning: value assigned to `key` is never read
+src/evolve.rs:379:5: warning: value assigned to `key` is never read
+src/evolve.rs:368:5: warning: value assigned to `key` is never read
+src/evolve.rs:357:5: warning: value assigned to `key` is never read
+src/evolve.rs:346:5: warning: value assigned to `key` is never read
+src/evolve.rs:335:5: warning: value assigned to `key` is never read
+src/evolve.rs:324:5: warning: value assigned to `key` is never read
+src/evolve.rs:313:5: warning: value assigned to `key` is never read
+src/evolve.rs:302:5: warning: value assigned to `key` is never read
+src/evolve.rs:291:5: warning: value assigned to `key` is never read
+src/evolve.rs:280:5: warning: value assigned to `key` is never read
+src/evolve.rs:269:5: warning: value assigned to `key` is never read
+src/evolve.rs:258:5: warning: value assigned to `key` is never read
+src/evolve.rs:247:5: warning: value assigned to `key` is never read
+src/evolve.rs:236:5: warning: value assigned to `key` is never read
+src/evolve.rs:225:5: warning: value assigned to `key` is never read
+src/evolve.rs:214:5: warning: value assigned to `key` is never read
+src/evolve.rs:203:5: warning: value assigned to `key` is never read
+src/evolve.rs:192:5: warning: value assigned to `key` is never read
+src/evolve.rs:181:5: warning: value assigned to `key` is never read
+src/evolve.rs:170:5: warning: value assigned to `key` is never read
+src/evolve.rs:159:5: warning: value assigned to `key` is never read
+src/evolve.rs:148:5: warning: value assigned to `key` is never read
+src/evolve.rs:137:5: warning: value assigned to `key` is never read
+src/evolve.rs:126:5: warning: value assigned to `key` is never read
+src/evolve.rs:115:5: warning: value assigned to `key` is never read
+src/evolve.rs:104:5: warning: value assigned to `key` is never read
+src/evolve.rs:93:5: warning: value assigned to `key` is never read
+src/evolve.rs:82:5: warning: value assigned to `key` is never read
+src/evolve.rs:71:5: warning: value assigned to `key` is never read
+src/evolve.rs:60:5: warning: value assigned to `key` is never read
+src/evolve.rs:49:5: warning: value assigned to `key` is never read
+src/evolve.rs:392:5: warning: value assigned to `value` is never read
+src/evolve.rs:381:5: warning: value assigned to `value` is never read
+src/evolve.rs:370:5: warning: value assigned to `value` is never read
+src/evolve.rs:359:5: warning: value assigned to `value` is never read
+src/evolve.rs:348:5: warning: value assigned to `value` is never read
+src/evolve.rs:337:5: warning: value assigned to `value` is never read
+src/evolve.rs:326:5: warning: value assigned to `value` is never read
+src/evolve.rs:315:5: warning: value assigned to `value` is never read
+src/evolve.rs:304:5: warning: value assigned to `value` is never read
+src/evolve.rs:293:5: warning: value assigned to `value` is never read
+src/evolve.rs:282:5: warning: value assigned to `value` is never read
+src/evolve.rs:271:5: warning: value assigned to `value` is never read
+src/evolve.rs:260:5: warning: value assigned to `value` is never read
+src/evolve.rs:249:5: warning: value assigned to `value` is never read
+src/evolve.rs:238:5: warning: value assigned to `value` is never read
+src/evolve.rs:227:5: warning: value assigned to `value` is never read
+src/evolve.rs:216:5: warning: value assigned to `value` is never read
+src/evolve.rs:205:5: warning: value assigned to `value` is never read
+src/evolve.rs:194:5: warning: value assigned to `value` is never read
+src/evolve.rs:183:5: warning: value assigned to `value` is never read
+src/evolve.rs:172:5: warning: value assigned to `value` is never read
+src/evolve.rs:161:5: warning: value assigned to `value` is never read
+src/evolve.rs:150:5: warning: value assigned to `value` is never read
+src/evolve.rs:139:5: warning: value assigned to `value` is never read
+src/evolve.rs:128:5: warning: value assigned to `value` is never read
+src/evolve.rs:117:5: warning: value assigned to `value` is never read
+src/evolve.rs:106:5: warning: value assigned to `value` is never read
+src/evolve.rs:95:5: warning: value assigned to `value` is never read
+src/evolve.rs:84:5: warning: value assigned to `value` is never read
+src/evolve.rs:73:5: warning: value assigned to `value` is never read
+src/evolve.rs:62:5: warning: value assigned to `value` is never read
+src/evolve.rs:51:5: warning: value assigned to `value` is never read
+src/evolve_test.rs:74:36: warning: value assigned to `result` is never read
+src/evolve_test.rs:351:36: warning: value assigned to `result` is never read
+src/evolve_test.rs:529:5: warning: value assigned to `sum` is never read
+src/filter.rs:7:104: warning: variable does not need to be mutable
+src/filter_test.rs:12:41: warning: value assigned to `result` is never read
+src/filter_test.rs:33:41: warning: value assigned to `result` is never read
+src/filter_test.rs:57:41: warning: value assigned to `result` is never read
+src/filter_test.rs:97:5: warning: value assigned to `result` is never read
+src/filter_test.rs:136:5: warning: value assigned to `result` is never read
+src/filter_test.rs:172:5: warning: value assigned to `result` is never read
+src/find.rs:7:104: warning: variable does not need to be mutable
+src/findIndex.rs:7:104: warning: variable does not need to be mutable
+src/findLast.rs:7:104: warning: variable does not need to be mutable
+src/findLast.rs:16:34: warning: value assigned to `item` is never read
+src/findLastIndex.rs:7:104: warning: variable does not need to be mutable
+src/find_test.rs:54:36: warning: value assigned to `actual` is never read
+src/find_test.rs:98:36: warning: value assigned to `actual` is never read
+src/firstBy.rs:7:104: warning: variable does not need to be mutable
+src/firstBy.rs:16:43: warning: value assigned to `current_first` is never read
+src/firstBy.rs:17:39: warning: value assigned to `rest` is never read
+src/firstBy.rs:18:34: warning: value assigned to `item` is never read
+src/first_test.rs:59:5: warning: value assigned to `counter` is never read
+src/first_test.rs:46:36: warning: value assigned to `result` is never read
+src/first_test.rs:101:5: warning: value assigned to `counter` is never read
+src/first_test.rs:84:36: warning: value assigned to `result` is never read
+src/first_test.rs:147:5: warning: value assigned to `counter` is never read
+src/first_test.rs:134:36: warning: value assigned to `result` is never read
+src/first_test.rs:189:5: warning: value assigned to `counter` is never read
+src/first_test.rs:172:36: warning: value assigned to `result` is never read
+src/first_test.rs:252:5: warning: value assigned to `counter1` is never read
+src/first_test.rs:254:5: warning: value assigned to `counter2` is never read
+src/first_test.rs:223:36: warning: value assigned to `result` is never read
+src/first_test.rs:300:36: warning: value assigned to `result` is never read
+src/first_test.rs:319:36: warning: value assigned to `result` is never read
+src/first_test.rs:338:36: warning: value assigned to `result` is never read
+src/first_test.rs:357:36: warning: value assigned to `result` is never read
+src/first_test.rs:376:36: warning: value assigned to `result` is never read
+src/first_test.rs:395:36: warning: value assigned to `result` is never read
+src/first_test.rs:414:36: warning: value assigned to `result` is never read
+src/first_test.rs:433:36: warning: value assigned to `result` is never read
+src/first_test.rs:452:36: warning: value assigned to `result` is never read
+src/first_test.rs:471:36: warning: value assigned to `result` is never read
+src/first_test.rs:490:36: warning: value assigned to `result` is never read
+src/first_test.rs:509:36: warning: value assigned to `result` is never read
+src/first_test.rs:528:36: warning: value assigned to `result` is never read
+src/first_test.rs:547:36: warning: value assigned to `result` is never read
+src/first_test.rs:566:36: warning: value assigned to `result` is never read
+src/first_test.rs:585:36: warning: value assigned to `result` is never read
+src/flatMap.rs:7:104: warning: variable does not need to be mutable
+src/flatMap_test.rs:8:41: warning: value assigned to `result` is never read
+src/flatMap_test.rs:29:41: warning: value assigned to `result` is never read
+src/flatMap_test.rs:50:41: warning: value assigned to `result` is never read
+src/flatMap_test.rs:74:41: warning: value assigned to `result` is never read
+src/flatMap_test.rs:148:5: warning: value assigned to `counter1` is never read
+src/flatMap_test.rs:150:5: warning: value assigned to `counter2` is never read
+src/flatMap_test.rs:124:44: warning: value assigned to `result` is never read
+src/flat_test.rs:159:36: warning: value assigned to `result` is never read
+src/flat_test.rs:187:36: warning: value assigned to `result` is never read
+src/flat_test.rs:502:36: warning: value assigned to `result` is never read
+src/flat_test.rs:696:5: warning: value assigned to `counter1` is never read
+src/flat_test.rs:698:5: warning: value assigned to `counter2` is never read
+src/flat_test.rs:672:44: warning: value assigned to `result` is never read
+src/flat_test.rs:803:5: warning: value assigned to `counter1` is never read
+src/flat_test.rs:805:5: warning: value assigned to `counter2` is never read
+src/flat_test.rs:776:44: warning: value assigned to `result` is never read
+src/floor_test.rs:94:9: warning: variable does not need to be mutable
+src/floor_test.rs:110:9: warning: variable does not need to be mutable
+src/floor_test.rs:125:9: warning: variable does not need to be mutable
+src/floor_test.rs:144:9: warning: variable does not need to be mutable
+src/floor_test.rs:138:33: warning: value assigned to `did_throw_1` is never read
+src/floor_test.rs:185:5: warning: value assigned to `precision` is never read
+src/floor_test.rs:212:5: warning: value assigned to `precision` is never read
+src/floor_test.rs:239:5: warning: value assigned to `precision` is never read
+src/floor_test.rs:332:9: warning: variable does not need to be mutable
+src/floor_test.rs:350:9: warning: variable does not need to be mutable
+src/floor_test.rs:367:9: warning: variable does not need to be mutable
+src/floor_test.rs:389:9: warning: variable does not need to be mutable
+src/floor_test.rs:381:33: warning: value assigned to `did_throw_1` is never read
+src/floor_test.rs:434:5: warning: value assigned to `precision` is never read
+src/floor_test.rs:463:5: warning: value assigned to `precision` is never read
+src/floor_test.rs:492:5: warning: value assigned to `precision` is never read
+src/forEach.rs:7:104: warning: variable does not need to be mutable
+src/forEachObj.rs:7:99: warning: variable does not need to be mutable
+src/forEachObj.rs:17:27: warning: value assigned to `key` is never read
+src/forEachObj.rs:18:35: warning: value assigned to `value` is never read
+src/forEach_test.rs:48:36: warning: value assigned to `result` is never read
+src/forEach_test.rs:98:36: warning: value assigned to `result` is never read
+src/forEach_test.rs:157:41: warning: value assigned to `result` is never read
+src/fromKeys.rs:7:99: warning: variable does not need to be mutable
+src/fromKeys.rs:25:9: warning: variable does not need to be mutable
+src/fromKeys.rs:17:26: warning: value assigned to `index` is never read
+src/fromKeys.rs:34:5: warning: value assigned to `key` is never read
+src/fromKeys_test.rs:67:9: warning: variable does not need to be mutable
+src/fromKeys_test.rs:210:9: warning: variable does not need to be mutable
+src/funnel.rs:24:9: warning: variable does not need to be mutable
+src/funnel.rs:43:9: warning: variable does not need to be mutable
+src/funnel.rs:44:9: warning: variable does not need to be mutable
+src/funnel.rs:106:9: warning: variable does not need to be mutable
+src/funnel.rs:123:9: warning: variable does not need to be mutable
+src/funnel.rs:129:9: warning: variable does not need to be mutable
+src/funnel.rs:146:9: warning: variable does not need to be mutable
+src/funnel.rs:184:9: warning: variable does not need to be mutable
+src/funnel.rs:190:9: warning: variable does not need to be mutable
+src/funnel.rs:207:9: warning: variable does not need to be mutable
+src/funnel.rs:237:9: warning: variable does not need to be mutable
+src/funnel.rs:238:9: warning: variable does not need to be mutable
+src/funnel.rs:239:9: warning: variable does not need to be mutable
+src/funnel.rs:240:9: warning: variable does not need to be mutable
+src/funnel.rs:69:24: warning: value assigned to `now` is never read
+src/funnel.rs:206:5: warning: value assigned to `burst_remaining_ms` is never read
+src/funnel.rs:189:5: warning: value assigned to `burst_remaining_ms` is never read
+src/funnel.rs:145:5: warning: value assigned to `burst_remaining_ms` is never read
+src/funnel.rs:128:5: warning: value assigned to `burst_remaining_ms` is never read
+src/funnel_lodash_debounce_test.rs:7:289: warning: value assigned to `call` is never read
+src/funnel_lodash_debounce_test.rs:91:5: warning: value assigned to `rest` is never read
+src/funnel_lodash_debounce_test.rs:78:5: warning: value assigned to `rest` is never read
+src/funnel_lodash_debounce_test.rs:106:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:176:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:211:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:247:297: warning: value assigned to `with_leading` is never read
+src/funnel_lodash_debounce_test.rs:248:310: warning: value assigned to `with_leading_and_trailing` is never read
+src/funnel_lodash_debounce_test.rs:325:298: warning: value assigned to `with_trailing` is never read
+src/funnel_lodash_debounce_test.rs:326:301: warning: value assigned to `without_trailing` is never read
+src/funnel_lodash_debounce_test.rs:389:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:457:298: warning: value assigned to `with_max_wait` is never read
+src/funnel_lodash_debounce_test.rs:458:301: warning: value assigned to `without_max_wait` is never read
+src/funnel_lodash_debounce_test.rs:459:24: warning: value assigned to `end` is never read
+src/funnel_lodash_debounce_test.rs:534:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:583:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:627:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:1545:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:1570:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:1626:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:1656:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:1710:294: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_test.rs:1769:5: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:44:9: warning: variable does not need to be mutable
+src/funnel_lodash_debounce_with_cached_value_test.rs:93:5: warning: value assigned to `call` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:75:5: warning: value assigned to `call` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:8:233: warning: value assigned to `flush` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:95:5: warning: value assigned to `cancel` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:77:5: warning: value assigned to `cancel` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:111:366: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:230:366: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:275:366: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:331:366: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:1180:9: warning: variable does not need to be mutable
+src/funnel_lodash_debounce_with_cached_value_test.rs:1162:366: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:1231:9: warning: variable does not need to be mutable
+src/funnel_lodash_debounce_with_cached_value_test.rs:1217:366: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:1276:5: warning: value assigned to `debounced` is never read
+src/funnel_lodash_debounce_with_cached_value_test.rs:1300:366: warning: value assigned to `debounced` is never read
+src/funnel_lodash_throttle_test.rs:7:289: warning: value assigned to `call` is never read
+src/funnel_lodash_throttle_test.rs:77:5: warning: value assigned to `rest` is never read
+src/funnel_lodash_throttle_test.rs:64:5: warning: value assigned to `rest` is never read
+src/funnel_lodash_throttle_test.rs:85:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:86:31: warning: value assigned to `call_count` is never read
+src/funnel_lodash_throttle_test.rs:134:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:171:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:206:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:207:24: warning: value assigned to `end` is never read
+src/funnel_lodash_throttle_test.rs:239:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:240:24: warning: value assigned to `end` is never read
+src/funnel_lodash_throttle_test.rs:276:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:335:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:373:297: warning: value assigned to `with_leading` is never read
+src/funnel_lodash_throttle_test.rs:374:300: warning: value assigned to `without_leading` is never read
+src/funnel_lodash_throttle_test.rs:412:298: warning: value assigned to `with_trailing` is never read
+src/funnel_lodash_throttle_test.rs:413:301: warning: value assigned to `without_trailing` is never read
+src/funnel_lodash_throttle_test.rs:483:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:520:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:545:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:601:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:631:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:685:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:744:5: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_test.rs:766:294: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:39:9: warning: variable does not need to be mutable
+src/funnel_lodash_throttle_with_cached_value_test.rs:79:5: warning: value assigned to `call` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:61:5: warning: value assigned to `call` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:8:233: warning: value assigned to `flush` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:81:5: warning: value assigned to `cancel` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:63:5: warning: value assigned to `cancel` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:97:366: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:98:46: warning: value assigned to `result_c` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:99:46: warning: value assigned to `result_d` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:179:369: warning: value assigned to `with_leading` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:180:372: warning: value assigned to `without_leading` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:216:370: warning: value assigned to `with_trailing` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:217:373: warning: value assigned to `without_trailing` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:318:9: warning: variable does not need to be mutable
+src/funnel_lodash_throttle_with_cached_value_test.rs:300:366: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:369:9: warning: variable does not need to be mutable
+src/funnel_lodash_throttle_with_cached_value_test.rs:355:366: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:414:5: warning: value assigned to `throttled` is never read
+src/funnel_lodash_throttle_with_cached_value_test.rs:438:366: warning: value assigned to `throttled` is never read
+src/funnel_reference_batch_test.rs:28:5: warning: value assigned to `batch_funnel` is never read
+src/funnel_reference_batch_test.rs:41:211: warning: value assigned to `count_letters_api` is never read
+src/funnel_reference_batch_test.rs:42:101: warning: value assigned to `prepared` is never read
+src/funnel_reference_batch_test.rs:43:42: warning: value assigned to `short_result` is never read
+src/funnel_reference_batch_test.rs:44:43: warning: value assigned to `medium_result` is never read
+src/funnel_reference_batch_test.rs:45:41: warning: value assigned to `long_result` is never read
+src/funnel_reference_batch_test.rs:149:211: warning: value assigned to `count_letters_api` is never read
+src/funnel_reference_batch_test.rs:150:101: warning: value assigned to `prepared` is never read
+src/funnel_reference_batch_test.rs:151:42: warning: value assigned to `short_result` is never read
+src/funnel_reference_batch_test.rs:152:43: warning: value assigned to `medium_result` is never read
+src/funnel_reference_batch_test.rs:153:41: warning: value assigned to `long_result` is never read
+src/funnel_reference_batch_test.rs:273:5: warning: value assigned to `failing_api` is never read
+src/funnel_remeda_debounce_test.rs:65:9: warning: variable does not need to be mutable
+src/funnel_remeda_debounce_test.rs:7:50: warning: value assigned to `cached_value` is never read
+src/funnel_remeda_debounce_test.rs:8:47: warning: value assigned to `debouncing_funnel` is never read
+src/funnel_remeda_debounce_test.rs:197:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:263:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:305:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:341:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:392:5: warning: value assigned to `with_leading` is never read
+src/funnel_remeda_debounce_test.rs:401:5: warning: value assigned to `with_leading_and_trailing` is never read
+src/funnel_remeda_debounce_test.rs:445:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:489:5: warning: value assigned to `with_trailing` is never read
+src/funnel_remeda_debounce_test.rs:538:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:598:5: warning: value assigned to `with_max_wait` is never read
+src/funnel_remeda_debounce_test.rs:601:5: warning: value assigned to `without_max_wait` is never read
+src/funnel_remeda_debounce_test.rs:574:26: warning: value assigned to `start` is never read
+src/funnel_remeda_debounce_test.rs:639:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:671:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:716:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:757:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:744:31: warning: value assigned to `did_throw` is never read
+src/funnel_remeda_debounce_test.rs:825:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:900:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:887:31: warning: value assigned to `did_throw` is never read
+src/funnel_remeda_debounce_test.rs:942:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:967:39: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:1004:39: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:1055:39: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:1121:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:1166:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:1209:5: warning: value assigned to `debouncer` is never read
+src/funnel_remeda_debounce_test.rs:1233:9: warning: variable does not need to be mutable
+src/funnel_test.rs:23:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:68:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:116:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:161:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:201:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:235:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:283:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:354:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:446:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:544:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:628:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:726:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:833:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:925:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1004:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1081:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1173:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1271:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1369:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1460:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1551:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1637:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1716:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1818:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:1925:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2011:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2077:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2129:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2174:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2226:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2301:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2393:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2470:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2529:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2577:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2612:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2629:33: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2665:33: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2757:5: warning: value assigned to `foo` is never read
+src/funnel_test.rs:2860:5: warning: value assigned to `foo` is never read
+src/groupBy.rs:7:104: warning: variable does not need to be mutable
+src/groupBy.rs:16:34: warning: value assigned to `item` is never read
+src/groupBy.rs:17:41: warning: value assigned to `key` is never read
+src/groupBy.rs:18:40: warning: value assigned to `items` is never read
+src/groupByProp.rs:16:34: warning: value assigned to `item` is never read
+src/groupByProp.rs:17:41: warning: value assigned to `key` is never read
+src/groupByProp.rs:18:40: warning: value assigned to `items` is never read
+src/groupBy_test.rs:83:75: warning: value assigned to `result` is never read
+src/groupBy_test.rs:112:78: warning: value assigned to `result` is never read
+src/hasSubObject.rs:499:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:477:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:455:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:433:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:411:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:389:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:367:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:345:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:323:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:301:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:279:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:257:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:235:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:213:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:191:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:169:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:147:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:125:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:103:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:81:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:59:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:37:5: warning: value assigned to `key` is never read
+src/hasSubObject.rs:18:35: warning: value assigned to `value` is never read
+src/hasSubObject.rs:501:5: warning: value assigned to `value` is never read
+src/heap.rs:274:34: warning: value assigned to `head` is never read
+src/heap.rs:298:38: warning: value assigned to `first_child_index` is never read
+src/heap.rs:299:31: warning: value assigned to `swap_index` is never read
+src/heap.rs:300:39: warning: value assigned to `second_child_index` is never read
+src/identity_test.rs:8:381: warning: value assigned to `id` is never read
+src/identity_test.rs:26:381: warning: value assigned to `id` is never read
+src/identity_test.rs:74:381: warning: value assigned to `id` is never read
+src/indexBy.rs:7:104: warning: variable does not need to be mutable
+src/indexBy.rs:17:26: warning: value assigned to `index` is never read
+src/indexBy.rs:18:34: warning: value assigned to `item` is never read
+src/indexBy.rs:19:33: warning: value assigned to `key` is never read
+src/intersection.rs:47:9: warning: variable does not need to be mutable
+src/intersection.rs:13:73: warning: value assigned to `remaining` is never read
+src/intersection.rs:14:35: warning: value assigned to `value` is never read
+src/intersectionWith_test.rs:109:5: warning: value assigned to `counter` is never read
+src/intersectionWith_test.rs:80:41: warning: value assigned to `result` is never read
+src/intersection_test.rs:195:41: warning: value assigned to `result` is never read
+src/intersection_test.rs:221:36: warning: value assigned to `result` is never read
+src/invert.rs:17:27: warning: value assigned to `key` is never read
+src/invert.rs:18:35: warning: value assigned to `value` is never read
+src/isDeepEqual.rs:1006:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:986:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:966:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:946:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:926:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:906:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:886:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:866:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:846:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:826:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:806:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:786:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:766:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:746:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:726:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:706:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:686:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:666:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:646:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:626:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:606:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:586:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:566:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:546:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:526:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:506:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:486:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:466:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:446:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:426:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:406:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:386:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:366:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:346:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:326:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:306:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:286:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:266:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:246:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:226:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:206:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:186:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:166:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:146:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:126:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:106:5: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:18:35: warning: value assigned to `value` is never read
+src/isDeepEqual.rs:1056:26: warning: value assigned to `index` is never read
+src/isDeepEqual.rs:1057:34: warning: value assigned to `item` is never read
+src/isDeepEqual.rs:1490:33: warning: value assigned to `key` is never read
+src/isDeepEqual.rs:1491:35: warning: value assigned to `value` is never read
+src/isDeepEqual_test.rs:20:81: warning: variable does not need to be mutable
+src/isDeepEqual_test.rs:1066:47: warning: value assigned to `null_proto_object` is never read
+src/isDeepEqual_test.rs:1112:47: warning: value assigned to `null_proto_object` is never read
+src/isDeepEqual_test.rs:1137:47: warning: value assigned to `null_proto_object` is never read
+src/isDeepEqual_test.rs:1185:47: warning: value assigned to `null_proto_object` is never read
+src/isIncludedIn.rs:19:9: warning: variable does not need to be mutable
+src/isIncludedIn.rs:7:65: warning: value assigned to `as_set` is never read
+src/isIncludedIn_test.rs:236:303: warning: value assigned to `is_included_in_container` is never read
+src/isIncludedIn_test.rs:261:304: warning: value assigned to `is_included_in_container1` is never read
+src/isIncludedIn_test.rs:262:304: warning: value assigned to `is_included_in_container2` is never read
+src/isIncludedIn_test.rs:307:303: warning: value assigned to `is_included_in_container` is never read
+src/isIncludedIn_test.rs:398:41: warning: value assigned to `result` is never read
+src/isNot_test.rs:30:39: warning: value assigned to `data` is never read
+src/isPlainObject.rs:7:35: warning: value assigned to `proto` is never read
+src/isShallowEqual.rs:16:33: warning: value assigned to `keys` is never read
+src/isShallowEqual.rs:17:27: warning: value assigned to `key` is never read
+src/isShallowEqual.rs:18:37: warning: value assigned to `value_a` is never read
+src/isShallowEqual.rs:19:37: warning: value assigned to `value_b` is never read
+src/isShallowEqual.rs:815:33: warning: value assigned to `key` is never read
+src/isShallowEqual.rs:816:35: warning: value assigned to `value` is never read
+src/isShallowEqual.rs:817:45: warning: value assigned to `value_b` is never read
+src/isShallowEqual.rs:1481:35: warning: value assigned to `value` is never read
+src/map.rs:7:104: warning: variable does not need to be mutable
+src/mapKeys.rs:7:99: warning: variable does not need to be mutable
+src/mapKeys.rs:17:27: warning: value assigned to `key` is never read
+src/mapKeys.rs:18:35: warning: value assigned to `value` is never read
+src/mapKeys.rs:19:40: warning: value assigned to `mapped_key` is never read
+src/mapToObj.rs:7:104: warning: variable does not need to be mutable
+src/mapToObj.rs:17:26: warning: value assigned to `index` is never read
+src/mapToObj.rs:18:37: warning: value assigned to `element` is never read
+src/mapToObj.rs:19:33: warning: value assigned to `key` is never read
+src/mapToObj.rs:20:35: warning: value assigned to `value` is never read
+src/mapToObj_test.rs:21:5: warning: value assigned to `result` is never read
+src/mapToObj_test.rs:42:5: warning: value assigned to `result` is never read
+src/mapToObj_test.rs:71:5: warning: value assigned to `result` is never read
+src/mapToObj_test.rs:95:5: warning: value assigned to `result` is never read
+src/mapValues.rs:7:99: warning: variable does not need to be mutable
+src/mapValues.rs:17:27: warning: value assigned to `key` is never read
+src/mapValues.rs:18:35: warning: value assigned to `value` is never read
+src/mapValues.rs:19:42: warning: value assigned to `mapped_value` is never read
+src/mapWithFeedback_test.rs:27:74: warning: value assigned to `results` is never read
+src/mapWithFeedback_test.rs:28:34: warning: value assigned to `item` is never read
+src/mapWithFeedback_test.rs:64:5: warning: value assigned to `result` is never read
+src/mapWithFeedback_test.rs:72:73: warning: value assigned to `result` is never read
+src/mapWithFeedback_test.rs:232:9: warning: variable does not need to be mutable
+src/mapWithFeedback_test.rs:233:9: warning: variable does not need to be mutable
+src/map_test.rs:194:9: warning: variable does not need to be mutable
+src/map_test.rs:195:9: warning: variable does not need to be mutable
+src/map_test.rs:209:9: warning: variable does not need to be mutable
+src/map_test.rs:210:9: warning: variable does not need to be mutable
+src/meanBy.rs:7:104: warning: variable does not need to be mutable
+src/meanBy.rs:16:24: warning: value assigned to `sum` is never read
+src/meanBy.rs:18:26: warning: value assigned to `index` is never read
+src/meanBy.rs:19:34: warning: value assigned to `item` is never read
+src/median.rs:16:41: warning: value assigned to `sorted_data` is never read
+src/median.rs:17:33: warning: value assigned to `middle_index` is never read
+src/merge.rs:17:81: warning: variable does not need to be mutable
+src/mergeAll.rs:17:5: warning: value assigned to `item` is never read
+src/mergeAll_test.rs:27:36: warning: value assigned to `result` is never read
+src/mergeDeep_test.rs:168:127: warning: value assigned to `a` is never read
+src/mergeDeep_test.rs:169:59: warning: value assigned to `b` is never read
+src/nthBy.rs:7:104: warning: variable does not need to be mutable
+src/objOf_test.rs:8:64: warning: value assigned to `actual` is never read
+src/objOf_test.rs:31:73: warning: value assigned to `actual` is never read
+src/omit.rs:38:27: warning: variable does not need to be mutable
+src/omit.rs:52:27: warning: variable does not need to be mutable
+src/omit.rs:17:76: warning: value assigned to `remaining` is never read
+src/omit.rs:18:70: warning: value assigned to `out` is never read
+src/omit.rs:19:27: warning: value assigned to `key` is never read
+src/omitBy.rs:7:99: warning: variable does not need to be mutable
+src/omitBy.rs:26:81: warning: variable does not need to be mutable
+src/omitBy.rs:17:27: warning: value assigned to `key` is never read
+src/omitBy.rs:18:35: warning: value assigned to `value` is never read
+src/omit_test.rs:8:73: warning: value assigned to `result` is never read
+src/omit_test.rs:29:73: warning: value assigned to `result` is never read
+src/omit_test.rs:49:73: warning: value assigned to `result` is never read
+src/omit_test.rs:91:73: warning: value assigned to `result` is never read
+src/once.rs:18:9: warning: variable does not need to be mutable
+src/once.rs:19:9: warning: variable does not need to be mutable
+src/once_test.rs:8:281: warning: value assigned to `wrapped` is never read
+src/once_test.rs:9:34: warning: value assigned to `ret1` is never read
+src/once_test.rs:10:34: warning: value assigned to `ret2` is never read
+src/partialBind.rs:8:9: warning: variable does not need to be mutable
+src/partialLastBind.rs:8:9: warning: variable does not need to be mutable
+src/partition.rs:7:104: warning: variable does not need to be mutable
+src/partition.rs:17:26: warning: value assigned to `index` is never read
+src/partition.rs:18:34: warning: value assigned to `item` is never read
+src/pathOr.rs:16:34: warning: value assigned to `prop` is never read
+src/pathOr_test.rs:165:9: warning: variable does not need to be mutable
+src/pick.rs:20:9: warning: variable does not need to be mutable
+src/pick.rs:24:5: warning: value assigned to `key` is never read
+src/pickBy.rs:7:99: warning: variable does not need to be mutable
+src/pickBy.rs:17:27: warning: value assigned to `key` is never read
+src/pickBy.rs:18:35: warning: value assigned to `value` is never read
+src/pipe.rs:15:9: warning: variable does not need to be mutable
+src/pipe.rs:16:9: warning: variable does not need to be mutable
+src/pipe.rs:7:42: warning: value assigned to `current_item` is never read
+src/pipe.rs:8:41: warning: value assigned to `lazy_result` is never read
+src/pipe.rs:9:29: warning: value assigned to `is_done` is never read
+src/pipe.rs:61:5: warning: value assigned to `functions_index` is never read
+src/pipe.rs:12:407: warning: value assigned to `lazy_fn` is never read
+src/pipe.rs:13:26: warning: value assigned to `index` is never read
+src/pipe.rs:14:40: warning: value assigned to `items` is never read
+src/pipe_test.rs:22:27: warning: value assigned to `result` is never read
+src/pipe_test.rs:38:27: warning: value assigned to `result` is never read
+src/pipe_test.rs:55:41: warning: value assigned to `result` is never read
+src/pipe_test.rs:96:41: warning: value assigned to `result` is never read
+src/pipe_test.rs:142:41: warning: value assigned to `result` is never read
+src/pipe_test.rs:187:41: warning: value assigned to `result` is never read
+src/pipe_test.rs:230:41: warning: value assigned to `result` is never read
+src/pipe_test.rs:274:36: warning: value assigned to `result` is never read
+src/pipe_test.rs:338:36: warning: value assigned to `result` is never read
+src/piped.rs:8:9: warning: variable does not need to be mutable
+src/piped_test.rs:8:277: warning: value assigned to `fn_` is never read
+src/piped_test.rs:26:277: warning: value assigned to `fn_` is never read
+src/product.rs:16:24: warning: value assigned to `out` is never read
+src/product.rs:17:35: warning: value assigned to `value` is never read
+src/product_test.rs:167:36: warning: value assigned to `result` is never read
+src/prop.rs:14:9: warning: variable does not need to be mutable
+src/prop.rs:474:5: warning: value assigned to `key` is never read
+src/prop.rs:460:5: warning: value assigned to `key` is never read
+src/prop.rs:446:5: warning: value assigned to `key` is never read
+src/prop.rs:432:5: warning: value assigned to `key` is never read
+src/prop.rs:418:5: warning: value assigned to `key` is never read
+src/prop.rs:404:5: warning: value assigned to `key` is never read
+src/prop.rs:390:5: warning: value assigned to `key` is never read
+src/prop.rs:376:5: warning: value assigned to `key` is never read
+src/prop.rs:362:5: warning: value assigned to `key` is never read
+src/prop.rs:348:5: warning: value assigned to `key` is never read
+src/prop.rs:334:5: warning: value assigned to `key` is never read
+src/prop.rs:320:5: warning: value assigned to `key` is never read
+src/prop.rs:306:5: warning: value assigned to `key` is never read
+src/prop.rs:292:5: warning: value assigned to `key` is never read
+src/prop.rs:278:5: warning: value assigned to `key` is never read
+src/prop.rs:264:5: warning: value assigned to `key` is never read
+src/prop.rs:250:5: warning: value assigned to `key` is never read
+src/prop.rs:236:5: warning: value assigned to `key` is never read
+src/prop.rs:222:5: warning: value assigned to `key` is never read
+src/prop.rs:208:5: warning: value assigned to `key` is never read
+src/prop.rs:194:5: warning: value assigned to `key` is never read
+src/prop.rs:180:5: warning: value assigned to `key` is never read
+src/prop.rs:166:5: warning: value assigned to `key` is never read
+src/prop.rs:152:5: warning: value assigned to `key` is never read
+src/prop.rs:138:5: warning: value assigned to `key` is never read
+src/prop.rs:124:5: warning: value assigned to `key` is never read
+src/prop.rs:110:5: warning: value assigned to `key` is never read
+src/prop.rs:96:5: warning: value assigned to `key` is never read
+src/prop.rs:82:5: warning: value assigned to `key` is never read
+src/prop.rs:68:5: warning: value assigned to `key` is never read
+src/prop.rs:54:5: warning: value assigned to `key` is never read
+src/prop.rs:40:5: warning: value assigned to `key` is never read
+src/prop.rs:481:5: warning: value assigned to `output` is never read
+src/prop_test.rs:48:5: warning: value assigned to `prop_a` is never read
+src/pullObject.rs:7:99: warning: variable does not need to be mutable
+src/pullObject.rs:7:215: warning: variable does not need to be mutable
+src/pullObject.rs:17:26: warning: value assigned to `index` is never read
+src/pullObject.rs:18:34: warning: value assigned to `item` is never read
+src/pullObject.rs:19:33: warning: value assigned to `key` is never read
+src/pullObject.rs:20:35: warning: value assigned to `value` is never read
+src/purryFromLazy.rs:36:9: warning: variable does not need to be mutable
+src/purryFromLazy.rs:7:34: warning: value assigned to `data` is never read
+src/purryFromLazy.rs:8:39: warning: value assigned to `rest` is never read
+src/purryFromLazy.rs:27:5: warning: value assigned to `lazy_definition` is never read
+src/purryFromLazy.rs:10:84: warning: value assigned to `lazy_definition_1` is never read
+src/purryFromLazy.rs:11:325: warning: value assigned to `data_last` is never read
+src/purryFromLazy_test.rs:34:9: warning: variable does not need to be mutable
+src/purryOrderRules.rs:7:332: warning: value assigned to `compare_fn` is never read
+src/purryOrderRules.rs:8:334: warning: value assigned to `compare_fn_1` is never read
+src/purryOrderRules.rs:66:9: warning: variable does not need to be mutable
+src/purryOrderRules.rs:50:33: warning: value assigned to `arg` is never read
+src/purryOrderRules.rs:51:46: warning: value assigned to `arg_removed` is never read
+src/purryOrderRules.rs:110:9: warning: variable does not need to be mutable
+src/purryOrderRules.rs:112:9: warning: variable does not need to be mutable
+src/purryOrderRules.rs:147:9: warning: variable does not need to be mutable
+src/purryOrderRules.rs:149:9: warning: variable does not need to be mutable
+src/purryOrderRules.rs:74:325: warning: value assigned to `projector` is never read
+src/purryOrderRules.rs:75:33: warning: value assigned to `direction` is never read
+src/purryOrderRules.rs:76:337: warning: value assigned to `comparator` is never read
+src/purryOrderRules.rs:77:120: warning: value assigned to `next_comparer` is never read
+src/purryOrderRules.rs:172:46: warning: value assigned to `maybe_projection` is never read
+src/purryOrderRules.rs:173:45: warning: value assigned to `maybe_direction` is never read
+src/purryOrderRules.rs:174:39: warning: value assigned to `rest` is never read
+src/purry_test.rs:37:338: warning: value assigned to `purried` is never read
+src/purry_test.rs:60:9: warning: variable does not need to be mutable
+src/quickSelect.rs:7:32: warning: value assigned to `pivot_index` is never read
+src/quickSelect.rs:57:9: warning: variable does not need to be mutable
+src/quickSelect.rs:69:5: warning: value assigned to `j` is never read
+src/randomBigInt.rs:7:26: warning: value assigned to `range` is never read
+src/randomBigInt.rs:8:29: warning: value assigned to `max_bits` is never read
+src/randomBigInt.rs:9:30: warning: value assigned to `max_bytes` is never read
+src/randomBigInt.rs:10:32: warning: value assigned to `excess_bits` is never read
+src/randomBigInt.rs:318:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:307:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:296:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:285:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:274:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:263:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:252:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:241:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:230:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:219:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:208:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:197:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:186:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:175:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:164:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:153:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:142:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:131:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:120:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:109:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:98:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:87:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:76:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:65:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:54:5: warning: value assigned to `random_bytes` is never read
+src/randomBigInt.rs:12:24: warning: value assigned to `raw` is never read
+src/randomBigInt.rs:13:27: warning: value assigned to `result` is never read
+src/randomBigInt.rs:334:25: warning: value assigned to `byte` is never read
+src/randomBigInt.rs:356:26: warning: value assigned to `index` is never read
+src/randomBigInt_test.rs:316:9: warning: variable does not need to be mutable
+src/randomBigInt_test.rs:346:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:386:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:419:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:445:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:483:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:510:9: warning: variable does not need to be mutable
+src/randomBigInt_test.rs:515:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:556:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:608:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:653:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:691:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:741:5: warning: value assigned to `v` is never read
+src/randomBigInt_test.rs:780:9: warning: variable does not need to be mutable
+src/randomBigInt_test.rs:785:5: warning: value assigned to `v` is never read
+src/randomInteger_test.rs:316:9: warning: variable does not need to be mutable
+src/randomInteger_test.rs:329:9: warning: variable does not need to be mutable
+src/randomInteger_test.rs:359:5: warning: value assigned to `v` is never read
+src/randomInteger_test.rs:399:5: warning: value assigned to `v` is never read
+src/randomInteger_test.rs:437:5: warning: value assigned to `v` is never read
+src/randomInteger_test.rs:477:5: warning: value assigned to `v` is never read
+src/randomInteger_test.rs:510:5: warning: value assigned to `v` is never read
+src/randomString.rs:16:35: warning: value assigned to `random_char` is never read
+src/range.rs:16:34: warning: value assigned to `step` is never read
+src/range.rs:17:27: warning: value assigned to `end` is never read
+src/range.rs:18:27: warning: value assigned to `length` is never read
+src/range.rs:52:28: warning: value assigned to `rounded` is never read
+src/range_test.rs:56:9: warning: variable does not need to be mutable
+src/rankBy.rs:7:104: warning: variable does not need to be mutable
+src/rankBy.rs:16:34: warning: value assigned to `item` is never read
+src/rankBy_test.rs:54:5: warning: value assigned to `index` is never read
+src/rankBy_test.rs:56:5: warning: value assigned to `item` is never read
+src/reduce.rs:7:104: warning: variable does not need to be mutable
+src/reduce_test.rs:49:9: warning: variable does not need to be mutable
+src/reduce_test.rs:31:9: warning: variable does not need to be mutable
+src/reverse_test.rs:8:36: warning: value assigned to `actual` is never read
+src/reverse_test.rs:28:36: warning: value assigned to `actual` is never read
+src/round_test.rs:94:9: warning: variable does not need to be mutable
+src/round_test.rs:110:9: warning: variable does not need to be mutable
+src/round_test.rs:125:9: warning: variable does not need to be mutable
+src/round_test.rs:144:9: warning: variable does not need to be mutable
+src/round_test.rs:138:33: warning: value assigned to `did_throw_1` is never read
+src/round_test.rs:185:5: warning: value assigned to `precision` is never read
+src/round_test.rs:212:5: warning: value assigned to `precision` is never read
+src/round_test.rs:239:5: warning: value assigned to `precision` is never read
+src/round_test.rs:332:9: warning: variable does not need to be mutable
+src/round_test.rs:350:9: warning: variable does not need to be mutable
+src/round_test.rs:367:9: warning: variable does not need to be mutable
+src/round_test.rs:389:9: warning: variable does not need to be mutable
+src/round_test.rs:381:33: warning: value assigned to `did_throw_1` is never read
+src/round_test.rs:434:5: warning: value assigned to `precision` is never read
+src/round_test.rs:463:5: warning: value assigned to `precision` is never read
+src/round_test.rs:492:5: warning: value assigned to `precision` is never read
+src/sample.rs:70:9: warning: variable does not need to be mutable
+src/sample.rs:77:9: warning: variable does not need to be mutable
+src/sample.rs:16:39: warning: value assigned to `actual_sample_size` is never read
+src/sample.rs:17:40: warning: value assigned to `sample_indices` is never read
+src/sample.rs:62:5: warning: value assigned to `random_index` is never read
+src/sample_test.rs:24:31: warning: value assigned to `array` is never read
+src/sample_test.rs:25:35: warning: value assigned to `collector` is never read
+src/sample_test.rs:26:30: warning: value assigned to `iteration` is never read
+src/sample_test.rs:879:5: warning: value assigned to `item` is never read
+src/sample_test.rs:852:5: warning: value assigned to `item` is never read
+src/sample_test.rs:825:5: warning: value assigned to `item` is never read
+src/sample_test.rs:798:5: warning: value assigned to `item` is never read
+src/sample_test.rs:771:5: warning: value assigned to `item` is never read
+src/sample_test.rs:744:5: warning: value assigned to `item` is never read
+src/sample_test.rs:717:5: warning: value assigned to `item` is never read
+src/sample_test.rs:690:5: warning: value assigned to `item` is never read
+src/sample_test.rs:663:5: warning: value assigned to `item` is never read
+src/sample_test.rs:636:5: warning: value assigned to `item` is never read
+src/sample_test.rs:609:5: warning: value assigned to `item` is never read
+src/sample_test.rs:582:5: warning: value assigned to `item` is never read
+src/sample_test.rs:555:5: warning: value assigned to `item` is never read
+src/sample_test.rs:528:5: warning: value assigned to `item` is never read
+src/sample_test.rs:501:5: warning: value assigned to `item` is never read
+src/sample_test.rs:474:5: warning: value assigned to `item` is never read
+src/sample_test.rs:447:5: warning: value assigned to `item` is never read
+src/sample_test.rs:420:5: warning: value assigned to `item` is never read
+src/sample_test.rs:393:5: warning: value assigned to `item` is never read
+src/sample_test.rs:366:5: warning: value assigned to `item` is never read
+src/sample_test.rs:339:5: warning: value assigned to `item` is never read
+src/sample_test.rs:312:5: warning: value assigned to `item` is never read
+src/sample_test.rs:285:5: warning: value assigned to `item` is never read
+src/sample_test.rs:258:5: warning: value assigned to `item` is never read
+src/sample_test.rs:231:5: warning: value assigned to `item` is never read
+src/sample_test.rs:204:5: warning: value assigned to `item` is never read
+src/sample_test.rs:177:5: warning: value assigned to `item` is never read
+src/sample_test.rs:150:5: warning: value assigned to `item` is never read
+src/sample_test.rs:123:5: warning: value assigned to `item` is never read
+src/sample_test.rs:96:5: warning: value assigned to `item` is never read
+src/sample_test.rs:69:5: warning: value assigned to `item` is never read
+src/sample_test.rs:943:36: warning: value assigned to `result` is never read
+src/sample_test.rs:972:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1001:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1030:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1059:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1114:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1135:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1156:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1177:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1198:36: warning: value assigned to `result` is never read
+src/sample_test.rs:1219:36: warning: value assigned to `result` is never read
+src/setPath.rs:30:9: warning: variable does not need to be mutable
+src/setPath.rs:16:39: warning: value assigned to `copy` is never read
+src/setPath.rs:17:43: warning: value assigned to `current_value` is never read
+src/setPath.rs:18:76: warning: value assigned to `remaining` is never read
+src/setPath_test.rs:384:9: warning: variable does not need to be mutable
+src/shuffle.rs:16:25: warning: value assigned to `rand` is never read
+src/shuffle.rs:17:35: warning: value assigned to `value` is never read
+src/shuffle_test.rs:8:75: warning: value assigned to `shuffled` is never read
+src/shuffle_test.rs:67:75: warning: value assigned to `shuffled` is never read
+src/sort.rs:7:99: warning: variable does not need to be mutable
+src/sortBy.rs:7:104: warning: variable does not need to be mutable
+src/sortedIndexBy.rs:7:133: warning: variable does not need to be mutable
+src/sortedIndexBy.rs:17:9: warning: variable does not need to be mutable
+src/sortedIndexWith.rs:7:104: warning: variable does not need to be mutable
+src/sortedLastIndexBy.rs:7:133: warning: variable does not need to be mutable
+src/sortedLastIndexBy.rs:17:9: warning: variable does not need to be mutable
+src/splice_test.rs:59:32: warning: value assigned to `result` is never read
+src/splitAt.rs:16:36: warning: value assigned to `effective_index` is never read
+src/splitWhen.rs:7:104: warning: variable does not need to be mutable
+src/stringToPath.rs:26:9: warning: variable does not need to be mutable
+src/stringToPath.rs:7:39: warning: value assigned to `prop_name` is never read
+src/stringToPath.rs:37:5: warning: value assigned to `quoted` is never read
+src/stringToPath.rs:38:5: warning: value assigned to `double_quoted` is never read
+src/stringToPath.rs:10:38: warning: value assigned to `unquoted` is never read
+src/sum.rs:16:24: warning: value assigned to `out` is never read
+src/sum.rs:17:35: warning: value assigned to `value` is never read
+src/sumBy.rs:7:104: warning: variable does not need to be mutable
+src/sumBy.rs:16:41: warning: value assigned to `first_value` is never read
+src/sumBy.rs:17:33: warning: value assigned to `sum` is never read
+src/sumBy.rs:19:26: warning: value assigned to `index` is never read
+src/sumBy.rs:20:34: warning: value assigned to `item` is never read
+src/sumBy.rs:21:37: warning: value assigned to `summand` is never read
+src/sumBy_test.rs:153:36: warning: value assigned to `actual` is never read
+src/sum_test.rs:132:36: warning: value assigned to `result` is never read
+src/swapIndices.rs:16:37: warning: value assigned to `positive_index_a` is never read
+src/swapIndices.rs:17:37: warning: value assigned to `positive_index_b` is never read
+src/take.rs:17:30: warning: value assigned to `remaining` is never read
+src/takeFirstBy.rs:7:104: warning: variable does not need to be mutable
+src/takeFirstBy.rs:16:39: warning: value assigned to `heap` is never read
+src/takeFirstBy.rs:17:39: warning: value assigned to `rest` is never read
+src/takeFirstBy.rs:18:34: warning: value assigned to `item` is never read
+src/takeFirstBy_test.rs:89:41: warning: value assigned to `result` is never read
+src/takeFirstBy_test.rs:221:32: warning: value assigned to `result` is never read
+src/takeLastWhile.rs:7:99: warning: variable does not need to be mutable
+src/takeLastWhile_test.rs:84:41: warning: value assigned to `result` is never read
+src/takeLastWhile_test.rs:202:41: warning: value assigned to `result` is never read
+src/takeLast_test.rs:111:41: warning: value assigned to `result` is never read
+src/takeWhile.rs:7:99: warning: variable does not need to be mutable
+src/takeWhile.rs:17:26: warning: value assigned to `index` is never read
+src/takeWhile.rs:18:34: warning: value assigned to `item` is never read
+src/take_test.rs:77:41: warning: value assigned to `result` is never read
+src/tap.rs:7:99: warning: variable does not need to be mutable
+src/times.rs:7:90: warning: variable does not need to be mutable
+src/times.rs:16:27: warning: value assigned to `length` is never read
+src/times.rs:17:38: warning: value assigned to `res` is never read
+src/times.rs:18:22: warning: value assigned to `i` is never read
+src/times_test.rs:8:41: warning: value assigned to `zero_result` is never read
+src/times_test.rs:9:45: warning: value assigned to `negative_result` is never read
+src/times_test.rs:200:41: warning: value assigned to `zero_result` is never read
+src/times_test.rs:201:45: warning: value assigned to `negative_result` is never read
+src/truncate.rs:20:9: warning: variable does not need to be mutable
+src/truncate.rs:19:27: warning: value assigned to `cutoff` is never read
+src/truncate.rs:110:5: warning: value assigned to `global_separator` is never read
+src/truncate.rs:80:5: warning: value assigned to `global_separator` is never read
+src/truncate.rs:22:46: warning: value assigned to `last_separator_1` is never read
+src/truncate.rs:131:5: warning: value assigned to `last_separator_1` is never read
+src/truncate.rs:101:5: warning: value assigned to `last_separator_1` is never read
+src/truncate.rs:24:26: warning: value assigned to `index` is never read
+src/uniqueBy.rs:25:9: warning: variable does not need to be mutable
+src/uniqueBy.rs:19:9: warning: variable does not need to be mutable
+src/uniqueBy_test.rs:130:5: warning: value assigned to `counter` is never read
+src/uniqueBy_test.rs:114:41: warning: value assigned to `result` is never read
+src/uniqueBy_test.rs:176:5: warning: value assigned to `counter` is never read
+src/uniqueBy_test.rs:160:36: warning: value assigned to `result` is never read
+src/uniqueWith_test.rs:30:36: warning: value assigned to `result` is never read
+src/uniqueWith_test.rs:112:5: warning: value assigned to `counter` is never read
+src/uniqueWith_test.rs:85:41: warning: value assigned to `result` is never read
+src/uniqueWith_test.rs:181:5: warning: value assigned to `counter` is never read
+src/uniqueWith_test.rs:155:36: warning: value assigned to `result` is never read
+src/unique_test.rs:42:5: warning: value assigned to `counter` is never read
+src/unique_test.rs:27:41: warning: value assigned to `result` is never read
+src/unique_test.rs:85:5: warning: value assigned to `counter` is never read
+src/unique_test.rs:70:36: warning: value assigned to `result` is never read
+src/when.rs:14:9: warning: variable does not need to be mutable
+src/withPrecision.rs:7:37: warning: value assigned to `shifted_exponent` is never read
+src/withPrecision.rs:8:47: warning: value assigned to `shifted_value_as_string` is never read
+src/withPrecision.rs:45:34: warning: value assigned to `shifted_value` is never read
+src/withPrecision.rs:46:28: warning: value assigned to `rounded` is never read
+src/withPrecision_test.rs:8:279: warning: value assigned to `rounding_fn` is never read
+src/words.rs:44:9: warning: variable does not need to be mutable
+src/words.rs:37:9: warning: variable does not need to be mutable
+src/words.rs:7:33: warning: value assigned to `character` is never read
+src/words.rs:8:38: warning: value assigned to `last_character` is never read
+src/words.rs:82:5: warning: value assigned to `word` is never read
+src/main.rs:1025:33: warning: variable does not need to be mutable
+src/main.rs:1033:9: warning: variable does not need to be mutable
+src/main.rs:1026:139: warning: value assigned to `lazy_function` is never read
+src/main.rs:1027:320: warning: value assigned to `func` is never read
+src/main.rs:1030:133: warning: value assigned to `lazy_op` is never read
+src/main.rs:1106:5: warning: value assigned to `accumulator` is never read
+src/main.rs:1112:5: warning: value assigned to `value` is never read
+src/main.rs:1116:5: warning: value assigned to `is_single` is never read
+src/main.rs:1081:5: warning: value assigned to `function_index` is never read
+src/main.rs:1180:9: warning: variable does not need to be mutable
+src/main.rs:1181:9: warning: variable does not need to be mutable
+src/main.rs:1177:27: warning: value assigned to `chunks` is never read
+src/main.rs:1178:46: warning: value assigned to `result` is never read
+src/main.rs:1183:26: warning: value assigned to `start` is never read
+src/main.rs:1321:9: warning: variable does not need to be mutable
+src/main.rs:1322:9: warning: variable does not need to be mutable
+src/main.rs:1317:45: warning: value assigned to `other_copy` is never read
+src/main.rs:1350:5: warning: value assigned to `data_item` is never read
+src/main.rs:1351:5: warning: value assigned to `is_found` is never read
+src/main.rs:2029:81: warning: variable does not need to be mutable
+src/main.rs:2020:27: warning: value assigned to `key` is never read
+src/main.rs:2543:5: warning: value assigned to `key` is never read
+src/main.rs:2021:47: warning: value assigned to `destination_value` is never read
+src/main.rs:2022:42: warning: value assigned to `source_value` is never read
+src/main.rs:4200:9: warning: variable does not need to be mutable
+src/main.rs:4207:9: warning: variable does not need to be mutable
+src/main.rs:4214:9: warning: variable does not need to be mutable
+src/main.rs:4221:9: warning: variable does not need to be mutable
+src/main.rs:4228:9: warning: variable does not need to be mutable
+src/main.rs:4235:9: warning: variable does not need to be mutable
+src/main.rs:4242:9: warning: variable does not need to be mutable
+src/main.rs:4249:9: warning: variable does not need to be mutable
+src/main.rs:4256:9: warning: variable does not need to be mutable
+src/main.rs:4:5: warning: module `ArrayAt` should have a snake case name: help: convert the identifier to snake case: `array_at`
+src/main.rs:6:5: warning: module `ArrayRequiredPrefix` should have a snake case name: help: convert the identifier to snake case: `array_required_prefix`
+src/main.rs:8:5: warning: module `BoundedPartial` should have a snake case name: help: convert the identifier to snake case: `bounded_partial`
+src/main.rs:10:5: warning: module `BrandedReturn` should have a snake case name: help: convert the identifier to snake case: `branded_return`
+src/main.rs:12:5: warning: module `ClampedIntegerSubtract` should have a snake case name: help: convert the identifier to snake case: `clamped_integer_subtract`
+src/main.rs:14:5: warning: module `CoercedArray` should have a snake case name: help: convert the identifier to snake case: `coerced_array`
+src/main.rs:16:5: warning: module `CompareFunction` should have a snake case name: help: convert the identifier to snake case: `compare_function`
+src/main.rs:18:5: warning: module `Deduped` should have a snake case name: help: convert the identifier to snake case: `deduped`
+src/main.rs:20:5: warning: module `DisjointUnionFields` should have a snake case name: help: convert the identifier to snake case: `disjoint_union_fields`
+src/main.rs:22:5: warning: module `EnumerableStringKeyOf` should have a snake case name: help: convert the identifier to snake case: `enumerable_string_key_of`
+src/main.rs:24:5: warning: module `EnumerableStringKeyedValueOf` should have a snake case name: help: convert the identifier to snake case: `enumerable_string_keyed_value_of`
+src/main.rs:26:5: warning: module `FilteredArray` should have a snake case name: help: convert the identifier to snake case: `filtered_array`
+src/main.rs:28:5: warning: module `GuardType` should have a snake case name: help: convert the identifier to snake case: `guard_type`
+src/main.rs:30:5: warning: module `HasWritableKeys` should have a snake case name: help: convert the identifier to snake case: `has_writable_keys`
+src/main.rs:32:5: warning: module `IntRangeInclusive` should have a snake case name: help: convert the identifier to snake case: `int_range_inclusive`
+src/main.rs:34:5: warning: module `IsBounded` should have a snake case name: help: convert the identifier to snake case: `is_bounded`
+src/main.rs:36:5: warning: module `IsBoundedRecord` should have a snake case name: help: convert the identifier to snake case: `is_bounded_record`
+src/main.rs:38:5: warning: module `IterableContainer` should have a snake case name: help: convert the identifier to snake case: `iterable_container`
+src/main.rs:40:5: warning: module `LazyDefinition` should have a snake case name: help: convert the identifier to snake case: `lazy_definition`
+src/main.rs:42:5: warning: module `LazyEvaluator` should have a snake case name: help: convert the identifier to snake case: `lazy_evaluator`
+src/main.rs:44:5: warning: module `LazyResult` should have a snake case name: help: convert the identifier to snake case: `lazy_result`
+src/main.rs:46:5: warning: module `Mapped` should have a snake case name: help: convert the identifier to snake case: `mapped`
+src/main.rs:48:5: warning: module `NTuple` should have a snake case name: help: convert the identifier to snake case: `ntuple`
+src/main.rs:50:5: warning: module `NarrowedTo` should have a snake case name: help: convert the identifier to snake case: `narrowed_to`
+src/main.rs:52:5: warning: module `NonEmptyArray` should have a snake case name: help: convert the identifier to snake case: `non_empty_array`
+src/main.rs:54:5: warning: module `OptionalOptionsWithDefaults` should have a snake case name: help: convert the identifier to snake case: `optional_options_with_defaults`
+src/main.rs:56:5: warning: module `PartialArray` should have a snake case name: help: convert the identifier to snake case: `partial_array`
+src/main.rs:58:5: warning: module `PartitionByUnion` should have a snake case name: help: convert the identifier to snake case: `partition_by_union`
+src/main.rs:60:5: warning: module `RemedaTypeError` should have a snake case name: help: convert the identifier to snake case: `remeda_type_error`
+src/main.rs:62:5: warning: module `ReorderedArray` should have a snake case name: help: convert the identifier to snake case: `reordered_array`
+src/main.rs:64:5: warning: module `SimplifiedWritable` should have a snake case name: help: convert the identifier to snake case: `simplified_writable`
+src/main.rs:66:5: warning: module `StrictFunction` should have a snake case name: help: convert the identifier to snake case: `strict_function`
+src/main.rs:68:5: warning: module `StringLength` should have a snake case name: help: convert the identifier to snake case: `string_length`
+src/main.rs:70:5: warning: module `ToString` should have a snake case name: help: convert the identifier to snake case: `to_string`
+src/main.rs:72:5: warning: module `TupleParts` should have a snake case name: help: convert the identifier to snake case: `tuple_parts`
+src/main.rs:74:5: warning: module `TupleSplits` should have a snake case name: help: convert the identifier to snake case: `tuple_splits`
+src/main.rs:76:5: warning: module `UpsertProp` should have a snake case name: help: convert the identifier to snake case: `upsert_prop`
+src/main.rs:80:5: warning: module `addProp` should have a snake case name: help: convert the identifier to snake case: `add_prop`
+src/main.rs:82:5: warning: module `addProp_test` should have a snake case name: help: convert the identifier to snake case: `add_prop_test`
+src/main.rs:86:5: warning: module `allPass` should have a snake case name: help: convert the identifier to snake case: `all_pass`
+src/main.rs:88:5: warning: module `allPass_test` should have a snake case name: help: convert the identifier to snake case: `all_pass_test`
+src/main.rs:90:5: warning: module `anyPass` should have a snake case name: help: convert the identifier to snake case: `any_pass`
+src/main.rs:92:5: warning: module `anyPass_test` should have a snake case name: help: convert the identifier to snake case: `any_pass_test`
+src/main.rs:94:5: warning: module `binarySearchCutoffIndex` should have a snake case name: help: convert the identifier to snake case: `binary_search_cutoff_index`
+src/main.rs:96:5: warning: module `binarySearchCutoffIndex_test` should have a snake case name: help: convert the identifier to snake case: `binary_search_cutoff_index_test`
+src/main.rs:130:5: warning: module `countBy` should have a snake case name: help: convert the identifier to snake case: `count_by`
+src/main.rs:132:5: warning: module `countBy_test` should have a snake case name: help: convert the identifier to snake case: `count_by_test`
+src/main.rs:138:5: warning: module `defaultTo` should have a snake case name: help: convert the identifier to snake case: `default_to`
+src/main.rs:140:5: warning: module `defaultTo_test` should have a snake case name: help: convert the identifier to snake case: `default_to_test`
+src/main.rs:144:5: warning: module `differenceWith` should have a snake case name: help: convert the identifier to snake case: `difference_with`
+src/main.rs:146:5: warning: module `differenceWith_test` should have a snake case name: help: convert the identifier to snake case: `difference_with_test`
+src/main.rs:154:5: warning: module `doNothing` should have a snake case name: help: convert the identifier to snake case: `do_nothing`
+src/main.rs:156:5: warning: module `doNothing_test` should have a snake case name: help: convert the identifier to snake case: `do_nothing_test`
+src/main.rs:160:5: warning: module `dropFirstBy` should have a snake case name: help: convert the identifier to snake case: `drop_first_by`
+src/main.rs:162:5: warning: module `dropFirstBy_test` should have a snake case name: help: convert the identifier to snake case: `drop_first_by_test`
+src/main.rs:164:5: warning: module `dropLast` should have a snake case name: help: convert the identifier to snake case: `drop_last`
+src/main.rs:166:5: warning: module `dropLastWhile` should have a snake case name: help: convert the identifier to snake case: `drop_last_while`
+src/main.rs:168:5: warning: module `dropLastWhile_test` should have a snake case name: help: convert the identifier to snake case: `drop_last_while_test`
+src/main.rs:170:5: warning: module `dropLast_test` should have a snake case name: help: convert the identifier to snake case: `drop_last_test`
+src/main.rs:172:5: warning: module `dropWhile` should have a snake case name: help: convert the identifier to snake case: `drop_while`
+src/main.rs:174:5: warning: module `dropWhile_test` should have a snake case name: help: convert the identifier to snake case: `drop_while_test`
+src/main.rs:178:5: warning: module `endsWith` should have a snake case name: help: convert the identifier to snake case: `ends_with`
+src/main.rs:180:5: warning: module `endsWith_test` should have a snake case name: help: convert the identifier to snake case: `ends_with_test`
+src/main.rs:196:5: warning: module `findIndex` should have a snake case name: help: convert the identifier to snake case: `find_index`
+src/main.rs:198:5: warning: module `findIndex_test` should have a snake case name: help: convert the identifier to snake case: `find_index_test`
+src/main.rs:200:5: warning: module `findLast` should have a snake case name: help: convert the identifier to snake case: `find_last`
+src/main.rs:202:5: warning: module `findLastIndex` should have a snake case name: help: convert the identifier to snake case: `find_last_index`
+src/main.rs:204:5: warning: module `findLastIndex_test` should have a snake case name: help: convert the identifier to snake case: `find_last_index_test`
+src/main.rs:206:5: warning: module `findLast_test` should have a snake case name: help: convert the identifier to snake case: `find_last_test`
+src/main.rs:212:5: warning: module `firstBy` should have a snake case name: help: convert the identifier to snake case: `first_by`
+src/main.rs:214:5: warning: module `firstBy_test` should have a snake case name: help: convert the identifier to snake case: `first_by_test`
+src/main.rs:220:5: warning: module `flatMap` should have a snake case name: help: convert the identifier to snake case: `flat_map`
+src/main.rs:222:5: warning: module `flatMap_test` should have a snake case name: help: convert the identifier to snake case: `flat_map_test`
+src/main.rs:230:5: warning: module `forEach` should have a snake case name: help: convert the identifier to snake case: `for_each`
+src/main.rs:232:5: warning: module `forEachObj` should have a snake case name: help: convert the identifier to snake case: `for_each_obj`
+src/main.rs:234:5: warning: module `forEachObj_test` should have a snake case name: help: convert the identifier to snake case: `for_each_obj_test`
+src/main.rs:236:5: warning: module `forEach_test` should have a snake case name: help: convert the identifier to snake case: `for_each_test`
+src/main.rs:238:5: warning: module `fromEntries` should have a snake case name: help: convert the identifier to snake case: `from_entries`
+src/main.rs:240:5: warning: module `fromEntries_test` should have a snake case name: help: convert the identifier to snake case: `from_entries_test`
+src/main.rs:242:5: warning: module `fromKeys` should have a snake case name: help: convert the identifier to snake case: `from_keys`
+src/main.rs:244:5: warning: module `fromKeys_test` should have a snake case name: help: convert the identifier to snake case: `from_keys_test`
+src/main.rs:262:5: warning: module `groupBy` should have a snake case name: help: convert the identifier to snake case: `group_by`
+src/main.rs:264:5: warning: module `groupByProp` should have a snake case name: help: convert the identifier to snake case: `group_by_prop`
+src/main.rs:266:5: warning: module `groupByProp_test` should have a snake case name: help: convert the identifier to snake case: `group_by_prop_test`
+src/main.rs:268:5: warning: module `groupBy_test` should have a snake case name: help: convert the identifier to snake case: `group_by_test`
+src/main.rs:270:5: warning: module `hasAtLeast` should have a snake case name: help: convert the identifier to snake case: `has_at_least`
+src/main.rs:272:5: warning: module `hasAtLeast_test` should have a snake case name: help: convert the identifier to snake case: `has_at_least_test`
+src/main.rs:274:5: warning: module `hasProp` should have a snake case name: help: convert the identifier to snake case: `has_prop`
+src/main.rs:276:5: warning: module `hasProp_test` should have a snake case name: help: convert the identifier to snake case: `has_prop_test`
+src/main.rs:278:5: warning: module `hasSubObject` should have a snake case name: help: convert the identifier to snake case: `has_sub_object`
+src/main.rs:280:5: warning: module `hasSubObject_test` should have a snake case name: help: convert the identifier to snake case: `has_sub_object_test`
+src/main.rs:290:5: warning: module `indexBy` should have a snake case name: help: convert the identifier to snake case: `index_by`
+src/main.rs:292:5: warning: module `indexBy_test` should have a snake case name: help: convert the identifier to snake case: `index_by_test`
+src/main.rs:296:5: warning: module `intersectionWith` should have a snake case name: help: convert the identifier to snake case: `intersection_with`
+src/main.rs:298:5: warning: module `intersectionWith_test` should have a snake case name: help: convert the identifier to snake case: `intersection_with_test`
+src/main.rs:306:5: warning: module `isArray` should have a snake case name: help: convert the identifier to snake case: `is_array`
+src/main.rs:308:5: warning: module `isArray_test` should have a snake case name: help: convert the identifier to snake case: `is_array_test`
+src/main.rs:310:5: warning: module `isBigInt` should have a snake case name: help: convert the identifier to snake case: `is_big_int`
+src/main.rs:312:5: warning: module `isBigInt_test` should have a snake case name: help: convert the identifier to snake case: `is_big_int_test`
+src/main.rs:314:5: warning: module `isBoolean` should have a snake case name: help: convert the identifier to snake case: `is_boolean`
+src/main.rs:316:5: warning: module `isBoolean_test` should have a snake case name: help: convert the identifier to snake case: `is_boolean_test`
+src/main.rs:318:5: warning: module `isDate` should have a snake case name: help: convert the identifier to snake case: `is_date`
+src/main.rs:320:5: warning: module `isDate_test` should have a snake case name: help: convert the identifier to snake case: `is_date_test`
+src/main.rs:322:5: warning: module `isDeepEqual` should have a snake case name: help: convert the identifier to snake case: `is_deep_equal`
+src/main.rs:324:5: warning: module `isDeepEqual_test` should have a snake case name: help: convert the identifier to snake case: `is_deep_equal_test`
+src/main.rs:326:5: warning: module `isDefined` should have a snake case name: help: convert the identifier to snake case: `is_defined`
+src/main.rs:328:5: warning: module `isDefined_test` should have a snake case name: help: convert the identifier to snake case: `is_defined_test`
+src/main.rs:330:5: warning: module `isEmpty` should have a snake case name: help: convert the identifier to snake case: `is_empty`
+src/main.rs:332:5: warning: module `isEmpty_test` should have a snake case name: help: convert the identifier to snake case: `is_empty_test`
+src/main.rs:334:5: warning: module `isEmptyish` should have a snake case name: help: convert the identifier to snake case: `is_emptyish`
+src/main.rs:336:5: warning: module `isEmptyish_test` should have a snake case name: help: convert the identifier to snake case: `is_emptyish_test`
+src/main.rs:338:5: warning: module `isError` should have a snake case name: help: convert the identifier to snake case: `is_error`
+src/main.rs:340:5: warning: module `isError_test` should have a snake case name: help: convert the identifier to snake case: `is_error_test`
+src/main.rs:342:5: warning: module `isFunction` should have a snake case name: help: convert the identifier to snake case: `is_function`
+src/main.rs:344:5: warning: module `isFunction_test` should have a snake case name: help: convert the identifier to snake case: `is_function_test`
+src/main.rs:346:5: warning: module `isIncludedIn` should have a snake case name: help: convert the identifier to snake case: `is_included_in`
+src/main.rs:348:5: warning: module `isIncludedIn_test` should have a snake case name: help: convert the identifier to snake case: `is_included_in_test`
+src/main.rs:350:5: warning: module `isNonNull` should have a snake case name: help: convert the identifier to snake case: `is_non_null`
+src/main.rs:352:5: warning: module `isNonNull_test` should have a snake case name: help: convert the identifier to snake case: `is_non_null_test`
+src/main.rs:354:5: warning: module `isNonNullish` should have a snake case name: help: convert the identifier to snake case: `is_non_nullish`
+src/main.rs:356:5: warning: module `isNonNullish_test` should have a snake case name: help: convert the identifier to snake case: `is_non_nullish_test`
+src/main.rs:358:5: warning: module `isNot` should have a snake case name: help: convert the identifier to snake case: `is_not`
+src/main.rs:360:5: warning: module `isNot_test` should have a snake case name: help: convert the identifier to snake case: `is_not_test`
+src/main.rs:362:5: warning: module `isNullish` should have a snake case name: help: convert the identifier to snake case: `is_nullish`
+src/main.rs:364:5: warning: module `isNullish_test` should have a snake case name: help: convert the identifier to snake case: `is_nullish_test`
+src/main.rs:366:5: warning: module `isNumber` should have a snake case name: help: convert the identifier to snake case: `is_number`
+src/main.rs:368:5: warning: module `isNumber_test` should have a snake case name: help: convert the identifier to snake case: `is_number_test`
+src/main.rs:370:5: warning: module `isObjectType` should have a snake case name: help: convert the identifier to snake case: `is_object_type`
+src/main.rs:372:5: warning: module `isObjectType_test` should have a snake case name: help: convert the identifier to snake case: `is_object_type_test`
+src/main.rs:374:5: warning: module `isPlainObject` should have a snake case name: help: convert the identifier to snake case: `is_plain_object`
+src/main.rs:376:5: warning: module `isPlainObject_test` should have a snake case name: help: convert the identifier to snake case: `is_plain_object_test`
+src/main.rs:378:5: warning: module `isPromise` should have a snake case name: help: convert the identifier to snake case: `is_promise`
+src/main.rs:380:5: warning: module `isPromise_test` should have a snake case name: help: convert the identifier to snake case: `is_promise_test`
+src/main.rs:382:5: warning: module `isShallowEqual` should have a snake case name: help: convert the identifier to snake case: `is_shallow_equal`
+src/main.rs:384:5: warning: module `isShallowEqual_test` should have a snake case name: help: convert the identifier to snake case: `is_shallow_equal_test`
+src/main.rs:386:5: warning: module `isStrictEqual` should have a snake case name: help: convert the identifier to snake case: `is_strict_equal`
+src/main.rs:388:5: warning: module `isStrictEqual_test` should have a snake case name: help: convert the identifier to snake case: `is_strict_equal_test`
+src/main.rs:390:5: warning: module `isString` should have a snake case name: help: convert the identifier to snake case: `is_string`
+src/main.rs:392:5: warning: module `isString_test` should have a snake case name: help: convert the identifier to snake case: `is_string_test`
+src/main.rs:394:5: warning: module `isSymbol` should have a snake case name: help: convert the identifier to snake case: `is_symbol`
+src/main.rs:396:5: warning: module `isSymbol_test` should have a snake case name: help: convert the identifier to snake case: `is_symbol_test`
+src/main.rs:398:5: warning: module `isTruthy` should have a snake case name: help: convert the identifier to snake case: `is_truthy`
+src/main.rs:400:5: warning: module `isTruthy_test` should have a snake case name: help: convert the identifier to snake case: `is_truthy_test`
+src/main.rs:414:5: warning: module `lazyDataLastImpl` should have a snake case name: help: convert the identifier to snake case: `lazy_data_last_impl`
+src/main.rs:416:5: warning: module `lazyInvocationCounter` should have a snake case name: help: convert the identifier to snake case: `lazy_invocation_counter`
+src/main.rs:424:5: warning: module `mapKeys` should have a snake case name: help: convert the identifier to snake case: `map_keys`
+src/main.rs:426:5: warning: module `mapKeys_test` should have a snake case name: help: convert the identifier to snake case: `map_keys_test`
+src/main.rs:428:5: warning: module `mapToObj` should have a snake case name: help: convert the identifier to snake case: `map_to_obj`
+src/main.rs:430:5: warning: module `mapToObj_test` should have a snake case name: help: convert the identifier to snake case: `map_to_obj_test`
+src/main.rs:432:5: warning: module `mapValues` should have a snake case name: help: convert the identifier to snake case: `map_values`
+src/main.rs:434:5: warning: module `mapValues_test` should have a snake case name: help: convert the identifier to snake case: `map_values_test`
+src/main.rs:436:5: warning: module `mapWithFeedback` should have a snake case name: help: convert the identifier to snake case: `map_with_feedback`
+src/main.rs:438:5: warning: module `mapWithFeedback_test` should have a snake case name: help: convert the identifier to snake case: `map_with_feedback_test`
+src/main.rs:444:5: warning: module `meanBy` should have a snake case name: help: convert the identifier to snake case: `mean_by`
+src/main.rs:446:5: warning: module `meanBy_test` should have a snake case name: help: convert the identifier to snake case: `mean_by_test`
+src/main.rs:456:5: warning: module `mergeAll` should have a snake case name: help: convert the identifier to snake case: `merge_all`
+src/main.rs:458:5: warning: module `mergeAll_test` should have a snake case name: help: convert the identifier to snake case: `merge_all_test`
+src/main.rs:460:5: warning: module `mergeDeep` should have a snake case name: help: convert the identifier to snake case: `merge_deep`
+src/main.rs:462:5: warning: module `mergeDeep_test` should have a snake case name: help: convert the identifier to snake case: `merge_deep_test`
+src/main.rs:470:5: warning: module `nthBy` should have a snake case name: help: convert the identifier to snake case: `nth_by`
+src/main.rs:472:5: warning: module `nthBy_test` should have a snake case name: help: convert the identifier to snake case: `nth_by_test`
+src/main.rs:474:5: warning: module `objOf` should have a snake case name: help: convert the identifier to snake case: `obj_of`
+src/main.rs:476:5: warning: module `objOf_test` should have a snake case name: help: convert the identifier to snake case: `obj_of_test`
+src/main.rs:480:5: warning: module `omitBy` should have a snake case name: help: convert the identifier to snake case: `omit_by`
+src/main.rs:482:5: warning: module `omitBy_test` should have a snake case name: help: convert the identifier to snake case: `omit_by_test`
+src/main.rs:494:5: warning: module `partialBind` should have a snake case name: help: convert the identifier to snake case: `partial_bind`
+src/main.rs:496:5: warning: module `partialBind_test` should have a snake case name: help: convert the identifier to snake case: `partial_bind_test`
+src/main.rs:498:5: warning: module `partialLastBind` should have a snake case name: help: convert the identifier to snake case: `partial_last_bind`
+src/main.rs:500:5: warning: module `partialLastBind_test` should have a snake case name: help: convert the identifier to snake case: `partial_last_bind_test`
+src/main.rs:506:5: warning: module `pathOr` should have a snake case name: help: convert the identifier to snake case: `path_or`
+src/main.rs:508:5: warning: module `pathOr_test` should have a snake case name: help: convert the identifier to snake case: `path_or_test`
+src/main.rs:512:5: warning: module `pickBy` should have a snake case name: help: convert the identifier to snake case: `pick_by`
+src/main.rs:514:5: warning: module `pickBy_test` should have a snake case name: help: convert the identifier to snake case: `pick_by_test`
+src/main.rs:534:5: warning: module `pullObject` should have a snake case name: help: convert the identifier to snake case: `pull_object`
+src/main.rs:536:5: warning: module `pullObject_test` should have a snake case name: help: convert the identifier to snake case: `pull_object_test`
+src/main.rs:540:5: warning: module `purryFromLazy` should have a snake case name: help: convert the identifier to snake case: `purry_from_lazy`
+src/main.rs:542:5: warning: module `purryFromLazy_test` should have a snake case name: help: convert the identifier to snake case: `purry_from_lazy_test`
+src/main.rs:544:5: warning: module `purryOn` should have a snake case name: help: convert the identifier to snake case: `purry_on`
+src/main.rs:546:5: warning: module `purryOrderRules` should have a snake case name: help: convert the identifier to snake case: `purry_order_rules`
+src/main.rs:550:5: warning: module `quickSelect` should have a snake case name: help: convert the identifier to snake case: `quick_select`
+src/main.rs:552:5: warning: module `randomBigInt` should have a snake case name: help: convert the identifier to snake case: `random_big_int`
+src/main.rs:554:5: warning: module `randomBigInt_test` should have a snake case name: help: convert the identifier to snake case: `random_big_int_test`
+src/main.rs:556:5: warning: module `randomInteger` should have a snake case name: help: convert the identifier to snake case: `random_integer`
+src/main.rs:558:5: warning: module `randomInteger_test` should have a snake case name: help: convert the identifier to snake case: `random_integer_test`
+src/main.rs:560:5: warning: module `randomString` should have a snake case name: help: convert the identifier to snake case: `random_string`
+src/main.rs:562:5: warning: module `randomString_test` should have a snake case name: help: convert the identifier to snake case: `random_string_test`
+src/main.rs:568:5: warning: module `rankBy` should have a snake case name: help: convert the identifier to snake case: `rank_by`
+src/main.rs:570:5: warning: module `rankBy_test` should have a snake case name: help: convert the identifier to snake case: `rank_by_test`
+src/main.rs:590:5: warning: module `setPath` should have a snake case name: help: convert the identifier to snake case: `set_path`
+src/main.rs:592:5: warning: module `setPath_test` should have a snake case name: help: convert the identifier to snake case: `set_path_test`
+src/main.rs:602:5: warning: module `sliceString` should have a snake case name: help: convert the identifier to snake case: `slice_string`
+src/main.rs:604:5: warning: module `sliceString_test` should have a snake case name: help: convert the identifier to snake case: `slice_string_test`
+src/main.rs:608:5: warning: module `sortBy` should have a snake case name: help: convert the identifier to snake case: `sort_by`
+src/main.rs:610:5: warning: module `sortBy_test` should have a snake case name: help: convert the identifier to snake case: `sort_by_test`
+src/main.rs:614:5: warning: module `sortedIndex` should have a snake case name: help: convert the identifier to snake case: `sorted_index`
+src/main.rs:616:5: warning: module `sortedIndexBy` should have a snake case name: help: convert the identifier to snake case: `sorted_index_by`
+src/main.rs:618:5: warning: module `sortedIndexBy_test` should have a snake case name: help: convert the identifier to snake case: `sorted_index_by_test`
+src/main.rs:620:5: warning: module `sortedIndexWith` should have a snake case name: help: convert the identifier to snake case: `sorted_index_with`
+src/main.rs:622:5: warning: module `sortedIndexWith_test` should have a snake case name: help: convert the identifier to snake case: `sorted_index_with_test`
+src/main.rs:624:5: warning: module `sortedIndex_test` should have a snake case name: help: convert the identifier to snake case: `sorted_index_test`
+src/main.rs:626:5: warning: module `sortedLastIndex` should have a snake case name: help: convert the identifier to snake case: `sorted_last_index`
+src/main.rs:628:5: warning: module `sortedLastIndexBy` should have a snake case name: help: convert the identifier to snake case: `sorted_last_index_by`
+src/main.rs:630:5: warning: module `sortedLastIndexBy_test` should have a snake case name: help: convert the identifier to snake case: `sorted_last_index_by_test`
+src/main.rs:632:5: warning: module `sortedLastIndex_test` should have a snake case name: help: convert the identifier to snake case: `sorted_last_index_test`
+src/main.rs:640:5: warning: module `splitAt` should have a snake case name: help: convert the identifier to snake case: `split_at`
+src/main.rs:642:5: warning: module `splitAt_test` should have a snake case name: help: convert the identifier to snake case: `split_at_test`
+src/main.rs:644:5: warning: module `splitWhen` should have a snake case name: help: convert the identifier to snake case: `split_when`
+src/main.rs:646:5: warning: module `splitWhen_test` should have a snake case name: help: convert the identifier to snake case: `split_when_test`
+src/main.rs:652:5: warning: module `startsWith` should have a snake case name: help: convert the identifier to snake case: `starts_with`
+src/main.rs:654:5: warning: module `startsWith_test` should have a snake case name: help: convert the identifier to snake case: `starts_with_test`
+src/main.rs:656:5: warning: module `stringToPath` should have a snake case name: help: convert the identifier to snake case: `string_to_path`
+src/main.rs:658:5: warning: module `stringToPath_test` should have a snake case name: help: convert the identifier to snake case: `string_to_path_test`
+src/main.rs:666:5: warning: module `sumBy` should have a snake case name: help: convert the identifier to snake case: `sum_by`
+src/main.rs:668:5: warning: module `sumBy_test` should have a snake case name: help: convert the identifier to snake case: `sum_by_test`
+src/main.rs:672:5: warning: module `swapInPlace` should have a snake case name: help: convert the identifier to snake case: `swap_in_place`
+src/main.rs:674:5: warning: module `swapIndices` should have a snake case name: help: convert the identifier to snake case: `swap_indices`
+src/main.rs:676:5: warning: module `swapIndices_test` should have a snake case name: help: convert the identifier to snake case: `swap_indices_test`
+src/main.rs:678:5: warning: module `swapProps` should have a snake case name: help: convert the identifier to snake case: `swap_props`
+src/main.rs:680:5: warning: module `swapProps_test` should have a snake case name: help: convert the identifier to snake case: `swap_props_test`
+src/main.rs:684:5: warning: module `takeFirstBy` should have a snake case name: help: convert the identifier to snake case: `take_first_by`
+src/main.rs:686:5: warning: module `takeFirstBy_test` should have a snake case name: help: convert the identifier to snake case: `take_first_by_test`
+src/main.rs:688:5: warning: module `takeLast` should have a snake case name: help: convert the identifier to snake case: `take_last`
+src/main.rs:690:5: warning: module `takeLastWhile` should have a snake case name: help: convert the identifier to snake case: `take_last_while`
+src/main.rs:692:5: warning: module `takeLastWhile_test` should have a snake case name: help: convert the identifier to snake case: `take_last_while_test`
+src/main.rs:694:5: warning: module `takeLast_test` should have a snake case name: help: convert the identifier to snake case: `take_last_test`
+src/main.rs:696:5: warning: module `takeWhile` should have a snake case name: help: convert the identifier to snake case: `take_while`
+src/main.rs:698:5: warning: module `takeWhile_test` should have a snake case name: help: convert the identifier to snake case: `take_while_test`
+src/main.rs:710:5: warning: module `toCamelCase` should have a snake case name: help: convert the identifier to snake case: `to_camel_case`
+src/main.rs:712:5: warning: module `toCamelCase_test` should have a snake case name: help: convert the identifier to snake case: `to_camel_case_test`
+src/main.rs:714:5: warning: module `toKebabCase` should have a snake case name: help: convert the identifier to snake case: `to_kebab_case`
+src/main.rs:716:5: warning: module `toKebabCase_test` should have a snake case name: help: convert the identifier to snake case: `to_kebab_case_test`
+src/main.rs:718:5: warning: module `toLowerCase` should have a snake case name: help: convert the identifier to snake case: `to_lower_case`
+src/main.rs:720:5: warning: module `toLowerCase_test` should have a snake case name: help: convert the identifier to snake case: `to_lower_case_test`
+src/main.rs:722:5: warning: module `toSingle` should have a snake case name: help: convert the identifier to snake case: `to_single`
+src/main.rs:724:5: warning: module `toSnakeCase` should have a snake case name: help: convert the identifier to snake case: `to_snake_case`
+src/main.rs:726:5: warning: module `toSnakeCase_test` should have a snake case name: help: convert the identifier to snake case: `to_snake_case_test`
+src/main.rs:728:5: warning: module `toTitleCase` should have a snake case name: help: convert the identifier to snake case: `to_title_case`
+src/main.rs:730:5: warning: module `toTitleCase_test` should have a snake case name: help: convert the identifier to snake case: `to_title_case_test`
+src/main.rs:732:5: warning: module `toUpperCase` should have a snake case name: help: convert the identifier to snake case: `to_upper_case`
+src/main.rs:734:5: warning: module `toUpperCase_test` should have a snake case name: help: convert the identifier to snake case: `to_upper_case_test`
+src/main.rs:740:5: warning: module `typesDataProvider` should have a snake case name: help: convert the identifier to snake case: `types_data_provider`
+src/main.rs:748:5: warning: module `uniqueBy` should have a snake case name: help: convert the identifier to snake case: `unique_by`
+src/main.rs:750:5: warning: module `uniqueBy_test` should have a snake case name: help: convert the identifier to snake case: `unique_by_test`
+src/main.rs:752:5: warning: module `uniqueWith` should have a snake case name: help: convert the identifier to snake case: `unique_with`
+src/main.rs:754:5: warning: module `uniqueWith_test` should have a snake case name: help: convert the identifier to snake case: `unique_with_test`
+src/main.rs:758:5: warning: module `utilityEvaluators` should have a snake case name: help: convert the identifier to snake case: `utility_evaluators`
+src/main.rs:768:5: warning: module `withPrecision` should have a snake case name: help: convert the identifier to snake case: `with_precision`
+src/main.rs:770:5: warning: module `withPrecision_test` should have a snake case name: help: convert the identifier to snake case: `with_precision_test`
+src/main.rs:778:5: warning: module `zipWith` should have a snake case name: help: convert the identifier to snake case: `zip_with`
+src/main.rs:780:5: warning: module `zipWith_test` should have a snake case name: help: convert the identifier to snake case: `zip_with_test`
+src/ArrayAt.rs:6:15: warning: function `ArrayAt` should have a snake case name: help: convert the identifier to snake case: `array_at`
+src/ArrayRequiredPrefix.rs:6:15: warning: function `ArrayRequiredPrefix` should have a snake case name: help: convert the identifier to snake case: `array_required_prefix`
+src/BoundedPartial.rs:6:15: warning: function `BoundedPartial` should have a snake case name: help: convert the identifier to snake case: `bounded_partial`
+src/BrandedReturn.rs:6:15: warning: function `BrandedReturn` should have a snake case name: help: convert the identifier to snake case: `branded_return`
+src/ClampedIntegerSubtract.rs:6:15: warning: function `ClampedIntegerSubtract` should have a snake case name: help: convert the identifier to snake case: `clamped_integer_subtract`
+src/CoercedArray.rs:6:15: warning: function `CoercedArray` should have a snake case name: help: convert the identifier to snake case: `coerced_array`
+src/CompareFunction.rs:6:15: warning: function `CompareFunction` should have a snake case name: help: convert the identifier to snake case: `compare_function`
+src/Deduped.rs:6:15: warning: function `Deduped` should have a snake case name: help: convert the identifier to snake case: `deduped`
+src/DisjointUnionFields.rs:6:15: warning: function `DisjointUnionFields` should have a snake case name: help: convert the identifier to snake case: `disjoint_union_fields`
+src/EnumerableStringKeyOf.rs:6:15: warning: function `EnumerableStringKeyOf` should have a snake case name: help: convert the identifier to snake case: `enumerable_string_key_of`
+src/EnumerableStringKeyedValueOf.rs:6:15: warning: function `EnumerableStringKeyedValueOf` should have a snake case name: help: convert the identifier to snake case: `enumerable_string_keyed_value_of`
+src/FilteredArray.rs:6:15: warning: function `FilteredArray` should have a snake case name: help: convert the identifier to snake case: `filtered_array`
+src/GuardType.rs:6:15: warning: function `GuardType` should have a snake case name: help: convert the identifier to snake case: `guard_type`
+src/HasWritableKeys.rs:6:15: warning: function `HasWritableKeys` should have a snake case name: help: convert the identifier to snake case: `has_writable_keys`
+src/IntRangeInclusive.rs:6:15: warning: function `IntRangeInclusive` should have a snake case name: help: convert the identifier to snake case: `int_range_inclusive`
+src/IsBounded.rs:6:15: warning: function `IsBounded` should have a snake case name: help: convert the identifier to snake case: `is_bounded`
+src/IsBoundedRecord.rs:6:15: warning: function `IsBoundedRecord` should have a snake case name: help: convert the identifier to snake case: `is_bounded_record`
+src/IterableContainer.rs:6:15: warning: function `IterableContainer` should have a snake case name: help: convert the identifier to snake case: `iterable_container`
+src/LazyDefinition.rs:6:15: warning: function `LazyDefinition` should have a snake case name: help: convert the identifier to snake case: `lazy_definition`
+src/LazyEvaluator.rs:6:15: warning: function `LazyEvaluator` should have a snake case name: help: convert the identifier to snake case: `lazy_evaluator`
+src/LazyResult.rs:6:15: warning: function `LazyResult` should have a snake case name: help: convert the identifier to snake case: `lazy_result`
+src/Mapped.rs:6:15: warning: function `Mapped` should have a snake case name: help: convert the identifier to snake case: `mapped`
+src/NTuple.rs:6:15: warning: function `NTuple` should have a snake case name: help: convert the identifier to snake case: `ntuple`
+src/NarrowedTo.rs:6:15: warning: function `NarrowedTo` should have a snake case name: help: convert the identifier to snake case: `narrowed_to`
+src/NonEmptyArray.rs:6:15: warning: function `NonEmptyArray` should have a snake case name: help: convert the identifier to snake case: `non_empty_array`
+src/OptionalOptionsWithDefaults.rs:6:15: warning: function `OptionalOptionsWithDefaults` should have a snake case name: help: convert the identifier to snake case: `optional_options_with_defaults`
+src/PartialArray.rs:6:15: warning: function `PartialArray` should have a snake case name: help: convert the identifier to snake case: `partial_array`
+src/PartitionByUnion.rs:6:15: warning: function `PartitionByUnion` should have a snake case name: help: convert the identifier to snake case: `partition_by_union`
+src/RemedaTypeError.rs:6:15: warning: function `RemedaTypeError` should have a snake case name: help: convert the identifier to snake case: `remeda_type_error`
+src/ReorderedArray.rs:6:15: warning: function `ReorderedArray` should have a snake case name: help: convert the identifier to snake case: `reordered_array`
+src/SimplifiedWritable.rs:6:15: warning: function `SimplifiedWritable` should have a snake case name: help: convert the identifier to snake case: `simplified_writable`
+src/StrictFunction.rs:6:15: warning: function `StrictFunction` should have a snake case name: help: convert the identifier to snake case: `strict_function`
+src/StringLength.rs:6:15: warning: function `StringLength` should have a snake case name: help: convert the identifier to snake case: `string_length`
+src/ToString.rs:6:15: warning: function `ToString` should have a snake case name: help: convert the identifier to snake case: `to_string`
+src/TupleParts.rs:6:15: warning: function `TupleParts` should have a snake case name: help: convert the identifier to snake case: `tuple_parts`
+src/TupleSplits.rs:6:15: warning: function `TupleSplits` should have a snake case name: help: convert the identifier to snake case: `tuple_splits`
+src/UpsertProp.rs:6:15: warning: function `UpsertProp` should have a snake case name: help: convert the identifier to snake case: `upsert_prop`
+src/addProp.rs:22:15: warning: function `addProp` should have a snake case name: help: convert the identifier to snake case: `add_prop`
+src/allPass.rs:24:15: warning: function `allPass` should have a snake case name: help: convert the identifier to snake case: `all_pass`
+src/allPass_test.rs:84:15: warning: function `allPass_test` should have a snake case name: help: convert the identifier to snake case: `all_pass_test`
+src/anyPass.rs:24:15: warning: function `anyPass` should have a snake case name: help: convert the identifier to snake case: `any_pass`
+src/anyPass_test.rs:84:15: warning: function `anyPass_test` should have a snake case name: help: convert the identifier to snake case: `any_pass_test`
+src/binarySearchCutoffIndex.rs:36:15: warning: function `binarySearchCutoffIndex` should have a snake case name: help: convert the identifier to snake case: `binary_search_cutoff_index`
+src/countBy.rs:70:15: warning: function `countBy` should have a snake case name: help: convert the identifier to snake case: `count_by`
+src/defaultTo.rs:21:15: warning: function `defaultTo` should have a snake case name: help: convert the identifier to snake case: `default_to`
+src/differenceWith.rs:12:15: warning: function `differenceWith` should have a snake case name: help: convert the identifier to snake case: `difference_with`
+src/differenceWith_test.rs:166:15: warning: function `differenceWith_test` should have a snake case name: help: convert the identifier to snake case: `difference_with_test`
+src/doNothing.rs:9:5: warning: unused return value of `clone` that must be used
+src/doNothing.rs:18:15: warning: function `doNothing` should have a snake case name: help: convert the identifier to snake case: `do_nothing`
+src/dropFirstBy.rs:399:15: warning: function `dropFirstBy` should have a snake case name: help: convert the identifier to snake case: `drop_first_by`
+src/dropLast.rs:35:15: warning: function `dropLast` should have a snake case name: help: convert the identifier to snake case: `drop_last`
+src/dropLastWhile.rs:628:15: warning: function `dropLastWhile` should have a snake case name: help: convert the identifier to snake case: `drop_last_while`
+src/dropWhile.rs:609:15: warning: function `dropWhile` should have a snake case name: help: convert the identifier to snake case: `drop_while`
+src/endsWith.rs:22:15: warning: function `endsWith` should have a snake case name: help: convert the identifier to snake case: `ends_with`
+src/findIndex.rs:21:15: warning: function `findIndex` should have a snake case name: help: convert the identifier to snake case: `find_index`
+src/findLast.rs:498:15: warning: function `findLast` should have a snake case name: help: convert the identifier to snake case: `find_last`
+src/findLastIndex.rs:498:15: warning: function `findLastIndex` should have a snake case name: help: convert the identifier to snake case: `find_last_index`
+src/firstBy.rs:54:15: warning: function `firstBy` should have a snake case name: help: convert the identifier to snake case: `first_by`
+src/flatMap.rs:21:15: warning: function `flatMap` should have a snake case name: help: convert the identifier to snake case: `flat_map`
+src/forEach.rs:21:15: warning: function `forEach` should have a snake case name: help: convert the identifier to snake case: `for_each`
+src/forEachObj.rs:41:15: warning: function `forEachObj` should have a snake case name: help: convert the identifier to snake case: `for_each_obj`
+src/fromEntries.rs:14:15: warning: function `fromEntries` should have a snake case name: help: convert the identifier to snake case: `from_entries`
+src/fromKeys.rs:43:15: warning: function `fromKeys` should have a snake case name: help: convert the identifier to snake case: `from_keys`
+src/funnel_lodash_debounce_test.rs:101:5: warning: unused return value of `clone` that must be used
+src/funnel_remeda_debounce_test.rs:94:64: warning: path statement drops value: help: use `drop` to clarify the intent: `drop(SmeltUnknown::Null);`
+src/funnel_remeda_debounce_test.rs:131:64: warning: path statement drops value: help: use `drop` to clarify the intent: `drop(SmeltUnknown::Null);`
+src/groupBy.rs:66:15: warning: function `groupBy` should have a snake case name: help: convert the identifier to snake case: `group_by`
+src/groupByProp.rs:63:15: warning: function `groupByProp` should have a snake case name: help: convert the identifier to snake case: `group_by_prop`
+src/groupByProp_test.rs:276:15: warning: function `groupByProp_test` should have a snake case name: help: convert the identifier to snake case: `group_by_prop_test`
+src/hasAtLeast.rs:21:15: warning: function `hasAtLeast` should have a snake case name: help: convert the identifier to snake case: `has_at_least`
+src/hasProp.rs:22:15: warning: function `hasProp` should have a snake case name: help: convert the identifier to snake case: `has_prop`
+src/hasSubObject.rs:511:15: warning: function `hasSubObject` should have a snake case name: help: convert the identifier to snake case: `has_sub_object`
+src/indexBy.rs:45:15: warning: function `indexBy` should have a snake case name: help: convert the identifier to snake case: `index_by`
+src/intersectionWith.rs:12:15: warning: function `intersectionWith` should have a snake case name: help: convert the identifier to snake case: `intersection_with`
+src/intersectionWith_test.rs:151:15: warning: function `intersectionWith_test` should have a snake case name: help: convert the identifier to snake case: `intersection_with_test`
+src/isArray.rs:10:15: warning: function `isArray` should have a snake case name: help: convert the identifier to snake case: `is_array`
+src/isBigInt.rs:10:15: warning: function `isBigInt` should have a snake case name: help: convert the identifier to snake case: `is_big_int`
+src/isBoolean.rs:10:15: warning: function `isBoolean` should have a snake case name: help: convert the identifier to snake case: `is_boolean`
+src/isDate.rs:10:15: warning: function `isDate` should have a snake case name: help: convert the identifier to snake case: `is_date`
+src/isDeepEqual.rs:1981:15: warning: function `isDeepEqual` should have a snake case name: help: convert the identifier to snake case: `is_deep_equal`
+src/isDeepEqual_test.rs:998:5: warning: unused return value of `clone` that must be used
+src/isDeepEqual_test.rs:1003:5: warning: unused return value of `clone` that must be used
+src/isDeepEqual_test.rs:1021:5: warning: unused return value of `clone` that must be used
+src/isDeepEqual_test.rs:1026:5: warning: unused return value of `clone` that must be used
+src/isDefined.rs:12:15: warning: function `isDefined` should have a snake case name: help: convert the identifier to snake case: `is_defined`
+src/isEmpty.rs:28:15: warning: function `isEmpty` should have a snake case name: help: convert the identifier to snake case: `is_empty`
+src/isEmptyish.rs:66:15: warning: function `isEmptyish` should have a snake case name: help: convert the identifier to snake case: `is_emptyish`
+src/isError.rs:11:15: warning: function `isError` should have a snake case name: help: convert the identifier to snake case: `is_error`
+src/isFunction.rs:10:15: warning: function `isFunction` should have a snake case name: help: convert the identifier to snake case: `is_function`
+src/isIncludedIn.rs:29:15: warning: function `isIncludedIn` should have a snake case name: help: convert the identifier to snake case: `is_included_in`
+src/isNonNull.rs:12:15: warning: function `isNonNull` should have a snake case name: help: convert the identifier to snake case: `is_non_null`
+src/isNonNullish.rs:15:15: warning: function `isNonNullish` should have a snake case name: help: convert the identifier to snake case: `is_non_nullish`
+src/isNot.rs:14:15: warning: function `isNot` should have a snake case name: help: convert the identifier to snake case: `is_not`
+src/isNullish.rs:15:15: warning: function `isNullish` should have a snake case name: help: convert the identifier to snake case: `is_nullish`
+src/isNumber.rs:13:15: warning: function `isNumber` should have a snake case name: help: convert the identifier to snake case: `is_number`
+src/isObjectType.rs:13:15: warning: function `isObjectType` should have a snake case name: help: convert the identifier to snake case: `is_object_type`
+src/isPlainObject.rs:29:15: warning: function `isPlainObject` should have a snake case name: help: convert the identifier to snake case: `is_plain_object`
+src/isPromise.rs:11:15: warning: function `isPromise` should have a snake case name: help: convert the identifier to snake case: `is_promise`
+src/isShallowEqual.rs:1883:15: warning: function `isShallowEqual` should have a snake case name: help: convert the identifier to snake case: `is_shallow_equal`
+src/isStrictEqual.rs:22:15: warning: function `isStrictEqual` should have a snake case name: help: convert the identifier to snake case: `is_strict_equal`
+src/isString.rs:10:15: warning: function `isString` should have a snake case name: help: convert the identifier to snake case: `is_string`
+src/isSymbol.rs:10:15: warning: function `isSymbol` should have a snake case name: help: convert the identifier to snake case: `is_symbol`
+src/isTruthy.rs:11:15: warning: function `isTruthy` should have a snake case name: help: convert the identifier to snake case: `is_truthy`
+src/lazyDataLastImpl.rs:22:15: warning: function `lazyDataLastImpl` should have a snake case name: help: convert the identifier to snake case: `lazy_data_last_impl`
+src/lazyInvocationCounter.rs:21:15: warning: function `lazyInvocationCounter` should have a snake case name: help: convert the identifier to snake case: `lazy_invocation_counter`
+src/mapKeys.rs:46:15: warning: function `mapKeys` should have a snake case name: help: convert the identifier to snake case: `map_keys`
+src/mapToObj.rs:51:15: warning: function `mapToObj` should have a snake case name: help: convert the identifier to snake case: `map_to_obj`
+src/mapValues.rs:46:15: warning: function `mapValues` should have a snake case name: help: convert the identifier to snake case: `map_values`
+src/mapWithFeedback.rs:12:15: warning: function `mapWithFeedback` should have a snake case name: help: convert the identifier to snake case: `map_with_feedback`
+src/meanBy.rs:56:15: warning: function `meanBy` should have a snake case name: help: convert the identifier to snake case: `mean_by`
+src/mergeAll.rs:27:15: warning: function `mergeAll` should have a snake case name: help: convert the identifier to snake case: `merge_all`
+src/mergeDeep.rs:15:15: warning: function `mergeDeep` should have a snake case name: help: convert the identifier to snake case: `merge_deep`
+src/nthBy.rs:32:15: warning: function `nthBy` should have a snake case name: help: convert the identifier to snake case: `nth_by`
+src/objOf.rs:20:15: warning: function `objOf` should have a snake case name: help: convert the identifier to snake case: `obj_of`
+src/omitBy.rs:51:15: warning: function `omitBy` should have a snake case name: help: convert the identifier to snake case: `omit_by`
+src/partialBind.rs:15:15: warning: function `partialBind` should have a snake case name: help: convert the identifier to snake case: `partial_bind`
+src/partialLastBind.rs:15:15: warning: function `partialLastBind` should have a snake case name: help: convert the identifier to snake case: `partial_last_bind`
+src/pathOr.rs:46:15: warning: function `pathOr` should have a snake case name: help: convert the identifier to snake case: `path_or`
+src/pathOr_test.rs:161:15: warning: function `pathOr_test` should have a snake case name: help: convert the identifier to snake case: `path_or_test`
+src/pickBy.rs:50:15: warning: function `pickBy` should have a snake case name: help: convert the identifier to snake case: `pick_by`
+src/pullObject.rs:49:15: warning: function `pullObject` should have a snake case name: help: convert the identifier to snake case: `pull_object`
+src/purryFromLazy.rs:51:15: warning: function `purryFromLazy` should have a snake case name: help: convert the identifier to snake case: `purry_from_lazy`
+src/purryOn.rs:24:15: warning: function `purryOn` should have a snake case name: help: convert the identifier to snake case: `purry_on`
+src/purryOrderRules.rs:224:15: warning: function `purryOrderRules` should have a snake case name: help: convert the identifier to snake case: `purry_order_rules`
+src/quickSelect.rs:94:15: warning: function `quickSelect` should have a snake case name: help: convert the identifier to snake case: `quick_select`
+src/randomBigInt.rs:377:15: warning: function `randomBigInt` should have a snake case name: help: convert the identifier to snake case: `random_big_int`
+src/randomBigInt_test.rs:802:15: warning: function `randomBigInt_test` should have a snake case name: help: convert the identifier to snake case: `random_big_int_test`
+src/randomInteger.rs:45:15: warning: function `randomInteger` should have a snake case name: help: convert the identifier to snake case: `random_integer`
+src/randomInteger_test.rs:516:15: warning: function `randomInteger_test` should have a snake case name: help: convert the identifier to snake case: `random_integer_test`
+src/randomString.rs:45:15: warning: function `randomString` should have a snake case name: help: convert the identifier to snake case: `random_string`
+src/rankBy.rs:43:15: warning: function `rankBy` should have a snake case name: help: convert the identifier to snake case: `rank_by`
+src/setPath.rs:62:15: warning: function `setPath` should have a snake case name: help: convert the identifier to snake case: `set_path`
+src/setPath_test.rs:375:15: warning: function `setPath_test` should have a snake case name: help: convert the identifier to snake case: `set_path_test`
+src/sliceString.rs:19:15: warning: function `sliceString` should have a snake case name: help: convert the identifier to snake case: `slice_string`
+src/sliceString_test.rs:503:15: warning: function `sliceString_test` should have a snake case name: help: convert the identifier to snake case: `slice_string_test`
+src/sortBy.rs:20:15: warning: function `sortBy` should have a snake case name: help: convert the identifier to snake case: `sort_by`
+src/sortBy_test.rs:284:15: warning: function `sortBy_test` should have a snake case name: help: convert the identifier to snake case: `sort_by_test`
+src/sortedIndex.rs:24:15: warning: function `sortedIndex` should have a snake case name: help: convert the identifier to snake case: `sorted_index`
+src/sortedIndexBy.rs:23:15: warning: function `sortedIndexBy` should have a snake case name: help: convert the identifier to snake case: `sorted_index_by`
+src/sortedIndexWith.rs:15:15: warning: function `sortedIndexWith` should have a snake case name: help: convert the identifier to snake case: `sorted_index_with`
+src/sortedLastIndex.rs:24:15: warning: function `sortedLastIndex` should have a snake case name: help: convert the identifier to snake case: `sorted_last_index`
+src/sortedLastIndexBy.rs:23:15: warning: function `sortedLastIndexBy` should have a snake case name: help: convert the identifier to snake case: `sorted_last_index_by`
+src/splitAt.rs:45:15: warning: function `splitAt` should have a snake case name: help: convert the identifier to snake case: `split_at`
+src/splitWhen.rs:41:15: warning: function `splitWhen` should have a snake case name: help: convert the identifier to snake case: `split_when`
+src/startsWith.rs:22:15: warning: function `startsWith` should have a snake case name: help: convert the identifier to snake case: `starts_with`
+src/stringToPath.rs:49:15: warning: function `stringToPath` should have a snake case name: help: convert the identifier to snake case: `string_to_path`
+src/sumBy.rs:61:15: warning: function `sumBy` should have a snake case name: help: convert the identifier to snake case: `sum_by`
+src/swapInPlace.rs:11:15: warning: function `swapInPlace` should have a snake case name: help: convert the identifier to snake case: `swap_in_place`
+src/swapIndices.rs:92:15: warning: function `swapIndices` should have a snake case name: help: convert the identifier to snake case: `swap_indices`
+src/swapProps.rs:24:15: warning: function `swapProps` should have a snake case name: help: convert the identifier to snake case: `swap_props`
+src/take.rs:31:129: warning: unused return value of `clone` that must be used
+src/takeFirstBy.rs:300:15: warning: function `takeFirstBy` should have a snake case name: help: convert the identifier to snake case: `take_first_by`
+src/takeLast.rs:37:15: warning: function `takeLast` should have a snake case name: help: convert the identifier to snake case: `take_last`
+src/takeLastWhile.rs:584:15: warning: function `takeLastWhile` should have a snake case name: help: convert the identifier to snake case: `take_last_while`
+src/takeWhile.rs:51:15: warning: function `takeWhile` should have a snake case name: help: convert the identifier to snake case: `take_while`
+src/toCamelCase.rs:44:15: warning: function `toCamelCase` should have a snake case name: help: convert the identifier to snake case: `to_camel_case`
+src/toKebabCase.rs:26:15: warning: function `toKebabCase` should have a snake case name: help: convert the identifier to snake case: `to_kebab_case`
+src/toLowerCase.rs:20:15: warning: function `toLowerCase` should have a snake case name: help: convert the identifier to snake case: `to_lower_case`
+src/toSingle.rs:11:15: warning: function `toSingle` should have a snake case name: help: convert the identifier to snake case: `to_single`
+src/toSnakeCase.rs:26:15: warning: function `toSnakeCase` should have a snake case name: help: convert the identifier to snake case: `to_snake_case`
+src/toTitleCase.rs:44:15: warning: function `toTitleCase` should have a snake case name: help: convert the identifier to snake case: `to_title_case`
+src/toUpperCase.rs:20:15: warning: function `toUpperCase` should have a snake case name: help: convert the identifier to snake case: `to_upper_case`
+src/typesDataProvider.rs:6:15: warning: function `typesDataProvider` should have a snake case name: help: convert the identifier to snake case: `types_data_provider`
+src/uniqueBy.rs:40:15: warning: function `uniqueBy` should have a snake case name: help: convert the identifier to snake case: `unique_by`
+src/uniqueBy_test.rs:203:15: warning: function `uniqueBy_test` should have a snake case name: help: convert the identifier to snake case: `unique_by_test`
+src/uniqueWith.rs:12:15: warning: function `uniqueWith` should have a snake case name: help: convert the identifier to snake case: `unique_with`
+src/uniqueWith_test.rs:220:15: warning: function `uniqueWith_test` should have a snake case name: help: convert the identifier to snake case: `unique_with_test`
+src/utilityEvaluators.rs:16:15: warning: function `utilityEvaluators` should have a snake case name: help: convert the identifier to snake case: `utility_evaluators`
+src/withPrecision.rs:106:15: warning: function `withPrecision` should have a snake case name: help: convert the identifier to snake case: `with_precision`
+src/zipWith.rs:47:15: warning: function `zipWith` should have a snake case name: help: convert the identifier to snake case: `zip_with`
+warning: `remeda_smelt_probe` (bin "remeda_smelt_probe" test) generated 1969 warnings (run `cargo fix --bin "remeda_smelt_probe" -p remeda_smelt_probe --tests` to apply 584 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.63s
+  Executable unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-533b5c7373696e2a)

@@ -193,13 +193,7 @@ impl ModuleBuilder<'_> {
                 "new URL() currently supports exactly one string URL argument",
             ));
         };
-        let url = self.argument(url_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL(text) requires a string URL argument",
-            ));
-        }
+        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::UrlField { field, url },
@@ -235,13 +229,7 @@ impl ModuleBuilder<'_> {
                 "new URL() currently supports exactly one string URL argument",
             ));
         };
-        let url = self.argument(url_arg, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, url)) != Some(&Type::String) {
-            return Err(SmeltError::unsupported(
-                self.span(new_expr.span.start, new_expr.span.end),
-                "new URL(text) requires a string URL argument",
-            ));
-        }
+        let url = self.url_string_argument(url_arg, body, new_expr.span)?;
         let ty = self.ctx.krate.types.intern(Type::String);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::UrlField {
@@ -251,6 +239,35 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Lower a `new URL(...)` argument into the string value used by URL helpers.
+    fn url_string_argument(
+        &mut self,
+        argument: &Argument<'_>,
+        body: &mut Body,
+        url_span: oxc::span::Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let url = self.argument(argument, body)?;
+        let url_ty = Self::expr_ty(body, url);
+        if self.ctx.krate.types.get(url_ty) == Some(&Type::String) {
+            return Ok(url);
+        }
+        if self.is_string_compatible_type(url_ty) {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: url,
+                    target: string_ty,
+                },
+                ty: string_ty,
+                span: self.span(argument.span().start, argument.span().end),
+            }));
+        }
+        Err(SmeltError::unsupported(
+            self.span(url_span.start, url_span.end),
+            "new URL(text) requires a string URL argument",
+        ))
     }
 
     /// Lower direct TypeScript `Math.abs(...)` calls.
@@ -335,13 +352,26 @@ impl ModuleBuilder<'_> {
                 ),
             ));
         };
-        let operand = self.argument(argument, body)?;
-        let operand_ty = Self::expr_ty(body, operand);
+        let mut operand = self.argument(argument, body)?;
+        let mut operand_ty = Self::expr_ty(body, operand);
         if !self.is_numeric_like_type(operand_ty) {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("Math.{} requires a number argument", member.property.name),
-            ));
+            if self.type_contains_unknown(operand_ty) {
+                let target = self.ctx.krate.types.intern(Type::Float);
+                operand = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: operand,
+                        target,
+                    },
+                    ty: target,
+                    span: self.span(argument.span().start, argument.span().end),
+                });
+                operand_ty = target;
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("Math.{} requires a number argument", member.property.name),
+                ));
+            }
         }
         let result_ty = self.type_param_constraint_or_self(operand_ty);
         Ok(Some(body.push_expr(Expr {
@@ -371,27 +401,21 @@ impl ModuleBuilder<'_> {
             "min" => NumericExtremaOp::Min,
             _ => return Ok(None),
         };
-        let args = call
+        let mut args = call
             .arguments
             .iter()
             .map(|argument| self.argument(argument, body))
             .collect::<Result<Vec<_>, _>>()?;
-        if args
-            .iter()
-            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
-            && args.iter().any(|arg| {
-                !matches!(
-                    self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
-                    Some(Type::Float | Type::Int | Type::Unknown | Type::TypeParam { .. })
-                )
-            })
-        {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("Math.{} requires number arguments", member.property.name),
-            ));
-        }
         let ty = self.ctx.krate.types.intern(Type::Float);
+        for arg in &mut args {
+            if self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float) {
+                *arg = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: *arg },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                });
+            }
+        }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericExtrema { op, args },
             ty,
@@ -472,7 +496,12 @@ impl ModuleBuilder<'_> {
         let mut operand = self.argument(argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         if !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
-            if source_name == "isNaN" && self.is_date_constructor_arg_type(operand_ty) {
+            if (source_name == "isNaN" && self.is_date_constructor_arg_type(operand_ty))
+                || matches!(
+                    self.ctx.krate.types.get(operand_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                )
+            {
                 let ty = self.ctx.krate.types.intern(Type::Float);
                 operand = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: operand },
@@ -586,7 +615,7 @@ impl ModuleBuilder<'_> {
                 let radix_expr = self.argument(radix, body)?;
                 if !matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, radix_expr)),
-                    Some(Type::Int | Type::Float)
+                    Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. })
                 ) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
@@ -655,10 +684,23 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let radix = self.argument(radix_argument, body)?;
-            if !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, radix)),
-                Some(Type::Int | Type::Float)
-            ) {
+            let radix_ty = Self::expr_ty(body, radix);
+            if matches!(self.ctx.krate.types.get(radix_ty), Some(Type::String))
+                && !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+                    Some(Type::Int | Type::Float)
+                )
+            {
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToString,
+                        operand,
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
+            if !matches!(self.ctx.krate.types.get(radix_ty), Some(Type::Int | Type::Float)) {
                 return Err(SmeltError::unsupported(
                     self.span(radix_argument.span().start, radix_argument.span().end),
                     "number.toString radix argument must be numeric",
@@ -752,6 +794,34 @@ impl ModuleBuilder<'_> {
             ty: list_ty,
             span: self.span(call.span.start, call.span.end),
         }))
+    }
+
+    /// Lower `process.cwd()` as an opaque current-working-directory string.
+    fn node_process_cwd_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "cwd"
+            || !matches!(&member.object, Expression::Identifier(identifier) if identifier.name == "process")
+        {
+            return Ok(None);
+        }
+        if !call.arguments.is_empty() {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "process.cwd() requires no arguments",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(String::new())),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower the small `Intl` surface used by date-fns timezone test labels.

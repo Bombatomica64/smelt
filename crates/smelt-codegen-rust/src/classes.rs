@@ -4,7 +4,7 @@
     reason = "class helpers are shared across sibling emitter modules"
 )]
 
-use smelt_mir::{Mir, MirClass, MirField};
+use smelt_mir::{Mir, MirClass, MirField, MirInterface};
 
 use crate::{EmitError, emitter::FunctionEmitter, rust::RustIdent};
 
@@ -42,6 +42,32 @@ pub(crate) fn class_type_params_text(mir: &Mir, class: &MirClass) -> Result<Stri
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
     Ok(format!("<{params}>"))
+}
+
+/// Render the generic parameter declaration suffix for an interface.
+///
+/// Interface type parameters must survive into Rust storage types because
+/// function signatures can refer to instantiated interface names such as
+/// `ContextOptions<SmeltUnknown>`. The returned suffix mirrors class generic
+/// emission and is empty for non-generic interfaces.
+pub(crate) fn interface_type_params_text(
+    mir: &Mir,
+    interface: &MirInterface,
+) -> Result<String, EmitError> {
+    if interface.type_params.is_empty() {
+        return Ok(String::new());
+    }
+    let params = interface
+        .type_params
+        .iter()
+        .map(|param| {
+            mir.symbols
+                .get(param.name)
+                .map(|name| RustIdent::new(name).into_string())
+                .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(format!("<{}>", params.join(", ")))
 }
 
 /// Render the generic argument suffix for a class, such as `<T>`.
@@ -109,6 +135,37 @@ pub(crate) fn effective_class_fields(mir: &Mir, class: &MirClass) -> Vec<MirFiel
             .iter_mut()
             .find(|candidate| candidate.name == field.name)
         {
+            *existing = field.clone();
+        } else {
+            fields.push(field.clone());
+        }
+    }
+    fields
+}
+
+/// Return the Rust-valid field layout for an interface.
+///
+/// TypeScript interface inheritance and utility-type expansion can present the
+/// same source property more than once. Rust structs cannot contain duplicate
+/// field identifiers, so codegen keeps the last field for each sanitized Rust
+/// name. This mirrors source member lookup where later, more specific
+/// declarations describe the effective surface while keeping generated storage
+/// valid.
+pub(crate) fn effective_interface_fields(mir: &Mir, interface: &MirInterface) -> Vec<MirField> {
+    let mut fields = Vec::new();
+    for field in &interface.fields {
+        let field_name = mir
+            .symbols
+            .get(field.name)
+            .map(RustIdent::new)
+            .map_or_else(|| "field".to_owned(), RustIdent::into_string);
+        if let Some(existing) = fields.iter_mut().find(|candidate: &&mut MirField| {
+            mir.symbols
+                .get(candidate.name)
+                .map(RustIdent::new)
+                .map_or_else(|| "field".to_owned(), RustIdent::into_string)
+                == field_name
+        }) {
             *existing = field.clone();
         } else {
             fields.push(field.clone());

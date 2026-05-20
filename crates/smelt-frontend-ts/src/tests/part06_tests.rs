@@ -269,6 +269,141 @@ class Child<T> extends Base<T> {
 }
 
 #[test]
+fn lowers_class_extends_imported_opaque_base() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("import { AbstractRouteValidator } from '@strapi/utils';
+
+class CoreRouteValidator extends AbstractRouteValidator {
+  value: string;
+  constructor(value: string) {
+    super();
+    this.value = value;
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unannotated_abstract_method_as_unknown_return() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("abstract class Validator {
+  public abstract fieldRecord(type: unknown);
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_abstract_class_method_default_params() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export abstract class CoreService {
+  getFetchParams(params = {}): any {
+    return {
+      status: 'published',
+      ...params,
+    };
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_unannotated_async_class_methods_as_unknown_future() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class Service {
+  async find(params = {}) {
+    return params;
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn ignores_qualified_external_implements_clauses() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import type { Core } from '@strapi/types';
+
+class SingleTypeService implements Core.CoreAPI.Service.SingleType {}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_missing_fields_on_derived_classes() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class Base {}
+
+class Derived extends Base {
+  read() {
+    return this.externalField;
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_optional_receiver_field_access_as_optional() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface Config {
+  pagination?: { withCount?: boolean };
+}
+
+function read(config?: Config) {
+  return config?.pagination?.withCount;
+}
+"#),
+        &mut ctx,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_unannotated_class_method_as_unknown_return() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("class Validator {
+  public fieldRecord(type: unknown) {
+    return {};
+  }
+}
+"),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_literal_switch_to_hir_match() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -602,6 +737,20 @@ fn rejects_await_outside_async_function() -> Result<(), String> {
         .ok_or_else(|| "expected at least one lowering error".to_owned())?;
     ensure_eq!(error.code, "smelt::parse-error");
     ensure!(error.message.contains("await"));
+    Ok(())
+}
+
+#[test]
+fn lowers_fetch_with_options_and_url_objects() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+async function load(url: RequestInfo | URL, options?: RequestInit): Promise<string> {
+  return await fetch(url, options);
+}
+"#),
+        &mut ctx,
+    )?;
     Ok(())
 }
 

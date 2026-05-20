@@ -16,6 +16,8 @@ pub enum BackendDependency {
     Chrono,
     /// `url` for generated URL parsing and field access.
     Url,
+    /// `unicode-normalization` for generated `String.prototype.normalize`.
+    UnicodeNormalization,
 }
 
 impl BackendDependency {
@@ -26,11 +28,14 @@ impl BackendDependency {
             Self::Reqwest => {
                 "reqwest = { version = \"0.12\", default-features = false, features = [\"blocking\", \"rustls-tls\"] }\n"
             }
-            Self::SerdeJson => "serde_json = \"1\"\n",
+            Self::SerdeJson => {
+                "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n"
+            }
             Self::Regex => "regex = \"1\"\n",
             Self::Rand => "rand = \"0.9\"\n",
             Self::Chrono => "chrono = \"0.4\"\n",
             Self::Url => "url = \"2\"\n",
+            Self::UnicodeNormalization => "unicode-normalization = \"0.1\"\n",
         }
     }
 }

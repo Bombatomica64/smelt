@@ -32,7 +32,23 @@ impl FunctionEmitter<'_> {
             }
         };
         let receiver_text = self.len_operand_text(operand)?;
-        let len_expr = match self.mir.types.get(self.operand_ty(operand)?) {
+        let operand_ty = self.operand_ty(operand)?;
+        let emitted_ty = match operand {
+            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => {
+                self.local_decl(*local)?.ty
+            }
+            _ => operand_ty,
+        };
+        let len_ty = if matches!(
+            self.mir.types.get(emitted_ty),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+        ) || self.is_erased_class_type(emitted_ty)
+        {
+            emitted_ty
+        } else {
+            operand_ty
+        };
+        let len_expr = match self.mir.types.get(len_ty) {
             Some(Type::String) => format!("{receiver_text}.chars().count()"),
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::String)) =>

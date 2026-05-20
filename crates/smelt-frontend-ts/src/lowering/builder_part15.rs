@@ -19,6 +19,17 @@ impl ModuleBuilder<'_> {
             .copied()
             .or_else(|| self.items.get(member_name).copied());
         let Some(item) = item else {
+            if self.namespace_imports.contains(namespace) {
+                for arg in &call.arguments {
+                    let _ = self.argument(arg, body)?;
+                }
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
             return Err(SmeltError::unsupported(
                 span,
                 format!("namespace import has no exported member `{member_name}`"),
@@ -499,7 +510,7 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower the small Node `process` surface used by checked date-fns timezone probes.
+    /// Lower the small Node `process` surface used by checked package probes.
     fn node_process_static_member(
         &mut self,
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
@@ -513,10 +524,17 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
-        if Self::is_process_env_field(member, "TZ") || Self::is_process_env_field(member, "tz") {
+        if Self::is_process_env_member(member) {
             let ty = self.ctx.krate.types.intern(Type::String);
+            let value = if Self::is_process_env_field(member, "TZ")
+                || Self::is_process_env_field(member, "tz")
+            {
+                "America/Santiago".to_owned()
+            } else {
+                String::new()
+            };
             return Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::String("America/Santiago".to_owned())),
+                kind: ExprKind::Literal(Literal::String(value)),
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));
@@ -533,19 +551,21 @@ impl ModuleBuilder<'_> {
             && member.property.name == "version"
     }
 
-    /// Return true for the specific `process.env.<field>` member expression.
-    fn is_process_env_field(
-        member: &oxc::ast::ast::StaticMemberExpression<'_>,
-        field: &str,
-    ) -> bool {
-        if member.property.name != field {
-            return false;
-        }
+    /// Return true for any static `process.env.<field>` member expression.
+    fn is_process_env_member(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> bool {
         let Expression::StaticMemberExpression(env_member) = &member.object else {
             return false;
         };
         matches!(&env_member.object, Expression::Identifier(identifier) if identifier.name == "process")
             && env_member.property.name == "env"
+    }
+
+    /// Return true for a specific static `process.env.<field>` member expression.
+    fn is_process_env_field(
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        field: &str,
+    ) -> bool {
+        member.property.name == field && Self::is_process_env_member(member)
     }
 
     /// Lower a computed member access expression.
@@ -916,13 +936,24 @@ impl ModuleBuilder<'_> {
         op: PrimitiveCastOp,
         operand_ty: smelt_hir::TypeId,
     ) -> bool {
+        if op == PrimitiveCastOp::ToString && self.erased_or_union_surface(operand_ty) {
+            return true;
+        }
+        if op == PrimitiveCastOp::ToFloat {
+            return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never));
+        }
         match self.ctx.krate.types.get(operand_ty) {
             Some(Type::Bool | Type::String | Type::Int | Type::Float | Type::Unknown) => true,
-            Some(Type::TypeParam { .. }) if op == PrimitiveCastOp::ToBool => true,
+            Some(Type::TypeParam { .. } | Type::Class { .. }) => {
+                matches!(op, PrimitiveCastOp::ToBool | PrimitiveCastOp::ToFloat)
+            }
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
-                .all(|item| self.primitive_cast_accepts_operand(op, item)),
+                .all(|item| {
+                    matches!(self.ctx.krate.types.get(item), Some(Type::None))
+                        || self.primitive_cast_accepts_operand(op, item)
+                }),
             Some(Type::Optional(item)) => self.primitive_cast_accepts_operand(op, *item),
             Some(_) if self.is_numeric_like_type(operand_ty) => true,
             _ => false,

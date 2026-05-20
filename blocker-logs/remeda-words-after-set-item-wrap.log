@@ -1,0 +1,156 @@
+   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.77s
+     Running unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-784e7d9ef6f36779)
+
+running 99 tests
+test words_test::test_copied_from_the_type_fest_tests_case_0_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_10_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_11_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_12_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_13_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_14_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_0_digits_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_15_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_11_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_10_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_17_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_16_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_12_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_18_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_0_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_1_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_19_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_1_digits_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_20_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_16_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_21_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_15_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_22_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_13_white_spaces_input ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_1_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_24_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_26_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_28_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_27_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_23_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_17_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_2_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_14_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_29_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_25_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_30_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_32_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_2_digits_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_33_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_35_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_34_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_31_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_36_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_3_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_38_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_37_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_39_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_3_digits_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_2_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_42_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_43_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_41_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_44_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_40_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_4_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_45_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_46_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_49_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_47_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_3_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_50_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_51_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_53_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_48_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_4_digits_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_52_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_54_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_56_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_57_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_58_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_5_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_59_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_55_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_60_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_61_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_6_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_4_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_62_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_7_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_5_white_spaces_input ... FAILED
+test words_test::test_copied_from_the_type_fest_tests_case_5_digits_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_6_digits_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_8_case_changes_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_9_case_changes_input ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_7_digits_input ... ok
+test words_test::test_copied_from_the_type_fest_tests_case_6_white_spaces_input ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_8_white_spaces_input ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_9_white_spaces_input ... FAILED
+test words_test::test_unicode_and_special_characters_normalization_doesn_t_matter ... FAILED
+test words_test::test_unicode_and_special_characters_doesn_t_splits_at_case_boundaries_with_accented_characters ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_8_digits_input ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_copied_from_the_type_fest_tests_case_7_white_spaces_input ... FAILED
+test words_test::test_unicode_and_special_characters_handles_curly_apostrophes ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_unicode_and_special_characters_doesn_t_break_on_accented_characters ... FAILED
+test words_test::test_unicode_and_special_characters_preserves_combining_diacritical_marks ... ok
+test words_test::test_unicode_and_special_characters_treats_special_unicode_as_part_of_words ... ok
+test words_test::test_unicode_and_special_characters_treats_emojis_as_part_of_words ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test words_test::test_unicode_and_special_characters_handles_contractions_and_possessives ... FAILED
+test words_test::test_unicode_and_special_characters_treats_mixed_scripts_as_single_words ... ok
+
+failures:
+
+failures:
+    words_test::test_copied_from_the_type_fest_tests_case_0_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_10_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_11_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_12_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_13_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_14_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_15_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_16_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_17_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_1_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_2_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_3_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_4_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_5_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_6_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_7_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_8_digits_input
+    words_test::test_copied_from_the_type_fest_tests_case_8_white_spaces_input
+    words_test::test_copied_from_the_type_fest_tests_case_9_white_spaces_input
+    words_test::test_unicode_and_special_characters_doesn_t_break_on_accented_characters
+    words_test::test_unicode_and_special_characters_handles_contractions_and_possessives
+    words_test::test_unicode_and_special_characters_normalization_doesn_t_matter
+
+test result: FAILED. 77 passed; 22 failed; 0 ignored; 0 measured; 1690 filtered out; finished in 0.66s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

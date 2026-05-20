@@ -1,0 +1,86 @@
+fn string_to_path (FuncId(0)) -> (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Path) | (Path) | List<String | Float>
+  locals
+    %0 param path: Path
+    %1 user result: List<String | Float>
+    %2 user path_segment_re: String
+    %3 user match: Optional<RegExpExecArray>
+    %4 user prop_name: Unknown
+    %5 user quoted: Unknown
+    %6 user double_quoted: Unknown
+    %7 user unquoted: Unknown
+    %8 temp: List<String | Float>
+    %9 temp: Optional<List<String>>
+    %10 temp: Bool
+    %11 temp: Optional<Unknown>
+    %12 temp: Unknown
+    %13 temp: Bool
+    %14 temp: Bool
+    %15 temp: (Quoted) | (DoubleQuoted) | List<Unknown> | List<Unknown> | () | (N | Path) | (Path) | List<String | Float>
+    %16 temp: List<String | Float>
+    %17 temp: Float
+    %18 temp: Bool
+    %19 temp: Unknown
+    %20 temp: Unknown
+    %21 temp: Bool
+    %22 temp: Unknown
+    %23 temp: Float
+    %24 temp: Float
+  bb0:
+    %8 = []
+    %1 = copy %8
+    %2 = "\.*(?P<propName>[^.\[\]]+)|\['(?P<quoted>.*?)'\]|\["(?P<doubleQuoted>.*?)"\]|\[(?P<unquoted>.*?)\]"
+    %3 = none
+    goto bb1
+  bb1:
+    %9 = regex_find copy %2, copy %0
+    %10 = copy %9 != none
+    switch copy %10 ? bb2 : bb3
+  bb2:
+    %11 = copy %3?.field18
+    %12 = copy %11
+    %4 = copy %12.field19
+    %5 = copy %12.field20
+    %6 = copy %12.field21
+    %7 = copy %12.field22
+    %13 = unknown_is Null copy %7
+    %14 = !copy %13
+    switch copy %14 ? bb4 : bb5
+  bb3:
+    return copy %1
+  bb4:
+    %15 = call fn0(copy %7) -> bb6
+  bb5:
+    %18 = unknown_is Null copy %4
+    switch copy %18 ? bb7 : bb8
+  bb6:
+    %16 = copy %15
+    %17 = list_extend copy %1, copy %16
+    goto bb1
+  bb7:
+    %20 = copy %5 ?? copy %6
+    %19 = copy %20
+    goto bb9
+  bb8:
+    %21 = regex_search "^(?:0|[1-9][0-9]*)$", copy %4
+    switch copy %21 ? bb10 : bb11
+  bb9:
+    %24 = list_push copy %1, copy %19
+    goto bb1
+  bb10:
+    %23 = primitive_cast_float copy %4
+    %22 = copy %23
+    goto bb12
+  bb11:
+    %22 = copy %4
+    goto bb12
+  bb12:
+    %19 = copy %22
+    goto bb9
+
+fn main (FuncId(1)) -> None
+  locals
+    %0 user non_negative_integer_re: String
+  bb0:
+    %0 = "^(?:0|[1-9][0-9]*)$"
+    return none
+

@@ -1,0 +1,46 @@
+   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+error[E0599]: no method named `flush` found for enum `SmeltUnknown` in the current scope
+   --> src/funnel_remeda_debounce_test.rs:101:67
+    |
+101 |     move || -> Option<SmeltUnknown> { { debouncing_funnel.clone().flush(); cached_value.clone() } }
+    |                                                                   ^^^^^ method not found in `SmeltUnknown`
+    |
+   ::: src/main.rs:786:1
+    |
+786 | pub enum SmeltUnknown {
+    | --------------------- method `flush` not found for this enum
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `flush`, perhaps you need to implement it:
+            candidate #1: `std::io::Write`
+
+error[E0599]: no method named `flush` found for enum `SmeltUnknown` in the current scope
+   --> src/funnel_remeda_debounce_test.rs:135:67
+    |
+135 |     move || -> Option<SmeltUnknown> { { debouncing_funnel.clone().flush(); cached_value.clone() } }
+    |                                                                   ^^^^^ method not found in `SmeltUnknown`
+    |
+   ::: src/main.rs:786:1
+    |
+786 | pub enum SmeltUnknown {
+    | --------------------- method `flush` not found for this enum
+    |
+    = help: items from traits can only be used if the trait is implemented and in scope
+    = note: the following trait defines an item `flush`, perhaps you need to implement it:
+            candidate #1: `std::io::Write`
+
+error[E0057]: this function takes 0 arguments but 1 argument was supplied
+  --> src/once.rs:13:67
+   |
+13 | ... !(called.clone()) { { { ret = (&mut *fn_.borrow_mut())(Vec::new()); ret.clone() }; { called = true; called.clone() }; () } } else { (...
+   |                                   ^^^^^^^^^^^^^^^^^^^^^^^^ ---------- unexpected argument of type `Vec<_>`
+   |
+help: remove the extra argument
+   |
+13 -     move || -> SmeltUnknown { ({ if !(called.clone()) { { { ret = (&mut *fn_.borrow_mut())(Vec::new()); ret.clone() }; { called = true; called.clone() }; () } } else { () }; ret.clone() }).into_smelt_unknown() }
+13 +     move || -> SmeltUnknown { ({ if !(called.clone()) { { { ret = (&mut *fn_.borrow_mut())(); ret.clone() }; { called = true; called.clone() }; () } } else { () }; ret.clone() }).into_smelt_unknown() }
+   |
+
+Some errors have detailed explanations: E0057, E0599.
+For more information about an error, try `rustc --explain E0057`.
+error: could not compile `remeda_smelt_probe` (bin "remeda_smelt_probe" test) due to 3 previous errors

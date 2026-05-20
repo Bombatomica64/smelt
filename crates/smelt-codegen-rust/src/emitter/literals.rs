@@ -70,9 +70,6 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
             {
                 locals.insert(*dest);
             }
-            if let Statement::Assign { dest, .. } = statement {
-                locals.insert(*dest);
-            }
             if let Statement::Assign {
                 value: Rvalue::Closure { id, .. },
                 ..

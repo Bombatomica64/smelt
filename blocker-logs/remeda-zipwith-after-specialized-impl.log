@@ -1,0 +1,41 @@
+   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.11s
+     Running unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-784e7d9ef6f36779)
+
+running 9 tests
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+
+thread 'zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_first' (297123) panicked at src/main.rs:1120:211:
+negative index out of bounds: TryFromIntError(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test zipWith_test::test_data_first_should_truncate_to_shorter_second ... ok
+test zipWith_test::test_data_second_should_truncate_to_shorter_first ... FAILED
+test zipWith_test::test_data_second_should_zip_with_predicate ... FAILED
+test zipWith_test::test_data_second_should_truncate_to_shorter_second ... FAILED
+test zipWith_test::test_data_first_should_zip_with_predicate ... ok
+test zipWith_test::test_data_first_should_truncate_to_shorter_first ... ok
+thread 'zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_second' (297124) panicked at src/main.rs:1120:211:
+negative index out of bounds: TryFromIntError(())
+
+
+thread 'zipWith_test::test_data_second_with_initial_arg_should_zip_with_predicate' (297125) panicked at src/main.rs:1120:211:
+negative index out of bounds: TryFromIntError(())
+test zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_first ... FAILED
+test zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_second ... FAILED
+test zipWith_test::test_data_second_with_initial_arg_should_zip_with_predicate ... FAILED
+
+failures:
+
+failures:
+    zipWith_test::test_data_second_should_truncate_to_shorter_first
+    zipWith_test::test_data_second_should_truncate_to_shorter_second
+    zipWith_test::test_data_second_should_zip_with_predicate
+    zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_first
+    zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_second
+    zipWith_test::test_data_second_with_initial_arg_should_zip_with_predicate
+
+test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 1780 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`
