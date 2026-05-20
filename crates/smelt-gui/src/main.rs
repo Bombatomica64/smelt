@@ -28,7 +28,7 @@ fn main() {
         gpui_component::init(app);
         Theme::change(ThemeMode::Dark, None, app);
 
-        let bounds = Bounds::centered(None, size(px(1200.0), px(700.0)), app);
+        let bounds = Bounds::centered(None, size(px(1400.0), px(800.0)), app);
         app.open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
