@@ -24,6 +24,653 @@ const loadJsFile = (file: string) => {
 }
 
 #[test]
+fn infers_async_arrow_const_return_from_erased_contextual_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Middleware = unknown;
+
+async function load(): Promise<string> {
+  return "ok";
+}
+
+export const middleware: Middleware = async (ctx, next) => {
+  try {
+    return await next();
+  } catch (error) {
+    return await load();
+  }
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_await_expression_call_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function assoc(key: string, value: string, target: unknown): unknown {
+  return target;
+}
+
+async function getDefaultLocale(): Promise<string> {
+  return "en";
+}
+
+export const addLocale = async (params: unknown) => {
+  return assoc("locale", await getDefaultLocale(), params);
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_lodash_predicate_factories_as_array_callbacks() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import _ from "lodash";
+import { has } from "lodash/fp";
+
+type Item = { id?: string | null };
+
+function keep(items: Item[]): Item[] {
+  return items.filter(has("id")).filter(_.negate(_.isNil));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_lodash_omit_factory_as_array_map_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { omit } from "lodash/fp";
+
+function stripId(items: Record<string, unknown>[]): Record<string, unknown>[] {
+  return items.map(omit("id"));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_curried_emit_event_factory_as_for_each_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function emitEvent(name: string): (entry: unknown) => void {
+  return (_entry) => {};
+}
+
+function deleted(entries: unknown[]) {
+  entries.forEach(emitEvent("entry.delete"));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_async_pipe_factory_as_array_map_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+declare const async: {
+  pipe: (...fns: unknown[]) => (value: unknown) => unknown;
+};
+
+function clone(entries: unknown[]) {
+  return entries.map(async.pipe((value: unknown) => value));
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_forward_reference_to_nested_function_declaration() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function repository() {
+  async function create(params: Record<string, unknown>) {
+    return publish({ ...params, documentId: "doc" }).then((doc) => doc.entries[0]);
+  }
+
+  async function publish(opts = {} as any) {
+    return { entries: [opts] };
+  }
+
+  return { create, publish };
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_forward_reference_to_nested_function_in_arrow_const() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export const repository = () => {
+  async function create(params: Record<string, unknown>) {
+    return publish({ ...params, documentId: "doc" }).then((doc) => doc.entries[0]);
+  }
+
+  async function publish(opts = {} as any) {
+    return { entries: [opts] };
+  }
+
+  return { create, publish };
+};
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn resolves_namespace_qualified_type_aliases() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+declare namespace Custom {
+  export type Id = string;
+}
+
+function accept(id: Custom.Id): Custom.Id {
+  return id;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .find_map(|item| match &ctx.krate.items[item.0 as usize] {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("accept") => {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "expected accept function".to_owned())?;
+    let ty = ctx
+        .krate
+        .types
+        .get(function.params[0].ty)
+        .ok_or_else(|| "expected parameter type".to_owned())?;
+    ensure!(
+        matches!(ty, Type::String),
+        "expected Custom.Id to resolve to string, got {ty:?}"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn resolves_imported_namespace_alias_members() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export namespace Types {
+  export type Id = string;
+}
+"#),
+        "types.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import type { Types as LocalTypes } from "./types";
+
+const seen = new Map<string, number>();
+
+export function hasSeen(id: LocalTypes.Id): boolean {
+  return seen.has(id);
+}
+"#),
+        "consumer.ts",
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn resolves_namespace_reexport_alias_members() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export type Id = string;
+"#),
+        "ids.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r#"
+export type * as Ids from "./ids";
+"#),
+        "index.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import type { Ids } from "./index";
+
+const seen = new Map<string, number>();
+
+export function hasSeen(id: Ids.Id): boolean {
+  return seen.has(id);
+}
+"#),
+        "consumer.ts",
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_extract_utility_to_extracted_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type RegistryKey<TRegistry extends object, TIndexType extends string> = Extract<
+  keyof TRegistry,
+  TIndexType
+>;
+
+type Id = RegistryKey<Record<string, unknown>, string>;
+
+const seen = new Map<string, number>();
+
+export function hasSeen(id: Id): boolean {
+  return seen.has(id);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_static_string_padding_utility_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import * as stringUtils from "string-utils";
+
+export function pad(value: string): string {
+  return stringUtils.padEnd(value.slice(1), 3, "0");
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(
+                expr.kind,
+                ExprKind::StringPad {
+                    op: StringPadOp::End,
+                    ..
+                }
+            )),
+        "expected static padEnd utility to lower to StringPad"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_forward_module_global_callable_calls() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Env = typeof envFn;
+
+function envFn(key: string, defaultValue?: string): string | undefined {
+  return defaultValue;
+}
+
+export function oneOf(key: string, defaultValue?: string): string | undefined {
+  return env(key, defaultValue);
+}
+
+const env: Env = Object.assign(envFn, {});
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn resolves_type_namespace_import_members() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export type Id = string;
+"#),
+        "ids.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import type * as Ids from "./ids";
+
+const seen = new Map<string, number>();
+
+export function hasSeen(id: Ids.Id): boolean {
+  return seen.has(id);
+}
+"#),
+        "consumer.ts",
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn resolves_nested_namespace_import_and_reexport_aliases() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export type Keys<TRegistry extends object, TIndexType extends string> = Extract<
+  keyof TRegistry,
+  TIndexType
+>;
+"#),
+        "registry.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r#"
+export type * as Registry from "./registry";
+"#),
+        "internal.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r#"
+import type * as Internal from "./internal";
+
+export type ContentType = Internal.Registry.Keys<Record<string, unknown>, string>;
+"#),
+        "uid.ts",
+        &mut ctx,
+    )?;
+    lower_path_ok(
+        ts!(r#"
+export type * as UID from "./uid";
+"#),
+        "index.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import type { UID } from "./index";
+
+const seen = new Map<string, number>();
+
+export function hasSeen(id: UID.ContentType): boolean {
+  return seen.has(id);
+}
+"#),
+        "consumer.ts",
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_string_cast_for_erased_id_field() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Entry<T> = T;
+
+function key<T>(entry: Entry<T>): string {
+  return String(entry.id);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_id_field_on_erased_generic_input() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Input<T> = T;
+
+function update<T>(value: Input<T>) {
+  if ("id" in value && typeof value.id !== "undefined") {
+    return { id: value.id };
+  }
+  return null;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_assign_status_onto_error_object() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function mark(): Error {
+  const err = new Error("bad");
+  Object.assign(err, { status: 400 });
+  return err;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_member_assignment_as_erased_side_effect() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Relation = { id: number; position?: { before?: number } };
+
+function build(ids: number[], position: { before?: number }): Relation[] {
+  return ids.map((id) => {
+    const relation = { id } as Relation;
+    if (position.before) {
+      relation.position = position;
+    }
+    return relation;
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_object_literal_with_computed_key() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function update(relations: Record<string, unknown>[], column: string, newId: number) {
+  return relations.map((relation) => {
+    return { ...relation, [column]: newId };
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_array_literal_with_mixed_item_types() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pairs(entries: Record<string, unknown>[]) {
+  return entries.map((entry: any) => [`${entry.document_id}_${entry.locale}`, entry.id]);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_dynamic_access_with_erased_key() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function pick(rows: Record<string, unknown>[], column: unknown) {
+  return rows.map((row) => row[column as string]);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_entries_reduce_tuple_member_access() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Attribute = { type: string; target?: string };
+
+function populate(model: { attributes: Record<string, Attribute> }) {
+  const attributes = Object.entries(model.attributes);
+  return attributes.reduce((acc: any, [attributeName, attribute]) => {
+    switch (attribute.type) {
+      case "relation":
+        acc[attributeName] = { select: attribute.target };
+        break;
+      default:
+        break;
+    }
+    return acc;
+  }, {});
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_reduce_on_optional_array_fallback_tuple() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Attribute = { components?: string[] };
+
+function collect(attribute: Attribute) {
+  return (attribute.components || []).reduce((acc: any, componentUID: string) => {
+    acc[componentUID] = true;
+    return acc;
+  }, {});
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_includes_with_union_argument_against_literal_list() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const EVENTS = {
+  ENTRY_DELETE: "entry.delete",
+  ENTRY_UNPUBLISH: "entry.unpublish",
+};
+
+type EventName = "entry.create" | "entry.delete" | "entry.unpublish";
+
+function shouldPopulate(eventName: EventName): boolean {
+  return ![EVENTS.ENTRY_DELETE, EVENTS.ENTRY_UNPUBLISH].includes(eventName);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_node_process_env_cwd_and_require_surface() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -500,6 +1147,7 @@ const keys = Object.keys(mapping);
 const values = Object.values(mapping);
 const entries = Object.entries(mapping);
 const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
+const remapped = Object.fromEntries(Object.entries(mapping).map(([key, value]) => [key, value + 1]));
 "#),
         &mut ctx,
     )?;
@@ -520,6 +1168,102 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::DictLit(_)))
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_static_record_projection_utilities() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+declare const utils: unknown;
+const mapping: Record<string, number> = { a: 1, b: 2 };
+const keys = utils.keys(mapping);
+const values = utils.values(mapping);
+const entries = utils.entries(mapping);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    for expected in [
+        DictProjectionOp::Keys,
+        DictProjectionOp::Values,
+        DictProjectionOp::Entries,
+    ] {
+        ensure!(body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::DictProjection { op, .. } if op == expected)
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn lowers_static_array_reduce_utility() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+declare const utils: unknown;
+const values: number[] = [1, 2, 3];
+const total = utils.reduce(values, (acc, value) => acc + value, 0);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListReduce { .. }))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_static_record_reduce_utility_to_accumulator_surface() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+declare const utils: unknown;
+const mapping: Record<string, { writable?: boolean }> = { a: { writable: false } };
+const hidden = utils.reduce(
+  mapping,
+  (acc, attr, attrName) => (attr.writable === false ? acc.concat(attrName) : acc),
+  [] as string[]
+);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(&expr.kind, ExprKind::ListLit(items) if items.is_empty()))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_interface_index_signature_field_access() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Attribute {
+  type: string;
+  [key: string]: any;
+}
+function requiresValidation(attribute: Attribute) {
+  return attribute.required || attribute.unique;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(!ctx.interface_index_values.is_empty());
     Ok(())
 }
 
@@ -3014,13 +3758,16 @@ const savedHasWord = savedPattern.test(text);
     ensure!(
         body.exprs
             .iter()
-            .filter(|expr| matches!(
-                expr.kind,
-                ExprKind::RegexIsMatch {
-                    op: RegexMatchOp::Search,
-                    ..
-                }
-            ))
+            .filter(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::RegexExec { .. }
+                        | ExprKind::RegexIsMatch {
+                            op: smelt_hir::RegexMatchOp::Search,
+                            ..
+                        }
+                )
+            })
             .count()
             == 4,
         "expected RegExp.test lowering",
@@ -4311,6 +5058,169 @@ function run(items: Map<string, string[]>) {
       items.set(key, filtered);
     }
   });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_concat_on_array_is_array_conditional_receiver() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(attr: { enum: unknown }) {
+  return (Array.isArray(attr.enum) ? attr.enum : [attr.enum]).concat(null as any);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_spread_from_optional_erased_path() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(metas: { componentContext?: { pathToComponent?: string[] } }, name: string) {
+  return [
+    ...(metas?.componentContext?.pathToComponent ?? []),
+    name,
+  ];
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_capturing_destructured_function_parameter() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run({ model }: { model: { attributes: Record<string, string> } }, data: string[]) {
+  return data.reduce((out, name) => {
+    out[name] = model.attributes[name];
+    return out;
+  }, {} as Record<string, string>);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_opaque_method_function_callback_without_body_capture() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(model: { uid: string }, schema: unknown) {
+  return schema.test('relations-test', 'check relations', async function validate(data: unknown) {
+    return model.uid === String(data);
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_conditional_object_or_value_branch() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(source: Array<object | number>) {
+  return source.map((value) => ({
+    id: typeof value === 'object' ? value.id : value,
+  }));
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_stacked_switch_case_with_block_break() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(kind: string) {
+  let value = 0;
+  switch (kind) {
+    case 'relation':
+    case 'media': {
+      value = 1;
+      break;
+    }
+    default:
+      break;
+  }
+  return value;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_call_through_asserted_function_callee() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run<T>(schemaOrFactory: T | ((value: string) => T)): T {
+  if (typeof schemaOrFactory === 'function') {
+    return (schemaOrFactory as (value: string) => T)('z');
+  }
+  return schemaOrFactory;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_push_erased_structural_item() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Entry = { param: string; schema: { name: string }; matchRoute?: unknown };
+
+function run(entries: Entry[], schema: unknown, matchRoute: unknown) {
+  entries.push({ param: 'sort', schema, matchRoute });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_object_literal_with_opaque_spread() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(routes: Array<{ path: string }>, prefix: string) {
+  return routes.map((route) => ({
+    ...route,
+    path: `${prefix}${route.path}`,
+  }));
 }
 "#),
         &mut ctx,

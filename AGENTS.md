@@ -27,6 +27,10 @@ put new feature code into existing focused modules where practical, then do a de
 when `tsc` or Python compile/type checks would reject invalid source before Smelt runs, it is ok for HIR/MIR to use interchangeable internal representations such as Map and Record sharing Dict
 do not block useful mappings only because source spelling is erased internally; keep frontend checks/tests for shapes Smelt can cheaply validate itself
 
+## Type lowering
+WE DO NOT DO SPECIAL CASES FOR CODE, everything must lower through general rules, except test functions
+qualified type references must preserve or resolve the full alias path instead of blindly turning `Namespace.Member` into `Class(Member)`
+
 ## NEVERS
 
 NEVER reject a feature without asking me first, it doesn't matter how hard it is

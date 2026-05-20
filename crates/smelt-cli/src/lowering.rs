@@ -76,6 +76,8 @@ pub(crate) type LoweredCrate = (smelt_hir::Crate, Vec<(String, ModuleId)>);
 struct FrontendLoweringState {
     /// TypeScript re-export aliases visible to later manifest entries.
     ts_export_aliases: HashMap<String, smelt_hir::ItemId>,
+    /// TypeScript exports grouped by source module path.
+    ts_module_exports: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// TypeScript exported object constants used as namespace-like APIs.
     ts_object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// TypeScript exported object constants with static literal values.
@@ -86,6 +88,8 @@ struct FrontendLoweringState {
     ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
     /// TypeScript interface heritage edges visible across manifest entries.
     ts_interface_extends: HashMap<smelt_hir::Symbol, Vec<smelt_frontend_ts::InterfaceHeritageRef>>,
+    /// TypeScript interface string index signature value types visible across manifest entries.
+    ts_interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// TypeScript interface call signatures visible across manifest entries.
     ts_interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
     /// TypeScript callable intersection fields visible across manifest entries.
@@ -368,11 +372,13 @@ fn lower_manifest_source(
             let mut ctx = smelt_frontend_ts::HirCtx {
                 krate,
                 export_aliases: state.ts_export_aliases,
+                module_exports: state.ts_module_exports,
                 object_namespaces: state.ts_object_namespaces,
                 object_consts: state.ts_object_consts,
                 overloads: state.ts_overloads,
                 type_alias_fields: state.ts_type_alias_fields,
                 interface_extends: state.ts_interface_extends,
+                interface_index_values: state.ts_interface_index_values,
                 interface_call_signatures: state.ts_interface_call_signatures,
                 callable_fields: state.ts_callable_fields,
             };
@@ -393,11 +399,13 @@ fn lower_manifest_source(
                 module,
                 FrontendLoweringState {
                     ts_export_aliases: ctx.export_aliases,
+                    ts_module_exports: ctx.module_exports,
                     ts_object_namespaces: ctx.object_namespaces,
                     ts_object_consts: ctx.object_consts,
                     ts_overloads: ctx.overloads,
                     ts_type_alias_fields: ctx.type_alias_fields,
                     ts_interface_extends: ctx.interface_extends,
+                    ts_interface_index_values: ctx.interface_index_values,
                     ts_interface_call_signatures: ctx.interface_call_signatures,
                     ts_callable_fields: ctx.callable_fields,
                     py_module_namespaces: state.py_module_namespaces,
@@ -428,11 +436,13 @@ fn lower_manifest_source(
                 module,
                 FrontendLoweringState {
                     ts_export_aliases: state.ts_export_aliases,
+                    ts_module_exports: state.ts_module_exports,
                     ts_object_namespaces: state.ts_object_namespaces,
                     ts_object_consts: state.ts_object_consts,
                     ts_overloads: state.ts_overloads,
                     ts_type_alias_fields: state.ts_type_alias_fields,
                     ts_interface_extends: state.ts_interface_extends,
+                    ts_interface_index_values: state.ts_interface_index_values,
                     ts_interface_call_signatures: state.ts_interface_call_signatures,
                     ts_callable_fields: state.ts_callable_fields,
                     py_module_namespaces: ctx.module_namespaces,

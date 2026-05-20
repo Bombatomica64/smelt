@@ -24,6 +24,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .unwrap_or(none_ty);
         let names = Self::local_names(mir, function)?;
         let declared_locals = function.params.iter().copied().collect();
+        let predeclared_locals = predeclared_locals_for_function(function);
         Ok(Self {
             mir,
             context,
@@ -31,6 +32,9 @@ impl<'mir> FunctionEmitter<'mir> {
             names,
             mutable_locals: assigned_locals(mir, function),
             declared_locals: RefCell::new(declared_locals),
+            predeclared_locals,
+            termination_cache: RefCell::new(HashMap::new()),
+            loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             none_ty,
             unknown_local: LocalDecl {
@@ -107,15 +111,6 @@ impl<'mir> FunctionEmitter<'mir> {
                 out.push_str("#[test]\n");
             }
         }
-        if name == "zip_with_implementation" {
-            out.push_str("pub(crate) fn zip_with_implementation(first: SmeltUnknown, second: SmeltUnknown, fn_: &mut dyn FnMut(SmeltUnknown, SmeltUnknown, f64, (SmeltUnknown, SmeltUnknown)) -> SmeltUnknown) -> Vec<SmeltUnknown> {\n");
-            out.push_str("    let first_values = if let SmeltUnknown::Array(values) = first.clone() { values } else { Vec::new() };\n");
-            out.push_str("    let second_values = if let SmeltUnknown::Array(values) = second.clone() { values } else { Vec::new() };\n");
-            out.push_str("    let len = first_values.len().min(second_values.len());\n");
-            out.push_str("    (0..len).map(|index| fn_(first_values[index].clone(), second_values[index].clone(), index as f64, (first.clone(), second.clone()))).collect::<Vec<_>>()\n");
-            out.push_str("}\n");
-            return Ok(());
-        }
         if name == "prepare_lazy_function" {
             let fn_params = self
                 .function
@@ -191,7 +186,9 @@ impl<'mir> FunctionEmitter<'mir> {
 
         self.emit_mutable_local_preludes(out)?;
         self.emit_block(self.entry_block()?, out)?;
-        if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())? {
+        if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())?
+            && !emitted_tail_returns(out)
+        {
             self.emit_fallthrough_return(out)?;
         }
         out.push_str("}\n");
@@ -205,15 +202,14 @@ impl<'mir> FunctionEmitter<'mir> {
     /// fall through, Rust would otherwise infer `()` and report E0308; returning
     /// the type default keeps the generated crate type-correct until the CFG
     /// shape is represented more precisely.
-    fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
-        if self.function.return_ty == self.none_ty {
-            return Ok(());
-        }
+    pub(super) fn emit_fallthrough_return(&self, out: &mut String) -> Result<(), EmitError> {
         if self.function.can_throw {
             out.push_str(&format!(
                 "    return Ok({});\n",
                 self.default_value(self.function.return_ty)?
             ));
+        } else if self.function.return_ty == self.none_ty {
+            return Ok(());
         } else {
             out.push_str(&format!(
                 "    return {};\n",
@@ -250,18 +246,23 @@ impl<'mir> FunctionEmitter<'mir> {
             {
                 continue;
             }
+            let mutability = if self.local_binding_needs_mut(local) {
+                "mut "
+            } else {
+                ""
+            };
             if self.predeclared_local_needs_default(local)?
                 || self.local_may_be_used_before_assignment(local)?
             {
                 out.push_str(&format!(
-                    "    let mut {}: {} = {};\n",
+                    "    let {mutability}{}: {} = {};\n",
                     name,
                     self.type_text_with_impl_trait(decl.ty, false)?,
                     self.default_value(decl.ty)?
                 ));
             } else {
                 out.push_str(&format!(
-                    "    let mut {}: {};\n",
+                    "    let {mutability}{}: {};\n",
                     name,
                     self.type_text_with_impl_trait(decl.ty, false)?
                 ));
@@ -278,58 +279,27 @@ impl<'mir> FunctionEmitter<'mir> {
     /// those bindings to function scope preserves MIR's function-local storage
     /// without perturbing straight-line entry-block declarations.
     pub(super) fn predeclared_locals(&self) -> HashSet<LocalId> {
-        let mut locals = self.reassigned_locals();
-        if self.function.blocks.len() <= 1 {
-            return locals;
-        }
-        for block in &self.function.blocks {
-            if block.id == self.function.entry {
-                continue;
-            }
-            for statement in &block.statements {
-                if let Statement::Assign { dest, .. } = statement {
-                    locals.insert(*dest);
-                }
-            }
-        }
-        locals
+        self.predeclared_locals.clone()
     }
 
     /// Returns whether a predeclared local should keep a concrete default.
     fn predeclared_local_needs_default(&self, local: LocalId) -> Result<bool, EmitError> {
         let decl = self.local_decl(local)?;
-        if self.first_assignment_is_outside_entry(local) {
-            return Ok(true);
-        }
-        if matches!(self.mir.types.get(decl.ty), Some(Type::Function(_))) {
-            return Ok(true);
-        }
-        if let Some(Type::List(item)) = self.mir.types.get(decl.ty)
-            && matches!(self.mir.types.get(*item), Some(Type::Function(_)))
+        let name = self.local_name(local)?;
+        let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
+            || self
+                .type_text_with_impl_trait(decl.ty, false)?
+                .contains("FnMut");
+        if is_callable
+            && (name.starts_with("_smelt_tmp_")
+                || self.local_assignment_count(local) == 0
+                || self.local_first_access_is_read(local))
         {
             return Ok(true);
         }
-        let name = self.local_name(local)?;
-        Ok(matches!(self.mir.types.get(decl.ty), Some(Type::Float)) && name.starts_with("index"))
-    }
-
-    /// Returns locals that have more than one explicit MIR assignment.
-    ///
-    /// These locals need a single outer Rust binding when branch emission can
-    /// otherwise introduce sibling scoped declarations for the same MIR local.
-    pub(super) fn reassigned_locals(&self) -> HashSet<LocalId> {
-        let mut seen = self.function.params.iter().copied().collect::<HashSet<_>>();
-        let mut repeated = HashSet::new();
-        for block in &self.function.blocks {
-            for statement in &block.statements {
-                if let Statement::Assign { dest, .. } = statement
-                    && !seen.insert(*dest)
-                {
-                    repeated.insert(*dest);
-                }
-            }
-        }
-        repeated
+        Ok(matches!(self.mir.types.get(decl.ty), Some(Type::Float))
+            && name.starts_with("index")
+            && (name.contains('_') || self.local_first_access_is_read(local)))
     }
 
     /// Returns whether the first Rust binding for `local` must be mutable.
@@ -342,7 +312,18 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return true;
         }
-        if self.reassigned_locals().contains(&local) {
+        if self.predeclared_locals.contains(&local)
+            && (self.predeclared_local_needs_default(local).unwrap_or(true)
+                || self
+                    .local_may_be_used_before_assignment(local)
+                    .unwrap_or(true))
+        {
+            return true;
+        }
+        if self.local_may_be_assigned_after_assignment(local) {
+            return true;
+        }
+        if self.local_assignment_count(local) > 1 {
             return true;
         }
         if self.first_assignment_is_outside_entry(local) {
@@ -351,6 +332,11 @@ impl<'mir> FunctionEmitter<'mir> {
         for block in &self.function.blocks {
             for statement in &block.statements {
                 match statement {
+                    Statement::Assign { dest, .. } if *dest == local => {
+                        if self.block_can_repeat(block.id, &mut HashSet::new()) {
+                            return true;
+                        }
+                    }
                     Statement::AssignPlace {
                         place:
                             Place::Local(candidate)
@@ -386,6 +372,148 @@ impl<'mir> FunctionEmitter<'mir> {
         false
     }
 
+    /// Count direct assignments to a MIR local.
+    fn local_assignment_count(&self, local: LocalId) -> usize {
+        self.function
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .filter(|statement| match statement {
+                Statement::Assign { dest, .. } => *dest == local,
+                Statement::AssignPlace {
+                    place: Place::Local(candidate),
+                    ..
+                } => *candidate == local,
+                _ => false,
+            })
+            .count()
+    }
+
+    /// Returns whether `local` is first assigned outside the entry block.
+    fn first_assignment_is_outside_entry(&self, local: LocalId) -> bool {
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                if let Statement::Assign { dest, .. } = statement
+                    && *dest == local
+                {
+                    return block.id != self.function.entry;
+                }
+            }
+        }
+        false
+    }
+
+    /// Returns whether the first MIR access to a local reads the previous value.
+    fn local_first_access_is_read(&self, local: LocalId) -> bool {
+        for block in &self.function.blocks {
+            for phi in &block.phis {
+                if phi
+                    .incoming
+                    .iter()
+                    .any(|(_, operand)| operand_uses_local(operand, local))
+                {
+                    return true;
+                }
+                if phi.dest == local {
+                    return false;
+                }
+            }
+            for statement in &block.statements {
+                match statement {
+                    Statement::Assign { dest, value } => {
+                        if rvalue_uses_local(value, local) {
+                            return true;
+                        }
+                        if *dest == local {
+                            return false;
+                        }
+                    }
+                    Statement::AssignPlace { place, value } => {
+                        if assignment_place_reads_local(place, local)
+                            || rvalue_uses_local(value, local)
+                        {
+                            return true;
+                        }
+                        if matches!(place, Place::Local(candidate) if *candidate == local) {
+                            return false;
+                        }
+                    }
+                    Statement::StorageLive(_) | Statement::StorageDead(_) => {}
+                }
+            }
+            if block
+                .terminator
+                .as_ref()
+                .is_some_and(|terminator| terminator_uses_local(terminator, local))
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Return whether control flow from `block_id` can reach `block_id` again.
+    fn block_can_repeat(
+        &self,
+        block_id: smelt_mir::BlockId,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> bool {
+        let Some(block) = self
+            .function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+        else {
+            return true;
+        };
+        let Some(terminator) = &block.terminator else {
+            return false;
+        };
+        terminator_successors(terminator)
+            .into_iter()
+            .any(|successor| {
+                successor == block_id
+                    || visited.insert(successor)
+                        && self
+                            .function
+                            .blocks
+                            .iter()
+                            .find(|block| block.id == successor)
+                            .and_then(|block| block.terminator.as_ref())
+                            .is_some_and(|terminator| {
+                                terminator_successors(terminator).into_iter().any(|next| {
+                                    next == block_id
+                                        || self.block_can_reach(next, block_id, &mut HashSet::new())
+                                })
+                            })
+            })
+    }
+
+    /// Return whether a successor path can reach `target`.
+    fn block_can_reach(
+        &self,
+        block_id: smelt_mir::BlockId,
+        target: smelt_mir::BlockId,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> bool {
+        if block_id == target {
+            return true;
+        }
+        if !visited.insert(block_id) {
+            return false;
+        }
+        self.function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+            .and_then(|block| block.terminator.as_ref())
+            .is_some_and(|terminator| {
+                terminator_successors(terminator)
+                    .into_iter()
+                    .any(|next| self.block_can_reach(next, target, visited))
+            })
+    }
+
     /// Returns whether a local is read anywhere in the function body.
     pub(super) fn local_has_uses(&self, local: LocalId) -> bool {
         self.function.blocks.iter().any(|block| {
@@ -406,18 +534,101 @@ impl<'mir> FunctionEmitter<'mir> {
         })
     }
 
-    /// Returns whether `local` is first assigned outside the entry block.
-    fn first_assignment_is_outside_entry(&self, local: LocalId) -> bool {
+    /// Returns the source operand for a single-assignment unknown cast local.
+    ///
+    /// TypeScript type assertions and control-flow narrows do not convert the
+    /// runtime value. When a narrowed temporary is immediately returned as
+    /// `unknown`, the original tagged value should flow through instead of
+    /// being unwrapped and rewrapped as the narrowed shape.
+    pub(super) fn single_assignment_unknown_cast_source(&self, local: LocalId) -> Option<&Operand> {
+        let mut found = None;
         for block in &self.function.blocks {
             for statement in &block.statements {
-                if let Statement::Assign { dest, .. } = statement
-                    && *dest == local
-                {
-                    return block.id != self.function.entry;
+                let Statement::Assign {
+                    dest,
+                    value: Rvalue::UnknownCast { value, target: _ },
+                } = statement
+                else {
+                    continue;
+                };
+                if *dest != local {
+                    continue;
                 }
+                if found.is_some() {
+                    return None;
+                }
+                found = Some(value);
             }
         }
-        false
+        found
+    }
+
+    /// Return whether some control-flow path writes to `local` after it already
+    /// has a value. Immutable Rust locals can be initialized from sibling
+    /// branches, but any second assignment on one path requires `mut`.
+    fn local_may_be_assigned_after_assignment(&self, local: LocalId) -> bool {
+        let assigned = self.function.params.contains(&local);
+        self.block_may_assign_local_after_assignment(
+            self.function.entry,
+            local,
+            assigned,
+            &mut HashSet::new(),
+        )
+    }
+
+    /// Walk one control-flow path while tracking whether `local` is initialized.
+    fn block_may_assign_local_after_assignment(
+        &self,
+        block_id: smelt_mir::BlockId,
+        local: LocalId,
+        mut assigned: bool,
+        seen: &mut HashSet<(smelt_mir::BlockId, bool)>,
+    ) -> bool {
+        if !seen.insert((block_id, assigned)) {
+            return false;
+        }
+        let Some(block) = self
+            .function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+        else {
+            return true;
+        };
+        for phi in &block.phis {
+            if phi.dest == local {
+                if assigned {
+                    return true;
+                }
+                assigned = true;
+            }
+        }
+        for statement in &block.statements {
+            let writes_local = match statement {
+                Statement::Assign { dest, .. } => *dest == local,
+                Statement::AssignPlace {
+                    place: Place::Local(candidate),
+                    ..
+                } => *candidate == local,
+                Statement::AssignPlace { .. }
+                | Statement::StorageLive(_)
+                | Statement::StorageDead(_) => false,
+            };
+            if writes_local {
+                if assigned {
+                    return true;
+                }
+                assigned = true;
+            }
+        }
+        block
+            .terminator
+            .as_ref()
+            .into_iter()
+            .flat_map(terminator_successors)
+            .any(|successor| {
+                self.block_may_assign_local_after_assignment(successor, local, assigned, seen)
+            })
     }
 
     /// Returns whether evaluating `value` mutates `local` in-place.
@@ -426,6 +637,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Rvalue::ListPush { list, .. }
             | Rvalue::ListExtend { list, .. }
             | Rvalue::ListInsert { list, .. }
+            | Rvalue::ListSplice { list, .. }
             | Rvalue::ListReverse { list }
             | Rvalue::ListFill { list, .. }
             | Rvalue::ListCopyWithin { list, .. }
@@ -738,6 +950,9 @@ impl<'mir> FunctionEmitter<'mir> {
             names: HashMap::new(),
             mutable_locals: HashSet::new(),
             declared_locals: RefCell::new(HashSet::new()),
+            predeclared_locals: HashSet::new(),
+            termination_cache: RefCell::new(HashMap::new()),
+            loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
             none_ty: ty,
             unknown_local: LocalDecl {
@@ -805,6 +1020,14 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             let operand_ty = self.operand_ty(operand)?;
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
+                && (matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(*inner))
+            {
+                return self.operand_text(operand);
+            }
             if self.mir.types.get(operand_ty) == Some(&Type::None) {
                 return Ok("None".to_owned());
             }
@@ -851,6 +1074,12 @@ impl<'mir> FunctionEmitter<'mir> {
         ) || self.is_erased_class_type(self.operand_ty(operand)?)
         {
             return self.unknown_cast_text(operand, target);
+        }
+        if matches!(self.mir.types.get(target), Some(Type::String))
+            && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
+            && self.symbol_name(*name)? == "RegExp"
+        {
+            return Ok(format!("{}.source.clone()", self.operand_text(operand)?));
         }
         if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
@@ -1522,9 +1751,12 @@ impl<'mir> FunctionEmitter<'mir> {
                     "{value_text}.clone().map_or(String::new(), |value| {inner_text})"
                 ))
             }
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
+                Ok(format!("{value_text}.source.clone()"))
+            }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
                 Ok(format!(
-                    "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }}"
+                    "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
                 ))
             }
             _ => Ok("\"[object Object]\".to_owned()".to_owned()),
@@ -1730,8 +1962,9 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             _ => format!("{function_text}({args})"),
         };
+        let return_text = self.unknown_wrap_value_text(&call, source.return_ty)?;
         Ok(Some(format!(
-            "::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| ({call}).into_smelt_unknown()))"
+            "::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}))"
         )))
     }
 
@@ -1848,6 +2081,9 @@ impl<'mir> FunctionEmitter<'mir> {
     pub(super) fn is_erased_class_type(&self, ty: TypeId) -> bool {
         match self.mir.types.get(ty) {
             Some(Type::Class { name, .. }) => {
+                if self.symbol_name(*name).is_ok_and(|name| name == "RegExp") {
+                    return false;
+                }
                 !self.mir.classes.iter().any(|class| class.name == *name)
             }
             _ => false,
@@ -2152,6 +2388,43 @@ fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
             .collect(),
         Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable => Vec::new(),
     }
+}
+
+/// Compute locals that need function-scope bindings before Rust block emission.
+fn predeclared_locals_for_function(function: &MirFunction) -> HashSet<LocalId> {
+    let mut seen = function.params.iter().copied().collect::<HashSet<_>>();
+    let mut locals = HashSet::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            if let Statement::Assign { dest, .. } = statement
+                && !seen.insert(*dest)
+            {
+                locals.insert(*dest);
+            }
+        }
+    }
+    if function.blocks.len() <= 1 {
+        return locals;
+    }
+    for block in &function.blocks {
+        if block.id == function.entry {
+            continue;
+        }
+        for statement in &block.statements {
+            if let Statement::Assign { dest, .. } = statement {
+                locals.insert(*dest);
+            }
+        }
+    }
+    locals
+}
+
+/// Return whether the current emitted function body already ends in a return.
+fn emitted_tail_returns(out: &str) -> bool {
+    out.lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .is_some_and(|line| line.trim_start().starts_with("return "))
 }
 
 // Constant formatting continues in `literals.rs`.

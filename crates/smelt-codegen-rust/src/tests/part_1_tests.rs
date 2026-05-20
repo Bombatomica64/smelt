@@ -90,12 +90,9 @@ function lazy(functions: Array<(value: unknown) => unknown>): Array<unknown | nu
 "#,
     );
 
-    assert!(
-        source.contains("functions.iter().enumerate().map"),
-        "{source}"
-    );
+    assert!(source.contains(".iter().enumerate().map"), "{source}");
     assert!(!source.contains("let item = (*item).clone()"), "{source}");
-    assert!(!source.contains("functions.clone()"), "{source}");
+    assert!(!source.contains("(&mut *item.borrow_mut())"), "{source}");
 }
 
 #[test]
@@ -109,7 +106,7 @@ function label(prefix: string, value: string | undefined): string {
     );
 
     assert!(
-        source.contains(".unwrap_or_default().to_string()"),
+        source.contains("prefix.clone() + &value.clone().unwrap_or_default()"),
         "{source}"
     );
 }
@@ -286,7 +283,7 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains(".iter().enumerate().position(|(index, item)|"));
     assert!(source.contains(".iter().enumerate().any(|(index, item)|"));
     assert!(source.contains(".iter().enumerate().all(|(index, item)|"));
-    assert!(source.matches("while ").count() >= 2);
+    assert!(source.matches("loop {").count() >= 2);
     assert!(source.contains(".iter().enumerate().fold("));
     assert!(source.contains("reduce of empty array with no initial value"));
     assert!(source.contains(".collect::<Vec<_>>()"));

@@ -435,10 +435,24 @@ impl ModuleBuilder<'_> {
                 self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
             }
             Expression::RegExpLiteral(literal) => {
-                let ty = self.ctx.krate.types.intern(Type::String);
-                let value = Self::regex_literal_pattern_text(literal);
+                let ty = self.regexp_type();
+                let pattern = Self::regex_literal_pattern_text_without_flags(literal);
+                let flags = literal.regex.flags.to_string();
+                let pattern = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(pattern)),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                    span: self.span(literal.span.start, literal.span.end),
+                });
+                let flags = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(flags)),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                    span: self.span(literal.span.start, literal.span.end),
+                });
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(value)),
+                    kind: ExprKind::New {
+                        class: self.intern_type_name("RegExp"),
+                        args: vec![pattern, flags],
+                    },
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 }))

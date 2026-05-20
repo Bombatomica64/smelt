@@ -44,6 +44,8 @@ pub struct HirCtx {
     pub krate: HirCrate,
     /// Exported aliases created by re-export declarations.
     pub export_aliases: HashMap<String, ItemId>,
+    /// Exported item names grouped by source module path.
+    pub module_exports: HashMap<String, HashMap<String, ItemId>>,
     /// Exported object constants used as namespace-like API surfaces.
     pub object_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Exported object constants with literal data values.
@@ -54,6 +56,8 @@ pub struct HirCtx {
     pub type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses visible to later modules for lazy field lookup.
     pub interface_extends: HashMap<smelt_hir::Symbol, Vec<crate::lowering::InterfaceHeritageRef>>,
+    /// Value types declared by interface string index signatures.
+    pub interface_index_values: HashMap<smelt_hir::Symbol, TypeId>,
     /// Interface call signatures visible to later modules.
     pub interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Structural fields attached to callable intersection types.
@@ -67,11 +71,13 @@ impl HirCtx {
         Self {
             krate: HirCrate::new(),
             export_aliases: HashMap::new(),
+            module_exports: HashMap::new(),
             object_namespaces: HashMap::new(),
             object_consts: HashMap::new(),
             overloads: HashMap::new(),
             type_alias_fields: HashMap::new(),
             interface_extends: HashMap::new(),
+            interface_index_values: HashMap::new(),
             interface_call_signatures: HashMap::new(),
             callable_fields: HashMap::new(),
         }

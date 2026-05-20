@@ -294,6 +294,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(pattern, aliases, dest)
                 | rewrite_operand_except(haystack, aliases, dest)
         }
+        Rvalue::RegexExec { regex, haystack } => {
+            rewrite_operand_except(regex, aliases, dest)
+                | rewrite_operand_except(haystack, aliases, dest)
+        }
         Rvalue::StringRemoveAffix {
             haystack, affix, ..
         } => {
@@ -649,6 +653,7 @@ fn rewrite_rvalue(
         | Rvalue::NumericPredicate { operand, .. }
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
+        | Rvalue::StringNormalize { operand, .. }
         | Rvalue::StringTrim { operand, .. }
         | Rvalue::StringPredicate { operand, .. }
         | Rvalue::Await(operand) => rewrite_operand_except(operand, aliases, dest),

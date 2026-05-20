@@ -223,21 +223,36 @@ impl ModuleBuilder<'_> {
             "padEnd" => StringPadOp::End,
             _ => return Ok(None),
         };
-        if !(1..=2).contains(&call.arguments.len()) {
+        if !(1..=3).contains(&call.arguments.len()) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "string padding requires target length and optional string padding",
             ));
         }
-        let operand = self.expression(&member.object, body)?;
-        let Some(target_argument) = call.arguments.first() else {
+        let (operand, target_argument, pad_argument) = if call.arguments.len() == 3 {
+            let Some(operand_argument) = call.arguments.first() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string padding requires a receiver argument",
+                ));
+            };
+            let operand = self.argument(operand_argument, body)?;
+            (operand, call.arguments.get(1), call.arguments.get(2))
+        } else {
+            (
+                self.expression(&member.object, body)?,
+                call.arguments.first(),
+                call.arguments.get(1),
+            )
+        };
+        let Some(target_argument) = target_argument else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "string padding requires target length",
             ));
         };
         let target_len = self.argument(target_argument, body)?;
-        let pad = if let Some(pad_argument) = call.arguments.get(1) {
+        let pad = if let Some(pad_argument) = pad_argument {
             self.argument(pad_argument, body)?
         } else {
             let ty = self.ctx.krate.types.intern(Type::String);

@@ -102,7 +102,7 @@ impl ModuleBuilder<'_> {
         };
         let mut target = self.argument_with_hint(target_arg, body, Some(record_ty))?;
         if Self::expr_ty(body, target) != record_ty
-            && self.object_assign_object_like_source(Self::expr_ty(body, target))
+            && self.object_assign_castable_target(Self::expr_ty(body, target))
         {
             target = body.push_expr(Expr {
                 kind: ExprKind::UnknownCast {
@@ -129,10 +129,14 @@ impl ModuleBuilder<'_> {
             });
         }
         if Self::expr_ty(body, target) != record_ty {
-            return Err(SmeltError::unsupported(
-                self.span(target_arg.span().start, target_arg.span().end),
-                "Object.assign target must share the source record type",
-            ));
+            target = body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: target,
+                    target: record_ty,
+                },
+                ty: record_ty,
+                span: self.span(target_arg.span().start, target_arg.span().end),
+            });
         }
 
         Ok(Some(body.push_expr(Expr {
@@ -165,6 +169,12 @@ impl ModuleBuilder<'_> {
                 .all(|item| self.object_assign_object_like_source(item)),
             _ => false,
         }
+    }
+
+    /// Return whether an `Object.assign` target can be coerced to the merged record type.
+    fn object_assign_castable_target(&self, target_ty: smelt_hir::TypeId) -> bool {
+        self.object_assign_object_like_source(target_ty)
+            || matches!(self.ctx.krate.types.get(target_ty), Some(Type::None))
     }
 
     /// Build the fallback record type for object-like assign sources without a record source.
@@ -701,11 +711,6 @@ impl ModuleBuilder<'_> {
         if !is_known_regexp_test && !self.could_be_regexp_test_receiver(&member.object, body) {
             return Ok(None);
         }
-        let Some(pattern) =
-            self.regexp_pattern_expression(&member.object, body, is_known_regexp_test)?
-        else {
-            return Ok(None);
-        };
         let [haystack_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -719,6 +724,40 @@ impl ModuleBuilder<'_> {
                 "RegExp.test() requires a string haystack",
             ));
         };
+        let receiver = self.expression(&member.object, body)?;
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, receiver)), Some(Type::Class { name, .. }) if self.ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp"))
+        {
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let optional_unknown_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
+            let exec = body.push_expr(Expr {
+                kind: ExprKind::RegexExec {
+                    regex: receiver,
+                    haystack,
+                },
+                ty: optional_unknown_ty,
+                span: self.span(call.span.start, call.span.end),
+            });
+            let none = body.push_expr(Expr {
+                kind: ExprKind::Literal(smelt_hir::Literal::None),
+                ty: self.ctx.krate.types.intern(Type::None),
+                span: self.span(call.span.start, call.span.end),
+            });
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    lhs: exec,
+                    rhs: none,
+                },
+                ty: bool_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        let Some(pattern) =
+            self.regexp_pattern_expression(&member.object, body, is_known_regexp_test)?
+        else {
+            return Ok(None);
+        };
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::RegexIsMatch {
@@ -731,7 +770,7 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Return whether an untagged `.test(...)` receiver is plausibly a RegExp value.
+    /// Return whether an untagged `.test(...)` receiver is plausibly a `RegExp` value.
     ///
     /// Many validation libraries expose their own `.test(...)` APIs. Smelt only
     /// routes untagged calls into regex lowering when the receiver is a direct
@@ -804,9 +843,7 @@ impl ModuleBuilder<'_> {
                 "RegExp.exec() requires exactly one string argument",
             ));
         };
-        let Some(pattern) = self.regexp_pattern_expression(&member.object, body, false)? else {
-            return Ok(None);
-        };
+        let regex = self.expression(&member.object, body)?;
         let haystack = self.argument(haystack_argument, body)?;
         let Some(haystack) = self.regexp_text_operand(haystack, body) else {
             return Err(SmeltError::unsupported(
@@ -814,11 +851,10 @@ impl ModuleBuilder<'_> {
                 "RegExp.exec() requires a string haystack",
             ));
         };
-        let string_ty = self.ctx.krate.types.intern(Type::String);
-        let list_ty = self.ctx.krate.types.intern(Type::List(string_ty));
-        let ty = self.ctx.krate.types.intern(Type::Optional(list_ty));
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::RegexFind { pattern, haystack },
+            kind: ExprKind::RegexExec { regex, haystack },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -893,12 +929,35 @@ impl ModuleBuilder<'_> {
             ));
         };
         let pattern = self.argument(pattern_argument, body)?;
-        self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
+        let pattern = self.regexp_pattern_operand(pattern, body)?.ok_or_else(|| {
             SmeltError::unsupported(
                 self.span(new_expr.span.start, new_expr.span.end),
                 "RegExp construction requires a string pattern",
             )
-        })
+        })?;
+        let flags = if let Some(flags_argument) = new_expr.arguments.get(1) {
+            let flags = self.argument(flags_argument, body)?;
+            self.regexp_text_operand(flags, body).ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(flags_argument.span().start, flags_argument.span().end),
+                    "RegExp flags must be string-compatible",
+                )
+            })?
+        } else {
+            body.push_expr(Expr {
+                kind: ExprKind::Literal(smelt_hir::Literal::String(String::new())),
+                ty: self.ctx.krate.types.intern(Type::String),
+                span: self.span(new_expr.span.start, new_expr.span.end),
+            })
+        };
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::New {
+                class: self.intern_type_name("RegExp"),
+                args: vec![pattern, flags],
+            },
+            ty: self.regexp_type(),
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
     }
 
     /// Extract a pattern string from a supported TypeScript RegExp-producing expression.
@@ -1315,7 +1374,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let item = self.argument(item_argument, body)?;
+        let mut item = self.argument(item_argument, body)?;
         let item_ty = Self::expr_ty(body, item);
         let compatible = self.array_item_type_compatible(item_ty, element_ty)
             || self.ctx.krate.types.get(element_ty) == Some(&Type::Unknown)
@@ -1330,10 +1389,18 @@ impl ModuleBuilder<'_> {
                 (Some(Type::TypeParam { .. }), _) | (_, Some(Type::TypeParam { .. }))
             );
         if !compatible {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "array push argument must match the array element type",
-            ));
+            if self.erased_or_union_surface(item_ty) || self.erased_or_union_surface(element_ty) {
+                item = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: item },
+                    ty: element_ty,
+                    span: self.span(item_argument.span().start, item_argument.span().end),
+                });
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array push argument must match the array element type",
+                ));
+            }
         }
         let ty = self.ctx.krate.types.intern(Type::Float);
         Ok(Some(body.push_expr(Expr {
@@ -1758,7 +1825,10 @@ impl ModuleBuilder<'_> {
     }
 
     /// Collapse a tuple used as an array element into the item type produced by flattening it.
-    fn flattened_tuple_item_type(&mut self, items: Vec<smelt_hir::TypeId>) -> smelt_hir::TypeId {
+    pub(super) fn flattened_tuple_item_type(
+        &mut self,
+        items: Vec<smelt_hir::TypeId>,
+    ) -> smelt_hir::TypeId {
         match items.as_slice() {
             [] => self.ctx.krate.types.intern(Type::Never),
             [single] => *single,
@@ -1955,6 +2025,9 @@ impl ModuleBuilder<'_> {
         expected: smelt_hir::TypeId,
     ) -> bool {
         if self.type_assignable_to(actual, expected) {
+            return true;
+        }
+        if self.erased_or_union_surface(actual) || self.erased_or_union_surface(expected) {
             return true;
         }
         if matches!(

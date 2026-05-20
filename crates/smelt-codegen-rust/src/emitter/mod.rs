@@ -127,7 +127,7 @@ impl EmitContext {
             if function_param_type_priorities
                 .get(&rust_name)
                 .copied()
-                .is_none_or(|existing| priority >= existing)
+                .is_none_or(|existing| priority > existing)
             {
                 function_param_types.insert(rust_name.clone(), params);
                 function_return_types.insert(rust_name.clone(), function.return_ty);
@@ -280,7 +280,14 @@ fn callback_param_escapes_locally(
                 .iter()
                 .any(|capture| capture.source_local == local)
         });
+    let erased_or_dynamic_escape = function.blocks.iter().any(|block| {
+        block
+            .statements
+            .iter()
+            .any(|statement| statement_erases_callback_param(mir, function, statement, local))
+    });
     Ok(directly_returned
+        || erased_or_dynamic_escape
         || type_contains_function(mir, function.return_ty)
         || (matches!(mir.types.get(function.return_ty), Some(Type::Function(_)))
             && captured_by_any_closure)
@@ -292,6 +299,75 @@ fn callback_param_escapes_locally(
                     .iter()
                     .any(|capture| capture.source_local == local)
         }))
+}
+
+/// Return whether a statement may put a callback parameter behind erased state.
+///
+/// `SmeltUnknown::Function` is stored as a `'static` callable handle in the
+/// generated runtime. If a source callback parameter is wrapped into unknown
+/// state, or passed to an erased closure-call result, the parameter cannot stay
+/// as `&mut dyn FnMut`; it must enter the function as an owned handle.
+fn statement_erases_callback_param(
+    mir: &Mir,
+    function: &MirFunction,
+    statement: &Statement,
+    local: LocalId,
+) -> bool {
+    let Statement::Assign {
+        dest,
+        value: statement_value,
+    } = statement
+    else {
+        return false;
+    };
+    let dest_ty = id_index(dest.0, "local index does not fit usize")
+        .ok()
+        .and_then(|dest_index| function.locals.get(dest_index))
+        .map(|decl| decl.ty);
+    let function_erases_return = type_erases_values(mir, function.return_ty);
+    match statement_value {
+        Rvalue::Dict(entries) => {
+            (function_erases_return || dest_ty.is_some_and(|ty| type_erases_values(mir, ty)))
+                && entries
+                    .iter()
+                    .any(|(_, entry_value)| operand_local(entry_value) == Some(local))
+        }
+        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
+            (function_erases_return || dest_ty.is_some_and(|ty| type_erases_values(mir, ty)))
+                && items.iter().any(|item| operand_local(item) == Some(local))
+        }
+        Rvalue::ClosureCall { args, .. } => {
+            dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
+                && args.iter().any(|arg| operand_local(arg) == Some(local))
+        }
+        Rvalue::CallableObjectAssign { callable, props } => {
+            dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
+                && (operand_local(callable) == Some(local)
+                    || props
+                        .iter()
+                        .any(|(_, prop_value)| operand_local(prop_value) == Some(local)))
+        }
+        Rvalue::Use(operand) => {
+            dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
+                && operand_local(operand) == Some(local)
+        }
+        _ => false,
+    }
+}
+
+/// Return whether a Rust value of `ty` erases nested values into unknown state.
+fn type_erases_values(mir: &Mir, ty: TypeId) -> bool {
+    match mir.types.get(ty) {
+        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => true,
+        Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+            type_erases_values(mir, *item)
+        }
+        Some(Type::Dict(key, value)) => {
+            type_erases_values(mir, *key) || type_erases_values(mir, *value)
+        }
+        Some(Type::Tuple(items)) => items.iter().any(|item| type_erases_values(mir, *item)),
+        _ => false,
+    }
 }
 
 /// Return closure definitions in a function keyed by destination local.
@@ -356,6 +432,13 @@ pub(crate) struct FunctionEmitter<'mir> {
     mutable_locals: HashSet<LocalId>,
     /// Locals that have already been introduced in the generated Rust scope.
     declared_locals: RefCell<HashSet<LocalId>>,
+    /// Locals that must be declared before structured block emission.
+    predeclared_locals: HashSet<LocalId>,
+    /// Cached termination queries for this function CFG.
+    termination_cache: RefCell<HashMap<smelt_mir::BlockId, bool>>,
+    /// Cached loop-exit shape queries keyed by block, continue target, and break target.
+    loop_exit_cache:
+        RefCell<HashMap<(smelt_mir::BlockId, smelt_mir::BlockId, smelt_mir::BlockId), bool>>,
     /// Captured callback names that are emitted as borrowed `FnMut` values.
     borrowed_callback_names: HashSet<String>,
     /// The type ID of the None type.

@@ -488,7 +488,7 @@ for (let item: number of values) {
     );
 
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
-    assert!(source.contains("while"));
+    assert!(source.contains("loop {"));
     assert!(source.contains("total ="));
 }
 
@@ -509,7 +509,7 @@ for (const entry: [string, number] of mapping) {
             ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
         )
     );
-    assert!(source.contains("while"));
+    assert!(source.contains("loop {"));
     assert!(source.contains("entry ="));
 }
 
@@ -530,7 +530,7 @@ for name in names:
 
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
-    assert!(source.matches("while").count() >= 2);
+    assert!(source.matches("loop {").count() >= 2);
     assert!(source.contains("total ="));
     assert!(source.contains("last = name.clone();"));
 }

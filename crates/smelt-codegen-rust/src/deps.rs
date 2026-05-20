@@ -11,13 +11,14 @@ use smelt_stdlib::BackendDependency;
 ///
 /// Keeping the order centralized avoids Cargo.toml churn as new MIR rvalues
 /// start reporting existing backend dependencies.
-const STDLIB_DEPENDENCIES: [BackendDependency; 6] = [
+const STDLIB_DEPENDENCIES: [BackendDependency; 7] = [
     BackendDependency::Reqwest,
     BackendDependency::SerdeJson,
     BackendDependency::Regex,
     BackendDependency::Rand,
     BackendDependency::Chrono,
     BackendDependency::Url,
+    BackendDependency::UnicodeNormalization,
 ];
 
 /// Dependency required by a generated Rust crate.

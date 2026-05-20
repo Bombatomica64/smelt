@@ -269,7 +269,9 @@ impl ModuleBuilder<'_> {
             .transpose()?;
         let haystack_ty = Self::expr_ty(body, haystack);
         let separator_ty = Self::expr_ty(body, separator);
-        if !(self.is_string_compatible_type(haystack_ty) || self.type_contains_unknown(haystack_ty))
+        if !(self.is_string_compatible_type(haystack_ty)
+            || self.type_contains_unknown(haystack_ty)
+            || self.erased_or_union_surface(haystack_ty))
             || !self.string_split_separator_type_is_supported(separator_ty)
         {
             return Err(SmeltError::unsupported(
@@ -1422,7 +1424,14 @@ impl ModuleBuilder<'_> {
             let item_ty = match self.ctx.krate.types.get(value_ty) {
                 Some(Type::List(item_ty) | Type::Set(item_ty)) => *item_ty,
                 Some(Type::String) => self.ctx.krate.types.intern(Type::String),
-                Some(Type::Unknown | Type::TypeParam { .. }) => {
+                Some(
+                    Type::Unknown
+                    | Type::TypeParam { .. }
+                    | Type::Class { .. }
+                    | Type::Optional(_)
+                    | Type::Union(_),
+                )
+                | None => {
                     self.ctx.krate.types.intern(Type::Unknown)
                 }
                 _ => {
@@ -1550,6 +1559,13 @@ impl ModuleBuilder<'_> {
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
+            Some(Type::Class { .. } | Type::Optional(_) | Type::Union(_)) | None => {
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value },
+                    ty: list_ty,
+                    span: self.span(span.start, span.end),
+                }))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "array spread operands must be arrays or sets",

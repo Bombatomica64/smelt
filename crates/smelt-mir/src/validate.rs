@@ -640,6 +640,10 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, pattern, errors);
             validate_operand_exists(function, haystack, errors);
         }
+        Rvalue::RegexExec { regex, haystack } => {
+            validate_operand_exists(function, regex, errors);
+            validate_operand_exists(function, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand_exists(function, url, errors);
         }
@@ -716,6 +720,7 @@ fn validate_rvalue_exists(
         | Rvalue::NumericPredicate { operand, .. }
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
+        | Rvalue::StringNormalize { operand, .. }
         | Rvalue::StringTrim { operand, .. }
         | Rvalue::StringPredicate { operand, .. }
         | Rvalue::Await(operand) => validate_operand_exists(function, operand, errors),
@@ -1411,6 +1416,10 @@ fn validate_rvalue(
             validate_operand(mir, function, definitions, pattern, errors);
             validate_operand(mir, function, definitions, haystack, errors);
         }
+        Rvalue::RegexExec { regex, haystack } => {
+            validate_operand(mir, function, definitions, regex, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand(mir, function, definitions, url, errors);
         }
@@ -1491,6 +1500,7 @@ fn validate_rvalue(
         | Rvalue::NumericPredicate { operand, .. }
         | Rvalue::NumericUnaryFunc { operand, .. }
         | Rvalue::StringCase { operand, .. }
+        | Rvalue::StringNormalize { operand, .. }
         | Rvalue::StringTrim { operand, .. }
         | Rvalue::StringPredicate { operand, .. }
         | Rvalue::Await(operand) => validate_operand(mir, function, definitions, operand, errors),

@@ -31,6 +31,9 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_url) {
         deps.push(BackendDependency::Url);
     }
+    if any_rvalue_needs(mir, rvalue_needs_unicode_normalization) {
+        deps.push(BackendDependency::UnicodeNormalization);
+    }
     deps
 }
 
@@ -82,7 +85,13 @@ fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
             | Rvalue::RegexReplaceFirstMatchUppercase { .. }
             | Rvalue::RegexSplit { .. }
             | Rvalue::RegexFind { .. }
+            | Rvalue::RegexExec { .. }
     )
+}
+
+/// Returns true when a MIR rvalue uses Unicode normalization APIs.
+fn rvalue_needs_unicode_normalization(rvalue: &Rvalue) -> bool {
+    matches!(rvalue, Rvalue::StringNormalize { .. })
 }
 
 /// Returns true when any legacy callback-expression body uses Regex APIs.

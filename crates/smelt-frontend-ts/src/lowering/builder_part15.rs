@@ -936,6 +936,9 @@ impl ModuleBuilder<'_> {
         op: PrimitiveCastOp,
         operand_ty: smelt_hir::TypeId,
     ) -> bool {
+        if op == PrimitiveCastOp::ToString && self.erased_or_union_surface(operand_ty) {
+            return true;
+        }
         if op == PrimitiveCastOp::ToFloat {
             return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never));
         }

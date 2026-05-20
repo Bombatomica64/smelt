@@ -1,11 +1,20 @@
 impl ModuleBuilder<'_> {
+    /// Prefix a local type declaration with the active TypeScript namespace path.
+    fn qualified_type_declaration_name(&self, name: &str) -> String {
+        if self.type_namespace_prefix.is_empty() {
+            return name.to_owned();
+        }
+        format!("{}.{}", self.type_namespace_prefix.join("."), name)
+    }
+
     /// Lower a TypeScript type alias declaration to HIR.
     fn type_alias_declaration(
         &mut self,
         alias: &oxc::ast::ast::TSTypeAliasDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let name_text = alias.id.name.as_str();
-        let name = self.intern_type_name(name_text);
+        let local_name_text = alias.id.name.as_str();
+        let name_text = self.qualified_type_declaration_name(local_name_text);
+        let name = self.intern_type_name(&name_text);
         let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
         let result = self.ts_type_to_hir(&alias.type_annotation);
         let fields = self.type_fields_from_ts(&alias.type_annotation).ok();
@@ -23,7 +32,7 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(alias.span.start, alias.span.end),
         }));
-        self.items.insert(name_text.to_owned(), item);
+        self.items.insert(name_text, item);
         Ok(item)
     }
 
@@ -32,12 +41,14 @@ impl ModuleBuilder<'_> {
         &mut self,
         interface: &oxc::ast::ast::TSInterfaceDeclaration<'_>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        let name_text = interface.id.name.as_str();
-        let name = self.intern_type_name(name_text);
+        let local_name_text = interface.id.name.as_str();
+        let name_text = self.qualified_type_declaration_name(local_name_text);
+        let name = self.intern_type_name(&name_text);
         let type_params = self.push_type_parameter_scope(interface.type_parameters.as_deref())?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut call_signatures = Vec::new();
+        let mut index_value_ty = None;
 
         let mut heritage_refs = Vec::new();
         let result = (|| {
@@ -201,8 +212,11 @@ impl ModuleBuilder<'_> {
                             ),
                         });
                     }
-                    TSSignature::TSConstructSignatureDeclaration(_)
-                    | TSSignature::TSIndexSignature(_) => {}
+                    TSSignature::TSIndexSignature(index) => {
+                        index_value_ty =
+                            Some(self.ts_type_to_hir(&index.type_annotation.type_annotation)?);
+                    }
+                    TSSignature::TSConstructSignatureDeclaration(_) => {}
                 }
             }
             Ok(())
@@ -224,8 +238,84 @@ impl ModuleBuilder<'_> {
         self.ctx
             .interface_call_signatures
             .insert(name, call_signatures);
-        self.interfaces.insert(name_text.to_owned(), item);
+        if let Some(index_value_ty) = index_value_ty {
+            self.interface_index_values.insert(name, index_value_ty);
+            self.ctx.interface_index_values.insert(name, index_value_ty);
+        }
+        self.interfaces.insert(name_text, item);
         Ok(item)
+    }
+
+    /// Lower TypeScript namespace declarations that contain exported type declarations.
+    fn type_namespace_declaration(
+        &mut self,
+        module_decl: &oxc::ast::ast::TSModuleDeclaration<'_>,
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let Some(namespace_name) = Self::type_namespace_name(&module_decl.id) else {
+            return Ok(Vec::new());
+        };
+        self.type_namespace_prefix.push(namespace_name);
+        let result = self.type_namespace_body(module_decl.body.as_ref());
+        self.type_namespace_prefix.pop();
+        result
+    }
+
+    /// Return the source namespace identifier for namespace declarations.
+    fn type_namespace_name(name: &TSModuleDeclarationName<'_>) -> Option<String> {
+        match name {
+            TSModuleDeclarationName::Identifier(ident) => Some(ident.name.to_string()),
+            TSModuleDeclarationName::StringLiteral(_) => None,
+        }
+    }
+
+    /// Lower exported type declarations from a namespace body.
+    fn type_namespace_body(
+        &mut self,
+        body: Option<&TSModuleDeclarationBody<'_>>,
+    ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
+        let Some(body) = body else {
+            return Ok(Vec::new());
+        };
+        match body {
+            TSModuleDeclarationBody::TSModuleDeclaration(module_decl) => {
+                self.type_namespace_declaration(module_decl)
+            }
+            TSModuleDeclarationBody::TSModuleBlock(block) => {
+                let mut items = Vec::new();
+                for statement in &block.body {
+                    match statement {
+                        Statement::TSTypeAliasDeclaration(alias) => {
+                            items.push(self.type_alias_declaration(alias)?);
+                        }
+                        Statement::TSInterfaceDeclaration(interface) => {
+                            items.push(self.interface_declaration(interface)?);
+                        }
+                        Statement::TSModuleDeclaration(module_decl) => {
+                            items.extend(self.type_namespace_declaration(module_decl)?);
+                        }
+                        Statement::ExportNamedDeclaration(export) => {
+                            let Some(decl) = &export.declaration else {
+                                continue;
+                            };
+                            match decl {
+                                Declaration::TSTypeAliasDeclaration(alias) => {
+                                    items.push(self.type_alias_declaration(alias)?);
+                                }
+                                Declaration::TSInterfaceDeclaration(interface) => {
+                                    items.push(self.interface_declaration(interface)?);
+                                }
+                                Declaration::TSModuleDeclaration(module_decl) => {
+                                    items.extend(self.type_namespace_declaration(module_decl)?);
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                Ok(items)
+            }
+        }
     }
 
     /// Lower a statement within a specific block.
@@ -351,6 +441,20 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::WhileStatement(while_stmt) => {
+                if let Some((cond, loop_body, update_target, update_value)) =
+                    self.while_assignment_condition_body(while_stmt, body, block)?
+                {
+                    body.push_stmt_to_block(
+                        block,
+                        Stmt::WhileUpdate {
+                            cond,
+                            body: loop_body,
+                            update_target,
+                            update_value,
+                        },
+                    );
+                    return Ok(());
+                }
                 let cond = self.condition_expression(&while_stmt.test, body)?;
                 let loop_body = self.block_from_statement(&while_stmt.body, body)?;
                 body.push_stmt_to_block(
@@ -512,6 +616,25 @@ impl ModuleBuilder<'_> {
                     let case_block = body.push_block(self.span(case.span.start, case.span.end));
                     let mut saw_break = false;
                     for case_statement in &case.consequent {
+                        if let Statement::BlockStatement(block_stmt) = case_statement {
+                            for nested_statement in &block_stmt.body {
+                                if matches!(nested_statement, Statement::ContinueStatement(_)) {
+                                    return Err(SmeltError::unsupported(
+                                        self.statement_span(nested_statement),
+                                        "switch continue lowering is not implemented yet",
+                                    ));
+                                }
+                                if matches!(nested_statement, Statement::BreakStatement(_)) {
+                                    saw_break = true;
+                                    break;
+                                }
+                                self.statement_in_block(nested_statement, body, case_block)?;
+                            }
+                            if saw_break {
+                                break;
+                            }
+                            continue;
+                        }
                         if matches!(case_statement, Statement::ContinueStatement(_)) {
                             return Err(SmeltError::unsupported(
                                 self.statement_span(case_statement),
@@ -959,6 +1082,73 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&assign.right, body)?;
         body.push_stmt_to_block(block, Stmt::Expr(value));
         Ok(true)
+    }
+
+    /// Lower `while ((target = value) !== null)` without dropping the assignment.
+    fn while_assignment_condition_body(
+        &mut self,
+        while_stmt: &oxc::ast::ast::WhileStatement<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<
+        Option<(
+            smelt_hir::ExprId,
+            smelt_hir::BlockId,
+            smelt_hir::ExprId,
+            smelt_hir::ExprId,
+        )>,
+        SmeltError,
+    > {
+        let test = Self::unparenthesized_expression(&while_stmt.test);
+        let Expression::BinaryExpression(binary) = test else {
+            return Ok(None);
+        };
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        ) || !matches!(&binary.right, Expression::NullLiteral(_))
+        {
+            return Ok(None);
+        }
+        let left = Self::unparenthesized_expression(&binary.left);
+        let Expression::AssignmentExpression(assign) = left else {
+            return Ok(None);
+        };
+        let (target, value) = self.assignment_parts(assign, body)?;
+        body.push_stmt_to_block(block, Stmt::Assign { target, value });
+        let null_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: self.ctx.krate.types.intern(Type::None),
+            span: self.span(binary.right.span().start, binary.right.span().end),
+        });
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: target,
+                rhs: null_expr,
+            },
+            ty: self.ctx.krate.types.intern(Type::Bool),
+            span: self.span(binary.span.start, binary.span.end),
+        });
+        let loop_body = body.push_block(self.statement_span(&while_stmt.body));
+        if let Statement::BlockStatement(block_stmt) = &while_stmt.body {
+            for statement in &block_stmt.body {
+                self.statement_in_block(statement, body, loop_body)?;
+            }
+        } else {
+            self.statement_in_block(&while_stmt.body, body, loop_body)?;
+        }
+        let (update_target, update_value) = self.assignment_parts(assign, body)?;
+        Ok(Some((cond, loop_body, update_target, update_value)))
+    }
+
+    /// Strip transparent parentheses from a TypeScript expression.
+    fn unparenthesized_expression<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+        let mut current = expression;
+        while let Expression::ParenthesizedExpression(parenthesized) = current {
+            current = &parenthesized.expression;
+        }
+        current
     }
 
     /// Return whether an expression is a top-level Vitest organization call.

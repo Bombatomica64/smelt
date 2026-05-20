@@ -16,6 +16,8 @@ pub enum BackendDependency {
     Chrono,
     /// `url` for generated URL parsing and field access.
     Url,
+    /// `unicode-normalization` for generated `String.prototype.normalize`.
+    UnicodeNormalization,
 }
 
 impl BackendDependency {
@@ -33,6 +35,7 @@ impl BackendDependency {
             Self::Rand => "rand = \"0.9\"\n",
             Self::Chrono => "chrono = \"0.4\"\n",
             Self::Url => "url = \"2\"\n",
+            Self::UnicodeNormalization => "unicode-normalization = \"0.1\"\n",
         }
     }
 }

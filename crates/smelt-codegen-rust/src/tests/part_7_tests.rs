@@ -209,7 +209,8 @@ function apply(isTwoDigitYear: boolean, year: number, date: number): number {
     );
 
     let normalized = source
-        .find("normalized_two_digit_year: f64 =")
+        .find("normalized_two_digit_year =")
+        .or_else(|| source.find("normalized_two_digit_year: f64 ="))
         .unwrap_or_else(|| panic!("{source}"));
     let setter = source
         .find("date.with_year(normalized_two_digit_year.clone()")
@@ -431,7 +432,7 @@ function empty(flag: boolean): unknown[] | unknown {
 }
 
 #[test]
-fn emits_loop_with_join_blocks_as_while() {
+fn emits_loop_with_join_blocks_as_loop() {
     let source = source_for(
         r#"
 function countPresent(values: string[]): Record<string, number> {
@@ -449,7 +450,7 @@ function countPresent(values: string[]): Record<string, number> {
 "#,
     );
 
-    assert!(source.contains("while "), "{source}");
+    assert!(source.contains("loop {"), "{source}");
     assert!(source.contains("return out.clone();"), "{source}");
 }
 
@@ -484,7 +485,7 @@ function label(values: string[]): string[] {
 }
 
 #[test]
-fn emits_synthetic_default_for_missing_callback_arguments() {
+fn emits_strict_panic_for_erased_non_function_callback_cast() {
     let source = source_for(
         r#"
 function invoke(callback: (value: number) => number, fallback?: (value: number) => number): number {
@@ -495,9 +496,7 @@ function invoke(callback: (value: number) => number, fallback?: (value: number) 
     );
 
     assert!(
-        source.contains(
-            "::std::rc::Rc::new(::std::cell::RefCell::new(move |arg0: f64| -> f64 { 0.0 }))"
-        ),
+        source.contains("panic!(\"unknown is not function\")"),
         "{source}"
     );
 }
@@ -660,7 +659,9 @@ function truthy(value: unknown): boolean {
     );
 
     assert!(source.contains("SmeltUnknown::Null => false"));
-    assert!(source.contains("SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => true"));
+    assert!(source.contains(
+        "SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true"
+    ));
 }
 
 #[test]
@@ -970,7 +971,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("if let SmeltUnknown::Array(value) = arg0"),
+        source.contains("SmeltUnknown::Array(value) => value"),
         "{source}"
     );
     assert!(source.contains("Some(arg1)"), "{source}");
@@ -1012,4 +1013,39 @@ function invoke(
     );
     assert!(source.contains("smelt_tuple_values.get(0)"), "{source}");
     assert!(source.contains("smelt_tuple_values.get(1)"), "{source}");
+}
+
+#[test]
+fn wraps_function_return_values_from_unknown_adapters() {
+    let source = source_for(
+        r#"
+function outer(make: () => (value: unknown) => unknown): unknown {
+  return [make];
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Function"), "{source}");
+    assert!(!source.contains("()).into_smelt_unknown()"), "{source}");
+}
+
+#[test]
+fn owns_callback_params_that_escape_through_unknown_values() {
+    let source = source_for(
+        r#"
+function expose(callback: (value: unknown) => unknown): unknown {
+  return { callback };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn expose(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(SmeltUnknown) -> SmeltUnknown>>)"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("fn expose(callback: &mut dyn FnMut"),
+        "{source}"
+    );
+    assert!(source.contains("SmeltUnknown::Function"), "{source}");
 }

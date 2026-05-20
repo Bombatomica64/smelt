@@ -195,10 +195,6 @@ impl ModuleBuilder<'_> {
         };
 
         let mut errors = Vec::new();
-        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
         for (pattern, local, ty) in destructured_params {
             let root = body.root;
             let value = body.push_expr(Expr {
@@ -218,6 +214,10 @@ impl ModuleBuilder<'_> {
             }
         }
         if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        {
+            errors.push(error);
+        }
+        if let Err(error) = self.predeclare_local_function_declarations(&function_body.statements, &mut body)
         {
             errors.push(error);
         }
@@ -1077,10 +1077,6 @@ impl ModuleBuilder<'_> {
         }
 
         let mut errors = Vec::new();
-        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
-        {
-            errors.push(error);
-        }
         for (pattern, local, ty) in destructured_params {
             let root = body.root;
             let value = body.push_expr(Expr {
@@ -1093,6 +1089,14 @@ impl ModuleBuilder<'_> {
             {
                 errors.push(error);
             }
+        }
+        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        {
+            errors.push(error);
+        }
+        if let Err(error) = self.predeclare_local_function_declarations(&function_body.statements, &mut body)
+        {
+            errors.push(error);
         }
         for statement in &function_body.statements {
             if self.is_super_call_statement(statement) {

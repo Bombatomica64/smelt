@@ -1,0 +1,44 @@
+module third_party/remeda/packages/remeda/src/range.test.ts (ModuleId(0))
+  body BodyId(55)
+  items
+    fn test_trivial_0_cases_start_at_0 owner Module
+    fn test_trivial_0_cases_end_at_0 owner Module
+    fn test_trivial_0_cases_empty_range owner Module
+    fn test_trivial_0_cases_step_0 owner Module
+    fn test_simple_range owner Module
+    fn test_switched_bounds owner Module
+    fn test_data_last_simple_range owner Module
+    fn test_data_last_with_step owner Module
+    fn test_positive_step_trivial_step owner Module
+    fn test_positive_step_simple_step owner Module
+    fn test_positive_step_step_larger_than_range owner Module
+    fn test_positive_step_step_exactly_divides_range owner Module
+    fn test_negative_step_trivial_step owner Module
+    fn test_negative_step_simple_decrementing_range owner Module
+    fn test_negative_step_step_in_wrong_direction owner Module
+    fn test_non_integer_inputs_floating_point_start owner Module
+    fn test_non_integer_inputs_floating_point_step owner Module
+    fn test_non_integer_inputs_floating_point_end owner Module
+    fn test_non_integer_inputs_floating_point_snap_prevents_extra_element owner Module
+    fn test_non_integer_inputs_very_small_range_near_zero_is_not_snapped_away owner Module
+    fn test_lodash_spec_should_infer_the_sign_of_step_when_only_start_and_end_are_given_incrementing owner Module
+    fn test_lodash_spec_should_work_with_a_start_end_and_step owner Module
+    fn test_lodash_spec_should_work_with_a_step_larger_than_end owner Module
+    fn test_lodash_spec_should_work_with_a_negative_step owner Module
+    fn test_lodash_spec_should_support_start_of_0 owner Module
+    fn test_lodash_spec_should_treat_falsey_start_as_0_zero owner Module
+    fn test_lodash_spec_should_coerce_arguments_to_finite_numbers_nan owner Module
+
+interned types
+  t0 = Unknown
+  t1 = String
+  t2 = Dict<String, Unknown>
+  t3 = Float
+  t4 = List<Float>
+  t5 = Bool
+  t6 = None
+  t7 = List<Unknown>
+  t8 = Dict<String, Float>
+  t9 = Int
+  t10 = fn() -> Unknown
+  t11 = fn(String, fn() -> Unknown) -> Unknown

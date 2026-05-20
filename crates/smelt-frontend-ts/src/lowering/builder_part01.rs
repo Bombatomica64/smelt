@@ -8,6 +8,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let function_overloads = ctx.overloads.clone();
         let type_alias_fields = ctx.type_alias_fields.clone();
         let interface_extends = ctx.interface_extends.clone();
+        let interface_index_values = ctx.interface_index_values.clone();
         let interface_call_signatures = ctx.interface_call_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
         let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
@@ -27,8 +28,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
             class_bases: HashMap::new(),
             type_alias_fields,
             interface_extends,
+            interface_index_values,
             interface_call_signatures,
             callable_fields,
+            type_namespace_prefix: Vec::new(),
             current_class: None,
             current_async: false,
             current_return_ty: None,
@@ -147,6 +150,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 language: Language::TypeScript,
             },
         );
+        let previous_export_aliases = self.ctx.export_aliases.clone();
 
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
@@ -200,6 +204,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::TSInterfaceDeclaration(interface) = statement {
                 match self.interface_declaration(interface) {
                     Ok(item) => module.items.push(item),
+                    Err(error) => errors.push(error),
+                }
+                continue;
+            }
+            if let Statement::TSModuleDeclaration(module_decl) = statement {
+                match self.type_namespace_declaration(module_decl) {
+                    Ok(items) => module.items.extend(items),
                     Err(error) => errors.push(error),
                 }
                 continue;
@@ -283,6 +294,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Ok(item) => module.items.push(item),
                         Err(error) => errors.push(error),
                     }
+                } else if let Declaration::TSModuleDeclaration(module_decl) = decl {
+                    match self.type_namespace_declaration(module_decl) {
+                        Ok(items) => module.items.extend(items),
+                        Err(error) => errors.push(error),
+                    }
                 } else if let Declaration::VariableDeclaration(variable) = decl {
                     match self.const_item_declarations(variable) {
                         Ok(items) => module.items.extend(items),
@@ -304,6 +320,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 Statement::FunctionDeclaration(_)
                     | Statement::ClassDeclaration(_)
                     | Statement::TSInterfaceDeclaration(_)
+                    | Statement::TSModuleDeclaration(_)
                     | Statement::TSTypeAliasDeclaration(_)
                     | Statement::ImportDeclaration(_)
                     | Statement::ExportNamedDeclaration(_)
@@ -325,9 +342,51 @@ impl<'ctx> ModuleBuilder<'ctx> {
             return Err(errors);
         }
 
+        self.record_module_exports(&module, &previous_export_aliases);
+
         let body_id = self.ctx.krate.push_body(body);
         module.body = Some(body_id);
         Ok(self.ctx.krate.push_module(module))
+    }
+
+    /// Record item exports lowered from the current source path.
+    fn record_module_exports(
+        &mut self,
+        module: &Module,
+        previous_export_aliases: &HashMap<String, smelt_hir::ItemId>,
+    ) {
+        let mut exports = HashMap::new();
+        for item_id in &module.items {
+            let Some(item) = self.ctx.krate.items.get(usize::try_from(item_id.0).unwrap_or(usize::MAX)) else {
+                continue;
+            };
+            if let Some(name) = item_name(&self.ctx.krate, item) {
+                exports.insert(name.to_owned(), *item_id);
+            }
+        }
+        for (alias, item_id) in &self.ctx.export_aliases {
+            if previous_export_aliases.get(alias) != Some(item_id) {
+                exports.insert(alias.clone(), *item_id);
+            }
+        }
+        self.ctx
+            .module_exports
+            .insert(self.path.clone(), exports.clone());
+        if let Some(stripped) = self.path.strip_prefix("./") {
+            self.ctx
+                .module_exports
+                .insert(stripped.to_owned(), exports.clone());
+        }
+        if let Some(canonical) = Self::canonical_module_path(&self.path) {
+            self.ctx.module_exports.insert(canonical, exports);
+        }
+    }
+
+    /// Return a canonical path string when the path exists on disk.
+    fn canonical_module_path(path: &str) -> Option<String> {
+        std::fs::canonicalize(path)
+            .ok()
+            .map(|path| path.display().to_string())
     }
 
     /// Collect class names declared in the current module before lowering eager arrow bodies.
@@ -906,11 +965,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     Statement::TSTypeAliasDeclaration(alias) => {
                         drop(self.type_alias_declaration(alias));
                     }
+                    Statement::TSModuleDeclaration(module_decl) => {
+                        drop(self.type_namespace_declaration(module_decl));
+                    }
                     Statement::ExportNamedDeclaration(export) => {
                         if let Some(Declaration::TSTypeAliasDeclaration(alias)) =
                             &export.declaration
                         {
                             drop(self.type_alias_declaration(alias));
+                        } else if let Some(Declaration::TSModuleDeclaration(module_decl)) =
+                            &export.declaration
+                        {
+                            drop(self.type_namespace_declaration(module_decl));
                         }
                     }
                     _ => {}
@@ -1100,6 +1166,85 @@ impl<'ctx> ModuleBuilder<'ctx> {
             alias,
             span,
         });
+        if let Some(exported) = export
+            .exported
+            .as_ref()
+            .map(|exported| module_export_name(exported))
+        {
+            self.alias_source_exports_under_namespace(source, &exported);
+        }
+    }
+
+    /// Alias exports from one source module under a namespace re-export.
+    ///
+    /// For `export * as Types from "./types"`, this records aliases such as
+    /// `Types.Id` only for exports that came from `./types`. Keeping this
+    /// source-scoped prevents namespace imports in large barrel graphs from
+    /// repeatedly re-aliasing every previously seen item.
+    fn alias_source_exports_under_namespace(&mut self, source: &str, namespace: &str) {
+        let Some(exports) = self.source_module_exports(source) else {
+            return;
+        };
+        for (name, item) in exports {
+            let alias = format!("{namespace}.{name}");
+            self.ctx.export_aliases.insert(alias.clone(), item);
+            self.items.insert(alias.clone(), item);
+            if self.classes.values().any(|class_item| *class_item == item) {
+                self.classes.insert(alias.clone(), item);
+            }
+            if self
+                .interfaces
+                .values()
+                .any(|interface_item| *interface_item == item)
+            {
+                self.interfaces.insert(alias, item);
+            }
+        }
+    }
+
+    /// Return the exports for an import source resolved relative to this file.
+    fn source_module_exports(&self, source: &str) -> Option<HashMap<String, smelt_hir::ItemId>> {
+        self.resolved_module_export_keys(source)
+            .into_iter()
+            .find_map(|key| self.ctx.module_exports.get(&key).cloned())
+    }
+
+    /// Return candidate module-export keys for a TypeScript source specifier.
+    fn resolved_module_export_keys(&self, source: &str) -> Vec<String> {
+        let mut keys = Vec::new();
+        Self::push_module_export_key(&mut keys, source);
+        let source_path = Path::new(source);
+        let base = if source_path.is_absolute() {
+            source_path.to_path_buf()
+        } else {
+            Path::new(&self.path)
+                .parent()
+                .unwrap_or_else(|| Path::new(""))
+                .join(source_path)
+        };
+        let candidates = [
+            base.clone(),
+            base.with_extension("ts"),
+            base.with_extension("tsx"),
+            base.with_extension("d.ts"),
+            base.join("index.ts"),
+            base.join("index.d.ts"),
+        ];
+        for candidate in candidates {
+            Self::push_module_export_key(&mut keys, &candidate.display().to_string());
+            if let Some(canonical) = Self::canonical_module_path(&candidate.display().to_string()) {
+                Self::push_module_export_key(&mut keys, &canonical);
+            }
+        }
+        keys
+    }
+
+    /// Push a module-export key and a leading-`./`-less variant.
+    fn push_module_export_key(keys: &mut Vec<String>, key: &str) {
+        keys.push(key.to_owned());
+        if let Some(stripped) = key.strip_prefix("./") {
+            keys.push(stripped.to_owned());
+        }
     }
 
     /// Lower an import declaration into module metadata and local item aliases.
@@ -1135,6 +1280,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if import.import_kind == ImportOrExportKind::Type {
                         self.type_only_imports.insert(local.clone());
                     }
+                    self.alias_source_exports_under_namespace(source, &local);
                     ("*".to_owned(), local)
                 }
             };
@@ -1181,11 +1327,45 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(item) = self.items.get(imported).copied() {
             self.items.insert(local.to_owned(), item);
         }
+        let imported_prefix = format!("{imported}.");
+        let qualified_item_aliases = self
+            .items
+            .iter()
+            .filter_map(|(name, item)| {
+                let member = name.strip_prefix(&imported_prefix)?;
+                Some((format!("{local}.{member}"), *item))
+            })
+            .collect::<Vec<_>>();
+        for (alias, item) in qualified_item_aliases {
+            self.items.insert(alias, item);
+        }
         if let Some(item) = self.classes.get(imported).copied() {
             self.classes.insert(local.to_owned(), item);
         }
+        let qualified_class_aliases = self
+            .classes
+            .iter()
+            .filter_map(|(name, item)| {
+                let member = name.strip_prefix(&imported_prefix)?;
+                Some((format!("{local}.{member}"), *item))
+            })
+            .collect::<Vec<_>>();
+        for (alias, item) in qualified_class_aliases {
+            self.classes.insert(alias, item);
+        }
         if let Some(item) = self.interfaces.get(imported).copied() {
             self.interfaces.insert(local.to_owned(), item);
+        }
+        let qualified_interface_aliases = self
+            .interfaces
+            .iter()
+            .filter_map(|(name, item)| {
+                let member = name.strip_prefix(&imported_prefix)?;
+                Some((format!("{local}.{member}"), *item))
+            })
+            .collect::<Vec<_>>();
+        for (alias, item) in qualified_interface_aliases {
+            self.interfaces.insert(alias, item);
         }
         if let Some(value) = self.const_literals.get(imported).cloned() {
             self.const_literals.insert(local.to_owned(), value);

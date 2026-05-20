@@ -17,7 +17,8 @@ use oxc::ast::ast::{
     Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
     ImportOrExportKind, MethodDefinitionKind, MethodDefinitionType, ModuleExportName,
     ObjectPropertyKind, Program, PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility,
-    TSSignature, TSTupleElement, TSType, TSTypeName, TSTypeQueryExprName,
+    TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature, TSTupleElement, TSType,
+    TSTypeName, TSTypeQueryExprName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -31,8 +32,8 @@ use smelt_hir::{
     Literal, LocalDecl, MatchArm, MethodSig, Module, ModuleId, NumericExtremaOp,
     NumericPredicateOp, NumericRoundOp, NumericUnaryFuncOp, Param, ParamSig, Pattern,
     PrimitiveCastOp, SetProjectionOp, SetRemoveOp, SourceFile, Span, Stmt, StringAffixOp,
-    StringCaseOp, StringPadOp, StringReplaceOp, StringSearchOp, StringTrimSide, Type, TypeParamDef,
-    UnaryOp, UnknownKind, UrlField, Visibility,
+    StringCaseOp, StringNormalizeForm, StringPadOp, StringReplaceOp, StringSearchOp,
+    StringTrimSide, Type, TypeParamDef, UnaryOp, UnknownKind, UrlField, Visibility,
 };
 use smelt_stdlib::RuleId;
 
@@ -296,10 +297,14 @@ struct ModuleBuilder<'ctx> {
     type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses for resolving fields after cyclic type imports settle.
     interface_extends: HashMap<smelt_hir::Symbol, Vec<InterfaceHeritageRef>>,
+    /// Value types declared by interface string index signatures.
+    interface_index_values: HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     /// Interface call signatures for callable interface types.
     interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Fields attached to callable intersection types.
     callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
+    /// Namespace path currently qualifying type-only declarations.
+    type_namespace_prefix: Vec<String>,
     /// Currently processing class name, if any.
     current_class: Option<String>,
     /// Whether the current lowered function body is async.

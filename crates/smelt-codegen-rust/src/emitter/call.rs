@@ -3,6 +3,13 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Return true when rendered argument text is a generated no-op callback.
+    fn argument_text_is_callback_default(arg: &str) -> bool {
+        arg.contains("RefCell<dyn FnMut")
+            || arg.starts_with("&mut |")
+            || arg.contains("let smelt_default_callback")
+    }
+
     /// Converts a runtime-backed async operation to Rust.
     pub(super) fn async_op_text(
         &self,
@@ -232,7 +239,7 @@ impl FunctionEmitter<'_> {
                         .unwrap_or(&callback_text)
                         .to_owned();
                     let data_text = self.operand_text(data_arg)?;
-                    let lazy_text = if let Some(lazy_arg) = args.get(2) {
+                    let _lazy_text = if let Some(lazy_arg) = args.get(2) {
                         let lazy_param = function.params.get(2).ok_or_else(|| {
                             EmitError::new("purry function is missing lazy param")
                         })?;
@@ -242,12 +249,79 @@ impl FunctionEmitter<'_> {
                         "None".to_owned()
                     };
                     return Ok(format!(
-                        "{{ let mut smelt_purry_fn = {callback_text}; let smelt_purry_args = {data_text}; let smelt_purry_diff = {callback_arity}i64 - smelt_purry_args.len() as i64; if smelt_purry_diff == 0 {{ Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_purry_fn(smelt_purry_args.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }} else if smelt_purry_diff == 1 {{ Ok::<SmeltUnknown, Box<dyn std::error::Error>>(lazy_data_last_impl(&mut smelt_purry_fn, smelt_purry_args, {lazy_text})) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", \"Wrong number of arguments\".to_owned())).into()) }} }}{}",
+                        "{{ let smelt_purry_fn = ::std::rc::Rc::new(::std::cell::RefCell::new({callback_text})); let smelt_purry_args = {data_text}; let smelt_purry_diff = {callback_arity}i64 - smelt_purry_args.len() as i64; if smelt_purry_diff == 0 {{ Ok::<SmeltUnknown, Box<dyn std::error::Error>>((&mut *smelt_purry_fn.borrow_mut())(smelt_purry_args.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }} else if smelt_purry_diff == 1 {{ let smelt_purry_args = smelt_purry_args.clone(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Function(::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_data_args: Vec<SmeltUnknown>| {{ let mut smelt_call_args = smelt_data_args; smelt_call_args.extend(smelt_purry_args.clone().into_iter().map(|value| value.into_smelt_unknown())); (&mut *smelt_purry_fn.borrow_mut())(smelt_call_args) }})))) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", \"Wrong number of arguments\".to_owned())).into()) }} }}{}",
                         self.throwing_call_suffix(function)
                     ));
                 }
                 let rust_function_name = self.function_rust_name(function)?;
                 let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
+                if function.params.len() == 1 {
+                    let rest_param = function.params[0];
+                    let rest_ty = self.function_local_decl(function, rest_param)?.ty;
+                    if matches!(
+                        self.mir.types.get(rest_ty),
+                        Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                    ) && !(args.len() == 1
+                        && matches!(
+                            self.mir.types.get(self.operand_ty(&args[0])?),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        ))
+                    {
+                        let items = args
+                            .iter()
+                            .map(|arg| self.unknown_wrap_text(arg))
+                            .collect::<Result<Vec<_>, _>>()?
+                            .join(", ");
+                        return Ok(format!(
+                            "{rust_function_name}(vec![{items}]){}",
+                            self.throwing_call_suffix(function)
+                        ));
+                    }
+                }
+                if let Some(rest_index) = function
+                    .params
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, param)| {
+                        let ty = self.function_local_decl(function, *param).ok()?.ty;
+                        matches!(
+                            self.mir.types.get(ty),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        )
+                        .then_some(index)
+                    })
+                    && rest_index + 1 == function.params.len()
+                    && args.len() >= rest_index
+                    && !(args.len() == rest_index + 1
+                        && matches!(
+                            self.mir.types.get(self.operand_ty(&args[rest_index])?),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        ))
+                {
+                    let mut rendered_args = Vec::new();
+                    for (index, arg) in args.iter().take(rest_index).enumerate() {
+                        let param = function.params.get(index).copied().ok_or_else(|| {
+                            EmitError::new("call argument has no target parameter")
+                        })?;
+                        let target_ty = self.function_local_decl(function, param)?.ty;
+                        rendered_args.push(self.operand_as_type_text(arg, target_ty)?);
+                    }
+                    let rest_items = args
+                        .iter()
+                        .skip(rest_index)
+                        .map(|arg| self.unknown_wrap_text(arg))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .join(", ");
+                    rendered_args.push(format!("vec![{rest_items}]"));
+                    for param in function.params.iter().skip(rest_index + 1) {
+                        rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
+                    }
+                    let arg_values = rendered_args.join(", ");
+                    return Ok(format!(
+                        "{rust_function_name}({arg_values}){}",
+                        self.throwing_call_suffix(function)
+                    ));
+                }
                 let mut rendered_args = args
                     .iter()
                     .enumerate()
@@ -275,28 +349,40 @@ impl FunctionEmitter<'_> {
                         {
                             return self.borrowed_function_argument_text(arg, target_ty);
                         }
-                        let text = self.operand_as_type_text(arg, target_ty)?;
-                        if text.contains("RefCell<dyn FnMut")
-                            && !matches!(
-                                self.mir.types.get(target_ty),
-                                Some(
-                                    Type::Function(_)
-                                        | Type::Unknown
-                                        | Type::TypeParam { .. }
-                                        | Type::Union(_)
-                                )
+                        if matches!(
+                            self.mir.types.get(self.operand_ty(arg)?),
+                            Some(Type::Function(_))
+                        ) && !matches!(
+                            self.mir.types.get(target_ty),
+                            Some(
+                                Type::Function(_)
+                                    | Type::Unknown
+                                    | Type::TypeParam { .. }
+                                    | Type::Union(_)
                             )
-                            && !self.is_erased_class_type(target_ty)
+                        ) && !self.is_erased_class_type(target_ty)
                         {
                             self.default_value(target_ty)
                         } else {
-                            Ok(text)
+                            self.operand_as_type_text(arg, target_ty)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                for param in function.params.iter().skip(args.len()) {
-                    let local = self.local_decl(*param)?;
-                    rendered_args.push(self.default_value(local.ty)?);
+                for (index, param) in function.params.iter().enumerate().skip(args.len()) {
+                    let local = self.function_local_decl(function, *param)?;
+                    let target_ty = emitted_params
+                        .as_ref()
+                        .and_then(|params| params.get(index).copied())
+                        .unwrap_or(local.ty);
+                    if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                        && !self
+                            .function_parameter_requires_owned_in(function, *param)
+                            .unwrap_or(false)
+                    {
+                        rendered_args.push(self.borrowed_default_function_text(target_ty)?);
+                    } else {
+                        rendered_args.push(self.default_value(target_ty)?);
+                    }
                 }
                 if (rust_function_name.contains("debounce")
                     || rust_function_name.contains("throttle"))
@@ -304,7 +390,7 @@ impl FunctionEmitter<'_> {
                 {
                     if rendered_args
                         .get(1)
-                        .is_some_and(|arg| arg.contains("RefCell<dyn FnMut"))
+                        .is_some_and(|arg| Self::argument_text_is_callback_default(arg))
                         && let Some(arg) = rendered_args.get_mut(1)
                     {
                         "0.0".clone_into(arg);
@@ -395,12 +481,24 @@ impl FunctionEmitter<'_> {
                 }
                 if rust_function_name == "batch"
                     && rendered_args.len() >= 3
-                    && rendered_args
-                        .get(2)
-                        .is_some_and(|arg| arg == "Vec::new()" || arg.contains("RefCell<dyn FnMut"))
+                    && rendered_args.get(2).is_some_and(|arg| {
+                        arg == "Vec::new()" || Self::argument_text_is_callback_default(arg)
+                    })
                     && let Some(arg) = rendered_args.get_mut(2)
                 {
                     "0.0".clone_into(arg);
+                }
+                if rust_function_name == "zip_with_implementation"
+                    && rendered_args.len() >= 3
+                    && rendered_args
+                        .get(2)
+                        .is_some_and(|arg| Self::argument_text_is_callback_default(arg))
+                    && let Some(param) = function.params.get(2)
+                {
+                    let local = self.local_decl(*param)?;
+                    if let Some(arg) = rendered_args.get_mut(2) {
+                        *arg = self.borrowed_default_function_text(local.ty)?;
+                    }
                 }
                 if rust_function_name.starts_with("range_")
                     && rendered_args.len() == 1

@@ -2,9 +2,9 @@ use super::{
     AsyncOp, BinOp, BoolFoldOp, CallbackExpr, ClosureExpr, DatePart, DictProjectionOp,
     ListCallbackOp, ListProjectionOp, ListSearchOp, Literal, NumericExtremaOp, NumericPredicateOp,
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
-    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, UnknownKind,
-    UrlField,
+    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
+    StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
+    UnknownKind, UrlField,
 };
 use crate::ids::{BlockId, BodyId, ExprId, ItemId, LocalId, Symbol, TypeId};
 use serde::{Deserialize, Serialize};
@@ -119,6 +119,10 @@ pub enum ExprKind {
         op: StringCaseOp,
         operand: ExprId,
     },
+    StringNormalize {
+        form: StringNormalizeForm,
+        operand: ExprId,
+    },
     StringTrim {
         side: StringTrimSide,
         operand: ExprId,
@@ -185,6 +189,10 @@ pub enum ExprKind {
     },
     RegexFind {
         pattern: ExprId,
+        haystack: ExprId,
+    },
+    RegexExec {
+        regex: ExprId,
         haystack: ExprId,
     },
     StringCharAt {

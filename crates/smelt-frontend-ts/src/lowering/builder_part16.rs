@@ -995,21 +995,17 @@ impl ModuleBuilder<'_> {
         &mut self,
         reference: &oxc::ast::ast::TSTypeReference<'_>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
-        let TSTypeName::IdentifierReference(name) = &reference.type_name else {
-            if let TSTypeName::QualifiedName(qualified) = &reference.type_name {
-                let symbol = self.intern_type_name(qualified.right.name.as_str());
-                return Ok(self.ctx.krate.types.intern(Type::Class {
-                    name: symbol,
-                    args: Vec::new(),
-                }));
+        let name_text = match &reference.type_name {
+            TSTypeName::IdentifierReference(name) => name.name.to_string(),
+            TSTypeName::QualifiedName(qualified) => Self::qualified_type_name_text(qualified),
+            TSTypeName::ThisExpression(_) => {
+                return Err(SmeltError::unsupported(
+                    self.span(reference.span.start, reference.span.end),
+                    "unsupported type reference name",
+                ));
             }
-            return Err(SmeltError::unsupported(
-                self.span(reference.span.start, reference.span.end),
-                "unsupported type reference name",
-            ));
         };
-        let name_text = name.name.as_str();
-        if let Some(param_ty) = self.type_parameter_type(name_text) {
+        if let Some(param_ty) = self.type_parameter_type(&name_text) {
             if reference.type_arguments.is_some() {
                 return Err(SmeltError::unsupported(
                     self.span(reference.span.start, reference.span.end),
@@ -1023,7 +1019,7 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|args| args.params.iter().collect::<Vec<_>>())
             .unwrap_or_default();
-        match (name_text, args.as_slice()) {
+        match (name_text.as_str(), args.as_slice()) {
             ("Capitalize" | "Uncapitalize" | "Uppercase" | "Lowercase", [_]) => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
@@ -1045,6 +1041,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::List(item)))
             }
             ("Partial" | "Readonly" | "Required", [item]) => self.ts_type_to_hir(item),
+            ("Extract", [_base, extracted]) => self.ts_type_to_hir(extracted),
             ("Pick", [base, _keys]) => self.ts_type_to_hir(base),
             ("Set" | "ReadonlySet", [item]) => {
                 let lowered_item = self.ts_type_to_hir(item)?;
@@ -1105,7 +1102,7 @@ impl ModuleBuilder<'_> {
                 }
             }
             _ => {
-                let symbol = self.intern_type_name(name_text);
+                let symbol = self.resolve_type_reference_symbol(&name_text);
                 if let Some(interface) = self.find_interface(symbol).cloned() {
                     let lowered_args = args
                         .iter()
@@ -1194,6 +1191,29 @@ impl ModuleBuilder<'_> {
                 }))
             }
         }
+    }
+
+    /// Return the full source path for a qualified type name.
+    fn qualified_type_name_text(qualified: &oxc::ast::ast::TSQualifiedName<'_>) -> String {
+        let left = match &qualified.left {
+            TSTypeName::IdentifierReference(left) => left.name.to_string(),
+            TSTypeName::QualifiedName(left) => Self::qualified_type_name_text(left),
+            TSTypeName::ThisExpression(_) => "<unknown>".to_owned(),
+        };
+        format!("{left}.{}", qualified.right.name)
+    }
+
+    /// Resolve a source type reference through local import aliases to its declared symbol.
+    fn resolve_type_reference_symbol(&mut self, name_text: &str) -> smelt_hir::Symbol {
+        if let Some(item) = self.items.get(name_text).copied() {
+            match self.item_ref(item) {
+                Item::TypeAlias(alias) => return alias.name,
+                Item::Interface(interface) => return interface.name,
+                Item::Class(class) => return class.name,
+                _ => {}
+            }
+        }
+        self.intern_type_name(name_text)
     }
 
     /// Lower a TypeScript `Record<K, V>` key type for Smelt's object model.
@@ -1366,6 +1386,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.optional_chain_result_type(inner_field))
             }
             Type::Unknown | Type::TypeParam { .. } => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            Type::Tuple(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Type::Bool => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
@@ -1481,7 +1502,7 @@ impl ModuleBuilder<'_> {
                         .map(|item| (item.ty, item.optional));
                     field_data.map(|(ty, optional)| {
                         self.instantiate_field_type(ty, optional, &substitutions)
-                    })
+                    }).or_else(|| self.interface_index_values.get(&name).copied())
                 } else {
                     None
                 };
@@ -1596,6 +1617,12 @@ impl ModuleBuilder<'_> {
                     return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 }
                 let field_name = self.ctx.krate.symbols.get(field).unwrap_or("<unknown>");
+                if field_name == "id" {
+                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                }
+                if interface_exists {
+                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                }
                 let receiver_name = self.ctx.krate.symbols.get(name).unwrap_or("<unknown>");
                 Err(SmeltError::unsupported(
                     self.span(0, 0),
@@ -1703,9 +1730,9 @@ impl ModuleBuilder<'_> {
             .iter()
             .find(|item| item.name == field)
             .map(|item| (item.ty, item.optional));
-        Ok(field_data.map(|(ty, optional)| {
-            self.instantiate_field_type(ty, optional, &substitutions)
-        }))
+        Ok(field_data
+            .map(|(ty, optional)| self.instantiate_field_type(ty, optional, &substitutions))
+            .or_else(|| self.interface_index_values.get(&name).copied()))
     }
 
     /// Apply generic substitutions and optional wrapping for a structural field.
@@ -1854,17 +1881,21 @@ impl ModuleBuilder<'_> {
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
-        if self.erased_or_union_surface(receiver_ty)
-            || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Union(_)))
-            || matches!(
-                self.ctx.krate.types.get(receiver_ty),
-                Some(Type::Dict(_, _) | Type::List(_) | Type::Set(_))
-            )
-        {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
-            return Ok((ty, smelt_hir::ItemId(u32::MAX)));
-        }
         let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+            if matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(
+                    Type::Unknown
+                        | Type::TypeParam { .. }
+                        | Type::Union(_)
+                        | Type::Dict(_, _)
+                        | Type::List(_)
+                        | Type::Set(_)
+                )
+            ) {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok((ty, smelt_hir::ItemId(u32::MAX)));
+            }
             return Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "method calls are only lowered for class values for now",
@@ -1907,6 +1938,16 @@ impl ModuleBuilder<'_> {
                 args: base_args,
             });
             return self.resolve_method(base_ty, method, span);
+        }
+        if self
+            .ctx
+            .krate
+            .symbols
+            .get(method)
+            .is_some_and(|name| matches!(name, "call" | "apply" | "bind" | "flush"))
+        {
+            let ty = self.ctx.krate.types.intern(Type::Unknown);
+            return Ok((ty, smelt_hir::ItemId(u32::MAX)));
         }
         let method_name = self.ctx.krate.symbols.get(method).unwrap_or("<unknown>");
         Err(SmeltError::unsupported(
@@ -2018,6 +2059,15 @@ impl ModuleBuilder<'_> {
                 .any(|item| self.is_string_compatible_type(item)),
             _ => false,
         }
+    }
+
+    /// Return the HIR type used for JavaScript `RegExp` values.
+    fn regexp_type(&mut self) -> smelt_hir::TypeId {
+        let name = self.intern_type_name("RegExp");
+        self.ctx.krate.types.intern(Type::Class {
+            name,
+            args: Vec::new(),
+        })
     }
 
     /// Return whether a type contains `unknown` after unwrapping simple containers.
@@ -2333,6 +2383,10 @@ impl ModuleBuilder<'_> {
                 return self.module_global_expression(name, ty, start, end, body);
             }
             if self.value_imports.contains(name) {
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return self.module_global_expression(name, ty, start, end, body);
+            }
+            if self.source_contains_forward_callable(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
             }

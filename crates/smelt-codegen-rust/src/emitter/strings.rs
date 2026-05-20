@@ -17,7 +17,24 @@ impl FunctionEmitter<'_> {
         Ok(format!("{receiver_text}.{method_name}()"))
     }
 
-    /// Converts a numeric absolute-value operation to Rust text.
+    /// Converts Unicode normalization to Rust text through `unicode-normalization`.
+    pub(super) fn string_normalize_text(
+        &self,
+        form: smelt_hir::StringNormalizeForm,
+        operand: &Operand,
+    ) -> Result<String, EmitError> {
+        let receiver_text = self.string_like_operand_text(operand, "string normalize")?;
+        let method_name = match form {
+            smelt_hir::StringNormalizeForm::Nfc => "nfc",
+            smelt_hir::StringNormalizeForm::Nfd => "nfd",
+            smelt_hir::StringNormalizeForm::Nfkc => "nfkc",
+            smelt_hir::StringNormalizeForm::Nfkd => "nfkd",
+        };
+        Ok(format!(
+            "unicode_normalization::UnicodeNormalization::{method_name}({receiver_text}.as_str()).collect::<String>()"
+        ))
+    }
+
     /// Converts a string trim operation to Rust text.
     pub(super) fn string_trim_text(
         &self,
@@ -353,6 +370,32 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts JavaScript `RegExp.prototype.exec` to a stateful match object.
+    pub(super) fn regex_exec_text(
+        &self,
+        regex: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
+        let regex_text = self.regexp_operand_text(regex)?;
+        let haystack_text = self.string_like_operand_text(haystack, "regex exec")?;
+        Ok(format!("{regex_text}.exec(&{haystack_text})"))
+    }
+
+    /// Render a value as a `SmeltRegExp`.
+    fn regexp_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+        let text = self.operand_text(operand)?;
+        match self.mir.types.get(self.operand_ty(operand)?) {
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => Ok(text),
+            Some(Type::String) => Ok(format!("SmeltRegExp::new({text}, String::new())")),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => Ok(format!(
+                "match {text} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value, String::new()), _ => SmeltRegExp::new(String::new(), String::new()) }}"
+            )),
+            _ => Ok(format!(
+                "SmeltRegExp::new({text}.to_string(), String::new())"
+            )),
+        }
+    }
+
     /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     /// Checks that every operand has string type.
     pub(super) fn require_string_operands(
@@ -379,21 +422,28 @@ impl FunctionEmitter<'_> {
     /// Statically known strings are emitted directly. Unknown values use the
     /// same JavaScript-style primitive coercion as string joining; structured
     /// unknown values use the platform object placeholder.
-    fn string_like_operand_text(
+    pub(super) fn string_like_operand_text(
         &self,
         operand: &Operand,
         _context: &str,
     ) -> Result<String, EmitError> {
         match self.mir.types.get(self.operand_ty(operand)?) {
-            Some(Type::String) => self.len_operand_text(operand),
+            Some(Type::String) => match operand {
+                Operand::Copy(place) => Ok(format!("{}.clone()", self.place_text(place)?)),
+                Operand::Move(place) => self.place_text(place),
+                Operand::Const(_) => self.operand_text(operand),
+            },
             Some(Type::Bool | Type::Int | Type::Float) => {
                 Ok(format!("{}.to_string()", self.operand_text(operand)?))
             }
-            Some(Type::Unknown | Type::Union(_)) => {
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let text = self.operand_text(operand)?;
                 Ok(format!(
-                    "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }}"
+                    "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
                 ))
+            }
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
+                Ok(format!("{}.source.clone()", self.operand_text(operand)?))
             }
             Some(Type::None | Type::Never) => Ok("String::new()".to_owned()),
             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
@@ -402,7 +452,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => Ok(
                 format!("{}.unwrap_or_default()", self.operand_text(operand)?),
             ),
-            Some(Type::Tuple(_) | Type::Optional(_) | Type::TypeParam { .. } | Type::Future(_)) => {
+            Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {
                 Ok("String::new()".to_owned())
             }
             Some(Type::Function(_)) | None => Ok("String::new()".to_owned()),
@@ -586,7 +636,7 @@ impl FunctionEmitter<'_> {
         let item_text = match self.mir.types.get(*item_ty) {
             Some(Type::Bool | Type::Int | Type::Float) => "item.to_string()".to_owned(),
             Some(Type::Unknown) => {
-                "match item { SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value.clone(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }".to_owned()
+                "match item { SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value.clone(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }".to_owned()
             }
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
                 Some(Type::Bool | Type::Int | Type::Float) => {

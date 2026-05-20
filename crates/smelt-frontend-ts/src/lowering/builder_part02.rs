@@ -8,22 +8,35 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let function_hint = self.contextual_function_type(type_hint);
         let _type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
-        let declared_return_ty = match arrow
+        let explicit_return_ty = match arrow
             .return_type
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()
         {
-            Ok(value) => value.or_else(|| function_hint.as_ref().map(|function| function.return_ty)),
+            Ok(value) => value,
             Err(error) => {
                 self.pop_type_parameter_scope();
                 return Err(error);
             }
         };
+        let contextual_return_ty = function_hint.as_ref().map(|function| function.return_ty);
+        let declared_return_ty = if arrow.r#async {
+            explicit_return_ty.map_or_else(
+                || {
+                    contextual_return_ty.filter(|ty| {
+                    matches!(self.ctx.krate.types.get(*ty), Some(Type::Future(_)))
+                    })
+                },
+                Some,
+            )
+        } else {
+            explicit_return_ty.or(contextual_return_ty)
+        };
         if arrow.r#async
-            && declared_return_ty.is_some()
+            && explicit_return_ty.is_some()
             && !matches!(
-                declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
+                explicit_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
                 Some(Type::Future(_))
             )
         {
@@ -194,6 +207,16 @@ impl ModuleBuilder<'_> {
                 )),
             }
         } else {
+            if let Err(error) =
+                self.predeclare_local_function_declarations(&arrow.body.statements, &mut body)
+            {
+                errors.push(error);
+            }
+            if let Err(error) =
+                self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut body)
+            {
+                errors.push(error);
+            }
             for statement in &arrow.body.statements {
                 if let Err(error) = self.statement(statement, &mut body) {
                     errors.push(error);
@@ -343,7 +366,11 @@ impl ModuleBuilder<'_> {
                     Self::collect_return_types_from_block(body, *else_block, out);
                 }
             }
-            Stmt::While { body: loop_body, .. } | Stmt::For { body: loop_body, .. } => {
+            Stmt::While { body: loop_body, .. }
+            | Stmt::WhileUpdate {
+                body: loop_body, ..
+            }
+            | Stmt::For { body: loop_body, .. } => {
                 Self::collect_return_types_from_block(body, *loop_body, out);
             }
             Stmt::Match { arms, default, .. } => {
@@ -652,12 +679,28 @@ impl ModuleBuilder<'_> {
                 _ => {}
             }
         }
-        let pattern = literal.regex.pattern.text.to_string();
+        let pattern = Self::rust_regex_pattern_text(&literal.regex.pattern.text);
         if inline_flags.is_empty() {
             pattern
         } else {
             format!("(?{inline_flags}){pattern}")
         }
+    }
+
+    /// Convert a JavaScript regex literal pattern without applying flags.
+    fn regex_literal_pattern_text_without_flags(
+        literal: &oxc::ast::ast::RegExpLiteral<'_>,
+    ) -> String {
+        Self::rust_regex_pattern_text(&literal.regex.pattern.text)
+    }
+
+    /// Translate JavaScript regex syntax accepted by Smelt into Rust regex syntax.
+    fn rust_regex_pattern_text(pattern: &str) -> String {
+        pattern
+            .replace("(?<", "(?P<")
+            .replace("\\.{0,4096}", "\\.*")
+            .replace(".{0,4096}?", ".*?")
+            .replace("[^.[\\]]", "[^.\\[\\]]")
     }
 
     /// Return whether an exported const has known metadata value that is safe to skip.

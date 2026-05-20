@@ -189,8 +189,7 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&unary.argument, body)?;
         let value_ty = Self::expr_ty(body, value);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
-        if self.ctx.krate.types.get(value_ty) != Some(&Type::Unknown) {
-            let matches_kind = self.typeof_type_name(value_ty).is_some_and(|actual| actual == expected);
+        if let Some(matches_kind) = self.static_typeof_match(value_ty, expected) {
             let result = if matches!(
                 binary.operator,
                 BinaryOperator::StrictInequality | BinaryOperator::Inequality
@@ -222,6 +221,27 @@ impl ModuleBuilder<'_> {
             )));
         }
         Ok(Some(check))
+    }
+
+    /// Return a static `typeof` comparison result when all runtime variants agree.
+    fn static_typeof_match(&self, ty: smelt_hir::TypeId, expected: &str) -> Option<bool> {
+        let resolved_ty = self.type_param_constraint_or_self(ty);
+        match self.ctx.krate.types.get(resolved_ty).cloned() {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Future(_)) => None,
+            Some(Type::Union(items)) => {
+                let mut matches = items
+                    .into_iter()
+                    .filter_map(|item| self.static_typeof_match(item, expected));
+                let first = matches.next()?;
+                if matches.all(|item| item == first) {
+                    Some(first)
+                } else {
+                    None
+                }
+            }
+            Some(_) => Some(self.type_matches_typeof(resolved_ty, expected)),
+            None => None,
+        }
     }
 
     /// Return the JavaScript `typeof` string represented by a lowered type.
@@ -512,8 +532,39 @@ impl ModuleBuilder<'_> {
             Argument::NewExpression(new_expr) => self.new_expression_with_hint(new_expr, body, None),
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
+            Argument::AwaitExpression(await_expr) => {
+                if !self.current_async {
+                    return Err(SmeltError::unsupported(
+                        self.span(await_expr.span.start, await_expr.span.end),
+                        "await expressions are only lowered inside async functions",
+                    ));
+                }
+                let awaited = self.expression(&await_expr.argument, body)?;
+                let awaited_ty = Self::expr_ty(body, awaited);
+                let Some(ty) = self.future_inner_type(awaited_ty) else {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(await_expr.span.start, await_expr.span.end),
+                    }));
+                };
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Await(awaited),
+                    ty,
+                    span: self.span(await_expr.span.start, await_expr.span.end),
+                }))
+            }
             Argument::ArrowFunctionExpression(arrow) => self.arrow_function_expression(arrow, body),
             Argument::FunctionExpression(function) => {
+                if function.r#async {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(function.span.start, function.span.end),
+                    }));
+                }
                 self.function_expression_value(function, None, function.span, body)
             }
             Argument::TSInstantiationExpression(instantiation) => {

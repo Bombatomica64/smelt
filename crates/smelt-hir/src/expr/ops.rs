@@ -11,6 +11,19 @@ pub enum StringCaseOp {
     Upper,
 }
 
+/// A directly lowered Unicode string normalization form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StringNormalizeForm {
+    /// Canonical decomposition followed by canonical composition.
+    Nfc,
+    /// Canonical decomposition.
+    Nfd,
+    /// Compatibility decomposition followed by canonical composition.
+    Nfkc,
+    /// Compatibility decomposition.
+    Nfkd,
+}
+
 /// A directly lowered numeric rounding operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum NumericRoundOp {

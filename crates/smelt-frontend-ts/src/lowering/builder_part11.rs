@@ -192,10 +192,18 @@ impl ModuleBuilder<'_> {
                 (key_ty, value_ty)
             }
             _ => {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    format!("Object.{} requires a record argument", member.property.name),
-                ));
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                dict = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: dict,
+                        target,
+                    },
+                    ty: target,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                (key_ty, value_ty)
             }
         };
         let key_ty = key_type;
@@ -548,16 +556,57 @@ impl ModuleBuilder<'_> {
         }
         if let [argument] = call.arguments.as_slice() {
             let value = self.argument(argument, body)?;
-            if let Some(Type::Dict(key, value_ty)) =
-                self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned()
-            {
-                if self.ctx.krate.types.get(key) == Some(&Type::String) {
-                    return Ok(Some(value));
+            match self.ctx.krate.types.get(Self::expr_ty(body, value)).cloned() {
+                Some(Type::Dict(key, value_ty)) => {
+                    if self.ctx.krate.types.get(key) == Some(&Type::String) {
+                        return Ok(Some(value));
+                    }
+                    let string_ty = self.ctx.krate.types.intern(Type::String);
+                    let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
                 }
-                let string_ty = self.ctx.krate.types.intern(Type::String);
-                let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
+                Some(Type::List(entry_ty)) => {
+                    if let Some((key_ty, value_ty)) = self.entries_tuple_item_types(entry_ty) {
+                        let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::DictLit(Vec::new()),
+                            ty,
+                            span: self.span(call.span.start, call.span.end),
+                        })));
+                    }
+                    if self.erased_or_union_surface(entry_ty) {
+                        let key_ty = self.ctx.krate.types.intern(Type::String);
+                        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::DictLit(Vec::new()),
+                            ty,
+                            span: self.span(call.span.start, call.span.end),
+                        })));
+                    }
+                }
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
+                    let key_ty = self.ctx.krate.types.intern(Type::String);
+                    let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::DictLit(Vec::new()),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                }
+                _ => {}
+            }
+            if !matches!(argument, Argument::ArrayExpression(_)) {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
                 return Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert { value },
+                    kind: ExprKind::DictLit(Vec::new()),
                     ty,
                     span: self.span(call.span.start, call.span.end),
                 })));
@@ -594,6 +643,20 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Infer dictionary key/value types from an entry tuple item type.
+    fn entries_tuple_item_types(
+        &self,
+        entry_ty: smelt_hir::TypeId,
+    ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {
+        match self.ctx.krate.types.get(entry_ty) {
+            Some(Type::Tuple(items)) if items.len() == 2 => Some((*items.first()?, *items.get(1)?)),
+            Some(Type::Union(items)) => items
+                .iter()
+                .find_map(|item| self.entries_tuple_item_types(*item)),
+            _ => None,
+        }
     }
 
     /// Lower direct TypeScript object key ownership checks.
@@ -795,16 +858,47 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let op = match member.property.name.as_str() {
-            "toLowerCase" => StringCaseOp::Lower,
-            "toUpperCase" => StringCaseOp::Upper,
+            "toLowerCase" | "toLocaleLowerCase" => StringCaseOp::Lower,
+            "toUpperCase" | "toLocaleUpperCase" => StringCaseOp::Upper,
             _ => return Ok(None),
         };
         if call.arguments.is_empty() {
             let operand = self.expression(&member.object, body)?;
+            if call.optional || member.optional {
+                let operand = self.optionalize_index_receiver(operand, body);
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let ty = self.optional_chain_result_type(string_ty);
+                let method = self.intern_source_name(member.property.name.as_str());
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::OptionalMethod {
+                        receiver: operand,
+                        method,
+                        args: Vec::new(),
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
             let operand_ty = Self::expr_ty(body, operand);
             let effective_operand_ty = self.type_param_constraint_or_self(operand_ty);
             if self.ctx.krate.types.get(effective_operand_ty) == Some(&Type::String) {
                 let ty = self.ctx.krate.types.intern(Type::String);
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::StringCase { op, operand },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
+            if self.string_method_erased_receiver(effective_operand_ty) {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                let operand = body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: operand,
+                        target: ty,
+                    },
+                    ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::StringCase { op, operand },
                     ty,
@@ -824,6 +918,77 @@ impl ModuleBuilder<'_> {
             self.span(call.span.start, call.span.end),
             "string case methods require a string receiver and no arguments",
         ))
+    }
+
+    /// Return whether an erased receiver can be treated as a string method target.
+    fn string_method_erased_receiver(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => true,
+            Some(Type::Optional(inner)) => self.string_method_erased_receiver(*inner),
+            Some(Type::Union(items)) => items.iter().any(|item| {
+                let item = self.type_param_constraint_or_self(*item);
+                matches!(
+                    self.ctx.krate.types.get(item),
+                    Some(Type::String | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                )
+            }),
+            _ => false,
+        }
+    }
+
+    /// Lower direct TypeScript Unicode string normalization.
+    fn string_normalize_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "normalize" {
+            return Ok(None);
+        }
+        let form = match call.arguments.as_slice() {
+            [] => StringNormalizeForm::Nfc,
+            [Argument::StringLiteral(literal)] => match literal.value.as_str() {
+                "NFC" => StringNormalizeForm::Nfc,
+                "NFD" => StringNormalizeForm::Nfd,
+                "NFKC" => StringNormalizeForm::Nfkc,
+                "NFKD" => StringNormalizeForm::Nfkd,
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(literal.span.start, literal.span.end),
+                        "string normalize form must be NFC, NFD, NFKC, or NFKD",
+                    ));
+                }
+            },
+            [_] => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string normalize requires a literal normalization form",
+                ));
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "string normalize accepts at most one argument",
+                ));
+            }
+        };
+        let operand = self.expression(&member.object, body)?;
+        let operand_ty = Self::expr_ty(body, operand);
+        if !(self.is_string_compatible_type(operand_ty) || self.type_contains_unknown(operand_ty)) {
+            return Err(SmeltError::unsupported(
+                self.span(member.object.span().start, member.object.span().end),
+                "string normalize requires a string receiver",
+            ));
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::StringNormalize { form, operand },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower direct TypeScript string trimming.

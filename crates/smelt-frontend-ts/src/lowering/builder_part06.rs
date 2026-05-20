@@ -837,6 +837,17 @@ impl ModuleBuilder<'_> {
             | (Some(Type::String), "string")
             | (Some(Type::Function(_)), "function")
             | (Some(Type::Optional(_)), "undefined")
+            | (
+                Some(
+                    Type::List(_)
+                    | Type::Set(_)
+                    | Type::Dict(_, _)
+                    | Type::Tuple(_)
+                    | Type::Class { .. }
+                    | Type::Optional(_),
+                ),
+                "object",
+            )
             | (Some(Type::None), "undefined" | "object") => true,
             (Some(Type::Union(items)), _) => items
                 .iter()
@@ -1265,7 +1276,19 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?;
-                let fn_ty = self.local_arrow_function_type(arrow, annotated_ty)?;
+                let fn_ty = self
+                    .local_arrow_function_type(arrow, annotated_ty)
+                    .unwrap_or_else(|_| {
+                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                        let return_ty = self
+                            .contextual_function_type(annotated_ty)
+                            .map_or(unknown, |function| function.return_ty);
+                        self.ctx.krate.types.intern(Type::Function(FunctionType {
+                            params: vec![unknown; arrow.params.items.len()],
+                            return_ty,
+                            is_async: arrow.r#async,
+                        }))
+                    });
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),
@@ -1275,6 +1298,66 @@ impl ModuleBuilder<'_> {
                 });
                 self.locals.insert(binding.name.as_str().to_owned(), local);
             }
+        }
+        Ok(())
+    }
+
+    /// Predeclare nested function declarations before source-order statement lowering.
+    ///
+    /// JavaScript hoists `function name(...) {}` declarations within a function
+    /// body. Reserving callable locals here lets earlier sibling functions call
+    /// declarations that appear later in the same block.
+    fn predeclare_local_function_declarations(
+        &mut self,
+        statements: &[Statement<'_>],
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        for statement in statements {
+            let Statement::FunctionDeclaration(function) = statement else {
+                continue;
+            };
+            let Some(id) = &function.id else {
+                continue;
+            };
+            if self.locals.contains_key(id.name.as_str()) {
+                continue;
+            }
+            self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+            let result = (|| {
+                let mut params = Vec::new();
+                for param in &function.params.items {
+                    params.push(self.function_parameter_type(param)?);
+                }
+                let return_ty = function
+                    .return_type
+                    .as_ref()
+                    .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                    .transpose()?
+                    .unwrap_or_else(|| {
+                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                        if function.r#async {
+                            self.ctx.krate.types.intern(Type::Future(unknown))
+                        } else {
+                            unknown
+                        }
+                    });
+                let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                    params,
+                    return_ty,
+                    is_async: function.r#async,
+                }));
+                let symbol = self.intern_source_name(id.name.as_str());
+                let local = body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty: fn_ty,
+                    mutable: false,
+                    span: self.span(id.span.start, id.span.end),
+                });
+                self.locals.insert(id.name.as_str().to_owned(), local);
+                Ok(())
+            })();
+            self.pop_type_parameter_scope();
+            result?;
         }
         Ok(())
     }
@@ -1688,12 +1771,28 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 is_async: function.r#async,
             }));
-            let local = outer_body.push_local(LocalDecl {
-                name: Some(function_symbol),
-                ty: fn_ty,
-                mutable: false,
-                span: self.span(id.span.start, id.span.end),
-            });
+            let local = if let Some(existing) = self.locals.get(id.name.as_str()).copied() {
+                if let Ok(index) = usize::try_from(existing.0)
+                    && let Some(decl) = outer_body.locals.get_mut(index)
+                {
+                    decl.ty = fn_ty;
+                    existing
+                } else {
+                    outer_body.push_local(LocalDecl {
+                        name: Some(function_symbol),
+                        ty: fn_ty,
+                        mutable: false,
+                        span: self.span(id.span.start, id.span.end),
+                    })
+                }
+            } else {
+                outer_body.push_local(LocalDecl {
+                    name: Some(function_symbol),
+                    ty: fn_ty,
+                    mutable: false,
+                    span: self.span(id.span.start, id.span.end),
+                })
+            };
             self.locals.insert(id.name.as_str().to_owned(), local);
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {

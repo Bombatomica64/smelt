@@ -3,6 +3,13 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Return true when rendered callback argument text is a generated no-op.
+    fn callback_arg_text_is_default(arg: &str) -> bool {
+        arg.contains("RefCell<dyn FnMut")
+            || arg.starts_with("&mut |")
+            || arg.contains("let smelt_default_callback")
+    }
+
     /// Converts a list search operation to Rust text.
     pub(super) fn list_search_text(
         &self,
@@ -885,7 +892,9 @@ impl FunctionEmitter<'_> {
         let result = match terminator {
             Terminator::Return(operand) => {
                 if self.function.return_ty == self.none_ty {
-                    if !matches!(operand, Operand::Const(Constant::None)) {
+                    if !matches!(operand, Operand::Const(Constant::None))
+                        && self.operand_ty(operand)? != self.none_ty
+                    {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
                     out.push_str("    ()\n");
@@ -1180,7 +1189,7 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|effect| {
                         self.callback_expr_text(effect, params)
-                            .map(|text| format!("{text};"))
+                            .map(|text| format!("let _ = {text};"))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(" ");
@@ -1736,6 +1745,14 @@ impl FunctionEmitter<'_> {
                                 ) {
                                     return Ok("SmeltUnknown::Null".to_owned());
                                 }
+                                if matches!(callee.kind, smelt_hir::CallbackExprKind::Function(_))
+                                    && matches!(
+                                        self.mir.types.get(*target),
+                                        Some(Type::Function(_))
+                                    )
+                                {
+                                    return self.borrowed_default_function_text(*target);
+                                }
                                 return self.default_value(*target);
                             };
                             if arg.spread {
@@ -1748,6 +1765,15 @@ impl FunctionEmitter<'_> {
                             } else {
                                 let mut text =
                                     self.callback_expr_as_type_text(&arg.expr, *target, params)?;
+                                if matches!(callee.kind, smelt_hir::CallbackExprKind::Function(_))
+                                    && matches!(
+                                        self.mir.types.get(*target),
+                                        Some(Type::Function(_))
+                                    )
+                                    && Self::callback_arg_text_is_default(&text)
+                                {
+                                    text = self.borrowed_default_function_text(*target)?;
+                                }
                                 if text.contains("RefCell<dyn FnMut")
                                     && !matches!(
                                         self.mir.types.get(*target),
@@ -1784,13 +1810,13 @@ impl FunctionEmitter<'_> {
                 {
                     if rendered_args
                         .get(1)
-                        .is_some_and(|arg| arg.contains("RefCell<dyn FnMut"))
+                        .is_some_and(|arg| Self::callback_arg_text_is_default(arg))
                         && let Some(arg) = rendered_args.get_mut(1)
                     {
                         "0.0".clone_into(arg);
                     }
                     if rendered_args.get(2).is_some_and(|arg| {
-                        arg.contains("RefCell<dyn FnMut")
+                        Self::callback_arg_text_is_default(arg)
                             || !arg.contains("HashMap")
                                 && !arg.contains("::std::collections::HashMap")
                     }) && let Some(arg) = rendered_args.get_mut(2)

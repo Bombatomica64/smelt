@@ -39,7 +39,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("!{operand_text}.is_empty()"))
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Unknown) => Ok(format!(
-                "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => true }}"
+                "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
             )),
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(_)) => {
                 Ok(format!("{operand_text}.is_some()"))
@@ -68,6 +68,9 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
             )),
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Unknown) => Ok(format!(
+                "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => 0.0 }}"
+            )),
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
                 "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
             )),
@@ -81,6 +84,9 @@ impl FunctionEmitter<'_> {
                 ) =>
             {
                 Ok(format!("{operand_text}.unwrap_or_default().to_string()"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToString, Type::String, _) => {
+                self.string_like_operand_text(operand, "String")
             }
             (_, Type::Bool, _) => Ok("false".to_owned()),
             (_, Type::Int, _) => Ok("0_i64".to_owned()),
@@ -249,6 +255,9 @@ impl FunctionEmitter<'_> {
             Type::Never => Ok("SmeltUnknown".to_owned()),
             Type::TypeParam { .. } => Ok("SmeltUnknown".to_owned()),
             Type::Class { name, args } => {
+                if self.symbol_name(*name)? == "RegExp" {
+                    return Ok("SmeltRegExp".to_owned());
+                }
                 if !self.mir.classes.iter().any(|class| class.name == *name)
                     && !self
                         .mir
@@ -378,6 +387,9 @@ impl FunctionEmitter<'_> {
                 }
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok("SmeltUnknown::Null".to_owned()),
+            Type::Class { name, .. } if self.symbol_name(*name)? == "RegExp" => {
+                Ok("SmeltRegExp::new(String::new(), String::new())".to_owned())
+            }
             Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
                 let params = function

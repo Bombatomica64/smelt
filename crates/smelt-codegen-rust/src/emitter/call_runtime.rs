@@ -206,6 +206,13 @@ impl FunctionEmitter<'_> {
                 if let Some(text) = self.unknown_binary_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
+                if *op == smelt_hir::BinOp::Add
+                    && matches!(self.mir.types.get(dest_ty), Some(Type::String))
+                {
+                    let lhs_text = self.string_like_operand_text(lhs, "string addition")?;
+                    let rhs_text = self.string_like_operand_text(rhs, "string addition")?;
+                    return Ok(format!("{lhs_text} + &{rhs_text}"));
+                }
                 if let Some(text) = self.erased_arithmetic_text(*op, lhs, rhs, dest_ty)? {
                     return Ok(text);
                 }
@@ -332,7 +339,9 @@ impl FunctionEmitter<'_> {
             Rvalue::OptionalField { receiver, field } => {
                 self.optional_field_text_for_dest(receiver, *field, dest_ty)
             }
-            Rvalue::OptionalIndex { receiver, index } => self.optional_index_text(receiver, index),
+            Rvalue::OptionalIndex { receiver, index } => {
+                self.optional_index_text(receiver, index, dest_ty)
+            }
             Rvalue::OptionalMethod {
                 receiver,
                 method,
@@ -386,7 +395,14 @@ impl FunctionEmitter<'_> {
                 Ok(format!("{class_name} {{ {} }}", parts.join(", ")))
             }
             Rvalue::ExternalClassInstance { class, args } => {
-                self.external_class_instance_text(*class, args)
+                let text = self.external_class_instance_text(*class, args)?;
+                if self.symbol_name(*class)? == "RegExp"
+                    && matches!(self.mir.types.get(dest_ty), Some(Type::String))
+                {
+                    Ok(format!("{text}.source.clone()"))
+                } else {
+                    Ok(text)
+                }
             }
             Rvalue::Len(operand) => self.len_text(operand, dest_ty),
             Rvalue::NumericAbs(operand) => self.numeric_abs_text(operand),
@@ -406,6 +422,7 @@ impl FunctionEmitter<'_> {
                 self.primitive_cast_text(*op, operand, dest_ty)
             }
             Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
+            Rvalue::StringNormalize { form, operand } => self.string_normalize_text(*form, operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
             Rvalue::StringAffix {
                 op,
@@ -458,6 +475,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
             Rvalue::RegexFind { pattern, haystack } => self.regex_find_text(pattern, haystack),
+            Rvalue::RegexExec { regex, haystack } => self.regex_exec_text(regex, haystack),
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
             Rvalue::StringCharCodeAt { operand, index } => {
                 self.string_char_code_at_text(operand, index)
@@ -516,10 +534,8 @@ impl FunctionEmitter<'_> {
                 self.closure_text_for_type(*id, dest_ty)
             }
             Rvalue::ClosureCall { callee, args } => {
-                if matches!(
-                    self.mir.types.get(self.operand_ty(callee)?),
-                    Some(Type::Unknown)
-                ) {
+                let callee_ty = self.operand_ty(callee)?;
+                if !matches!(self.mir.types.get(callee_ty), Some(Type::Function(_))) {
                     return self.default_value(dest_ty);
                 }
                 let callee_text = self.operand_text(callee)?;
@@ -559,7 +575,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => None,
                 };
-                let inferred_params = match self.mir.types.get(self.operand_ty(callee)?) {
+                let inferred_params = match self.mir.types.get(callee_ty) {
                     Some(Type::Function(function)) => function.params.as_slice(),
                     _ => &[],
                 };
@@ -597,7 +613,7 @@ impl FunctionEmitter<'_> {
                 if args.is_empty()
                     && rendered_args.as_slice() == ["Vec::new()"]
                     && matches!(
-                        self.mir.types.get(self.operand_ty(callee)?),
+                        self.mir.types.get(callee_ty),
                         Some(Type::Function(function)) if function.params.is_empty()
                     )
                 {
@@ -618,7 +634,7 @@ impl FunctionEmitter<'_> {
                     }
                     _ => format!("(&mut *{callee_text}.borrow_mut())({args_text})"),
                 };
-                let source_ty = match self.mir.types.get(self.operand_ty(callee)?) {
+                let source_ty = match self.mir.types.get(callee_ty) {
                     Some(Type::Function(function)) => function.return_ty,
                     _ => dest_ty,
                 };
@@ -1303,6 +1319,13 @@ impl FunctionEmitter<'_> {
         let field_ty = self.field_access_type(inner_ty, field)?;
         if is_optional {
             let value = self.field_access_text("_smelt_value", inner_ty, field)?;
+            if matches!(self.mir.types.get(inner_ty), Some(Type::Unknown))
+                && self.symbol_name(field)? == "groups"
+            {
+                return Ok(format!(
+                    "{receiver_text}.as_ref().map(|_smelt_value| {value})"
+                ));
+            }
             if let Some(Type::Optional(dest_inner)) = self.mir.types.get(dest_ty) {
                 let mapped = self.rendered_value_as_type_text(&value, field_ty, *dest_inner)?;
                 return Ok(format!(
@@ -1356,16 +1379,22 @@ impl FunctionEmitter<'_> {
         &self,
         receiver: &Operand,
         index: &Operand,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
+        let result_ty = if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
+            *inner
+        } else {
+            self.type_id(Type::Unknown)?
+        };
         if is_optional {
-            let value = self.index_access_text("_smelt_value", inner_ty, index)?;
+            let value =
+                self.optional_index_access_text("_smelt_value", inner_ty, index, result_ty)?;
             Ok(format!(
-                "{receiver_text}.as_ref().map(|_smelt_value| {value})"
+                "{receiver_text}.as_ref().and_then(|_smelt_value| {value})"
             ))
         } else {
-            let value = self.index_access_text(&receiver_text, inner_ty, index)?;
-            Ok(format!("Some({value})"))
+            self.optional_index_access_text(&receiver_text, inner_ty, index, result_ty)
         }
     }
 
@@ -1376,13 +1405,32 @@ impl FunctionEmitter<'_> {
         method: Symbol,
         args: &[Operand],
     ) -> Result<String, EmitError> {
-        let (receiver_text, _inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
+        let (receiver_text, inner_ty, is_optional) = self.optional_receiver_parts(receiver)?;
         let method_name = sanitize_ident(self.symbol_name(method)?);
         let args_text = args
             .iter()
             .map(|arg| self.operand_text(arg))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
+        if args.is_empty()
+            && self.mir.types.get(inner_ty) == Some(&Type::String)
+            && matches!(
+                self.symbol_name(method)?,
+                "toUpperCase" | "to_upper_case" | "toLowerCase" | "to_lower_case"
+            )
+        {
+            let method_name = match self.symbol_name(method)? {
+                "toUpperCase" | "to_upper_case" => "to_uppercase",
+                "toLowerCase" | "to_lower_case" => "to_lowercase",
+                _ => unreachable!(),
+            };
+            if is_optional {
+                return Ok(format!(
+                    "{receiver_text}.as_ref().map(|_smelt_value| _smelt_value.{method_name}())"
+                ));
+            }
+            return Ok(format!("Some({receiver_text}.{method_name}())"));
+        }
         if is_optional {
             Ok(format!(
                 "{receiver_text}.as_ref().map(|_smelt_value| _smelt_value.{method_name}({args_text}))"
@@ -1520,6 +1568,17 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
     ) -> Result<String, EmitError> {
         let class_name = self.symbol_name(class)?;
+        if class_name == "RegExp" {
+            let pattern = args.first().map_or_else(
+                || Ok("\"\".to_owned()".to_owned()),
+                |arg| self.string_like_operand_text(arg, "RegExp pattern"),
+            )?;
+            let flags = args.get(1).map_or_else(
+                || Ok("\"\".to_owned()".to_owned()),
+                |arg| self.string_like_operand_text(arg, "RegExp flags"),
+            )?;
+            return Ok(format!("SmeltRegExp::new({pattern}, {flags})"));
+        }
         let args_text = args
             .iter()
             .map(|arg| self.operand_text(arg))
@@ -1553,17 +1612,20 @@ impl FunctionEmitter<'_> {
         if matches!(
             self.mir.types.get(receiver_ty),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
-        ) {
+        ) || self.is_erased_class_type(receiver_ty)
+        {
             let field_name = self.symbol_name(field)?;
             return Ok(format!(
                 "match {receiver_text} {{ SmeltUnknown::Object(map) => map.get({field_name:?}).cloned().unwrap_or(SmeltUnknown::Null), _ => SmeltUnknown::Null }}"
             ));
         }
-        if self.is_erased_class_type(receiver_ty) {
-            return Ok("SmeltUnknown::Null".to_owned());
-        }
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
             return self.string_field_text(receiver_text, field);
+        }
+        if let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty)
+            && self.symbol_name(*name)? == "RegExp"
+        {
+            return self.regexp_field_text(receiver_text, field);
         }
         let Some(Type::Class { .. }) = self.mir.types.get(receiver_ty) else {
             return Err(EmitError::new(
@@ -1596,20 +1658,44 @@ impl FunctionEmitter<'_> {
         })
     }
 
-    /// Emits an index read against a named in-scope receiver value.
-    fn index_access_text(
+    /// Emits JavaScript RegExp metadata field reads.
+    pub(super) fn regexp_field_text(
+        &self,
+        receiver_text: &str,
+        field: Symbol,
+    ) -> Result<String, EmitError> {
+        Ok(match self.symbol_name(field)? {
+            "source" => format!("{receiver_text}.source.clone()"),
+            "global" => format!("{receiver_text}.has_flag('g')"),
+            "ignoreCase" | "ignore_case" => format!("{receiver_text}.has_flag('i')"),
+            "multiline" => format!("{receiver_text}.has_flag('m')"),
+            "sticky" => format!("{receiver_text}.has_flag('y')"),
+            "unicode" => format!("{receiver_text}.has_flag('u')"),
+            "dotAll" | "dot_all" => format!("{receiver_text}.has_flag('s')"),
+            "lastIndex" | "last_index" => format!("*{receiver_text}.last_index.borrow() as f64"),
+            "constructor" => "SmeltUnknown::Null".to_owned(),
+            _ => "SmeltUnknown::Null".to_owned(),
+        })
+    }
+
+    /// Emits a JavaScript optional-chain index read against an in-scope receiver value.
+    ///
+    /// `value?.[index]` short-circuits only when the receiver is nullish, but a
+    /// missing array/string element still produces `undefined`. Smelt models
+    /// that as `None`, so this helper deliberately avoids the strict
+    /// `expect("index out of bounds")` used by normal element access.
+    fn optional_index_access_text(
         &self,
         receiver_text: &str,
         receiver_ty: TypeId,
         index: &Operand,
+        result_ty: TypeId,
     ) -> Result<String, EmitError> {
         match self.mir.types.get(receiver_ty) {
             Some(Type::List(_)) => {
                 let index_text =
                     self.normalized_index_text(&format!("{receiver_text}.len()"), index)?;
-                Ok(format!(
-                    "{receiver_text}.get({index_text}).cloned().expect(\"index out of bounds\")"
-                ))
+                Ok(format!("{receiver_text}.get({index_text}).cloned()"))
             }
             Some(Type::Dict(key_ty, _)) => {
                 let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
@@ -1620,18 +1706,81 @@ impl FunctionEmitter<'_> {
                 } else {
                     self.operand_as_type_text(index, *key_ty)?
                 };
-                Ok(format!(
-                    "{receiver_text}.get(&{key_text}).cloned().expect(\"index out of bounds\")"
-                ))
+                Ok(format!("{receiver_text}.get(&{key_text}).cloned()"))
             }
             Some(Type::String) => {
                 let index_text =
                     self.normalized_index_text(&format!("{receiver_text}.chars().count()"), index)?;
                 Ok(format!(
-                    "{receiver_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
+                    "{receiver_text}.chars().nth({index_text}).map(|ch| ch.to_string())"
                 ))
             }
-            _ => Ok("Default::default()".to_owned()),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            | Some(Type::Class { .. })
+                if matches!(
+                    self.mir.types.get(receiver_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(receiver_ty) =>
+            {
+                let index_ty = self.operand_ty(index)?;
+                let index_text = self.operand_text(index)?;
+                let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
+                let numeric_index_text = match self.mir.types.get(index_ty) {
+                    Some(Type::Int | Type::Float) => index_text,
+                    Some(Type::Bool) => format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}"),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    | Some(Type::Class { .. })
+                        if self.is_erased_class_type(index_ty)
+                            || matches!(
+                                self.mir.types.get(index_ty),
+                                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                            ) =>
+                    {
+                        format!(
+                            "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                        )
+                    }
+                    _ => "f64::NAN".to_owned(),
+                };
+                let string_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
+                    "value.chars().nth(index).map(|ch| ch.to_string())".to_owned()
+                } else {
+                    "value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))"
+                        .to_owned()
+                };
+                let array_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
+                    "values.get(index).cloned().map(|value| match value { SmeltUnknown::String(value) => value, other => other.to_string() })".to_owned()
+                } else {
+                    "values.get(index).cloned()".to_owned()
+                };
+                let object_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
+                    format!(
+                        "values.get(&{key_text}).cloned().map(|value| match value {{ SmeltUnknown::String(value) => value, other => other.to_string() }})"
+                    )
+                } else {
+                    format!("values.get(&{key_text}).cloned()")
+                };
+                let primitive_none = "SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Null | SmeltUnknown::Function(_) => None";
+                Ok(format!(
+                    r"match {receiver_text}.clone() {{
+                        SmeltUnknown::String(value) => {{
+                            let len = value.chars().count() as i64;
+                            let index = {numeric_index_text} as i64;
+                            let normalized = if index < 0 {{ len + index }} else {{ index }};
+                            usize::try_from(normalized).ok().and_then(|index| {string_some})
+                        }}
+                        SmeltUnknown::Array(values) => {{
+                            let len = values.len() as i64;
+                            let index = {numeric_index_text} as i64;
+                            let normalized = if index < 0 {{ len + index }} else {{ index }};
+                            usize::try_from(normalized).ok().and_then(|index| {array_some})
+                        }}
+                        SmeltUnknown::Object(values) => {object_some},
+                        {primitive_none},
+                    }}"
+                ))
+            }
+            _ => Ok("None".to_owned()),
         }
     }
 

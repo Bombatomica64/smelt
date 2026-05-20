@@ -1,0 +1,519 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s
+     Running `target/debug/smelt dump-mir third_party/remeda/packages/remeda/src/toCamelCase.test.ts`
+fn test_data_last_without_options (FuncId(0)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = {}
+    %3 = unknown_cast copy %2 as t0
+    %4 = closure_call copy %3()
+    %5 = closure_call copy %1("hello world", copy %4)
+    %6 = "helloWorld"
+    %7 = copy %5 != copy %6
+    switch copy %7 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_data_last_with_options_preserveconsecutiveuppercase_true (FuncId(1)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+    %4 temp: Dict<String, Bool>
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = {}
+    %3 = unknown_cast copy %2 as t0
+    %4 = {"preserveConsecutiveUppercase": true}
+    %5 = closure_call copy %3(copy %4)
+    %6 = closure_call copy %1("fooBAR", copy %5)
+    %7 = "fooBAR"
+    %8 = copy %6 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_data_last_with_options_preserveconsecutiveuppercase_false (FuncId(2)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+    %4 temp: Dict<String, Bool>
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = {}
+    %3 = unknown_cast copy %2 as t0
+    %4 = {"preserveConsecutiveUppercase": false}
+    %5 = closure_call copy %3(copy %4)
+    %6 = closure_call copy %1("fooBAR", copy %5)
+    %7 = "fooBar"
+    %8 = copy %6 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_pascal (FuncId(3)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("FooBar")
+    %3 = "fooBar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_kebab (FuncId(4)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foo-bar")
+    %3 = "fooBar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_complex_kebab (FuncId(5)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foo-bar-abc-123")
+    %3 = "fooBarAbc123"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_space (FuncId(6)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foo bar")
+    %3 = "fooBar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_snake (FuncId(7)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foo_bar")
+    %3 = "fooBar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_no_delimiter_from_mono (FuncId(8)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foobar")
+    %3 = "foobar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_mixed (FuncId(9)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foo-bar_abc xyzBarFoo")
+    %3 = "fooBarAbcXyzBarFoo"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_vendor_prefixed_css_property (FuncId(10)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("-webkit-animation")
+    %3 = "webkitAnimation"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_double_prefixed_kebab (FuncId(11)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("--very-prefixed")
+    %3 = "veryPrefixed"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_repeated_separators (FuncId(12)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foo____bar")
+    %3 = "fooBar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_uppercase (FuncId(13)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("FOO")
+    %3 = "foo"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_lowercase (FuncId(14)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("foo")
+    %3 = "foo"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_screaming_snake_case (FuncId(15)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("FOO_BAR")
+    %3 = "fooBar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_screaming_kebab_case (FuncId(16)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Unknown
+    %3 temp: Unknown
+    %4 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = closure_call copy %1("FOO-BAR")
+    %3 = "fooBar"
+    %4 = copy %2 != copy %3
+    switch copy %4 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_case_0_preserveconsecutiveuppercase_input (FuncId(17)) -> None throws
+  locals
+    %0 user input: String
+    %1 user when_true: String
+    %2 user when_false: String
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Bool>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+    %9 temp: Dict<String, Unknown>
+    %10 temp: Unknown
+    %11 temp: Dict<String, Bool>
+    %12 temp: Unknown
+    %13 temp: Unknown
+    %14 temp: Bool
+  bb0:
+    %0 = "fooBAR"
+    %1 = "fooBAR"
+    %2 = "fooBar"
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {"preserveConsecutiveUppercase": true}
+    %6 = closure_call copy %4(copy %0, copy %5)
+    %7 = copy %1
+    %8 = copy %6 != copy %1
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    %9 = {}
+    %10 = unknown_cast copy %9 as t0
+    %11 = {"preserveConsecutiveUppercase": false}
+    %12 = closure_call copy %10(copy %0, copy %11)
+    %13 = copy %2
+    %14 = copy %12 != copy %2
+    switch copy %14 ? bb3 : bb4
+  bb3:
+    throw "expect(...).toBe(...) failed"
+  bb4:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_case_1_preserveconsecutiveuppercase_input (FuncId(18)) -> None throws
+  locals
+    %0 user input: String
+    %1 user when_true: String
+    %2 user when_false: String
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Bool>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+    %9 temp: Dict<String, Unknown>
+    %10 temp: Unknown
+    %11 temp: Dict<String, Bool>
+    %12 temp: Unknown
+    %13 temp: Unknown
+    %14 temp: Bool
+  bb0:
+    %0 = "fooBARBiz"
+    %1 = "fooBARBiz"
+    %2 = "fooBarBiz"
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {"preserveConsecutiveUppercase": true}
+    %6 = closure_call copy %4(copy %0, copy %5)
+    %7 = copy %1
+    %8 = copy %6 != copy %1
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    %9 = {}
+    %10 = unknown_cast copy %9 as t0
+    %11 = {"preserveConsecutiveUppercase": false}
+    %12 = closure_call copy %10(copy %0, copy %11)
+    %13 = copy %2
+    %14 = copy %12 != copy %2
+    switch copy %14 ? bb3 : bb4
+  bb3:
+    throw "expect(...).toBe(...) failed"
+  bb4:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_case_2_preserveconsecutiveuppercase_input (FuncId(19)) -> None throws
+  locals
+    %0 user input: String
+    %1 user when_true: String
+    %2 user when_false: String
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Bool>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+    %9 temp: Dict<String, Unknown>
+    %10 temp: Unknown
+    %11 temp: Dict<String, Bool>
+    %12 temp: Unknown
+    %13 temp: Unknown
+    %14 temp: Bool
+  bb0:
+    %0 = "foo BAR-Biz_BUZZ"
+    %1 = "fooBARBizBUZZ"
+    %2 = "fooBarBizBuzz"
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {"preserveConsecutiveUppercase": true}
+    %6 = closure_call copy %4(copy %0, copy %5)
+    %7 = copy %1
+    %8 = copy %6 != copy %1
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    %9 = {}
+    %10 = unknown_cast copy %9 as t0
+    %11 = {"preserveConsecutiveUppercase": false}
+    %12 = closure_call copy %10(copy %0, copy %11)
+    %13 = copy %2
+    %14 = copy %12 != copy %2
+    switch copy %14 ? bb3 : bb4
+  bb3:
+    throw "expect(...).toBe(...) failed"
+  bb4:
+    return none
+
+fn test_tests_copied_from_type_fest_s_tests_case_3_preserveconsecutiveuppercase_input (FuncId(20)) -> None throws
+  locals
+    %0 user input: String
+    %1 user when_true: String
+    %2 user when_false: String
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Bool>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+    %9 temp: Dict<String, Unknown>
+    %10 temp: Unknown
+    %11 temp: Dict<String, Bool>
+    %12 temp: Unknown
+    %13 temp: Unknown
+    %14 temp: Bool
+  bb0:
+    %0 = "foo	BAR-Biz_BUZZ"
+    %1 = "fooBARBizBUZZ"
+    %2 = "fooBarBizBuzz"
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {"preserveConsecutiveUppercase": true}
+    %6 = closure_call copy %4(copy %0, copy %5)
+    %7 = copy %1
+    %8 = copy %6 != copy %1
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    %9 = {}
+    %10 = unknown_cast copy %9 as t0
+    %11 = {"preserveConsecutiveUppercase": false}
+    %12 = closure_call copy %10(copy %0, copy %11)
+    %13 = copy %2
+    %14 = copy %12 != copy %2
+    switch copy %14 ? bb3 : bb4
+  bb3:
+    throw "expect(...).toBe(...) failed"
+  bb4:
+    return none
+

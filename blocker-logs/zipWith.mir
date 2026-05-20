@@ -3,37 +3,39 @@ fn zip_with (FuncId(0)) -> Unknown
     %0 param arg0: List<Unknown> | fn(Unknown, Unknown, Float, (List<Unknown>, List<Unknown>)) -> Unknown
     %1 param arg1: Optional<List<Unknown> | fn(Unknown, Unknown, Float, (List<Unknown>, List<Unknown>)) -> Unknown>
     %2 param arg2: Optional<fn(Unknown, Unknown, Float, (List<Unknown>, List<Unknown>)) -> Unknown>
-    %3 temp: fn(List<Unknown>, List<Unknown>) -> List<Value>
-    %4 temp: Dict<String, Unknown>
-    %5 temp: Unknown
-    %6 temp: fn(T1, T2, fn(Unknown, Unknown, Float, (T1, T2)) -> Value) -> List<Value>
-    %7 temp: List<Unknown>
-    %8 temp: Unknown
+    %3 temp: Bool
+    %4 temp: fn(List<Unknown>, List<Unknown>) -> List<Value>
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: fn(T1, T2, fn(Unknown, Unknown, Float, (T1, T2)) -> Value) -> List<Value>
+    %8 temp: List<Unknown>
     %9 temp: Unknown
-    %10 temp: List<Unknown> | fn(Unknown, Unknown, Float, (List<Unknown>, List<Unknown>)) -> Unknown
-    %11 temp: fn(Unknown, Unknown, Float, (List<Unknown>, List<Unknown>)) -> Unknown
-    %12 temp: List<Value>
+    %10 temp: Unknown
+    %11 temp: List<Unknown> | fn(Unknown, Unknown, Float, (List<Unknown>, List<Unknown>)) -> Unknown
+    %12 temp: fn(Unknown, Unknown, Float, (List<Unknown>, List<Unknown>)) -> Unknown
+    %13 temp: List<Value>
   bb0:
-    switch false ? bb1 : bb2
+    %3 = unknown_is Function copy %0
+    switch copy %3 ? bb1 : bb2
   bb1:
-    %3 = closure ClosureId(0) [copy %0]
-    return copy %3
+    %4 = closure ClosureId(0) [copy %0]
+    return copy %4
   bb2:
     switch false ? bb3 : bb4
   bb3:
-    %4 = {}
-    %5 = unknown_cast copy %4 as t0
-    %6 = closure ClosureId(1) []
-    %7 = [copy %0, copy %1]
-    %8 = {}
-    %9 = closure_call copy %5(copy %6, copy %7, copy %8)
-    return copy %9
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure ClosureId(1) []
+    %8 = [copy %0, copy %1]
+    %9 = {}
+    %10 = closure_call copy %6(copy %7, copy %8, copy %9)
+    return copy %10
   bb4:
-    %10 = copy %1
-    %11 = copy %2
-    %12 = call fn1(copy %0, copy %1, copy %11) -> bb5
+    %11 = copy %1
+    %12 = copy %2
+    %13 = call fn1(copy %0, copy %1, copy %12) -> bb5
   bb5:
-    return copy %12
+    return copy %13
 
 fn zip_with_implementation (FuncId(1)) -> List<Value>
   locals
@@ -67,7 +69,7 @@ fn zip_with_implementation (FuncId(1)) -> List<Value>
     goto bb3
   bb2:
     %12 = copy %1
-    %13 = closure ClosureId(3) [copy %2, copy %0, copy %3]
+    %13 = closure ClosureId(3) [copy %0, copy %2, copy %3]
     %14 = list_map copy %1, copy %13
     %8 = copy %14
     goto bb3
@@ -78,7 +80,7 @@ fn lazy_implementation (FuncId(2)) -> fn(Unknown, Unknown, Unknown) -> Unknown
   locals
     %0 param second: T2
     %1 param fn: fn(Unknown, Unknown, Float, (List<T1>, T2)) -> Value
-    %2 temp: fn(Unknown, Unknown, Unknown) -> Unknown
+    %2 temp: fn(Unknown, Unknown, Unknown) -> Dict<String, Unknown>
   bb0:
     %2 = closure ClosureId(4) [copy %1, copy %0]
     return copy %2

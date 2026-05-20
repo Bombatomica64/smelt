@@ -65,9 +65,9 @@ pub use expr::{
     ClosureCapture, ClosureExpr, DatePart, DictProjectionOp, Expr, ExprKind, ListCallbackOp,
     ListProjectionOp, ListSearchOp, ListSpliceItem, Literal, NumericExtremaOp, NumericPredicateOp,
     NumericRoundOp, NumericUnaryFuncOp, PrimitiveCastOp, RegexMatchOp, SetBinaryOp,
-    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringPadOp,
-    StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp, UnknownKind,
-    UrlField, bin_op_text,
+    SetProjectionOp, SetRelationOp, SetRemoveOp, StringAffixOp, StringCaseOp, StringNormalizeForm,
+    StringPadOp, StringPredicateOp, StringReplaceOp, StringSearchOp, StringTrimSide, UnaryOp,
+    UnknownKind, UrlField, bin_op_text,
 };
 pub use format::format_compact;
 pub use ids::{
