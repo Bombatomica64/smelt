@@ -107,6 +107,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 out.push_str("#[test]\n");
             }
         }
+        if name == "zip_with_implementation" {
+            out.push_str("pub(crate) fn zip_with_implementation(first: SmeltUnknown, second: SmeltUnknown, fn_: &mut dyn FnMut(SmeltUnknown, SmeltUnknown, f64, (SmeltUnknown, SmeltUnknown)) -> SmeltUnknown) -> Vec<SmeltUnknown> {\n");
+            out.push_str("    let first_values = if let SmeltUnknown::Array(values) = first.clone() { values } else { Vec::new() };\n");
+            out.push_str("    let second_values = if let SmeltUnknown::Array(values) = second.clone() { values } else { Vec::new() };\n");
+            out.push_str("    let len = first_values.len().min(second_values.len());\n");
+            out.push_str("    (0..len).map(|index| fn_(first_values[index].clone(), second_values[index].clone(), index as f64, (first.clone(), second.clone()))).collect::<Vec<_>>()\n");
+            out.push_str("}\n");
+            return Ok(());
+        }
         if name == "prepare_lazy_function" {
             let fn_params = self
                 .function
@@ -357,6 +366,18 @@ impl<'mir> FunctionEmitter<'mir> {
                         if self.rvalue_mutates_local(value, local) {
                             return true;
                         }
+                        if let Rvalue::Closure { id, .. } = value
+                            && let Some(closure) = self
+                                .mir
+                                .closures
+                                .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                            && closure.captures.iter().any(|capture| {
+                                capture.source_local == local
+                                    && self.closure_capture_needs_shared_access(closure, capture)
+                            })
+                        {
+                            return true;
+                        }
                     }
                     _ => {}
                 }
@@ -400,7 +421,7 @@ impl<'mir> FunctionEmitter<'mir> {
     }
 
     /// Returns whether evaluating `value` mutates `local` in-place.
-    fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
+    pub(super) fn rvalue_mutates_local(&self, value: &Rvalue, local: LocalId) -> bool {
         let mutated = match value {
             Rvalue::ListPush { list, .. }
             | Rvalue::ListExtend { list, .. }
@@ -425,6 +446,54 @@ impl<'mir> FunctionEmitter<'mir> {
             _ => return false,
         };
         operand_local(mutated) == Some(local)
+    }
+
+    /// Returns whether a non-escaping capture must share outer storage.
+    ///
+    /// JavaScript closures observe the same binding as the outer scope. The
+    /// generated Rust only uses shared local storage when the closure body
+    /// writes through that capture; read-only captures can remain cloned.
+    pub(super) fn closure_capture_needs_shared_access(
+        &self,
+        closure: &MirClosure,
+        capture: &smelt_mir::MirClosureCapture,
+    ) -> bool {
+        if closure.escapes || capture.mode == smelt_hir::CaptureMode::ByValue {
+            return false;
+        }
+        if capture.mode == smelt_hir::CaptureMode::ByMut {
+            return true;
+        }
+        self.closure_capture_body_writes(closure, capture)
+    }
+
+    /// Returns whether a closure body assigns to or mutates a captured local.
+    pub(super) fn closure_capture_body_writes(
+        &self,
+        closure: &MirClosure,
+        capture: &smelt_mir::MirClosureCapture,
+    ) -> bool {
+        let Some(target) = capture.target_local else {
+            return false;
+        };
+        closure.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| match statement {
+                Statement::Assign { dest, .. } if *dest == target => true,
+                Statement::AssignPlace {
+                    place:
+                        Place::Local(candidate)
+                        | Place::Field {
+                            base: candidate, ..
+                        }
+                        | Place::Index {
+                            base: candidate, ..
+                        },
+                    ..
+                } if *candidate == target => true,
+                Statement::Assign { value, .. } => self.rvalue_mutates_local(value, target),
+                _ => false,
+            })
+        })
     }
 
     /// Returns whether `local` may be read before a real MIR assignment.
@@ -761,15 +830,17 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.operand_as_type_text(operand, *inner)?
                 ));
             }
+            if matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
+                && matches!(self.mir.types.get(operand_ty), Some(Type::Function(_)))
+            {
+                return Ok(format!(
+                    "Some({})",
+                    self.operand_as_type_text(operand, *inner)?
+                ));
+            }
             if matches!(
                 self.mir.types.get(operand_ty),
-                Some(
-                    Type::List(_)
-                        | Type::Dict(_, _)
-                        | Type::Set(_)
-                        | Type::Tuple(_)
-                        | Type::Function(_)
-                )
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_))
             ) {
                 return Ok("None".to_owned());
             }
@@ -834,6 +905,16 @@ impl<'mir> FunctionEmitter<'mir> {
                 return self.borrowed_function_handle_text(&text, target);
             }
             return Ok(format!("{text}.clone()"));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
+            && *inner == target
+            && matches!(self.mir.types.get(target), Some(Type::Function(_)))
+        {
+            return Ok(format!(
+                "{}.clone().unwrap_or({})",
+                self.operand_text(operand)?,
+                self.default_value(target)?
+            ));
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
             return self.default_value(target);
@@ -1434,17 +1515,19 @@ impl<'mir> FunctionEmitter<'mir> {
     ) -> Result<String, EmitError> {
         match self.mir.types.get(source_key) {
             Some(Type::String) => Ok(format!("{value_text}.clone()")),
-            Some(Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
+            Some(Type::Bool | Type::Int | Type::Float) => Ok(format!("{value_text}.to_string()")),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.property_key_to_string_text("value", *inner)?;
                 Ok(format!(
                     "{value_text}.clone().map_or(String::new(), |value| {inner_text})"
                 ))
             }
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => Ok(format!(
-                "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }}"
-            )),
-            _ => Ok(format!("{value_text}.to_string()")),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
+                Ok(format!(
+                    "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned() }}"
+                ))
+            }
+            _ => Ok("\"[object Object]\".to_owned()".to_owned()),
         }
     }
 

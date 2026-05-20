@@ -1,0 +1,36 @@
+   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+error[E0594]: cannot assign to `left`, as it is not declared as mutable
+  --> src/drop.rs:38:5
+   |
+38 |     left = _smelt_tmp_3.clone();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot assign
+   |
+help: consider changing this to be mutable
+   |
+30 |     let mut left = left.clone();
+   |         +++
+
+error[E0594]: cannot assign to `ret`, as it is not declared as mutable
+  --> src/once.rs:18:5
+   |
+18 |     ret = _smelt_tmp_4.clone();
+   |     ^^^ cannot assign
+   |
+help: consider changing this to be mutable
+   |
+12 |     let mut ret = ret.clone();
+   |         +++
+
+error[E0594]: cannot assign to `called`, as it is not declared as mutable
+  --> src/once.rs:19:5
+   |
+19 |     called = true;
+   |     ^^^^^^^^^^^^^ cannot assign
+   |
+help: consider changing this to be mutable
+   |
+10 |     let mut called = called.clone();
+   |         +++
+
+For more information about this error, try `rustc --explain E0594`.
+error: could not compile `remeda_smelt_probe` (bin "remeda_smelt_probe" test) due to 3 previous errors

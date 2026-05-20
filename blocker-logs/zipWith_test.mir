@@ -1,0 +1,225 @@
+fn test_data_first_should_zip_with_predicate (FuncId(0)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: List<String>
+    %4 temp: fn(Unknown, Unknown) -> String
+    %5 temp: Unknown
+    %6 temp: List<String>
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["1", "2", "3"]
+    %3 = ["a", "b", "c"]
+    %4 = closure ClosureId(0) []
+    %5 = closure_call copy %1(copy %2, copy %3, copy %4)
+    %6 = ["1a", "2b", "3c"]
+    %7 = copy %6
+    %8 = copy %5 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_first_should_truncate_to_shorter_second (FuncId(1)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: List<String>
+    %4 temp: fn(Unknown, Unknown) -> String
+    %5 temp: Unknown
+    %6 temp: List<String>
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["1", "2", "3"]
+    %3 = ["a", "b"]
+    %4 = closure ClosureId(1) []
+    %5 = closure_call copy %1(copy %2, copy %3, copy %4)
+    %6 = ["1a", "2b"]
+    %7 = copy %6
+    %8 = copy %5 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_first_should_truncate_to_shorter_first (FuncId(2)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: List<String>
+    %4 temp: fn(Unknown, Unknown) -> String
+    %5 temp: Unknown
+    %6 temp: List<String>
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["1", "2"]
+    %3 = ["a", "b", "c"]
+    %4 = closure ClosureId(2) []
+    %5 = closure_call copy %1(copy %2, copy %3, copy %4)
+    %6 = ["1a", "2b"]
+    %7 = copy %6
+    %8 = copy %5 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_second_should_zip_with_predicate (FuncId(3)) -> None throws
+  locals
+    %0 temp: List<String>
+    %1 temp: Unknown
+    %2 temp: Bool
+  bb0:
+    %0 = ["1a", "2b", "3c"]
+    %1 = copy %0
+    %2 = none != copy %1
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_second_should_truncate_to_shorter_second (FuncId(4)) -> None throws
+  locals
+    %0 temp: List<String>
+    %1 temp: Unknown
+    %2 temp: Bool
+  bb0:
+    %0 = ["1a", "2b"]
+    %1 = copy %0
+    %2 = none != copy %1
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_second_should_truncate_to_shorter_first (FuncId(5)) -> None throws
+  locals
+    %0 temp: List<String>
+    %1 temp: Unknown
+    %2 temp: Bool
+  bb0:
+    %0 = ["1a", "2b"]
+    %1 = copy %0
+    %2 = none != copy %1
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_second_with_initial_arg_should_zip_with_predicate (FuncId(6)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: List<String>
+    %6 temp: fn(Unknown, Unknown) -> String
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: List<String>
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["1", "2", "3"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = ["a", "b", "c"]
+    %6 = closure ClosureId(3) []
+    %7 = closure_call copy %4(copy %5, copy %6)
+    %8 = closure_call copy %1(copy %2, copy %7)
+    %9 = ["1a", "2b", "3c"]
+    %10 = copy %9
+    %11 = copy %8 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_second_with_initial_arg_should_truncate_to_shorter_second (FuncId(7)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: List<String>
+    %6 temp: fn(Unknown, Unknown) -> String
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: List<String>
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["1", "2", "3"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = ["a", "b"]
+    %6 = closure ClosureId(4) []
+    %7 = closure_call copy %4(copy %5, copy %6)
+    %8 = closure_call copy %1(copy %2, copy %7)
+    %9 = ["1a", "2b"]
+    %10 = copy %9
+    %11 = copy %8 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_data_second_with_initial_arg_should_truncate_to_shorter_first (FuncId(8)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: List<String>
+    %6 temp: fn(Unknown, Unknown) -> String
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: List<String>
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["1", "2"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = ["a", "b", "c"]
+    %6 = closure ClosureId(5) []
+    %7 = closure_call copy %4(copy %5, copy %6)
+    %8 = closure_call copy %1(copy %2, copy %7)
+    %9 = ["1a", "2b"]
+    %10 = copy %9
+    %11 = copy %8 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+

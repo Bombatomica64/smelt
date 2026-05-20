@@ -55,6 +55,7 @@ impl ModuleBuilder<'_> {
             }
         };
         if function.r#async
+            && declared_return_ty.is_some()
             && !matches!(
                 declared_return_ty.and_then(|ty| self.ctx.krate.types.get(ty)),
                 Some(Type::Future(_))
@@ -241,9 +242,13 @@ impl ModuleBuilder<'_> {
             return Err(error);
         }
 
-        let return_ty = declared_return_ty
+        let mut return_ty = declared_return_ty
             .or_else(|| self.last_return_type(&body))
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
+        if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+        {
+            return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
+        }
         let body_id = self.ctx.krate.push_body(body);
         let function_item = Function {
             name,
@@ -884,13 +889,7 @@ impl ModuleBuilder<'_> {
                 }
             });
         let mut params = Vec::new();
-        for param in &method.value.params.items {
-            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured abstract method parameters are not lowered yet",
-                ));
-            };
+        for (index, param) in method.value.params.items.iter().enumerate() {
             let ty = param
                 .type_annotation
                 .as_ref()
@@ -903,10 +902,21 @@ impl ModuleBuilder<'_> {
                         .and_then(|initializer| self.infer_module_global_initializer_type(initializer).ok())
                 })
                 .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            let (name, span) = if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                (
+                    self.intern_source_name(binding.name.as_str()),
+                    self.span(binding.span.start, binding.span.end),
+                )
+            } else {
+                (
+                    self.intern_source_name(&format!("__param{index}")),
+                    self.span(param.span.start, param.span.end),
+                )
+            };
             params.push(ParamSig {
-                name: self.intern_source_name(binding.name.as_str()),
+                name,
                 ty,
-                span: self.span(binding.span.start, binding.span.end),
+                span,
             });
         }
         let sig = MethodSig {
@@ -1005,17 +1015,8 @@ impl ModuleBuilder<'_> {
             });
         }
 
-        for param in &method.value.params.items {
-            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                self.locals = saved_locals;
-                self.current_class = saved_class;
-                self.current_async = saved_async;
-                self.current_return_ty = saved_return_ty;
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "destructured parameters are not lowered yet",
-                ));
-            };
+        let mut destructured_params = Vec::new();
+        for (index, param) in method.value.params.items.iter().enumerate() {
             let ty = if let Some(annotation) = &param.type_annotation {
                 self.ts_type_to_hir(&annotation.type_annotation)?
             } else if let Some(default) = &param.initializer {
@@ -1027,20 +1028,38 @@ impl ModuleBuilder<'_> {
                     "method parameters must have explicit type annotations",
                 ));
             };
-            let param_name = self.intern_source_name(binding.name.as_str());
+            let (param_name, span, source_name) =
+                if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                    (
+                        self.intern_source_name(binding.name.as_str()),
+                        self.span(binding.span.start, binding.span.end),
+                        Some(binding.name.to_string()),
+                    )
+                } else {
+                    let synthetic_name = format!("__param{index}");
+                    (
+                        self.intern_source_name(&synthetic_name),
+                        self.span(param.span.start, param.span.end),
+                        None,
+                    )
+                };
             let local = body.push_local(LocalDecl {
                 name: Some(param_name),
                 ty,
                 mutable: false,
-                span: self.span(binding.span.start, binding.span.end),
+                span,
             });
             body.params.push(local);
-            self.locals.insert(binding.name.to_string(), local);
+            if let Some(source_name) = source_name {
+                self.locals.insert(source_name, local);
+            } else {
+                destructured_params.push((&param.pattern, local, ty));
+            }
             params.push(Param {
                 name: param_name,
                 local,
                 ty,
-                span: self.span(binding.span.start, binding.span.end),
+                span,
             });
             if is_constructor && param.accessibility.is_some() {
                 let field = Field {
@@ -1048,7 +1067,7 @@ impl ModuleBuilder<'_> {
                     ty,
                     visibility: visibility(param.accessibility),
                     optional: false,
-                    span: self.span(binding.span.start, binding.span.end),
+                    span,
                 };
                 self.class_fields
                     .entry(class_text.to_owned())
@@ -1061,6 +1080,19 @@ impl ModuleBuilder<'_> {
         if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
         {
             errors.push(error);
+        }
+        for (pattern, local, ty) in destructured_params {
+            let root = body.root;
+            let value = body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span: self.span(method.span.start, method.span.end),
+            });
+            if let Err(error) =
+                self.binding_declaration(pattern, Some(value), Some(ty), false, &mut body, root)
+            {
+                errors.push(error);
+            }
         }
         for statement in &function_body.statements {
             if self.is_super_call_statement(statement) {

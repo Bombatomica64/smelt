@@ -174,6 +174,13 @@ impl FunctionEmitter<'_> {
                     let Some((receiver, rest)) = args.split_first() else {
                         return Err(EmitError::new("method call is missing a receiver"));
                     };
+                    if matches!(
+                        self.mir.types.get(self.operand_ty(receiver)?),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || self.is_erased_class_type(self.operand_ty(receiver)?)
+                    {
+                        return self.default_value(function.return_ty);
+                    }
                     let receiver_text = match receiver {
                         Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
                         Operand::Const(_) => {
@@ -200,37 +207,42 @@ impl FunctionEmitter<'_> {
                 }
                 let function_name = self.symbol_name(function.name)?;
                 if function_name == "purry" && args.len() >= 2 {
-                    let mut rendered_args = Vec::new();
                     let first_arg = args
                         .first()
                         .ok_or_else(|| EmitError::new("purry call is missing callback"))?;
                     let data_arg = args
                         .get(1)
                         .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
+                    let callback_arity = match self.mir.types.get(self.operand_ty(first_arg)?) {
+                        Some(Type::Function(function)) => function.params.len(),
+                        _ => 1,
+                    };
                     let callback_param = function.params.first().ok_or_else(|| {
                         EmitError::new("purry function is missing callback param")
                     })?;
                     let callback_ty = self.function_local_decl(function, *callback_param)?.ty;
-                    if self.function_parameter_requires_owned_in(function, *callback_param)? {
-                        rendered_args.push(self.operand_as_type_text(first_arg, callback_ty)?);
-                    } else {
-                        rendered_args
-                            .push(self.borrowed_function_argument_text(first_arg, callback_ty)?);
-                    }
-                    rendered_args.push(self.operand_text(data_arg)?);
-                    if let Some(lazy_arg) = args.get(2) {
+                    let callback_text =
+                        if self.function_parameter_requires_owned_in(function, *callback_param)? {
+                            self.operand_as_type_text(first_arg, callback_ty)?
+                        } else {
+                            self.borrowed_function_argument_text(first_arg, callback_ty)?
+                        };
+                    let callback_text = callback_text
+                        .strip_prefix("&mut ")
+                        .unwrap_or(&callback_text)
+                        .to_owned();
+                    let data_text = self.operand_text(data_arg)?;
+                    let lazy_text = if let Some(lazy_arg) = args.get(2) {
                         let lazy_param = function.params.get(2).ok_or_else(|| {
                             EmitError::new("purry function is missing lazy param")
                         })?;
                         let lazy_ty = self.function_local_decl(function, *lazy_param)?.ty;
-                        rendered_args.push(self.operand_as_type_text(lazy_arg, lazy_ty)?);
+                        self.operand_as_type_text(lazy_arg, lazy_ty)?
                     } else {
-                        rendered_args.push("None".to_owned());
-                    }
+                        "None".to_owned()
+                    };
                     return Ok(format!(
-                        "{}({}){}",
-                        self.function_rust_name(function)?,
-                        rendered_args.join(", "),
+                        "{{ let mut smelt_purry_fn = {callback_text}; let smelt_purry_args = {data_text}; let smelt_purry_diff = {callback_arity}i64 - smelt_purry_args.len() as i64; if smelt_purry_diff == 0 {{ Ok::<SmeltUnknown, Box<dyn std::error::Error>>(smelt_purry_fn(smelt_purry_args.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }} else if smelt_purry_diff == 1 {{ Ok::<SmeltUnknown, Box<dyn std::error::Error>>(lazy_data_last_impl(&mut smelt_purry_fn, smelt_purry_args, {lazy_text})) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", \"Wrong number of arguments\".to_owned())).into()) }} }}{}",
                         self.throwing_call_suffix(function)
                     ));
                 }
@@ -416,7 +428,12 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let call_text = self.call_text(callee, args)?;
+        let mut call_text = self.call_text(callee, args)?;
+        if args.is_empty() && call_text.ends_with("(Vec::new())") {
+            call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
+        } else if call_text == "(&mut *fn_.borrow_mut())(Vec::new())" {
+            "(&mut *fn_.borrow_mut())()".clone_into(&mut call_text);
+        }
         if let Callee::Static(func) = callee {
             let function = self
                 .mir

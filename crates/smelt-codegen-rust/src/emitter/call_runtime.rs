@@ -87,9 +87,19 @@ impl FunctionEmitter<'_> {
                         "::std::collections::HashSet::new()".to_owned()
                     });
                 }
+                let item_ty = match self.mir.types.get(dest_ty) {
+                    Some(Type::Set(item_ty)) => Some(*item_ty),
+                    _ => None,
+                };
                 let items_text = items
                     .iter()
-                    .map(|item| self.operand_text(item))
+                    .map(|item| {
+                        if let Some(item_ty) = item_ty {
+                            self.operand_as_type_text(item, item_ty)
+                        } else {
+                            self.operand_text(item)
+                        }
+                    })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 if set_uses_vec {
@@ -556,7 +566,7 @@ impl FunctionEmitter<'_> {
                 let params = local_params
                     .or(emitted_params.as_deref())
                     .unwrap_or(inferred_params);
-                let rendered_args = if let Some(rest_args) =
+                let mut rendered_args = if let Some(rest_args) =
                     self.rest_vector_call_args_text(args, params)?
                 {
                     rest_args
@@ -584,6 +594,15 @@ impl FunctionEmitter<'_> {
                     }
                     rendered_args
                 };
+                if args.is_empty()
+                    && rendered_args.as_slice() == ["Vec::new()"]
+                    && matches!(
+                        self.mir.types.get(self.operand_ty(callee)?),
+                        Some(Type::Function(function)) if function.params.is_empty()
+                    )
+                {
+                    rendered_args.clear();
+                }
                 let args_text = rendered_args.join(", ");
                 let call_text = match callee {
                     Operand::Copy(place) | Operand::Move(place)
@@ -1454,6 +1473,9 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         if self.mir.types.get(*item) != Some(&Type::Unknown) {
+            return Ok(None);
+        }
+        if args.is_empty() {
             return Ok(None);
         }
         if let [single_arg] = args

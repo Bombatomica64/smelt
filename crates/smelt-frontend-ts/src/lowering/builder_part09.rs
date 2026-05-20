@@ -718,17 +718,26 @@ impl ModuleBuilder<'_> {
         }
         let list = self.argument(argument, body)?;
         let list_ty = self.type_param_constraint_or_self(Self::expr_ty(body, list));
-        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty) else {
+        let Some(Type::List(item_ty)) = self.ctx.krate.types.get(list_ty).cloned() else {
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "Promise combinators require an array of Promise<T> values",
             ));
         };
-        let Some(output_item_ty) = self.future_inner_type(*item_ty) else {
-            return Err(SmeltError::unsupported(
-                self.span(argument.span().start, argument.span().end),
-                "Promise combinator entries must be Promise<T> values",
-            ));
+        let (list, output_item_ty) = if let Some(output_item_ty) = self.future_inner_type(item_ty) {
+            (list, output_item_ty)
+        } else {
+            let future_item_ty = self.ctx.krate.types.intern(Type::Future(item_ty));
+            let future_list_ty = self.ctx.krate.types.intern(Type::List(future_item_ty));
+            let list = body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: list,
+                    target: future_list_ty,
+                },
+                ty: future_list_ty,
+                span: self.span(argument.span().start, argument.span().end),
+            });
+            (list, item_ty)
         };
         let output_ty = self.ctx.krate.types.intern(Type::List(output_item_ty));
         Ok((vec![list], output_ty))

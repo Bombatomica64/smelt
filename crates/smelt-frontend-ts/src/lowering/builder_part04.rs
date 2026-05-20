@@ -111,50 +111,58 @@ impl ModuleBuilder<'_> {
                     TSSignature::TSMethodSignature(method) => {
                         if (method.computed && !is_static_property_key(&method.key))
                             || method.optional
-                            || method.type_parameters.is_some()
                             || method.this_param.is_some()
                         {
                             return Err(SmeltError::unsupported(
                                 self.span(method.span.start, method.span.end),
-                                "generic, optional, dynamic computed, and this-parameter interface methods are not lowered yet",
+                                "optional, dynamic computed, and this-parameter interface methods are not lowered yet",
                             ));
                         }
-                        let return_ty = method
-                            .return_type
-                            .as_ref()
-                            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-                            .transpose()?
-                            .ok_or_else(|| {
-                                SmeltError::unsupported(
-                                    self.span(method.span.start, method.span.end),
-                                    "interface methods require explicit return types",
-                                )
-                            })?;
-                        let mut params = Vec::new();
-                        for param in &method.params.items {
-                            let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                                return Err(SmeltError::unsupported(
-                                    self.span(param.span.start, param.span.end),
-                                    "destructured interface method parameters are not lowered yet",
-                                ));
-                            };
-                            let ty = param
-                                .type_annotation
+                        let _method_type_params =
+                            self.push_type_parameter_scope(method.type_parameters.as_deref())?;
+                        let result = (|| {
+                            let return_ty = method
+                                .return_type
                                 .as_ref()
                                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                                 .transpose()?
                                 .ok_or_else(|| {
                                     SmeltError::unsupported(
-                                        self.span(param.span.start, param.span.end),
-                                        "interface method parameters require explicit types",
+                                        self.span(method.span.start, method.span.end),
+                                        "interface methods require explicit return types",
                                     )
                                 })?;
-                            params.push(ParamSig {
-                                name: self.intern_source_name(binding.name.as_str()),
-                                ty,
-                                span: self.span(binding.span.start, binding.span.end),
-                            });
-                        }
+                            let mut params = Vec::new();
+                            for param in &method.params.items {
+                                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                                    return Err(SmeltError::unsupported(
+                                        self.span(param.span.start, param.span.end),
+                                        "destructured interface method parameters are not lowered yet",
+                                    ));
+                                };
+                                let ty = param
+                                    .type_annotation
+                                    .as_ref()
+                                    .map(|annotation| {
+                                        self.ts_type_to_hir(&annotation.type_annotation)
+                                    })
+                                    .transpose()?
+                                    .ok_or_else(|| {
+                                        SmeltError::unsupported(
+                                            self.span(param.span.start, param.span.end),
+                                            "interface method parameters require explicit types",
+                                        )
+                                    })?;
+                                params.push(ParamSig {
+                                    name: self.intern_source_name(binding.name.as_str()),
+                                    ty,
+                                    span: self.span(binding.span.start, binding.span.end),
+                                });
+                            }
+                            Ok((return_ty, params))
+                        })();
+                        self.pop_type_parameter_scope();
+                        let (return_ty, params) = result?;
                         methods.push(MethodSig {
                             name: self.property_key_symbol(&method.key)?,
                             params,
@@ -245,6 +253,7 @@ impl ModuleBuilder<'_> {
                 self.interface_declaration(interface)?;
                 Ok(())
             }
+            Statement::TSModuleDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
                 if self.is_test_framework_statement(&expr_stmt.expression) {
                     return Ok(());
@@ -389,13 +398,17 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForOfStatement(for_stmt) => {
-                if for_stmt.r#await {
-                    return Err(SmeltError::unsupported(
-                        self.span(for_stmt.span.start, for_stmt.span.end),
-                        "for await...of is async control flow and is not lowered yet",
-                    ));
+                let mut iter = self.expression(&for_stmt.right, body)?;
+                if for_stmt.r#await
+                    && let Some(Type::Future(inner)) =
+                        self.ctx.krate.types.get(Self::expr_ty(body, iter)).cloned()
+                {
+                    iter = body.push_expr(Expr {
+                        kind: ExprKind::Await(iter),
+                        ty: inner,
+                        span: self.span(for_stmt.right.span().start, for_stmt.right.span().end),
+                    });
                 }
-                let iter = self.expression(&for_stmt.right, body)?;
                 let iter = self.for_of_iterable(iter, &for_stmt.right, body);
                 let destructured =
                     self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
@@ -662,6 +675,18 @@ impl ModuleBuilder<'_> {
         let iter_ty = Self::expr_ty(body, iter);
         let item_ty = match self.ctx.krate.types.get(iter_ty).cloned() {
             Some(Type::List(item_ty)) => item_ty,
+            Some(Type::Dict(_, value_ty)) => {
+                let list_ty = self.ctx.krate.types.intern(Type::List(value_ty));
+                iter = body.push_expr(Expr {
+                    kind: ExprKind::DictProjection {
+                        op: DictProjectionOp::Values,
+                        dict: iter,
+                    },
+                    ty: list_ty,
+                    span: self.span(member.object.span().start, member.object.span().end),
+                });
+                value_ty
+            }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
                 let item_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));

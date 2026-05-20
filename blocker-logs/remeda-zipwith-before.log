@@ -1,0 +1,52 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-784e7d9ef6f36779)
+
+running 9 tests
+
+thread 'zipWith_test::test_data_first_should_truncate_to_shorter_first' (154850) panicked at src/zipWith.rs:39:97:
+unknown is not array
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'zipWith_test::test_data_first_should_truncate_to_shorter_second' (154851) panicked at src/zipWith.rs:39:97:
+unknown is not array
+
+thread 'zipWith_test::test_data_first_should_zip_with_predicate' (154852) panicked at src/zipWith.rs:39:97:
+unknown is not array
+test zipWith_test::test_data_first_should_truncate_to_shorter_first ... FAILED
+test zipWith_test::test_data_first_should_truncate_to_shorter_second ... FAILED
+test zipWith_test::test_data_first_should_zip_with_predicate ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, 
+thread 'zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_second' (154857) panicked at src/main.rs:1117:211:
+negative index out of bounds: TryFromIntError(())
+error: "expect(...).toStrictEqual(...) failed" }
+
+thread 'zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_first' (154856) panicked at src/main.rs:1117:211:
+negative index out of bounds: TryFromIntError(())
+test zipWith_test::test_data_second_should_zip_with_predicate ... FAILED
+test zipWith_test::test_data_second_should_truncate_to_shorter_first ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_second ... FAILED
+test zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_first ... FAILED
+test zipWith_test::test_data_second_should_truncate_to_shorter_second ... FAILED
+
+thread 'zipWith_test::test_data_second_with_initial_arg_should_zip_with_predicate' (154858) panicked at src/main.rs:1117:211:
+negative index out of bounds: TryFromIntError(())
+test zipWith_test::test_data_second_with_initial_arg_should_zip_with_predicate ... FAILED
+
+failures:
+
+failures:
+    zipWith_test::test_data_first_should_truncate_to_shorter_first
+    zipWith_test::test_data_first_should_truncate_to_shorter_second
+    zipWith_test::test_data_first_should_zip_with_predicate
+    zipWith_test::test_data_second_should_truncate_to_shorter_first
+    zipWith_test::test_data_second_should_truncate_to_shorter_second
+    zipWith_test::test_data_second_should_zip_with_predicate
+    zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_first
+    zipWith_test::test_data_second_with_initial_arg_should_truncate_to_shorter_second
+    zipWith_test::test_data_second_with_initial_arg_should_zip_with_predicate
+
+test result: FAILED. 0 passed; 9 failed; 0 ignored; 0 measured; 1780 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

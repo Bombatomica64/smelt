@@ -698,16 +698,19 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         let is_known_regexp_test = stdlib_dispatch::call_rule(call) == Some(RuleId::TsRegExpTest);
+        if !is_known_regexp_test && !self.could_be_regexp_test_receiver(&member.object, body) {
+            return Ok(None);
+        }
+        let Some(pattern) =
+            self.regexp_pattern_expression(&member.object, body, is_known_regexp_test)?
+        else {
+            return Ok(None);
+        };
         let [haystack_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "RegExp.test() requires exactly one string argument",
             ));
-        };
-        let Some(pattern) =
-            self.regexp_pattern_expression(&member.object, body, is_known_regexp_test)?
-        else {
-            return Ok(None);
         };
         let haystack = self.argument(haystack_argument, body)?;
         let Some(haystack) = self.regexp_text_operand(haystack, body) else {
@@ -726,6 +729,61 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return whether an untagged `.test(...)` receiver is plausibly a RegExp value.
+    ///
+    /// Many validation libraries expose their own `.test(...)` APIs. Smelt only
+    /// routes untagged calls into regex lowering when the receiver is a direct
+    /// regex-producing expression or a local/module value with a regex-like type
+    /// surface.
+    fn could_be_regexp_test_receiver(&self, expression: &Expression<'_>, body: &Body) -> bool {
+        match expression {
+            Expression::NewExpression(new_expr) => {
+                matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp")
+            }
+            Expression::CallExpression(call_expr) => {
+                matches!(&call_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp")
+            }
+            Expression::RegExpLiteral(_) => true,
+            Expression::Identifier(identifier) => self
+                .locals
+                .get(identifier.name.as_str())
+                .and_then(|local| {
+                    usize::try_from(local.0)
+                        .ok()
+                        .and_then(|index| body.locals.get(index))
+                        .map(|decl| decl.ty)
+                })
+                .or_else(|| self.module_globals.get(identifier.name.as_str()).copied())
+                .is_some_and(|ty| self.regexp_receiver_type(ty)),
+            _ => false,
+        }
+    }
+
+    /// Return whether a HIR type can represent a regex value in TS lowering.
+    fn regexp_receiver_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::String) => true,
+            Some(Type::Class { name, .. }) => {
+                self.ctx
+                    .krate
+                    .symbols
+                    .get(*name)
+                    .or_else(|| self.ctx.krate.names.get(*name))
+                    == Some("RegExp")
+            }
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.regexp_receiver_type(item)),
+            _ => false,
+        }
     }
 
     /// Lower TypeScript `pattern.exec(text)` to an optional match array.
@@ -853,12 +911,18 @@ impl ModuleBuilder<'_> {
         match expression {
             Expression::NewExpression(new_expr) => {
                 let Expression::Identifier(callee) = &new_expr.callee else {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
                     ));
                 };
                 if callee.name != "RegExp" {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(new_expr.span.start, new_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
@@ -876,12 +940,18 @@ impl ModuleBuilder<'_> {
             }
             Expression::CallExpression(call_expr) => {
                 let Expression::Identifier(callee) = &call_expr.callee else {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(call_expr.span.start, call_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
                     ));
                 };
                 if callee.name != "RegExp" {
+                    if !require_regexp_receiver {
+                        return Ok(None);
+                    }
                     return Err(SmeltError::unsupported(
                         self.span(call_expr.span.start, call_expr.span.end),
                         "RegExp.test() requires a RegExp receiver",
@@ -1225,6 +1295,26 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let element_ty = *list_element_ty;
+        if let Argument::SpreadElement(spread) = item_argument {
+            let other = self.expression(&spread.argument, body)?;
+            let other_ty = Self::expr_ty(body, other);
+            let other = if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
+                other
+            } else {
+                let list_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: other },
+                    ty: list_ty,
+                    span: self.span(spread.span.start, spread.span.end),
+                })
+            };
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ListExtend { list, other },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let item = self.argument(item_argument, body)?;
         let item_ty = Self::expr_ty(body, item);
         let compatible = self.array_item_type_compatible(item_ty, element_ty)

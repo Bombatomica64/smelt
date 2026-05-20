@@ -46,9 +46,8 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Function(_)) => Ok("SmeltUnknown::Null".to_owned()),
-            Some(Type::Never | Type::Future(_) | Type::Union(_)) | None => {
-                Ok("SmeltUnknown::Null".to_owned())
-            }
+            Some(Type::Union(_)) => Ok(text),
+            Some(Type::Never | Type::Future(_)) | None => Ok("SmeltUnknown::Null".to_owned()),
         }
     }
 
@@ -107,7 +106,8 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Function(_)) => Ok("SmeltUnknown::Null".to_owned()),
-            Some(Type::Future(_) | Type::Union(_)) => Ok("SmeltUnknown::Null".to_owned()),
+            Some(Type::Union(_)) => Ok(value_text.to_owned()),
+            Some(Type::Future(_)) => Ok("SmeltUnknown::Null".to_owned()),
         }
     }
 
@@ -200,6 +200,12 @@ impl FunctionEmitter<'_> {
                     "if let SmeltUnknown::Array(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not array\") }}"
                 ))
             }
+            Some(Type::List(item)) => {
+                let item_text = self.unknown_cast_value_text("value", *item)?;
+                Ok(format!(
+                    "if let SmeltUnknown::Array(values) = {text}.clone() {{ values.into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ panic!(\"unknown is not array\") }}"
+                ))
+            }
             Some(Type::Dict(key, item))
                 if self.mir.types.get(*key) == Some(&Type::String)
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
@@ -211,8 +217,7 @@ impl FunctionEmitter<'_> {
             Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(
-                Type::List(_)
-                | Type::Set(_)
+                Type::Set(_)
                 | Type::Dict(_, _)
                 | Type::Tuple(_)
                 | Type::Optional(_)

@@ -401,27 +401,21 @@ impl ModuleBuilder<'_> {
             "min" => NumericExtremaOp::Min,
             _ => return Ok(None),
         };
-        let args = call
+        let mut args = call
             .arguments
             .iter()
             .map(|argument| self.argument(argument, body))
             .collect::<Result<Vec<_>, _>>()?;
-        if args
-            .iter()
-            .any(|arg| self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float))
-            && args.iter().any(|arg| {
-                !matches!(
-                    self.ctx.krate.types.get(Self::expr_ty(body, *arg)),
-                    Some(Type::Float | Type::Int | Type::Unknown | Type::TypeParam { .. })
-                )
-            })
-        {
-            return Err(SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                format!("Math.{} requires number arguments", member.property.name),
-            ));
-        }
         let ty = self.ctx.krate.types.intern(Type::Float);
+        for arg in &mut args {
+            if self.ctx.krate.types.get(Self::expr_ty(body, *arg)) != Some(&Type::Float) {
+                *arg = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: *arg },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                });
+            }
+        }
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::NumericExtrema { op, args },
             ty,
@@ -502,7 +496,12 @@ impl ModuleBuilder<'_> {
         let mut operand = self.argument(argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         if !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
-            if source_name == "isNaN" && self.is_date_constructor_arg_type(operand_ty) {
+            if (source_name == "isNaN" && self.is_date_constructor_arg_type(operand_ty))
+                || matches!(
+                    self.ctx.krate.types.get(operand_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. })
+                )
+            {
                 let ty = self.ctx.krate.types.intern(Type::Float);
                 operand = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: operand },
@@ -616,7 +615,7 @@ impl ModuleBuilder<'_> {
                 let radix_expr = self.argument(radix, body)?;
                 if !matches!(
                     self.ctx.krate.types.get(Self::expr_ty(body, radix_expr)),
-                    Some(Type::Int | Type::Float)
+                    Some(Type::Int | Type::Float | Type::Unknown | Type::TypeParam { .. })
                 ) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
@@ -685,10 +684,23 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let radix = self.argument(radix_argument, body)?;
-            if !matches!(
-                self.ctx.krate.types.get(Self::expr_ty(body, radix)),
-                Some(Type::Int | Type::Float)
-            ) {
+            let radix_ty = Self::expr_ty(body, radix);
+            if matches!(self.ctx.krate.types.get(radix_ty), Some(Type::String))
+                && !matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, operand)),
+                    Some(Type::Int | Type::Float)
+                )
+            {
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::PrimitiveCast {
+                        op: PrimitiveCastOp::ToString,
+                        operand,
+                    },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
+            if !matches!(self.ctx.krate.types.get(radix_ty), Some(Type::Int | Type::Float)) {
                 return Err(SmeltError::unsupported(
                     self.span(radix_argument.span().start, radix_argument.span().end),
                     "number.toString radix argument must be numeric",

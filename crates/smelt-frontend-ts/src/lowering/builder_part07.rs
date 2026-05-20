@@ -200,6 +200,15 @@ impl ModuleBuilder<'_> {
                     span: self.expression_span(source),
                 })
             }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. }) => {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: iter },
+                    ty,
+                    span: self.expression_span(source),
+                })
+            }
             _ => iter,
         }
     }

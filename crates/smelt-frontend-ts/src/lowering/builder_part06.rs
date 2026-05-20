@@ -1311,11 +1311,32 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
+            let predeclared_self = if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
+            {
+                let ty = annotated_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                let symbol = self.intern_source_name(binding.name.as_str());
+                let local = body.push_local(LocalDecl {
+                    name: Some(symbol),
+                    ty,
+                    mutable: false,
+                    span: self.span(binding.span.start, binding.span.end),
+                });
+                self.locals.insert(binding.name.as_str().to_owned(), local)
+            } else {
+                None
+            };
             let value = declarator
                 .init
                 .as_ref()
                 .map(|init| self.expression_with_hint(init, body, annotated_ty))
                 .transpose()?;
+            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                && value.is_none()
+                && let Some(previous) = predeclared_self
+            {
+                self.locals.insert(binding.name.as_str().to_owned(), previous);
+            }
             self.binding_declaration(
                 &declarator.id,
                 value,
@@ -1515,10 +1536,7 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let Some(function_body) = &function.body else {
-            return Err(SmeltError::unsupported(
-                self.span(function.span.start, function.span.end),
-                "declare local functions are not lowered yet",
-            ));
+            return Ok(());
         };
         self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let result = (|| {

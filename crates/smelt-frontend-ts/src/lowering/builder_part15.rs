@@ -936,13 +936,21 @@ impl ModuleBuilder<'_> {
         op: PrimitiveCastOp,
         operand_ty: smelt_hir::TypeId,
     ) -> bool {
+        if op == PrimitiveCastOp::ToFloat {
+            return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never));
+        }
         match self.ctx.krate.types.get(operand_ty) {
             Some(Type::Bool | Type::String | Type::Int | Type::Float | Type::Unknown) => true,
-            Some(Type::TypeParam { .. }) if op == PrimitiveCastOp::ToBool => true,
+            Some(Type::TypeParam { .. } | Type::Class { .. }) => {
+                matches!(op, PrimitiveCastOp::ToBool | PrimitiveCastOp::ToFloat)
+            }
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
-                .all(|item| self.primitive_cast_accepts_operand(op, item)),
+                .all(|item| {
+                    matches!(self.ctx.krate.types.get(item), Some(Type::None))
+                        || self.primitive_cast_accepts_operand(op, item)
+                }),
             Some(Type::Optional(item)) => self.primitive_cast_accepts_operand(op, *item),
             Some(_) if self.is_numeric_like_type(operand_ty) => true,
             _ => false,

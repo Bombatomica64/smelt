@@ -98,7 +98,9 @@ impl ModuleBuilder<'_> {
                     span: self.span(new_expr.span.start, new_expr.span.end),
                 }));
             }
-            if self.value_imports.contains(callee.name.as_str()) {
+            if self.value_imports.contains(callee.name.as_str())
+                || self.module_globals.contains_key(callee.name.as_str())
+            {
                 let class_name = self.intern_type_name(callee.name.as_str());
                 let args = new_expr
                     .arguments
@@ -713,18 +715,12 @@ impl ModuleBuilder<'_> {
                 let awaited = self.expression(&await_expr.argument, body)?;
                 let awaited_ty = Self::expr_ty(body, awaited);
                 let Some(ty) = self.future_inner_type(awaited_ty) else {
-                    if self.ctx.krate.types.get(awaited_ty) == Some(&Type::Unknown) {
-                        let ty = self.ctx.krate.types.intern(Type::Unknown);
-                        return Ok(body.push_expr(Expr {
-                            kind: ExprKind::Literal(Literal::None),
-                            ty,
-                            span: self.span(await_expr.span.start, await_expr.span.end),
-                        }));
-                    }
-                    return Err(SmeltError::unsupported(
-                        self.span(await_expr.span.start, await_expr.span.end),
-                        "await expressions require a Promise<T> operand",
-                    ));
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(await_expr.span.start, await_expr.span.end),
+                    }));
                 };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Await(awaited),

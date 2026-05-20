@@ -166,6 +166,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::List(item)) => Ok(*item),
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::String) => self.type_id(Type::String),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
                     _ => self.type_id(Type::Unknown),
                 }
             }

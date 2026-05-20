@@ -239,6 +239,8 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                     match_writer.line("Self::Null | Self::Bool(_) | Self::Number(_) => 0,");
                 });
             });
+            impl_writer.line("/// No-op compatibility hook for erased callable objects with a `flush` method.");
+            impl_writer.block("pub fn flush(&self)", |_fn_writer| {});
         });
         writer.blank_line();
         writer.block("impl ::std::fmt::Display for SmeltUnknown", |impl_writer| {

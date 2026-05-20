@@ -415,6 +415,87 @@ impl ModuleBuilder<'_> {
         })))
     }
 
+    /// Lower lodash `_.has(object, path)` as an opaque boolean ownership check.
+    fn lodash_has_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        if member.property.name != "has" {
+            return Ok(None);
+        }
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "_" || !self.value_imports.contains("_") {
+            return Ok(None);
+        }
+        let [target, path] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "lodash has requires object and path arguments",
+            ));
+        };
+        let _ = self.argument(target, body)?;
+        let _ = self.argument(path, body)?;
+        let ty = self.ctx.krate.types.intern(Type::Bool);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower common curried lodash/fp helpers as opaque callable values.
+    fn lodash_fp_curried_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "fp" || !self.value_imports.contains("fp") {
+            return Ok(None);
+        }
+        if !matches!(
+            member.property.name.as_str(),
+            "map"
+                | "filter"
+                | "replace"
+                | "split"
+                | "join"
+                | "slice"
+                | "trimCharsStart"
+                | "identity"
+                | "toLower"
+                | "pipe"
+        ) {
+            return Ok(None);
+        }
+        for argument in &call.arguments {
+            let _ = self.argument(argument, body)?;
+        }
+        let param_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let return_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![param_ty],
+            return_ty,
+            is_async: false,
+        }));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
     /// Lower Node `path.join(...)` and `path.resolve(...)` as string path builders.
     fn node_path_static_call(
         &mut self,

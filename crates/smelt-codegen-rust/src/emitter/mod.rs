@@ -13,7 +13,7 @@ use literals::operand_local;
 use smelt_hir::{FileId, Span, Symbol, Type, TypeId};
 use smelt_mir::{
     BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir,
-    MirFunction, MirListSpliceItem, Operand, Place, Rvalue, Statement, Terminator,
+    MirClosure, MirFunction, MirListSpliceItem, Operand, Place, Rvalue, Statement, Terminator,
 };
 use std::{
     cell::RefCell,

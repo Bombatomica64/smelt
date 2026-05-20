@@ -196,6 +196,19 @@ impl ModuleBuilder<'_> {
             || matches!(self.ctx.krate.types.get(actual), Some(Type::Unknown))
     }
 
+    /// Return whether a type comes from an erased JavaScript surface.
+    fn erased_or_union_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. }) => true,
+            Some(Type::Optional(item)) => self.erased_or_union_surface(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.erased_or_union_surface(item)),
+            _ => false,
+        }
+    }
+
     /// Lower supported string padding calls into HIR string runtime calls.
     fn string_pad_call(
         &mut self,
@@ -758,8 +771,22 @@ impl ModuleBuilder<'_> {
                         "Map.set requires key and value arguments",
                     ));
                 };
-                let key = self.argument(key_argument, body)?;
-                let value = self.argument(value_argument, body)?;
+                let mut key = self.argument(key_argument, body)?;
+                let mut value = self.argument(value_argument, body)?;
+                if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
+                    key = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: key },
+                        ty: key_ty,
+                        span: self.span(key_argument.span().start, key_argument.span().end),
+                    });
+                }
+                if !self.map_value_type_compatible(value_ty, Self::expr_ty(body, value)) {
+                    value = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value },
+                        ty: value_ty,
+                        span: self.span(value_argument.span().start, value_argument.span().end),
+                    });
+                }
                 if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key))
                     || !self.map_value_type_compatible(value_ty, Self::expr_ty(body, value))
                 {
@@ -781,8 +808,15 @@ impl ModuleBuilder<'_> {
                         "Map.delete requires exactly one key argument",
                     ));
                 };
-                let key = self.argument(key_argument, body)?;
-                    if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
+                let mut key = self.argument(key_argument, body)?;
+                if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
+                    key = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: key },
+                        ty: key_ty,
+                        span: self.span(key_argument.span().start, key_argument.span().end),
+                    });
+                }
+                if !self.map_key_type_compatible(key_ty, Self::expr_ty(body, key)) {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
                         "Map.delete key must match the map key type",

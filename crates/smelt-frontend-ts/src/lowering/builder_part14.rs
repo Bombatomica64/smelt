@@ -23,6 +23,49 @@ impl ModuleBuilder<'_> {
                 ));
             }
         };
+        if !matches!(source_arg, Argument::ObjectExpression(_)) {
+            let source = self.argument(source_arg, body)?;
+            let source_ty = self.type_param_constraint_or_self(Self::expr_ty(body, source));
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let list_ty = match self.ctx.krate.types.get(source_ty).cloned() {
+                Some(Type::List(_)) if mapper_arg.is_none() => return Ok(Some(source)),
+                Some(Type::List(item_ty)) => self.ctx.krate.types.intern(Type::List(item_ty)),
+                Some(Type::Set(item_ty)) => {
+                    let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::SetProjection {
+                            op: SetProjectionOp::Values,
+                            set: source,
+                        },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                }
+                Some(Type::Dict(key_ty, _)) => {
+                    let ty = self.ctx.krate.types.intern(Type::List(key_ty));
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::DictProjection {
+                            op: DictProjectionOp::Keys,
+                            dict: source,
+                        },
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                }
+                _ => self.ctx.krate.types.intern(Type::List(unknown_ty)),
+            };
+            if let Some(mapper_arg) = mapper_arg {
+                let _ = self.argument(mapper_arg, body)?;
+            }
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: source,
+                    target: list_ty,
+                },
+                ty: list_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let length = self.array_from_length_argument(source_arg, body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, length)),
@@ -316,7 +359,26 @@ impl ModuleBuilder<'_> {
                         "Promise combinator arrays cannot use spread or elision",
                     ))
                 }
-                _ => self.array_element(element, body),
+                _ => {
+                    let value = self.array_element(element, body)?;
+                    if matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Future(_))) {
+                        return Ok(value);
+                    }
+                    let duration = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::Float(0.0)),
+                        ty: self.ctx.krate.types.intern(Type::Float),
+                        span: self.span(element.span().start, element.span().start),
+                    });
+                    let ty = self.ctx.krate.types.intern(Type::Future(Self::expr_ty(body, value)));
+                    Ok(body.push_expr(Expr {
+                        kind: ExprKind::AsyncOp {
+                            op: AsyncOp::Sleep,
+                            args: vec![duration],
+                        },
+                        ty,
+                        span: self.span(element.span().start, element.span().end),
+                    }))
+                }
             })
             .collect()
     }
@@ -481,10 +543,13 @@ impl ModuleBuilder<'_> {
                     })
                 };
                 if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
-                    return Err(SmeltError::unsupported(
-                        self.span(new_expr.span.start, new_expr.span.end),
-                        "new Map() requires a Map<K, V> type annotation",
-                    ));
+                    let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                    let ty = self.ctx.krate.types.intern(Type::Dict(unknown, unknown));
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::DictLit(Vec::new()),
+                        ty,
+                        span: self.span(new_expr.span.start, new_expr.span.end),
+                    })));
                 }
                 (Vec::new(), ty)
             }
@@ -529,10 +594,11 @@ impl ModuleBuilder<'_> {
                 (entries, ty)
             }
             _ => {
-                return Err(SmeltError::unsupported(
-                    self.span(new_expr.span.start, new_expr.span.end),
-                    "new Map currently supports no arguments or one array literal of [key, value] pairs",
-                ));
+                for argument in &new_expr.arguments {
+                    let _ = self.argument(argument, body)?;
+                }
+                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                (Vec::new(), self.ctx.krate.types.intern(Type::Dict(unknown, unknown)))
             }
         };
         Ok(Some(body.push_expr(Expr {
@@ -623,6 +689,9 @@ impl ModuleBuilder<'_> {
             ArrayExpressionElement::LogicalExpression(logical) => {
                 self.logical_expression(logical, body)
             }
+            ArrayExpressionElement::ConditionalExpression(conditional) => {
+                self.conditional_expression(conditional, body, None)
+            }
             ArrayExpressionElement::UnaryExpression(unary) => self.unary_expression(unary, body),
             ArrayExpressionElement::TSAsExpression(as_expr) => {
                 self.expression(&as_expr.expression, body)
@@ -686,6 +755,9 @@ impl ModuleBuilder<'_> {
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 }))
+            }
+            ArrayExpressionElement::TemplateLiteral(template) => {
+                self.template_literal_expression(template, body)
             }
             ArrayExpressionElement::CallExpression(call) => self.call_expression(call, body),
             ArrayExpressionElement::NewExpression(new_expr) => {
@@ -982,6 +1054,18 @@ impl ModuleBuilder<'_> {
             && !self.concrete_type_requires_never_value(hint)
         {
             hint
+        } else if self.erased_or_union_surface(ty)
+            || self.erased_or_union_surface(fallback_ty)
+            || !self.concrete_type_requires_never_value(ty)
+        {
+            fallback = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert {
+                    value: fallback,
+                },
+                ty,
+                span: self.span(logical.right.span().start, logical.right.span().end),
+            });
+            ty
         } else {
             return Err(SmeltError::unsupported(
                 self.span(logical.span.start, logical.span.end),
@@ -1174,17 +1258,32 @@ impl ModuleBuilder<'_> {
         unary: &oxc::ast::ast::UnaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let Expression::ComputedMemberExpression(member) = &unary.argument else {
-            return Err(SmeltError::unsupported(
-                self.span(unary.argument.span().start, unary.argument.span().end),
-                "delete is only lowered for computed object keys",
-            ));
+        let (object, key) = match &unary.argument {
+            Expression::ComputedMemberExpression(member) => {
+                let object = self.expression(&member.object, body)?;
+                let key = self.expression(&member.expression, body)?;
+                (object, key)
+            }
+            Expression::StaticMemberExpression(member) => {
+                let object = self.expression(&member.object, body)?;
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let key = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(member.property.name.to_string())),
+                    ty: string_ty,
+                    span: self.span(member.property.span.start, member.property.span.end),
+                });
+                (object, key)
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(unary.argument.span().start, unary.argument.span().end),
+                    "delete is only lowered for object keys",
+                ));
+            }
         };
-        let dict = self.expression(&member.object, body)?;
-        let key = self.expression(&member.expression, body)?;
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(body.push_expr(Expr {
-            kind: ExprKind::DictRemoveKey { dict, key },
+            kind: ExprKind::DictRemoveKey { dict: object, key },
             ty,
             span: self.span(unary.span.start, unary.span.end),
         }))

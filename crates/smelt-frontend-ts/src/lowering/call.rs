@@ -128,6 +128,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.lodash_negate_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.lodash_has_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.object_get_own_property_symbols_call(call, body)? {
             return Ok(expr);
         }
@@ -186,6 +189,15 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.string_affix_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.lodash_for_each_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.strapi_async_map_call(call, body)? {
+            return Ok(expr);
+        }
+        if let Some(expr) = self.lodash_fp_curried_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.list_callback_call(call, body)? {
@@ -479,10 +491,7 @@ impl ModuleBuilder<'_> {
                 let Some(Type::Function(function)) =
                     self.ctx.krate.types.get(callable_ty).cloned()
                 else {
-                    if matches!(
-                        self.ctx.krate.types.get(callee_ty),
-                        Some(Type::Unknown | Type::Class { .. } | Type::TypeParam { .. })
-                    ) {
+                    if self.erased_or_union_surface(callee_ty) {
                         for arg in &call.arguments {
                             let _ = self.argument(arg, body)?;
                         }
@@ -600,18 +609,9 @@ impl ModuleBuilder<'_> {
             }
             let fixed_param_count = rest.map_or(params.len(), |rest| rest.index);
             if rest.is_none() && call.arguments.len() > fixed_param_count {
-                if self.allow_unknown_index_access {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty,
-                        span: self.span(call.span.start, call.span.end),
-                    }));
+                for arg in call.arguments.iter().skip(fixed_param_count) {
+                    let _ = self.argument(arg, body)?;
                 }
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "function call argument count does not match parameters",
-                ));
             }
             let function_ty = FunctionType {
                 params: params.clone(),

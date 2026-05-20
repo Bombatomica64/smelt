@@ -295,6 +295,21 @@ function isArray(value: unknown): boolean {
 }
 
 #[test]
+fn emits_runtime_index_for_erased_string_generics() {
+    let source = source_for(
+        r#"
+function first<S extends string>(value: S): string {
+  return value[0];
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
+    assert!(source.contains("value.chars().nth(index)"), "{source}");
+    assert!(!source.contains("SmeltUnknown::Null.clone()"), "{source}");
+}
+
+#[test]
 fn emits_unknown_equality_against_concrete_values() {
     let source = source_for(
         r#"

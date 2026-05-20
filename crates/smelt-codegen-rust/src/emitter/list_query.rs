@@ -36,15 +36,18 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let callback_body = match self.closure_callback_body(callback) {
-            Ok(callback_body) => callback_body,
-            Err(_) => return Ok("Default::default()".to_owned()),
-        };
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(list_element_ty)) = self.mir.types.get(list_ty) else {
             return Ok("Default::default()".to_owned());
         };
         let element_ty = *list_element_ty;
+        let callback_body = match self.closure_callback_body(callback) {
+            Ok(callback_body) => callback_body,
+            Err(_) if matches!(op, smelt_hir::ListCallbackOp::Map) => {
+                return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
+            }
+            Err(_) => return Ok("Default::default()".to_owned()),
+        };
         let list_text = if matches!(self.mir.types.get(element_ty), Some(Type::Function(_))) {
             match list {
                 Operand::Copy(place) | Operand::Move(place) => self.place_text(place)?,
@@ -63,6 +66,13 @@ impl FunctionEmitter<'_> {
         } else {
             callback_text
         };
+        if matches!(
+            callback_text.as_str(),
+            "Default::default()" | "SmeltUnknown::Null"
+        ) && matches!(op, smelt_hir::ListCallbackOp::Map)
+        {
+            return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
+        }
         let callback_is_static_default =
             matches!(callback_text.as_str(), "None" | "Default::default()" | "()");
         let callback_uses_item =
@@ -241,6 +251,58 @@ impl FunctionEmitter<'_> {
                 ))
             }
         }
+    }
+
+    /// Emits `Array.map` for full MIR closures that cannot use callback trees.
+    fn list_map_closure_text(
+        &self,
+        list: &Operand,
+        list_ty: TypeId,
+        element_ty: TypeId,
+        callback: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("array map destination must be a list"));
+        };
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
+        else {
+            return Ok("Default::default()".to_owned());
+        };
+        let (Some(item_param_ty), Some(index_param_ty), Some(array_param_ty)) = (
+            function_ty.params.first().copied(),
+            function_ty.params.get(1).copied(),
+            function_ty.params.get(2).copied(),
+        ) else {
+            return Ok("Default::default()".to_owned());
+        };
+        let list_text = self.operand_text(list)?;
+        let closure_text = match self.closure_operand_text(callback) {
+            Ok(closure_text) => closure_text,
+            Err(_) => return Ok("Default::default()".to_owned()),
+        };
+        let item_text =
+            self.rendered_value_as_type_text("item.clone()", element_ty, item_param_ty)?;
+        let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+            self.type_id(Type::Int)?
+        } else {
+            self.type_id(Type::Float)?
+        };
+        let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+            "index as i64"
+        } else {
+            "index as f64"
+        };
+        let index_text =
+            self.rendered_value_as_type_text(index_value, index_source_ty, index_param_ty)?;
+        let array_text =
+            self.rendered_value_as_type_text("smelt_array.clone()", list_ty, array_param_ty)?;
+        let call_text = format!("smelt_callback({item_text}, {index_text}, {array_text})");
+        let value_text =
+            self.rendered_value_as_type_text(&call_text, function_ty.return_ty, *dest_item_ty)?;
+        Ok(format!(
+            "{{ let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone(); smelt_array.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}"
+        ))
     }
 
     /// Converts `Array.from({ length }, mapper)` into an indexed Rust loop.
@@ -460,7 +522,19 @@ impl FunctionEmitter<'_> {
                         }
                         let name = self.local_name(capture.source_local).ok()?.to_owned();
                         cloned_captures.insert(name.clone()).then(|| {
+                            if self.closure_capture_needs_shared_access(source_closure, capture) {
+                                return format!("let smelt_capture_{name} = &raw mut {name};");
+                            }
                             let mutability = if self.mutable_locals.contains(&capture.source_local)
+                                || source_closure
+                                    .captures
+                                    .iter()
+                                    .find(|candidate| {
+                                        candidate.source_local == capture.source_local
+                                    })
+                                    .is_some_and(|candidate| {
+                                        self.closure_capture_body_writes(source_closure, candidate)
+                                    })
                                 || matches!(
                                     self.mir.types.get(local.ty),
                                     Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
@@ -625,17 +699,21 @@ impl FunctionEmitter<'_> {
             for capture in &closure.captures {
                 if let Some(target) = capture.target_local {
                     let source = self.local_decl(capture.source_local)?;
+                    let source_name = self.local_name(capture.source_local)?.to_owned();
                     if matches!(self.mir.types.get(source.ty), Some(Type::Function(_)))
                         && matches!(source.kind, LocalKind::Param { .. })
                         && !self.function_parameter_requires_owned(capture.source_local)?
                     {
-                        emitter
-                            .borrowed_callback_names
-                            .insert(self.local_name(capture.source_local)?.to_owned());
+                        emitter.borrowed_callback_names.insert(source_name.clone());
                     }
-                    emitter
-                        .names
-                        .insert(target, self.local_name(capture.source_local)?.to_owned());
+                    let capture_name = if self.closure_capture_needs_shared_access(closure, capture)
+                    {
+                        format!("(*smelt_capture_{source_name})")
+                    } else {
+                        source_name
+                    };
+                    emitter.names.insert(target, capture_name);
+                    emitter.mark_local_declared(target);
                 }
             }
             let mut params = closure
@@ -699,6 +777,15 @@ impl FunctionEmitter<'_> {
                     "|{params}| {{ {async_capture_prelude}Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        smelt_async_value.into_smelt_unknown()\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>> }}"
                 )
             } else {
+                let body_text = if closure
+                    .captures
+                    .iter()
+                    .any(|capture| self.closure_capture_needs_shared_access(closure, capture))
+                {
+                    format!("unsafe {{\n{body_text}    }}\n")
+                } else {
+                    body_text
+                };
                 format!("|{params}| {{\n{body_text}    }}")
             }
         };
@@ -736,7 +823,11 @@ impl FunctionEmitter<'_> {
                 }
                 let name = self.local_name(capture.source_local).ok()?.to_owned();
                 cloned_captures.insert(name.clone()).then(|| {
+                    if self.closure_capture_needs_shared_access(closure, capture) {
+                        return format!("let smelt_capture_{name} = &raw mut {name};");
+                    }
                     let mutability = if self.mutable_locals.contains(&capture.source_local)
+                        || self.closure_capture_body_writes(closure, capture)
                         || matches!(
                             self.mir.types.get(local.ty),
                             Some(Type::List(_) | Type::Set(_) | Type::Dict(_, _))
@@ -1622,7 +1713,14 @@ impl FunctionEmitter<'_> {
                     Some(Type::Function(function)) => Some(function.return_ty),
                     _ => None,
                 };
-                let mut rendered_args = if callee_params.is_empty() {
+                let source_call_has_no_args = args.is_empty()
+                    && matches!(
+                        actual_callee_ty.and_then(|ty| self.mir.types.get(ty)),
+                        Some(Type::Function(function)) if function.params.is_empty()
+                    );
+                let mut rendered_args = if source_call_has_no_args {
+                    Vec::new()
+                } else if callee_params.is_empty() {
                     args.iter()
                         .map(|arg| self.callback_expr_text(&arg.expr, params))
                         .collect::<Result<Vec<_>, EmitError>>()?

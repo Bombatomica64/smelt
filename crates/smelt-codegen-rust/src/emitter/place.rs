@@ -101,6 +101,9 @@ impl FunctionEmitter<'_> {
                             "{base_text}.chars().nth({index_text}).map(|ch| ch.to_string()).expect(\"index out of bounds\")"
                         ))
                     }
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                        self.unknown_index_text(self.local_name(*base)?, index)
+                    }
                     _ => Ok("SmeltUnknown::Null".to_owned()),
                 }
             }
@@ -162,6 +165,68 @@ impl FunctionEmitter<'_> {
         };
         Ok(format!(
             "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"
+        ))
+    }
+
+    /// Emit a runtime index read for values whose concrete shape is erased.
+    ///
+    /// TypeScript generic and unknown receivers may still be strings, arrays,
+    /// or objects at runtime. Returning `Null` here hides lowering bugs and
+    /// breaks later casts, so the generated Rust dispatches on `SmeltUnknown`
+    /// and panics only when the runtime value is not indexable.
+    pub(super) fn unknown_index_text(
+        &self,
+        base_text: &str,
+        index: &Operand,
+    ) -> Result<String, EmitError> {
+        let index_ty = self.operand_ty(index)?;
+        let index_text = self.operand_text(index)?;
+        let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
+        if matches!(self.mir.types.get(index_ty), Some(Type::String)) {
+            return Ok(format!(
+                r#"match {base_text}.clone() {{
+                    SmeltUnknown::Object(values) => values.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null),
+                    _ => panic!("unknown is not object"),
+                }}"#
+            ));
+        }
+        let numeric_index_text = match self.mir.types.get(index_ty) {
+            Some(Type::Int | Type::Float) => index_text,
+            Some(Type::Bool) => format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}"),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            | Some(Type::Class { .. })
+                if self.is_erased_class_type(index_ty)
+                    || matches!(
+                        self.mir.types.get(index_ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) =>
+            {
+                format!(
+                    "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => f64::NAN }}"
+                )
+            }
+            _ => "f64::NAN".to_owned(),
+        };
+
+        Ok(format!(
+            r#"match {base_text}.clone() {{
+                SmeltUnknown::String(value) => {{
+                    let len = value.chars().count() as i64;
+                    let index = {numeric_index_text} as i64;
+                    let normalized = if index < 0 {{ len + index }} else {{ index }};
+                    let index = usize::try_from(normalized).expect("negative index out of bounds");
+                    SmeltUnknown::String(value.chars().nth(index).map(|ch| ch.to_string()).expect("index out of bounds"))
+                }}
+                SmeltUnknown::Array(values) => {{
+                    let len = values.len() as i64;
+                    let index = {numeric_index_text} as i64;
+                    let normalized = if index < 0 {{ len + index }} else {{ index }};
+                    let index = usize::try_from(normalized).expect("negative index out of bounds");
+                    values.get(index).cloned().expect("index out of bounds")
+                }}
+                SmeltUnknown::Object(values) => values.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null),
+                _ => panic!("unknown is not indexable"),
+            }}"#
         ))
     }
 

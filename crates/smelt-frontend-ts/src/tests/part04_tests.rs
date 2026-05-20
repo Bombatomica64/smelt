@@ -3003,6 +3003,8 @@ const pattern = "\\d+";
 const hasDigits = new RegExp(pattern).test(text);
 const alsoHasDigits = RegExp(pattern).test(text);
 const literalHasDigits = /\d+/.test(text);
+const savedPattern = /\w+/;
+const savedHasWord = savedPattern.test(text);
 "#),
         &mut ctx,
     )?;
@@ -3020,9 +3022,43 @@ const literalHasDigits = /\d+/.test(text);
                 }
             ))
             .count()
-            == 3,
+            == 4,
         "expected RegExp.test lowering",
     );
+    Ok(())
+}
+
+#[test]
+fn lowers_regexp_test_with_erased_haystack() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function hasDigits(value: unknown) {
+  return /\d+/.test(value);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn does_not_route_validation_test_methods_as_regexp() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { yup } from '@strapi/utils';
+
+const schema = yup
+  .string()
+  .test('is-valid-text', 'Text must be defined', (text: unknown) => {
+    return typeof text === 'string' || text === '';
+  });
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -3409,6 +3445,188 @@ function addRoutes(routes: any) {
 }
 
 #[test]
+fn lowers_template_literals_inside_array_literals() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const prefix = 'api::';
+const route = { handler: 'article.find' };
+const scope = [`${route.handler.startsWith(prefix) ? '' : prefix}${route.handler}`];
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_lodash_for_each_collection_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import _ from 'lodash';
+
+function register(routes: any) {
+  _.forEach(routes, (router) => {
+    router.type = router.type || 'admin';
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_strapi_register_routes_lodash_for_each_shape() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import _ from 'lodash';
+
+const createRouteScopeGenerator = (namespace: string) => (route: any) => {
+  const prefix = namespace.endsWith('::') ? namespace : `${namespace}.`;
+
+  if (typeof route.handler === 'string') {
+    route.config = {
+      auth: {
+        scope: [`${route.handler.startsWith(prefix) ? '' : prefix}${route.handler}`],
+      },
+    };
+  }
+};
+
+function register(strapi: any) {
+  const generateRouteScope = createRouteScopeGenerator(`admin::`);
+
+  _.forEach(strapi.admin.routes, (router) => {
+    router.type = router.type || 'admin';
+    router.prefix = router.prefix || `/admin`;
+    router.routes.forEach((route) => {
+      generateRouteScope(route);
+      route.info = { pluginName: 'admin' };
+    });
+    strapi.server.routes(router);
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_yup_test_and_await_opaque_async_surfaces() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { yup } from '@strapi/utils';
+
+const schema = yup.mixed().test(() => false);
+const arraySchema = yup.array().of(
+  yup.lazy((value) => {
+    return yup.mixed().test(() => false);
+  }) as any
+);
+
+const validate = async (config: unknown) => {
+  await schema.validate(config, { strict: true });
+  await arraySchema.validate(config, { strict: true });
+};
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_instanceof_dynamic_constructor() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const mappings = [{ classError: Error, status: 400 }];
+
+function format(error: unknown) {
+  return mappings.find((pair) => error instanceof pair.classError);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_ambient_module_and_this_in_function_expression() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+declare module 'koa' {
+  interface BaseResponse {
+    send: (data: any, status?: number) => void;
+  }
+}
+
+const response: any = {};
+response.send = function send(data, status = 200) {
+  this.status = status;
+  this.body = data;
+};
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_top_level_destructured_module_globals_in_functions() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { contentTypes as contentTypesUtils } from '@strapi/utils';
+
+const {
+  CREATED_AT_ATTRIBUTE,
+  UPDATED_AT_ATTRIBUTE,
+} = contentTypesUtils.constants;
+
+function addTimestamps(schema: any) {
+  Object.assign(schema.attributes, {
+    [CREATED_AT_ATTRIBUTE]: { type: 'datetime' },
+    [UPDATED_AT_ATTRIBUTE]: { type: 'datetime' },
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_lodash_has_path_predicates() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import _ from 'lodash';
+
+function addOptions(schema: any) {
+  if (!_.has(schema, 'options.draftAndPublish')) {
+    schema.options = { draftAndPublish: false };
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_typeof_undefined_checks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(
@@ -3774,5 +3992,329 @@ const unionValue = use(
 "#),
         &mut ctx,
     )?;
+    Ok(())
+}
+
+#[test]
+fn lowers_untyped_map_and_erased_map_mutations() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const pairs = new Map();
+
+function remember(rawKey: unknown, rawValue: unknown) {
+  pairs.set(rawKey, rawValue);
+  pairs.delete(rawKey);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_array_from_collection_and_unknown_sources() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function keysFromMap(input: Map<string, number>, opaque: unknown) {
+  const keys = Array.from(input.keys());
+  const anyItems = Array.from(opaque);
+  return keys.length + anyItems.length;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_erased_union_callable_and_nullish_fallback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type MaybeBuilder = unknown | ((table: string) => unknown);
+
+function run(trx: MaybeBuilder, maybeName: unknown) {
+  const tableName = maybeName ?? 'articles';
+  return trx(tableName as string);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_any_tuple_elements_and_erased_number_casts() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Row = [string, any];
+
+function read(row: Row, raw: { value: unknown }) {
+  return Number(raw.value) + row.length;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_map_from_existing_entries_and_boolean_callback() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function clone(input: Map<string, number>, values: unknown[]) {
+  const copied = new Map(input.entries());
+  return values.filter(Boolean).length + copied.size;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_zero_arg_callbacks_and_opaque_reduce_receiver() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(items: unknown) {
+  const count = (items as unknown).reduce(() => 0, 0);
+  return [1, 2].some(() => true) ? count : 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_dynamic_in_checks_and_erased_math_min() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function pick(keys: unknown[], row: unknown, raw: unknown) {
+  return keys.filter((key) => key in row).length + Math.min(raw, 10);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_push_spread_and_callback_nullish_coalesce() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function collect(batches: Array<Array<string | null>>) {
+  const out: Array<string | null> = [];
+  batches.forEach((batch) => {
+    out.push(...batch.map((value) => value ?? 'draft'));
+  });
+  return out;
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_for_await_of_as_async_iterable_loop() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+async function run(source: unknown) {
+  for await (const batch of source) {
+    await Promise.resolve(batch);
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_for_await_of_future_batches_with_record_indexing() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function batches(): Promise<Array<Array<string>>> {
+  return Promise.resolve([['a']]);
+}
+
+async function run(records: Record<string, string>) {
+  for await (const batch of batches()) {
+    const first = batch[0];
+    records[first];
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_erased_none_index_access_as_unknown() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(key: string) {
+  const erased = undefined as unknown as Record<string, string>;
+  return erased[key];
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_strapi_async_map_with_options() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { async } from '@strapi/utils';
+
+async function run(batch: Array<{ documentId: string; locale: string }>) {
+  const discardDraft = async (entry: { documentId: string; locale: string }) => entry.documentId;
+  await async.map(batch, discardDraft, { concurrency: 10 });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_buffer_to_string_with_encoding_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(bytes: unknown) {
+  return bytes.toString('hex');
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_class_method_reference_for_bind_assignment() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+class Manager {
+  generateSessionId(): string {
+    return 'id';
+  }
+}
+
+function wire(api: { generateSessionId?: () => string }, manager: Manager) {
+  api.generateSessionId = manager.generateSessionId.bind(manager);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_new_from_destructured_import_object_member() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { errors } from '@strapi/utils';
+
+const { ValidationError } = errors;
+
+function run(message: string) {
+  throw new ValidationError(message);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_class_method_signature_with_destructured_parameter() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+interface Event {
+  event: string;
+  info: unknown;
+}
+
+class Runner {
+  async executeListener({ event, info }: Event): Promise<void> {
+    event;
+    info;
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_abort_signal_timeout_global() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run() {
+  return AbortSignal.timeout(10000);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_map_for_each_statement_receiver() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(items: Map<string, string[]>) {
+  items.forEach((values, key) => {
+    const filtered = values.filter((value) => value !== key);
+    if (filtered.length === 0) {
+      items.delete(key);
+    } else {
+      items.set(key, filtered);
+    }
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

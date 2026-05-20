@@ -62,6 +62,17 @@ struct ConstLiteral {
     ty: smelt_hir::TypeId,
 }
 
+/// Literal collection value visible to nested function bodies in the same module.
+#[derive(Debug, Clone)]
+struct ConstCollection {
+    /// Literal elements in source order.
+    items: Vec<ConstLiteral>,
+    /// HIR type of the collection value.
+    ty: smelt_hir::TypeId,
+    /// Whether the collection should lower as a `Set` instead of an array.
+    is_set: bool,
+}
+
 /// A function that narrows one argument after it returns successfully.
 #[derive(Debug, Clone, Copy)]
 struct AssertionNarrowing {
@@ -313,6 +324,8 @@ struct ModuleBuilder<'ctx> {
     const_literals: HashMap<String, ConstLiteral>,
     /// Object literal constants visible from current and already-lowered modules.
     const_objects: HashMap<String, ObjectConst>,
+    /// Literal array/set constants visible from nested function bodies.
+    const_collections: HashMap<String, ConstCollection>,
     /// User assertion functions declared with `asserts value is T`.
     assertion_functions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.

@@ -41,6 +41,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             object_namespaces,
             const_literals,
             const_objects,
+            const_collections: HashMap::new(),
             assertion_functions: HashMap::new(),
             predicate_functions: HashMap::new(),
             narrowed_locals: Vec::new(),
@@ -374,6 +375,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn collect_module_global_decl(&mut self, decl: &oxc::ast::ast::VariableDeclaration<'_>) {
         for declarator in &decl.declarations {
             let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                if matches!(
+                    decl.kind,
+                    oxc::ast::ast::VariableDeclarationKind::Const
+                        | oxc::ast::ast::VariableDeclarationKind::Let
+                ) {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    Self::collect_module_global_pattern_bindings(
+                        &declarator.id,
+                        ty,
+                        &mut self.module_globals,
+                    );
+                }
                 continue;
             };
             if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
@@ -417,6 +430,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     });
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
+                    if let Some(collection) = self.const_collection_from_initializer(init, ty) {
+                        self.const_collections
+                            .insert(binding.name.as_str().to_owned(), collection);
+                    }
                 }
                 if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
                     && let Some(init) = &declarator.init
@@ -433,6 +450,54 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Ok(ty) = self.ts_type_to_hir(&annotation.type_annotation) {
                 self.module_globals
                     .insert(binding.name.as_str().to_owned(), ty);
+            }
+        }
+    }
+
+    /// Register simple names from a non-identifier module-level binding pattern.
+    fn collect_module_global_pattern_bindings(
+        pattern: &BindingPattern<'_>,
+        ty: smelt_hir::TypeId,
+        module_globals: &mut HashMap<String, smelt_hir::TypeId>,
+    ) {
+        match pattern {
+            BindingPattern::BindingIdentifier(binding) => {
+                module_globals.insert(binding.name.as_str().to_owned(), ty);
+            }
+            BindingPattern::ObjectPattern(object) => {
+                for property in &object.properties {
+                    Self::collect_module_global_pattern_bindings(
+                        &property.value,
+                        ty,
+                        module_globals,
+                    );
+                }
+                if let Some(rest) = &object.rest {
+                    Self::collect_module_global_pattern_bindings(
+                        &rest.argument,
+                        ty,
+                        module_globals,
+                    );
+                }
+            }
+            BindingPattern::ArrayPattern(array) => {
+                for element in array.elements.iter().flatten() {
+                    Self::collect_module_global_pattern_bindings(element, ty, module_globals);
+                }
+                if let Some(rest) = &array.rest {
+                    Self::collect_module_global_pattern_bindings(
+                        &rest.argument,
+                        ty,
+                        module_globals,
+                    );
+                }
+            }
+            BindingPattern::AssignmentPattern(assignment) => {
+                Self::collect_module_global_pattern_bindings(
+                    &assignment.left,
+                    ty,
+                    module_globals,
+                );
             }
         }
     }
@@ -490,6 +555,83 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let mut body = Body::new(None, self.expression_span(init));
         let expr = self.expression_with_hint(init, &mut body, None)?;
         Ok(Self::expr_ty(&body, expr))
+    }
+
+    /// Extract literal array and set constants that nested function bodies can inline.
+    fn const_collection_from_initializer(
+        &mut self,
+        init: &Expression<'_>,
+        ty: smelt_hir::TypeId,
+    ) -> Option<ConstCollection> {
+        match init {
+            Expression::ArrayExpression(array) => Some(ConstCollection {
+                items: self.const_collection_items(array.elements.iter())?,
+                ty,
+                is_set: false,
+            }),
+            Expression::NewExpression(new_expr)
+                if matches!(
+                    &new_expr.callee,
+                    Expression::Identifier(callee) if callee.name.as_str() == "Set"
+                ) =>
+            {
+                let [Argument::ArrayExpression(array)] = new_expr.arguments.as_slice() else {
+                    return None;
+                };
+                Some(ConstCollection {
+                    items: self.const_collection_items(array.elements.iter())?,
+                    ty,
+                    is_set: true,
+                })
+            }
+            Expression::TSAsExpression(as_expr) => {
+                self.const_collection_from_initializer(&as_expr.expression, ty)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.const_collection_from_initializer(&satisfies.expression, ty)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.const_collection_from_initializer(&non_null.expression, ty)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.const_collection_from_initializer(&parenthesized.expression, ty)
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract literal elements from a module-level constant array.
+    fn const_collection_items<'a>(
+        &mut self,
+        elements: impl Iterator<Item = &'a ArrayExpressionElement<'a>>,
+    ) -> Option<Vec<ConstLiteral>> {
+        let mut items = Vec::new();
+        for element in elements {
+            match element {
+                ArrayExpressionElement::StringLiteral(literal) => items.push(ConstLiteral {
+                    literal: Literal::String(literal.value.to_string()),
+                    ty: self.ctx.krate.types.intern(Type::String),
+                }),
+                ArrayExpressionElement::NumericLiteral(literal) => items.push(ConstLiteral {
+                    literal: Literal::Float(literal.value),
+                    ty: self.ctx.krate.types.intern(Type::Float),
+                }),
+                ArrayExpressionElement::BooleanLiteral(literal) => items.push(ConstLiteral {
+                    literal: Literal::Bool(literal.value),
+                    ty: self.ctx.krate.types.intern(Type::Bool),
+                }),
+                ArrayExpressionElement::SpreadElement(spread) => {
+                    let Expression::Identifier(identifier) = &spread.argument else {
+                        return None;
+                    };
+                    let collection = self.const_collections.get(identifier.name.as_str())?;
+                    items.extend(collection.items.clone());
+                }
+                ArrayExpressionElement::Elision(_) => return None,
+                _ => return None,
+            }
+        }
+        Some(items)
     }
 
     /// Collect TypeScript overload signatures for concrete implementations.

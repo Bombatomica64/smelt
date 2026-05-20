@@ -722,6 +722,7 @@ impl ModuleBuilder<'_> {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
             TSTupleElement::TSBooleanKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Bool)),
+            TSTupleElement::TSAnyKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSTupleElement::TSUnknownKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             TSTupleElement::TSNeverKeyword(_) => Ok(self.ctx.krate.types.intern(Type::Never)),
             TSTupleElement::TSNullKeyword(_)
@@ -1403,12 +1404,7 @@ impl ModuleBuilder<'_> {
                     .collect::<Vec<_>>();
                 match matches.as_slice() {
                     [single] => Ok(*single),
-                    [] => Err(SmeltError::unsupported(
-                        self.span(0, 0),
-                        format!(
-                            "field access is only lowered for Record<string, T>, class, and interface values for now (union receiver: {items:?})"
-                        ),
-                    )),
+                    [] => Ok(self.ctx.krate.types.intern(Type::Unknown)),
                     [first, rest @ ..] if rest.iter().all(|item| item == first) => Ok(*first),
                     _ => {
                         let mut union_items = Vec::new();
@@ -1457,6 +1453,19 @@ impl ModuleBuilder<'_> {
                             .map(|item| item.ty)
                     })
                 });
+                let sidecar_method = class_name.as_deref().and_then(|class_name| {
+                    let method = self
+                        .class_methods
+                        .get(class_name)?
+                        .iter()
+                        .find(|item| item.name == field)?;
+                    let params = method.params.iter().map(|param| param.ty).collect();
+                    Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+                        params,
+                        return_ty: method.return_ty,
+                        is_async: method.is_async,
+                    })))
+                });
                 let interface = self.find_interface(name).cloned();
                 let interface_exists = interface.is_some();
                 let interface_field = if let Some(interface) = interface {
@@ -1476,6 +1485,23 @@ impl ModuleBuilder<'_> {
                 } else {
                     None
                 };
+                let interface_method = self.find_interface(name).cloned().and_then(|iface| {
+                    let substitutions = self
+                        .type_argument_substitution(&iface.type_params, &args, self.span(0, 0))
+                        .ok()?;
+                    let method = iface.methods.iter().find(|item| item.name == field)?;
+                    let params = method
+                        .params
+                        .iter()
+                        .map(|param| self.substitute_type_params(param.ty, &substitutions))
+                        .collect();
+                    let return_ty = self.substitute_type_params(method.return_ty, &substitutions);
+                    Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
+                        params,
+                        return_ty,
+                        is_async: method.is_async,
+                    })))
+                });
                 let alias_fields = self
                     .type_alias_fields
                     .get(&name)
@@ -1503,7 +1529,9 @@ impl ModuleBuilder<'_> {
                 };
                 if let Some(ty) = class_field
                     .or(sidecar_field)
+                    .or(sidecar_method)
                     .or(interface_field)
+                    .or(interface_method)
                     .or(alias_field)
                 {
                     return Ok(ty);
@@ -1826,10 +1854,13 @@ impl ModuleBuilder<'_> {
         method: smelt_hir::Symbol,
         span: oxc::span::Span,
     ) -> Result<(smelt_hir::TypeId, smelt_hir::ItemId), SmeltError> {
-        if matches!(
-            self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Unknown | Type::TypeParam { .. })
-        ) {
+        if self.erased_or_union_surface(receiver_ty)
+            || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Union(_)))
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Dict(_, _) | Type::List(_) | Type::Set(_))
+            )
+        {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok((ty, smelt_hir::ItemId(u32::MAX)));
         }
@@ -1922,7 +1953,7 @@ impl ModuleBuilder<'_> {
             Some(Type::List(item)) => Ok(*item),
             Some(Type::String) => Ok(self.ctx.krate.types.intern(Type::String)),
             Some(Type::Dict(_, value)) => Ok(*value),
-            Some(Type::Unknown) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
+            Some(Type::Unknown | Type::None) => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
@@ -1954,6 +1985,7 @@ impl ModuleBuilder<'_> {
                     _ => Ok(self.ctx.krate.types.intern(Type::Union(union_items))),
                 }
             }
+            None => Ok(self.ctx.krate.types.intern(Type::Unknown)),
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
                 format!(
@@ -2257,7 +2289,7 @@ impl ModuleBuilder<'_> {
                 return self.item_function_closure_expression(item, start, end, body);
             }
             if let Some(ty) = self.module_globals.get(name).copied() {
-                return self.module_global_expression(ty, start, end, body);
+                return self.module_global_expression(name, ty, start, end, body);
             }
             if name == "console" {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -2293,13 +2325,16 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
-            if matches!(name, "process" | "strapi" | "require") {
+            if matches!(
+                name,
+                "AbortSignal" | "Object" | "process" | "strapi" | "require" | "this"
+            ) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return self.module_global_expression(ty, start, end, body);
+                return self.module_global_expression(name, ty, start, end, body);
             }
             if self.value_imports.contains(name) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return self.module_global_expression(ty, start, end, body);
+                return self.module_global_expression(name, ty, start, end, body);
             }
             if self.allow_unknown_index_access {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -2422,11 +2457,36 @@ impl ModuleBuilder<'_> {
     /// Synthesize a read value for a known module-level variable.
     fn module_global_expression(
         &mut self,
+        name: &str,
         ty: smelt_hir::TypeId,
         start: u32,
         end: u32,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(collection) = self.const_collections.get(name).cloned() {
+            let span = self.span(start, end);
+            let items = collection
+                .items
+                .iter()
+                .map(|item| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::Literal(item.literal.clone()),
+                        ty: item.ty,
+                        span,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let kind = if collection.is_set {
+                ExprKind::SetLit(items)
+            } else {
+                ExprKind::ListLit(items)
+            };
+            return Ok(body.push_expr(Expr {
+                kind,
+                ty: collection.ty,
+                span,
+            }));
+        }
         if let Some(Type::Function(function)) = self.ctx.krate.types.get(ty).cloned() {
             return self.module_global_function_expression(&function, ty, start, end, body);
         }
@@ -2541,6 +2601,21 @@ impl ModuleBuilder<'_> {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
                     ty: none_ty,
+                    span,
+                }));
+            }
+            Some(Type::Future(_)) => {
+                let duration = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Float(0.0)),
+                    ty: self.ctx.krate.types.intern(Type::Float),
+                    span,
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::Sleep,
+                        args: vec![duration],
+                    },
+                    ty,
                     span,
                 }));
             }

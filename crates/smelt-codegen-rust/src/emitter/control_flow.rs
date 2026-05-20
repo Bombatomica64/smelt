@@ -37,15 +37,28 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
-            for (idx, statement) in block.statements.iter().enumerate() {
-                if idx != cond_statement_idx {
-                    self.emit_statement(statement, out)?;
-                }
-            }
+            let has_header_work = block
+                .statements
+                .iter()
+                .enumerate()
+                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_locals_snapshot();
-            out.push_str(&format!("    while {cond} {{\n"));
+            if has_header_work {
+                out.push_str("    loop {\n");
+                for statement in &block.statements {
+                    self.emit_statement(statement, out)?;
+                }
+                out.push_str(&format!(
+                    "    if !({}) {{ break; }}\n",
+                    self.truthy_operand_text(&Operand::Copy(Place::Local(
+                        self.switch_cond_local(block)?
+                    )))?
+                ));
+            } else {
+                out.push_str(&format!("    while {cond} {{\n"));
+            }
             self.emit_block_until_goto(then, block.id, Some(else_block), out)?;
             out.push_str("    }\n");
             self.restore_declared_locals(loop_declared);
@@ -55,16 +68,29 @@ impl FunctionEmitter<'_> {
         if let Some((cond, then_block, latch_block, else_block, cond_statement_idx)) =
             self.while_header_with_latch(block)?
         {
-            for (idx, statement) in block.statements.iter().enumerate() {
-                if idx != cond_statement_idx {
-                    self.emit_statement(statement, out)?;
-                }
-            }
+            let has_header_work = block
+                .statements
+                .iter()
+                .enumerate()
+                .any(|(idx, _)| idx != cond_statement_idx);
             let then = self.block(then_block)?;
             let latch = self.block(latch_block)?;
             let else_ = self.block(else_block)?;
             let loop_declared = self.declared_locals_snapshot();
-            out.push_str(&format!("    while {cond} {{\n"));
+            if has_header_work {
+                out.push_str("    loop {\n");
+                for statement in &block.statements {
+                    self.emit_statement(statement, out)?;
+                }
+                out.push_str(&format!(
+                    "    if !({}) {{ break; }}\n",
+                    self.truthy_operand_text(&Operand::Copy(Place::Local(
+                        self.switch_cond_local(block)?
+                    )))?
+                ));
+            } else {
+                out.push_str(&format!("    while {cond} {{\n"));
+            }
             self.emit_block_until_goto(then, latch_block, Some(else_block), out)?;
             for statement in &latch.statements {
                 self.emit_statement(statement, out)?;
@@ -711,6 +737,20 @@ impl FunctionEmitter<'_> {
         )))
     }
 
+    /// Returns the local that stores a structured switch condition.
+    fn switch_cond_local(&self, block: &BasicBlock) -> Result<LocalId, EmitError> {
+        let Some(Terminator::Switch {
+            cond: Operand::Copy(Place::Local(cond_local)),
+            ..
+        }) = &block.terminator
+        else {
+            return Err(EmitError::new(
+                "structured loop header must switch on a local",
+            ));
+        };
+        Ok(*cond_local)
+    }
+
     /// Checks if a block eventually exits to a loop target.
     /// Checks if a block eventually exits to a loop target.
     pub(super) fn block_exits_to_loop(
@@ -901,20 +941,25 @@ impl FunctionEmitter<'_> {
                 else_block,
             }) => {
                 out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+                // Each branch can legitimately converge on the same join block.
+                // Sharing the recursion guard across siblings makes the later
+                // branch look cyclic and incorrectly emits `continue`.
+                let mut then_visited = visited.clone();
                 self.emit_loop_branch_inner(
                     self.block(*then_block)?,
                     continue_target,
                     break_target,
                     out,
-                    visited,
+                    &mut then_visited,
                 )?;
                 out.push_str("    } else {\n");
+                let mut else_visited = visited.clone();
                 self.emit_loop_branch_inner(
                     self.block(*else_block)?,
                     continue_target,
                     break_target,
                     out,
-                    visited,
+                    &mut else_visited,
                 )?;
                 out.push_str("    }\n");
                 Ok(())

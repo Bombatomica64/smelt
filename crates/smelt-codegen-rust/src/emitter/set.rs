@@ -13,11 +13,8 @@ impl FunctionEmitter<'_> {
         let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
             return Ok("false".to_owned());
         };
-        if self.operand_ty(item)? != *item_ty {
-            return Ok("false".to_owned());
-        }
+        let item_text = self.operand_as_type_text(item, *item_ty)?;
         if self.mir.types.get(*item_ty) == Some(&Type::Float) {
-            let item_text = self.operand_text(item)?;
             return Ok(format!(
                 "{}.iter().any(|value| *value == {item_text})",
                 self.operand_text(set)?
@@ -26,7 +23,7 @@ impl FunctionEmitter<'_> {
         Ok(format!(
             "{}.contains(&{})",
             self.operand_text(set)?,
-            self.operand_text(item)?
+            item_text
         ))
     }
 
@@ -92,18 +89,22 @@ impl FunctionEmitter<'_> {
         let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
             return Err(EmitError::new("set add receiver must be a set"));
         };
+        let item_text = self.operand_as_type_text(item, *item_ty)?;
         if self.mir.types.get(*item_ty) == Some(&Type::Float) {
             return if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
-                Ok("()".to_owned())
+                Ok(format!(
+                    "{{ if !{set_text}.iter().any(|value| *value == {item_text}) {{ {set_text}.push({item_text}); }} () }}"
+                ))
             } else if dest_ty == set_ty {
-                Ok(format!("{set_text}.clone()"))
+                Ok(format!(
+                    "{{ if !{set_text}.iter().any(|value| *value == {item_text}) {{ {set_text}.push({item_text}); }} {set_text}.clone() }}"
+                ))
             } else {
                 Err(EmitError::new(
                     "set add destination must be None or the receiver set type",
                 ))
             };
         }
-        let item_text = self.operand_text(item)?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
             Ok(format!("{{ {set_text}.insert({item_text}); () }}"))
         } else if dest_ty == set_ty {
