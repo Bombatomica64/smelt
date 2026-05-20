@@ -4,21 +4,21 @@
   "description": "Top-level configuration for a Smelt project.",
   "type": "object",
   "properties": {
-    "output": {
-      "description": "Output target configuration.",
-      "$ref": "#/$defs/Output"
-    },
     "project": {
       "description": "Project metadata.",
       "$ref": "#/$defs/Project"
     },
-    "runtime": {
-      "description": "Runtime options.",
-      "$ref": "#/$defs/Runtime"
-    },
     "sources": {
       "description": "Source file configuration.",
       "$ref": "#/$defs/Source"
+    },
+    "output": {
+      "description": "Output target configuration.",
+      "$ref": "#/$defs/Output"
+    },
+    "runtime": {
+      "description": "Runtime options.",
+      "$ref": "#/$defs/Runtime"
     },
     "strict": {
       "description": "Optional strict mode configuration.",
@@ -39,64 +39,10 @@
     "runtime"
   ],
   "$defs": {
-    "CloneStrategy": {
-      "description": "Strategy for cloning values in generated code.",
-      "oneOf": [
-        {
-          "description": "Always clone values.",
-          "type": "string",
-          "const": "always"
-        },
-        {
-          "description": "Aggressively clone when beneficial.",
-          "type": "string",
-          "const": "aggressive"
-        },
-        {
-          "description": "Never clone values.",
-          "type": "string",
-          "const": "never"
-        }
-      ]
-    },
-    "Output": {
-      "description": "Output configuration from the [output] section.",
-      "type": "object",
-      "properties": {
-        "build": {
-          "description": "Whether to build the generated crate.",
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "crate-name": {
-          "description": "Optional crate name override.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "target": {
-          "description": "Target output directory.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "target"
-      ]
-    },
     "Project": {
       "description": "Project metadata from the [project] section of Smelt.toml.",
       "type": "object",
       "properties": {
-        "description": {
-          "description": "Optional project description.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
         "name": {
           "description": "Project name.",
           "type": "string"
@@ -104,24 +50,18 @@
         "version": {
           "description": "Project version.",
           "type": "string"
+        },
+        "description": {
+          "description": "Optional project description.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "name",
         "version"
-      ]
-    },
-    "Runtime": {
-      "description": "Runtime configuration from the [runtime] section.",
-      "type": "object",
-      "properties": {
-        "clone-strategy": {
-          "description": "Cloning strategy for generated code.",
-          "$ref": "#/$defs/CloneStrategy"
-        }
-      },
-      "required": [
-        "clone-strategy"
       ]
     },
     "Source": {
@@ -144,25 +84,95 @@
           "items": {
             "type": "string"
           }
+        },
+        "test-globs": {
+          "description": "Optional glob patterns used to discover test source files under roots.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
         "entries"
       ]
     },
+    "Output": {
+      "description": "Output configuration from the [output] section.",
+      "type": "object",
+      "properties": {
+        "target": {
+          "description": "Target output directory.",
+          "type": "string"
+        },
+        "crate-name": {
+          "description": "Optional crate name override.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "build": {
+          "description": "Whether to build the generated crate.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "target"
+      ]
+    },
+    "Runtime": {
+      "description": "Runtime configuration from the [runtime] section.",
+      "type": "object",
+      "properties": {
+        "clone-strategy": {
+          "description": "Cloning strategy for generated code.",
+          "$ref": "#/$defs/CloneStrategy"
+        }
+      },
+      "required": [
+        "clone-strategy"
+      ]
+    },
+    "CloneStrategy": {
+      "description": "Strategy for cloning values in generated code.",
+      "oneOf": [
+        {
+          "description": "Always clone values.",
+          "type": "string",
+          "const": "always"
+        },
+        {
+          "description": "Aggressively clone when beneficial.",
+          "type": "string",
+          "const": "aggressive"
+        },
+        {
+          "description": "Never clone values.",
+          "type": "string",
+          "const": "never"
+        }
+      ]
+    },
     "Strict": {
       "description": "Strict mode configuration from the [strict] section.",
       "type": "object",
       "properties": {
-        "python": {
-          "description": "Enable strict mode for Python.",
+        "typescript": {
+          "description": "Enable strict mode for TypeScript.",
           "type": [
             "boolean",
             "null"
           ]
         },
-        "typescript": {
-          "description": "Enable strict mode for TypeScript.",
+        "python": {
+          "description": "Enable strict mode for Python.",
           "type": [
             "boolean",
             "null"
