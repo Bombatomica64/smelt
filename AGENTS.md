@@ -11,6 +11,9 @@ when working on generated Rust warnings or blockers, use:
 `cargo run --bin smelt -- rust-diagnostics --cargo-manifest <generated-crate>/Cargo.toml --output blocker-logs/<name>.md`
 This produces a grouped Markdown report sorted by diagnostic count so LLMs can start with the biggest warning/error classes.
 
+## Generated Rust incremental builds
+the Rust emitter intentionally preserves generated file mtimes by writing files only when their bytes change. This lets Cargo reuse incremental artifacts for large generated crates. Do not replace this with unconditional `fs::write`, and avoid touching/regenerating generated Rust files unless their contents actually changed.
+
 ## Style
 put docstrings in modules and functions
 

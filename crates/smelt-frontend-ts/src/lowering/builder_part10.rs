@@ -496,10 +496,11 @@ impl ModuleBuilder<'_> {
         let mut operand = self.argument(argument, body)?;
         let operand_ty = Self::expr_ty(body, operand);
         if !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Int | Type::Float)) {
-            if (source_name == "isNaN" && self.is_date_constructor_arg_type(operand_ty))
+            if ((source_name == "isNaN" || source_name == "Number.isNaN")
+                && self.is_date_constructor_arg_type(operand_ty))
                 || matches!(
                     self.ctx.krate.types.get(operand_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. })
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
                 )
             {
                 let ty = self.ctx.krate.types.intern(Type::Float);
@@ -634,6 +635,11 @@ impl ModuleBuilder<'_> {
         let operand = self.argument(argument, body)?;
         match self.ctx.krate.types.get(Self::expr_ty(body, operand)) {
             Some(Type::String) => Ok(operand),
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(*inner), Some(Type::String)) =>
+            {
+                Ok(operand)
+            }
             Some(Type::Unknown | Type::TypeParam { .. }) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(body.push_expr(Expr {

@@ -823,14 +823,104 @@ describe("data first", () => {
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
+    let test_body = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function) if function.is_test => function
+                .body
+                .and_then(|body| ctx.krate.bodies.get(body.0 as usize)),
+            _ => None,
+        })
+        .ok_or_else(|| {
+            "expected Vitest body using module const function array to lower".to_owned()
+        })?;
     ensure!(
-        module.items.iter().any(|item| {
-            matches!(
-                ctx.krate.items.get(item.0 as usize),
-                Some(Item::Function(function)) if function.is_test
-            )
-        }),
-        "expected Vitest body using module const function array to lower"
+        test_body
+            .exprs
+            .iter()
+            .any(|expr| { matches!(&expr.kind, ExprKind::ListLit(items) if items.len() == 2) }),
+        "expected top-level predicate array setup to be replayed into the generated test body"
+    );
+    Ok(())
+}
+
+#[test]
+fn function_can_read_module_const_object_function_table() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+const COMPARATORS = {
+  asc: (x: number, y: number) => x > y,
+  desc: (x: number, y: number) => x < y,
+} as const;
+
+export function compare(direction: string, x: number, y: number): boolean {
+  const { [direction]: comparator } = COMPARATORS;
+  return comparator(x, y);
+}
+"#),
+        "src/comparators.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let compare_body = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("compare") => {
+                function
+                    .body
+                    .and_then(|body| ctx.krate.bodies.get(body.0 as usize))
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "expected compare function to lower".to_owned())?;
+    ensure!(
+        compare_body
+            .exprs
+            .iter()
+            .any(|expr| { matches!(&expr.kind, ExprKind::DictLit(entries) if entries.len() == 2) }),
+        "expected module const function table read to recreate both object entries"
+    );
+    Ok(())
+}
+
+#[test]
+fn spread_call_uses_optional_index_for_optional_fixed_parameter() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(
+        ts!(r#"
+function choose(primary: string, secondary?: string, ...rest: string[]): string {
+  return secondary ?? primary;
+}
+
+export function run(values: string[]): string {
+  return choose(...values);
+}
+"#),
+        "src/spread-optional.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let run_body = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function) if ctx.krate.symbols.get(function.name) == Some("run") => {
+                function
+                    .body
+                    .and_then(|body| ctx.krate.bodies.get(body.0 as usize))
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "expected run function to lower".to_owned())?;
+    ensure!(
+        run_body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalIndex { .. })),
+        "expected spread expansion to optional-index the optional fixed parameter"
     );
     Ok(())
 }

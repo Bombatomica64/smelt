@@ -5,7 +5,7 @@ fn main() {
     let _smelt_tmp_1: Vec<f64> = vec![1.0, 2.0, 3.0];
     let mut xs: Vec<f64> = _smelt_tmp_1.clone();
     { let index = { let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }; xs[index] = 5.0; }
-    let _smelt_tmp_2: f64 = xs.get({ let len = xs.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds").clone() + xs.get({ let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds").clone();
-    let _smelt_tmp_3: f64 = _smelt_tmp_2.clone() + xs.get({ let len = xs.len() as i64; let index = 2.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().expect("index out of bounds").clone();
+    let _smelt_tmp_2: f64 = xs.get({ let len = xs.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone() + xs.get({ let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone();
+    let _smelt_tmp_3: f64 = _smelt_tmp_2.clone() + xs.get({ let len = xs.len() as i64; let index = 2.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone();
     let _smelt_tmp_4: () = { println!("{}", _smelt_tmp_3.clone()); };
 }

@@ -420,6 +420,31 @@ const decimalValue = Number.parseInt("42", 10);
 }
 
 #[test]
+fn lowers_number_parse_int_optional_string_operand() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const parts = "1e2".split("e");
+const [, exponent] = parts;
+const shifted = exponent === undefined ? 0 : Number.parseInt(exponent, 10);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::PrimitiveCast {
+            op: PrimitiveCastOp::ToInt,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_infinity_identifier() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -754,7 +779,7 @@ const { count } = data;
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalIndex { .. })),
         "missing array destructuring index"
     );
     ensure!(

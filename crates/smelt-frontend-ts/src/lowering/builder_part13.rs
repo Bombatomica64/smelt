@@ -178,23 +178,75 @@ impl ModuleBuilder<'_> {
         if member.property.name != "concat" {
             return Ok(None);
         }
+        if let Expression::Identifier(object) = &member.object
+            && (self.namespace_imports.contains(object.name.as_str())
+                || self.value_imports.contains(object.name.as_str()))
+        {
+            let Some((left_argument, right_arguments)) = call.arguments.split_first() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "static array concat requires a receiver argument",
+                ));
+            };
+            if right_arguments.len() != 1 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array concat currently requires exactly one array argument",
+                ));
+            }
+            let Some(right_argument) = right_arguments.first() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array concat currently requires exactly one array argument",
+                ));
+            };
+            let left = self.argument(left_argument, body)?;
+            return self.finish_list_concat_call(call, left, right_argument, true, body);
+        }
         let [right_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array concat currently requires exactly one array argument",
             ));
         };
-        let mut left = self.expression(&member.object, body)?;
+        let left = self.expression(&member.object, body)?;
+        self.finish_list_concat_call(call, left, right_argument, false, body)
+    }
+
+    /// Finish array concat lowering after receiver-style or helper-style arguments are known.
+    fn finish_list_concat_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        mut left: smelt_hir::ExprId,
+        right_argument: &Argument<'_>,
+        right_prefers_list: bool,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let mut ty = Self::expr_ty(body, left);
         let item_ty = match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(list_item_ty)) => list_item_ty,
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(inner), Some(Type::List(_))) =>
+            {
+                let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned()
+                else {
+                    unreachable!("guarded by matches");
+                };
+                ty = inner;
+                left = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: left },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                });
+                list_item_ty
+            }
             Some(Type::Tuple(items)) => {
                 let item_ty = self.tuple_items_element_type(&items);
                 ty = self.ctx.krate.types.intern(Type::List(item_ty));
                 left = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: left },
                     ty,
-                    span: self.span(member.object.span().start, member.object.span().end),
+                    span: self.span(call.span.start, call.span.end),
                 });
                 item_ty
             }
@@ -211,7 +263,7 @@ impl ModuleBuilder<'_> {
                 left = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: left },
                     ty,
-                    span: self.span(member.object.span().start, member.object.span().end),
+                    span: self.span(call.span.start, call.span.end),
                 });
                 item_ty
             }
@@ -221,7 +273,7 @@ impl ModuleBuilder<'_> {
                 left = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: left },
                     ty,
-                    span: self.span(member.object.span().start, member.object.span().end),
+                    span: self.span(call.span.start, call.span.end),
                 });
                 item_ty
             }
@@ -236,9 +288,42 @@ impl ModuleBuilder<'_> {
         let right_ty = Self::expr_ty(body, right);
         let right = if right_ty == ty {
             right
+        } else if let Some(Type::List(right_item_ty)) = self.ctx.krate.types.get(right_ty)
+            && (*right_item_ty == item_ty
+                || self.erased_or_union_surface(*right_item_ty)
+                || self.erased_or_union_surface(item_ty))
+        {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert {
+                    value: right,
+                },
+                ty,
+                span: self.span(right_argument.span().start, right_argument.span().end),
+            })
         } else if right_ty == item_ty {
             body.push_expr(Expr {
                 kind: ExprKind::ListLit(vec![right]),
+                ty,
+                span: self.span(right_argument.span().start, right_argument.span().end),
+            })
+        } else if self.erased_or_union_surface(item_ty) {
+            right = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert {
+                    value: right,
+                },
+                ty: item_ty,
+                span: self.span(right_argument.span().start, right_argument.span().end),
+            });
+            body.push_expr(Expr {
+                kind: ExprKind::ListLit(vec![right]),
+                ty,
+                span: self.span(right_argument.span().start, right_argument.span().end),
+            })
+        } else if right_prefers_list && self.erased_or_union_surface(right_ty) {
+            body.push_expr(Expr {
+                kind: ExprKind::TypeAssert {
+                    value: right,
+                },
                 ty,
                 span: self.span(right_argument.span().start, right_argument.span().end),
             })
@@ -297,6 +382,36 @@ impl ModuleBuilder<'_> {
                 "array callback methods require exactly one callback argument",
             ));
         };
+        if self.imported_utility_object(&member.object) {
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+            let return_ty = match op {
+                ListCallbackOp::Map | ListCallbackOp::Filter => list_ty,
+                ListCallbackOp::Some | ListCallbackOp::Every => {
+                    self.ctx.krate.types.intern(Type::Bool)
+                }
+                ListCallbackOp::ForEach => self.ctx.krate.types.intern(Type::None),
+                _ => unknown_ty,
+            };
+            let index_ty = self.ctx.krate.types.intern(Type::Int);
+            let _ = self.callback_argument_with_body_fallback(
+                callback_argument,
+                &[unknown_ty, index_ty, list_ty],
+                unknown_ty,
+                "array callback",
+                body,
+            )?;
+            let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: vec![list_ty],
+                return_ty,
+                is_async: false,
+            }));
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let mut list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
         let list_ty = match self.ctx.krate.types.get(list_ty).cloned() {
@@ -1229,6 +1344,9 @@ impl ModuleBuilder<'_> {
             {
                 return Ok(callback);
             }
+            if let Argument::CallExpression(_call) = argument {
+                return Ok(self.opaque_member_callback(expected_param_tys));
+            }
             if let Argument::FunctionExpression(function) = argument {
                 return self.function_callback_from_params(function, expected_param_tys, body);
             }
@@ -1313,6 +1431,10 @@ impl ModuleBuilder<'_> {
                     });
                 }
             }
+            if let Argument::StaticMemberExpression(_member) = argument
+            {
+                return Ok(self.opaque_member_callback(expected_param_tys));
+            }
             return Err(SmeltError::unsupported(
                 self.span(argument.span().start, argument.span().end),
                 "array callback methods currently require arrow function callbacks",
@@ -1359,6 +1481,60 @@ impl ModuleBuilder<'_> {
             return Ok(Some(CallbackExpr {
                 kind: CallbackExprKind::Param(0),
                 ty: item_ty,
+            }));
+        }
+        if Self::is_identifier_callee(&call.callee, "isNot")
+            && let [Argument::Identifier(predicate)] = call.arguments.as_slice()
+            && let Some(item) = self.items.get(predicate.name.as_str()).copied()
+        {
+            let function = match self.item_ref(item) {
+                Item::Function(function) => function.clone(),
+                _ => return Ok(None),
+            };
+            if function.params.is_empty() {
+                return Ok(None);
+            }
+            let function_name = function.name;
+            let return_ty = function.return_ty;
+            let function_ty =
+                self.item_expr_type(item, self.span(predicate.span.start, predicate.span.end))?;
+            return Ok(Some(CallbackExpr {
+                kind: CallbackExprKind::Unary {
+                    op: UnaryOp::Not,
+                    operand: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Call {
+                            callee: Box::new(CallbackExpr {
+                                kind: CallbackExprKind::Function(function_name),
+                                ty: function_ty,
+                            }),
+                            args: vec![CallbackCallArg {
+                                expr: CallbackExpr {
+                                    kind: CallbackExprKind::Param(0),
+                                    ty: item_ty,
+                                },
+                                spread: false,
+                            }],
+                        },
+                        ty: return_ty,
+                    }),
+                },
+                ty: bool_ty,
+            }));
+        }
+        if let Expression::StaticMemberExpression(member) = &call.callee
+            && member.property.name == "prop"
+            && self.imported_utility_object(&member.object)
+            && let [Argument::StringLiteral(field)] = call.arguments.as_slice()
+        {
+            return Ok(Some(CallbackExpr {
+                kind: CallbackExprKind::Field {
+                    receiver: Box::new(CallbackExpr {
+                        kind: CallbackExprKind::Param(0),
+                        ty: item_ty,
+                    }),
+                    field: self.intern_source_name(field.value.as_str()),
+                },
+                ty: self.ctx.krate.types.intern(Type::Unknown),
             }));
         }
         if Self::is_identifier_callee(&call.callee, "emitEvent") && call.arguments.len() == 1 {
@@ -1483,11 +1659,56 @@ impl ModuleBuilder<'_> {
             Expression::TSNonNullExpression(non_null) => {
                 self.arrow_callback_expression(&non_null.expression, expected_param_tys, body)
             }
+            Expression::StaticMemberExpression(_member) => {
+                Ok(self.opaque_member_callback(expected_param_tys))
+            }
             _ => Err(SmeltError::unsupported(
                 self.span(expression.span().start, expression.span().end),
                 "array callback methods currently require arrow function callbacks",
             )),
         }
+    }
+
+    /// Build an opaque callback expression for imported predicate/function members.
+    fn opaque_member_callback(&mut self, expected_param_tys: &[smelt_hir::TypeId]) -> CallbackExpr {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: expected_param_tys.to_vec(),
+            return_ty: unknown_ty,
+            is_async: false,
+        }));
+        let args = expected_param_tys
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, ty)| CallbackCallArg {
+                expr: CallbackExpr {
+                    kind: CallbackExprKind::Param(index),
+                    ty,
+                },
+                spread: false,
+            })
+            .collect();
+        CallbackExpr {
+            kind: CallbackExprKind::Call {
+                callee: Box::new(CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::None),
+                    ty: function_ty,
+                }),
+                args,
+            },
+            ty: unknown_ty,
+        }
+    }
+
+    /// Return whether an expression is an imported utility namespace/object.
+    fn imported_utility_object(&self, expression: &Expression<'_>) -> bool {
+        matches!(
+            expression,
+            Expression::Identifier(object)
+                if self.namespace_imports.contains(object.name.as_str())
+                    || self.object_namespaces.contains_key(object.name.as_str())
+        )
     }
 
     /// Lower a function-expression callback after expected parameter types are known.
@@ -2252,12 +2473,10 @@ impl ModuleBuilder<'_> {
                         self.ctx.krate.types.intern(Type::List(item_ty))
                     })
                 })
-                .ok_or_else(|| {
-                    SmeltError::unsupported(
-                        self.span(rest.span.start, rest.span.end),
-                        "rest closure parameters must have explicit array type annotations",
-                    )
-                })?;
+                .unwrap_or_else(|| {
+                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    self.ctx.krate.types.intern(Type::List(item_ty))
+                });
             let Ok((ty, _)) = self.rest_param_array_type(ty) else {
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -2687,6 +2906,11 @@ impl ModuleBuilder<'_> {
         captures: &mut Vec<String>,
     ) {
         match expression {
+            Expression::ThisExpression(_) => {
+                if !param_names.contains("this") && self.locals.contains_key("this") {
+                    captures.push("this".to_owned());
+                }
+            }
             Expression::Identifier(identifier) => {
                 let name = identifier.name.as_str();
                 if !param_names.contains(name) && self.locals.contains_key(name) {
@@ -2742,6 +2966,11 @@ impl ModuleBuilder<'_> {
                 self.collect_expression_capture_names(&conditional.test, param_names, captures);
                 self.collect_expression_capture_names(&conditional.consequent, param_names, captures);
                 self.collect_expression_capture_names(&conditional.alternate, param_names, captures);
+            }
+            Expression::TemplateLiteral(template) => {
+                for expression in &template.expressions {
+                    self.collect_expression_capture_names(expression, param_names, captures);
+                }
             }
             Expression::StaticMemberExpression(member) => {
                 self.collect_expression_capture_names(&member.object, param_names, captures);
@@ -2917,10 +3146,59 @@ impl ModuleBuilder<'_> {
                     self.collect_statement_capture_names(child, param_names, captures);
                 }
             }
+            Statement::ForOfStatement(statement) => {
+                self.collect_expression_capture_names(&statement.right, param_names, captures);
+                let mut local_names = param_names.clone();
+                Self::collect_for_left_binding_names(&statement.left, &mut local_names);
+                self.collect_statement_capture_names(&statement.body, &local_names, captures);
+            }
+            Statement::ForInStatement(statement) => {
+                self.collect_expression_capture_names(&statement.right, param_names, captures);
+                let mut local_names = param_names.clone();
+                Self::collect_for_left_binding_names(&statement.left, &mut local_names);
+                self.collect_statement_capture_names(&statement.body, &local_names, captures);
+            }
+            Statement::WhileStatement(statement) => {
+                self.collect_expression_capture_names(&statement.test, param_names, captures);
+                self.collect_statement_capture_names(&statement.body, param_names, captures);
+            }
+            Statement::TryStatement(statement) => {
+                for child in &statement.block.body {
+                    self.collect_statement_capture_names(child, param_names, captures);
+                }
+                if let Some(handler) = &statement.handler {
+                    let mut local_names = param_names.clone();
+                    if let Some(param) = &handler.param {
+                        let mut binding_names = Vec::new();
+                        Self::binding_pattern_names(&param.pattern, &mut binding_names);
+                        local_names.extend(binding_names);
+                    }
+                    for child in &handler.body.body {
+                        self.collect_statement_capture_names(child, &local_names, captures);
+                    }
+                }
+                if let Some(finalizer) = &statement.finalizer {
+                    for child in &finalizer.body {
+                        self.collect_statement_capture_names(child, param_names, captures);
+                    }
+                }
+            }
             Statement::ThrowStatement(statement) => {
                 self.collect_expression_capture_names(&statement.argument, param_names, captures);
             }
             _ => {}
+        }
+    }
+
+    /// Add names declared by a `for...of` or `for...in` left binding to a local name set.
+    fn collect_for_left_binding_names(left: &ForStatementLeft<'_>, names: &mut HashSet<String>) {
+        let ForStatementLeft::VariableDeclaration(decl) = left else {
+            return;
+        };
+        for declarator in &decl.declarations {
+            let mut binding_names = Vec::new();
+            Self::binding_pattern_names(&declarator.id, &mut binding_names);
+            names.extend(binding_names);
         }
     }
 
@@ -2973,16 +3251,20 @@ impl ModuleBuilder<'_> {
             }
             if matches!(
                 identifier.name.as_str(),
-                "Boolean" | "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
+                "Boolean" | "String" | "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
             )
-                && (identifier.name == "Boolean"
+                && (matches!(identifier.name.as_str(), "Boolean" | "String")
                     || self.value_imports.contains(identifier.name.as_str()))
             {
                 let param_ty = expected_param_tys
                     .first()
                     .copied()
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                let return_ty = self.ctx.krate.types.intern(Type::Bool);
+                let return_ty = if identifier.name == "String" {
+                    self.ctx.krate.types.intern(Type::String)
+                } else {
+                    self.ctx.krate.types.intern(Type::Bool)
+                };
                 let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: vec![param_ty],
                     return_ty,
@@ -3224,6 +3506,7 @@ impl ModuleBuilder<'_> {
         error.message == "callback expression kind is not supported yet"
             || error.message == "callback expression statements must be followed by a return or throw"
             || error.message == "callback side-effect blocks only support expression statements"
+            || error.message == "callback side-effect blocks only support expression and throw statements"
             || error.message == "callback block declarations require simple bindings"
             || error.message == "async callbacks need closure-body lowering"
             || error.message.starts_with("unresolved callback identifier `")
@@ -3269,14 +3552,24 @@ impl ModuleBuilder<'_> {
                 if let Some(item) = self.items.get(identifier.name.as_str()).copied() {
                     let span = self.span(identifier.span.start, identifier.span.end);
                     let ty = self.item_expr_type(item, span)?;
-                    let Item::Function(function) = self.item_ref(item) else {
+                    let function_name = if let Item::Function(function) = self.item_ref(item) {
+                        Some(function.name)
+                    } else if matches!(
+                        self.ctx.krate.types.get(ty),
+                        Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                    ) {
+                        None
+                    } else {
                         return Err(SmeltError::unsupported(
                             span,
-                            "callback item references must resolve to functions",
+                            "callback item references must resolve to callable values",
                         ));
                     };
                     return Ok(CallbackExpr {
-                        kind: CallbackExprKind::Function(function.name),
+                        kind: function_name.map_or(
+                            CallbackExprKind::Literal(Literal::None),
+                            CallbackExprKind::Function,
+                        ),
                         ty,
                     });
                 }
@@ -3517,22 +3810,20 @@ impl ModuleBuilder<'_> {
                     };
                     items.push(expr);
                 }
-                let Some(first) = items.first() else {
-                    return Err(SmeltError::unsupported(
-                        self.span(array.span.start, array.span.end),
-                        "callback empty arrays require type context",
-                    ));
-                };
-                let item_ty = if items.iter().all(|item| item.ty == first.ty) {
-                    first.ty
-                } else {
-                    let mut item_tys = Vec::new();
-                    for item in &items {
-                        if !item_tys.contains(&item.ty) {
-                            item_tys.push(item.ty);
+                let item_ty = if let Some(first) = items.first() {
+                    if items.iter().all(|item| item.ty == first.ty) {
+                        first.ty
+                    } else {
+                        let mut item_tys = Vec::new();
+                        for item in &items {
+                            if !item_tys.contains(&item.ty) {
+                                item_tys.push(item.ty);
+                            }
                         }
+                        self.ctx.krate.types.intern(Type::Union(item_tys))
                     }
-                    self.ctx.krate.types.intern(Type::Union(item_tys))
+                } else {
+                    self.ctx.krate.types.intern(Type::Unknown)
                 };
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::ListLit(items),
@@ -4262,6 +4553,28 @@ impl ModuleBuilder<'_> {
                             return Err(SmeltError::unsupported(
                                 self.span(binary.left.span().start, binary.left.span().end),
                                 "callback namespace `in` checks require a string key",
+                            ));
+                        }
+                        return self.callback_function_table_has_key(
+                            &key,
+                            &case_keys,
+                            self.span(binary.span.start, binary.span.end),
+                        );
+                    }
+                    if let Expression::Identifier(receiver_ident) = &binary.right
+                        && let Some(object_const) =
+                            self.const_objects.get(receiver_ident.name.as_str()).cloned()
+                    {
+                        let case_keys = object_const
+                            .entries
+                            .iter()
+                            .map(|entry| entry.key.clone())
+                            .collect::<Vec<_>>();
+                        let key = self.callback_expression(&binary.left, params, body)?;
+                        if self.ctx.krate.types.get(key.ty) != Some(&Type::String) {
+                            return Err(SmeltError::unsupported(
+                                self.span(binary.left.span().start, binary.left.span().end),
+                                "callback static-object `in` checks require a string key",
                             ));
                         }
                         return self.callback_function_table_has_key(

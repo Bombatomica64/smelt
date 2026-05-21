@@ -1,0 +1,878 @@
+warning: `mut message` is shadowed
+    --> crates/smelt-mir/src/lower.rs:3529:17
+     |
+3529 |         let mut message = message.into();
+     |                 ^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-mir/src/lower.rs:3528:21
+     |
+3528 |     fn error(&self, message: impl Into<String>, span: Option<Span>) -> LowerError {
+     |                     ^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+     = note: requested on the command line with `-W clippy::shadow-reuse`
+
+warning: `span` is shadowed
+    --> crates/smelt-mir/src/lower.rs:3530:21
+     |
+3530 |         if let Some(span) = span
+     |                     ^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-mir/src/lower.rs:3528:49
+     |
+3528 |     fn error(&self, message: impl Into<String>, span: Option<Span>) -> LowerError {
+     |                                                 ^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: using a potentially dangerous silent `as` conversion
+    --> crates/smelt-mir/src/lower.rs:3531:58
+     |
+3531 |             && let Some(module) = self.krate.modules.get(span.file.0 as usize)
+     |                                                          ^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: consider using a safe wrapper for this conversion
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+     = note: requested on the command line with `-W clippy::as-conversions`
+
+warning: this lint expectation is unfulfilled
+  --> crates/smelt-mir/src/lib.rs:40:5
+   |
+40 |     clippy::unused_self,
+   |     ^^^^^^^^^^^^^^^^^^^
+   |
+   = note: lowering helpers remain methods to keep the API shape stable during refactors
+   = note: `#[warn(unfulfilled_lint_expectations)]` on by default
+
+warning: `smelt-mir` (lib) generated 4 warnings
+warning: `item` shadows a previous, unrelated binding
+  --> crates/smelt-frontend-py/src/lowering/type_helpers.rs:62:55
+   |
+62 |                     !self.ctx.krate.items.iter().any(|item| {
+   |                                                       ^^^^
+   |
+note: previous binding is here
+  --> crates/smelt-frontend-py/src/lowering/type_helpers.rs:55:42
+   |
+55 |         self.ctx.krate.items.iter().any(|item| {
+   |                                          ^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+   = note: requested on the command line with `-W clippy::shadow-unrelated`
+
+warning: `smelt-frontend-py` (lib) generated 1 warning
+warning: exported enums should not be exhaustive
+  --> crates/smelt-frontend-ts/src/context.rs:10:1
+   |
+10 | / pub enum ObjectConstValue {
+11 | |     /// Primitive literal value.
+12 | |     Literal(Literal),
+13 | |     /// Capturable HIR expression value.
+14 | |     Expr(ExprKind),
+15 | | }
+   | |_^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#exhaustive_enums
+   = note: requested on the command line with `-W clippy::exhaustive-enums`
+help: try adding #[non_exhaustive]
+   |
+10 + #[non_exhaustive]
+11 | pub enum ObjectConstValue {
+   |
+
+warning: `list_ty` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/stdlib.rs:1381:21
+     |
+1381 |                 let list_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+     |                     ^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/stdlib.rs:1370:13
+     |
+1370 |         let list_ty = Self::expr_ty(body, list);
+     |             ^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+     = note: requested on the command line with `-W clippy::shadow-unrelated`
+
+warning: `value` shadows a previous, unrelated binding
+   --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:787:21
+    |
+787 |                 let value = match &entry.value {
+    |                     ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:779:54
+    |
+779 |     fn const_collection_from_object_const(&mut self, value: &ObjectConst) -> Option<ConstCollection> {
+    |                                                      ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: using a potentially dangerous silent `as` conversion
+    --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:2251:22
+     |
+2251 |                 .get(expr.0 as usize)
+     |                      ^^^^^^^^^^^^^^^
+     |
+     = help: consider using a safe wrapper for this conversion
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+     = note: requested on the command line with `-W clippy::as-conversions`
+
+warning: `value` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:2312:47
+     |
+2312 |                     ObjectConstValue::Literal(value) => body.push_expr(Expr {
+     |                                               ^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:2295:9
+     |
+2295 |         value: &ObjectConst,
+     |         ^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: usage of the `unreachable!` macro
+   --> crates/smelt-frontend-ts/src/lowering/builder_part03.rs:905:21
+    |
+905 |                     unreachable!("guarded by matches");
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unreachable
+    = note: requested on the command line with `-W clippy::unreachable`
+
+warning: `name` shadows a previous, unrelated binding
+   --> crates/smelt-frontend-ts/src/lowering/builder_part04.rs:161:38
+    |
+161 | ...                   let (name, span) =
+    |                            ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-frontend-ts/src/lowering/builder_part04.rs:46:13
+    |
+ 46 |         let name = self.intern_type_name(&name_text);
+    |             ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `index` shadows a previous, unrelated binding
+   --> crates/smelt-frontend-ts/src/lowering/call.rs:834:13
+    |
+834 |             index,
+    |             ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-frontend-ts/src/lowering/call.rs:826:13
+    |
+826 |         let index = usize::try_from(receiver.0).expect("expr id should fit into usize");
+    |             ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: this could be simplified with `bool::then`
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:243:17
+    |
+243 | /                 if matches.all(|item| item == first) {
+244 | |                     Some(first)
+245 | |                 } else {
+246 | |                     None
+247 | |                 }
+    | |_________________^ help: try: `matches.all(|item| item == first).then(|| first)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#if_then_some_else_none
+    = note: requested on the command line with `-W clippy::if-then-some-else-none`
+
+warning: usage of the `unreachable!` macro
+   --> crates/smelt-frontend-ts/src/lowering/builder_part13.rs:233:21
+    |
+233 |                     unreachable!("guarded by matches");
+    |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unreachable
+
+warning: `expression` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/builder_part13.rs:2971:21
+     |
+2971 |                 for expression in &template.expressions {
+     |                     ^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/builder_part13.rs:2904:9
+     |
+2904 |         expression: &Expression<'_>,
+     |         ^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `ty` shadows a previous, unrelated binding
+   --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:592:25
+    |
+592 |                     let ty = self.ctx.krate.types.intern(Type::Dict(unknown, unknown));
+    |                         ^^
+    |
+note: previous binding is here
+   --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:578:21
+    |
+578 |                 let ty = if let Some(type_args) = &new_expr.type_arguments
+    |                     ^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `key_ty` is shadowed by itself in `*key_ty`
+    --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:1393:13
+     |
+1393 |         let key_ty = *key_ty;
+     |             ^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:1353:29
+     |
+1353 |         let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(receiver_ty) else {
+     |                             ^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_same
+     = note: requested on the command line with `-W clippy::shadow-same`
+
+warning: `name` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/builder_part16.rs:1956:27
+     |
+1956 |             .is_some_and(|name| matches!(name, "call" | "apply" | "bind" | "flush"))
+     |                           ^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/builder_part16.rs:1891:32
+     |
+1891 |         let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned() else {
+     |                                ^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+    Checking smelt-codegen-rust v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-codegen-rust)
+warning: `smelt-frontend-ts` (lib) generated 14 warnings (run `cargo clippy --fix --lib -p smelt-frontend-ts` to apply 1 suggestion)
+warning: `name` is shadowed
+   --> crates/smelt-codegen-rust/src/classes.rs:201:9
+    |
+201 |     let name = RustIdent::new(
+    |         ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/classes.rs:198:5
+    |
+198 |     name: smelt_hir::Symbol,
+    |     ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+    = note: requested on the command line with `-W clippy::shadow-reuse`
+
+warning: `args` is shadowed
+   --> crates/smelt-codegen-rust/src/classes.rs:210:9
+    |
+210 |     let args = args
+    |         ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/classes.rs:199:5
+    |
+199 |     args: &[smelt_hir::TypeId],
+    |     ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `function` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:224:45
+    |
+224 |                         Some(Type::Function(function)) => function.params.len(),
+    |                                             ^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:152:21
+    |
+152 |                 let function = self
+    |                     ^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+    = note: requested on the command line with `-W clippy::shadow-unrelated`
+
+warning: `callback_text` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:237:25
+    |
+237 |                     let callback_text = callback_text
+    |                         ^^^^^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:231:25
+    |
+231 |                     let callback_text =
+    |                         ^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: indexing may panic
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:259:38
+    |
+259 |                     let rest_param = function.params[0];
+    |                                      ^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+    = note: requested on the command line with `-W clippy::indexing-slicing`
+
+warning: indexing may panic
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:266:65
+    |
+266 | ...                   self.mir.types.get(self.operand_ty(&args[0])?),
+    |                                                           ^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:293:24
+    |
+293 |                     && rest_index + 1 == function.params.len()
+    |                        ^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+    = note: requested on the command line with `-W clippy::arithmetic-side-effects`
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:295:40
+    |
+295 |                     && !(args.len() == rest_index + 1
+    |                                        ^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: indexing may panic
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:297:65
+    |
+297 | ...                   self.mir.types.get(self.operand_ty(&args[rest_index])?),
+    |                                                           ^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:316:62
+    |
+316 |                     for param in function.params.iter().skip(rest_index + 1) {
+    |                                                              ^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: `param` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:331:35
+    |
+331 | ...                   .map(|param| {
+    |                             ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:329:29
+    |
+329 |                         let param = function.params.get(index).copied();
+    |                             ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `param` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:344:51
+    |
+344 | ...                   && param.is_some_and(|param| {
+    |                                             ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:329:29
+    |
+329 |                         let param = function.params.get(index).copied();
+    |                             ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `call_text` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:600:13
+    |
+600 |         let call_text = if let Some(without_try) = call_text.strip_suffix('?') {
+    |             ^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:599:13
+    |
+599 |         let call_text = self.call_text(callee, args)?;
+    |             ^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `item_ty` is shadowed
+  --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:97:37
+   |
+97 |                         if let Some(item_ty) = item_ty {
+   |                                     ^^^^^^^
+   |
+note: previous binding is here
+  --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:90:21
+   |
+90 |                 let item_ty = match self.mir.types.get(dest_ty) {
+   |                     ^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:176:50
+    |
+176 | ...                   let item = items.get(index + offset).ok_or_else(|| {
+    |                                            ^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: usage of the `unreachable!` macro
+    --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:1425:22
+     |
+1425 |                 _ => unreachable!(),
+     |                      ^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unreachable
+     = note: requested on the command line with `-W clippy::unreachable`
+
+warning: `method_name` shadows a previous, unrelated binding
+    --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:1422:17
+     |
+1422 |             let method_name = match self.symbol_name(method)? {
+     |                 ^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:1409:13
+     |
+1409 |         let method_name = sanitize_ident(self.symbol_name(method)?);
+     |             ^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `default` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/control_flow.rs:1209:25
+     |
+1209 |             if let Some(default) = default {
+     |                         ^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/control_flow.rs:1207:35
+     |
+1207 |         Terminator::Match { arms, default, .. } => {
+     |                                   ^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `block` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/emitter/core.rs:481:36
+    |
+481 | ...                   .find(|block| block.id == successor)
+    |                              ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/core.rs:461:18
+    |
+461 |         let Some(block) = self
+    |                  ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `block` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/emitter/core.rs:482:40
+    |
+482 | ...                   .and_then(|block| block.terminator.as_ref())
+    |                                  ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/core.rs:461:18
+    |
+461 |         let Some(block) = self
+    |                  ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `terminator` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/emitter/core.rs:483:43
+    |
+483 | ...                   .is_some_and(|terminator| {
+    |                                     ^^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/core.rs:469:18
+    |
+469 |         let Some(terminator) = &block.terminator else {
+    |                  ^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1803:34
+     |
+1803 |                 let missing = if index + 1 == source.params.len()
+     |                                  ^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: `return_text` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1822:13
+     |
+1822 |         let return_text = if return_text == "Default::default()"
+     |             ^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1820:13
+     |
+1820 |         let return_text =
+     |             ^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `return_text` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1913:13
+     |
+1913 |         let return_text = if matches!(
+     |             ^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1908:13
+     |
+1908 |         let return_text = self.rendered_value_as_type_text(
+     |             ^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `return_text` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1922:13
+     |
+1922 |         let return_text = if return_text == "Default::default()"
+     |             ^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1913:13
+     |
+1913 |         let return_text = if matches!(
+     |             ^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1980:34
+     |
+1980 |                 let missing = if index + 1 == source.params.len()
+     |                                  ^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: `name` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:2123:55
+     |
+2123 |                 if self.symbol_name(*name).is_ok_and(|name| name == "RegExp") {
+     |                                                       ^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:2122:32
+     |
+2122 |             Some(Type::Class { name, .. }) => {
+     |                                ^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `delete_count_text` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list.rs:203:13
+    |
+203 |         let delete_count_text = format!("({delete_count_text} as f64)");
+    |             ^^^^^^^^^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list.rs:187:13
+    |
+187 |         let delete_count_text = delete_count
+    |             ^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `callback_text` is shadowed
+  --> crates/smelt-codegen-rust/src/emitter/list_query.rs:67:13
+   |
+67 |         let callback_text = if callback_text == "Default::default()"
+   |             ^^^^^^^^^^^^^
+   |
+note: previous binding is here
+  --> crates/smelt-codegen-rust/src/emitter/list_query.rs:66:13
+   |
+66 |         let callback_text = self.callback_expr_text(callback_body, &["item", "index", "array"])?;
+   |             ^^^^^^^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `closure` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:498:17
+    |
+498 |             let closure = if !has_captures
+    |                 ^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:496:13
+    |
+496 |         let closure = self.closure_text_with_extra_params(id, extra_params, target_return_ty)?;
+    |             ^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `params` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:745:17
+    |
+745 |             let params = params.join(", ");
+    |                 ^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:726:17
+    |
+726 |             let mut params = closure
+    |                 ^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `async_capture_prelude` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:799:21
+    |
+799 |                 let async_capture_prelude = if async_capture_prelude.is_empty() {
+    |                     ^^^^^^^^^^^^^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:780:21
+    |
+780 |                 let async_capture_prelude = closure
+    |                     ^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `body_text` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:808:21
+    |
+808 |                 let body_text = if closure
+    |                     ^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:746:17
+    |
+746 |             let mut body_text = String::new();
+    |                 ^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: usage of the `unreachable!` macro
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1395:34
+     |
+1395 | ...                   _ => unreachable!(),
+     |                            ^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unreachable
+
+warning: usage of the `unreachable!` macro
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1405:34
+     |
+1405 | ...                   _ => unreachable!(),
+     |                            ^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unreachable
+
+warning: `params` shadows a previous, unrelated binding
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1739:49
+     |
+1739 |                 let callee_params = if let Some(params) = emitted_params.as_deref() {
+     |                                                 ^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1106:9
+     |
+1106 |         params: &[&str],
+     |         ^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `params` shadows a previous, unrelated binding
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1741:36
+     |
+1741 |                 } else if let Some(params) = symbol_params.as_deref() {
+     |                                    ^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1106:9
+     |
+1106 |         params: &[&str],
+     |         ^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1762:35
+     |
+1762 | ...                   Some((callee_params.len() - 1, *param, *item_ty))
+     |                             ^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1767:38
+     |
+1767 |                         args.len() > *rest_index + 1 || args.iter().any(|arg| arg.spread)
+     |                                      ^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: indexing may panic
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1915:21
+     |
+1915 |                     rendered_args[1] = self.borrowed_default_function_text(*predicate_ty)?;
+     |                     ^^^^^^^^^^^^^^^^
+     |
+     = help: consider using `.get(n)` or `.get_mut(n)` instead
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: `callee_return_ty` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1961:29
+     |
+1961 |                 if let Some(callee_return_ty) = callee_return_ty {
+     |                             ^^^^^^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1749:21
+     |
+1749 |                 let callee_return_ty = match self.mir.types.get(callee_ty) {
+     |                     ^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `receiver_text` shadows a previous, unrelated binding
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:2026:25
+     |
+2026 |                     let receiver_text = self.callback_expr_as_type_text(
+     |                         ^^^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1972:21
+     |
+1972 |                 let receiver_text = self.callback_expr_text(receiver, params)?;
+     |                     ^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `receiver_text` shadows a previous, unrelated binding
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:2033:25
+     |
+2033 |                     let receiver_text = self.callback_expr_as_type_text(
+     |                         ^^^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1972:21
+     |
+1972 |                 let receiver_text = self.callback_expr_text(receiver, params)?;
+     |                     ^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `name` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/types.rs:270:21
+    |
+270 |                 let name = sanitize_ident(self.symbol_name(*name)?);
+    |                     ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/types.rs:257:27
+    |
+257 |             Type::Class { name, args } => {
+    |                           ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `args` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/types.rs:274:25
+    |
+274 |                     let args = args
+    |                         ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/types.rs:257:33
+    |
+257 |             Type::Class { name, args } => {
+    |                                 ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/emitter/unknown.rs:158:42
+    |
+158 |                         let missing = if index + 1 == function.params.len()
+    |                                          ^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: `name` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/lib.rs:509:27
+    |
+509 |                     .map(|name| RustIdent::new(name).into_string())
+    |                           ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/lib.rs:481:13
+    |
+481 |         let name = RustIdent::new(
+    |             ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `name` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/lib.rs:624:31
+    |
+624 |                         .map(|name| RustIdent::new(name).into_string())
+    |                               ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/lib.rs:587:13
+    |
+587 |         let name = class_name_text(mir, class)?;
+    |             ^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/lib.rs:736:42
+    |
+736 |             root.replace_range(position..position + emitted.len(), "");
+    |                                          ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: `modules` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/lib.rs:760:9
+    |
+760 |     let modules = module_names
+    |         ^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/lib.rs:716:5
+    |
+716 |     modules: &[(String, smelt_hir::ModuleId)],
+    |     ^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: using a potentially dangerous silent `as` conversion
+   --> crates/smelt-codegen-rust/src/lib.rs:784:46
+    |
+784 |         let Some(module) = krate.modules.get(module_id.0 as usize) else {
+    |                                              ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using a safe wrapper for this conversion
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+    = note: requested on the command line with `-W clippy::as-conversions`
+
+warning: using a potentially dangerous silent `as` conversion
+   --> crates/smelt-codegen-rust/src/lib.rs:792:80
+    |
+792 |             if let Some(smelt_hir::Item::Function(function)) = krate.items.get(item.0 as usize)
+    |                                                                                ^^^^^^^^^^^^^^^
+    |
+    = help: consider using a safe wrapper for this conversion
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/lib.rs:846:30
+    |
+846 |         output.replace_range(index + 1..index + 4, "pub(crate) fn ");
+    |                              ^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/lib.rs:846:41
+    |
+846 |         output.replace_range(index + 1..index + 4, "pub(crate) fn ");
+    |                                         ^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/lib.rs:856:25
+    |
+856 |         root.insert_str(index + marker.len(), text);
+    |                         ^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: `smelt-codegen-rust` (lib) generated 55 warnings
+    Checking smelt-gui v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-gui)
+    Checking smelt-cli v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-cli)
+warning: `import` is shadowed
+   --> crates/smelt-cli/src/manifest.rs:271:13
+    |
+271 |         let import = ManifestImport {
+    |             ^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-cli/src/manifest.rs:252:9
+    |
+252 |         import: &ManifestImport,
+    |         ^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+    = note: requested on the command line with `-W clippy::shadow-reuse`
+
+warning: `smelt-cli` (bin "smelt") generated 1 warning
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.85s

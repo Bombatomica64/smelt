@@ -148,7 +148,11 @@ impl SmeltWorkspace {
     /// Count lines in an input entity.
     fn line_count(input: &Entity<InputState>, cx: &Context<'_, Self>) -> usize {
         let val = input.read(cx).value();
-        if val.is_empty() { 0 } else { val.lines().count() }
+        if val.is_empty() {
+            0
+        } else {
+            val.lines().count()
+        }
     }
 }
 
@@ -278,12 +282,7 @@ fn render_header(
                         .py(px(4.0))
                         .rounded(px(6.0))
                         .bg(status_bg)
-                        .child(
-                            div()
-                                .size(px(6.0))
-                                .rounded(px(6.0))
-                                .bg(status_color),
-                        )
+                        .child(div().size(px(6.0)).rounded(px(6.0)).bg(status_color))
                         .child(
                             div()
                                 .text_size(px(11.0))
@@ -311,7 +310,10 @@ fn render_header(
 // ── Body (three-panel editor) ───────────────────────────────────────
 
 /// Three-panel body: TS left, Python center, Rust right (wider).
-#[expect(clippy::too_many_arguments, reason = "GPUI render helper passes panel state")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "GPUI render helper passes panel state"
+)]
 fn render_body(
     ts_input: &Entity<InputState>,
     py_input: &Entity<InputState>,
@@ -404,12 +406,7 @@ fn render_output_panel(
 }
 
 /// Panel header with language badge, file path, and line count.
-fn panel_header(
-    badge: &str,
-    path: &str,
-    line_count: usize,
-    accent: Hsla,
-) -> impl IntoElement {
+fn panel_header(badge: &str, path: &str, line_count: usize, accent: Hsla) -> impl IntoElement {
     div()
         .w_full()
         .flex()
@@ -460,7 +457,10 @@ fn panel_header(
 // ── Status bar ──────────────────────────────────────────────────────
 
 /// Bottom status bar with compilation stats.
-#[expect(clippy::too_many_arguments, reason = "GPUI render helper passes panel state")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "GPUI render helper passes panel state"
+)]
 fn render_status_bar(
     output_ok: bool,
     compile_count: u32,
@@ -556,7 +556,11 @@ fn ghost_button(
         .rounded(px(6.0))
         .text_color(theme::text_muted())
         .text_size(px(12.0))
-        .hover(|style| style.bg(theme::bg_hover()).text_color(theme::text_primary()))
+        .hover(|style| {
+            style
+                .bg(theme::bg_hover())
+                .text_color(theme::text_primary())
+        })
         .active(|style| style.bg(theme::bg_button()))
         .child(label.to_owned())
         .on_click(handler)

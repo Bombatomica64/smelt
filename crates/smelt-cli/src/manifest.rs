@@ -349,12 +349,28 @@ fn resolve_typescript_path(
     module: &str,
 ) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
     let importer = importer_path.canonicalize()?;
-    let Ok(resolution) = resolver.resolve_file(importer, module) else {
-        return Ok(None);
-    };
-    let path = resolution.into_path_buf();
-    if SourceLang::from_path(&path.display().to_string()).is_ok() {
-        return Ok(Some(path));
+    if let Ok(resolution) = resolver.resolve_file(importer.clone(), module) {
+        let path = resolution.into_path_buf();
+        if SourceLang::from_path(&path.display().to_string()).is_ok() {
+            return Ok(Some(path));
+        }
+    }
+    if module.starts_with('.') || module.starts_with('/') {
+        let base = if module.starts_with('/') {
+            PathBuf::from(module)
+        } else {
+            importer
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(module)
+        };
+        for candidate in manifest_import_candidates(&base) {
+            if candidate.is_file()
+                && SourceLang::from_path(&candidate.display().to_string()).is_ok()
+            {
+                return Ok(Some(candidate.canonicalize()?));
+            }
+        }
     }
     Ok(None)
 }
@@ -751,4 +767,80 @@ fn quoted_module_specifier(input: &str) -> Option<String> {
     let rest = &trimmed[quote.len_utf8()..];
     let end = rest.find(quote)?;
     Some(rest[..end].to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn scans_multiline_typescript_imports() {
+        let source = r#"
+            import { expect, test } from "vitest";
+            import {
+              ALL_TYPES_DATA_PROVIDER,
+              TYPES_DATA_PROVIDER,
+            } from "../test/typesDataProvider";
+        "#;
+
+        let imports = scan_typescript_imports(source);
+
+        assert!(imports.iter().any(|import| {
+            import.module == "../test/typesDataProvider"
+                && import.names.as_ref().is_some_and(|names| {
+                    names
+                        == &vec![
+                            "ALL_TYPES_DATA_PROVIDER".to_owned(),
+                            "TYPES_DATA_PROVIDER".to_owned(),
+                        ]
+                })
+        }));
+    }
+
+    #[test]
+    fn orders_relative_typescript_dependencies_before_importers() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("smelt_manifest_test_{unique}"));
+        let src_dir = root.join("packages/remeda/src");
+        let test_dir = root.join("packages/remeda/test");
+        fs::create_dir_all(&src_dir).expect("create src test dir");
+        fs::create_dir_all(&test_dir).expect("create helper test dir");
+        let importer = src_dir.join("isDefined.test.ts");
+        let helper = test_dir.join("typesDataProvider.ts");
+        fs::write(
+            &importer,
+            r#"
+                import {
+                  ALL_TYPES_DATA_PROVIDER,
+                  TYPES_DATA_PROVIDER,
+                } from "../test/typesDataProvider";
+                export const value = ALL_TYPES_DATA_PROVIDER;
+            "#,
+        )
+        .expect("write importer");
+        fs::write(&helper, "export const ALL_TYPES_DATA_PROVIDER = [];\n").expect("write helper");
+
+        let roots = vec![read_manifest_source(importer.clone()).expect("read importer")];
+        let sources = dependency_closure(roots).expect("collect closure");
+        let ordered = order_manifest_sources(&sources).expect("order sources");
+        let ordered_paths = ordered
+            .into_iter()
+            .map(|index| sources[index].path.clone())
+            .collect::<Vec<_>>();
+
+        assert!(
+            ordered_paths
+                .iter()
+                .position(|path| normalize_path_key(path) == normalize_path_key(&helper))
+                < ordered_paths
+                    .iter()
+                    .position(|path| normalize_path_key(path) == normalize_path_key(&importer))
+        );
+
+        drop(fs::remove_dir_all(root));
+    }
 }

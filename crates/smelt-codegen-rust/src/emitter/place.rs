@@ -70,12 +70,13 @@ impl FunctionEmitter<'_> {
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
-                    Some(Type::List(_)) => {
+                    Some(Type::List(item_ty)) => {
                         let base_text = self.local_name(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
+                        let missing = self.default_value(*item_ty)?;
                         Ok(format!(
-                            "{base_text}.get({index_text}).cloned().expect(\"index out of bounds\")"
+                            "{base_text}.get({index_text}).cloned().unwrap_or({missing})"
                         ))
                     }
                     Some(Type::Dict(key_ty, _)) => {

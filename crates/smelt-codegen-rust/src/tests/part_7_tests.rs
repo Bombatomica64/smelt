@@ -774,6 +774,39 @@ function run(options?: Options): unknown {
 }
 
 #[test]
+fn adapts_structural_option_bags_at_call_boundaries() {
+    let source = source_for(
+        r#"
+interface IsWeekendOptions {
+  in?: (value: unknown) => unknown;
+}
+
+interface AddBusinessDaysOptions<DateType> {
+  in?: (value: DateType) => DateType;
+}
+
+function isWeekend(date: unknown, options?: IsWeekendOptions): boolean {
+  return false;
+}
+
+function addBusinessDays<DateType>(date: DateType, options?: AddBusinessDaysOptions<DateType>): boolean {
+  return isWeekend(date, options);
+}
+"#,
+    );
+
+    assert!(source.contains("IsWeekendOptions {"), "{source}");
+    assert!(
+        source.contains("in_: smelt_struct_value.in_.clone()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("map_or(SmeltUnknown::Null, |value| value)"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_record_index_assignment_as_insert() {
     let source = source_for(
         "let user: Record<string, string> = { name: \"Ada\" };

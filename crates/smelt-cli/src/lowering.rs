@@ -82,6 +82,10 @@ struct FrontendLoweringState {
     ts_object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// TypeScript exported object constants with static literal values.
     ts_object_consts: HashMap<String, smelt_frontend_ts::ObjectConst>,
+    /// TypeScript exported object constants whose values can be projected.
+    ts_object_value_collections: HashMap<String, smelt_frontend_ts::ConstCollection>,
+    /// TypeScript exported array/set constants visible across manifest entries.
+    ts_const_collections: HashMap<String, smelt_frontend_ts::ConstCollection>,
     /// TypeScript overload signatures visible across manifest entries.
     ts_overloads: HashMap<String, Vec<smelt_frontend_ts::OverloadSignature>>,
     /// TypeScript structural type-alias fields visible across manifest entries.
@@ -375,6 +379,8 @@ fn lower_manifest_source(
                 module_exports: state.ts_module_exports,
                 object_namespaces: state.ts_object_namespaces,
                 object_consts: state.ts_object_consts,
+                object_value_collections: state.ts_object_value_collections,
+                const_collections: state.ts_const_collections,
                 overloads: state.ts_overloads,
                 type_alias_fields: state.ts_type_alias_fields,
                 interface_extends: state.ts_interface_extends,
@@ -402,6 +408,8 @@ fn lower_manifest_source(
                     ts_module_exports: ctx.module_exports,
                     ts_object_namespaces: ctx.object_namespaces,
                     ts_object_consts: ctx.object_consts,
+                    ts_object_value_collections: ctx.object_value_collections,
+                    ts_const_collections: ctx.const_collections,
                     ts_overloads: ctx.overloads,
                     ts_type_alias_fields: ctx.type_alias_fields,
                     ts_interface_extends: ctx.interface_extends,
@@ -439,6 +447,8 @@ fn lower_manifest_source(
                     ts_module_exports: state.ts_module_exports,
                     ts_object_namespaces: state.ts_object_namespaces,
                     ts_object_consts: state.ts_object_consts,
+                    ts_object_value_collections: state.ts_object_value_collections,
+                    ts_const_collections: state.ts_const_collections,
                     ts_overloads: state.ts_overloads,
                     ts_type_alias_fields: state.ts_type_alias_fields,
                     ts_interface_extends: state.ts_interface_extends,

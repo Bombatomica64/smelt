@@ -552,11 +552,17 @@ impl ModuleBuilder<'_> {
         if object.name != "JSON" || member.property.name != "stringify" {
             return Ok(None);
         }
-        let [argument] = call.arguments.as_slice() else {
+        if call.arguments.is_empty() || call.arguments.len() > 3 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
-                "JSON.stringify() currently supports exactly one value argument",
+                "JSON.stringify() currently supports value, replacer, and space arguments",
             ));
+        }
+        for argument in call.arguments.iter().skip(1) {
+            let _ = self.argument(argument, body)?;
+        }
+        let Some(argument) = call.arguments.first() else {
+            return Ok(None);
         };
         let value = self.argument(argument, body)?;
         if !self.is_json_serializable_type(Self::expr_ty(body, value)) {
@@ -796,6 +802,21 @@ impl ModuleBuilder<'_> {
                 })
                 .or_else(|| self.module_globals.get(identifier.name.as_str()).copied())
                 .is_some_and(|ty| self.regexp_receiver_type(ty)),
+            Expression::StaticMemberExpression(member) => {
+                let Expression::Identifier(object) = &member.object else {
+                    return false;
+                };
+                self.const_objects
+                    .get(object.name.as_str())
+                    .or_else(|| self.ctx.object_consts.get(object.name.as_str()))
+                    .and_then(|object_const| {
+                        object_const
+                            .entries
+                            .iter()
+                            .find(|entry| entry.key == member.property.name.as_str())
+                    })
+                    .is_some_and(|entry| self.regexp_receiver_type(entry.value_ty))
+            }
             _ => false,
         }
     }
@@ -1132,9 +1153,6 @@ impl ModuleBuilder<'_> {
                     && self.is_json_serializable_type_inner(value, seen)
             }
             Type::Class { name, args } => {
-                if self.class_by_symbol(name).is_some() {
-                    return false;
-                }
                 self.json_class_fields(name, &args).is_some_and(|fields| {
                     if seen.contains(&name) {
                         return true;

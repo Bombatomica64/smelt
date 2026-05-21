@@ -72,6 +72,7 @@ impl ModuleBuilder<'_> {
                         || parent_name_text.starts_with("Intl.")
                         || parent_name_text.contains('.')
                         || self.type_only_imports.contains(parent_name_text)
+                        || self.find_type_alias(parent_name).is_some()
                     {
                         continue;
                     }
@@ -121,12 +122,11 @@ impl ModuleBuilder<'_> {
                     }
                     TSSignature::TSMethodSignature(method) => {
                         if (method.computed && !is_static_property_key(&method.key))
-                            || method.optional
                             || method.this_param.is_some()
                         {
                             return Err(SmeltError::unsupported(
                                 self.span(method.span.start, method.span.end),
-                                "optional, dynamic computed, and this-parameter interface methods are not lowered yet",
+                                "dynamic computed and this-parameter interface methods are not lowered yet",
                             ));
                         }
                         let _method_type_params =
@@ -144,13 +144,7 @@ impl ModuleBuilder<'_> {
                                     )
                                 })?;
                             let mut params = Vec::new();
-                            for param in &method.params.items {
-                                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
-                                    return Err(SmeltError::unsupported(
-                                        self.span(param.span.start, param.span.end),
-                                        "destructured interface method parameters are not lowered yet",
-                                    ));
-                                };
+                            for (index, param) in method.params.items.iter().enumerate() {
                                 let ty = param
                                     .type_annotation
                                     .as_ref()
@@ -164,16 +158,48 @@ impl ModuleBuilder<'_> {
                                             "interface method parameters require explicit types",
                                         )
                                     })?;
+                                let (name, span) =
+                                    if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
+                                        (
+                                            self.intern_source_name(binding.name.as_str()),
+                                            self.span(binding.span.start, binding.span.end),
+                                        )
+                                    } else {
+                                        (
+                                            self.synthetic_param_symbol(index),
+                                            self.span(param.span.start, param.span.end),
+                                        )
+                                    };
                                 params.push(ParamSig {
-                                    name: self.intern_source_name(binding.name.as_str()),
+                                    name,
                                     ty,
-                                    span: self.span(binding.span.start, binding.span.end),
+                                    span,
                                 });
                             }
                             Ok((return_ty, params))
                         })();
                         self.pop_type_parameter_scope();
                         let (return_ty, params) = result?;
+                        if method.optional {
+                            let function_ty = self.ctx.krate.types.intern(Type::Function(
+                                FunctionType {
+                                    params: params.iter().map(|param| param.ty).collect(),
+                                    return_ty,
+                                    is_async: matches!(
+                                        self.ctx.krate.types.get(return_ty),
+                                        Some(Type::Future(_))
+                                    ),
+                                },
+                            ));
+                            fields.push(Field {
+                                name: self.property_key_symbol(&method.key)?,
+                                ty: function_ty,
+                                visibility: Visibility::Public,
+                                optional: true,
+                                span: self.span(method.span.start, method.span.end),
+                            });
+                            continue;
+                        }
                         methods.push(MethodSig {
                             name: self.property_key_symbol(&method.key)?,
                             params,
@@ -502,6 +528,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForOfStatement(for_stmt) => {
+                let saved_locals = self.locals.clone();
                 let mut iter = self.expression(&for_stmt.right, body)?;
                 if for_stmt.r#await
                     && let Some(Type::Future(inner)) =
@@ -545,6 +572,7 @@ impl ModuleBuilder<'_> {
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
+                self.locals = saved_locals;
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {
@@ -556,6 +584,7 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             Statement::ForInStatement(for_stmt) => {
+                let saved_locals = self.locals.clone();
                 let iter = self.for_in_iterable(&for_stmt.right, body)?;
                 let destructured =
                     self.for_left_destructuring(&for_stmt.left, Self::expr_ty(body, iter), body)?;
@@ -588,6 +617,7 @@ impl ModuleBuilder<'_> {
                             self.block_from_statement(&for_stmt.body, body)?,
                         )
                     };
+                self.locals = saved_locals;
                 body.push_stmt_to_block(
                     block,
                     Stmt::For {

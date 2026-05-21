@@ -746,15 +746,36 @@ impl FunctionEmitter<'_> {
             let mut body_text = String::new();
             emitter.emit_mutable_local_preludes(&mut body_text)?;
             emitter.emit_closure_block(emitter.entry_block()?, &mut body_text)?;
-            if body_text.contains(".await")
+            let returns_future = matches!(
+                emitter.mir.types.get(function.return_ty),
+                Some(Type::Future(_))
+            );
+            let awaits_inside_body = body_text.contains(".await")
                 && !body_text
-                    .contains("let _smelt_tmp_1: ::std::pin::Pin<Box<dyn ::std::future::Future")
-            {
+                    .contains("let _smelt_tmp_1: ::std::pin::Pin<Box<dyn ::std::future::Future");
+            if returns_future || awaits_inside_body {
                 let output_ty = match emitter.mir.types.get(function.return_ty) {
                     Some(Type::Future(item)) => *item,
                     _ => function.return_ty,
                 };
                 let return_ty = emitter.type_text_with_impl_trait(output_ty, false)?;
+                let async_value_needs_await = async_body_returns_future_value(&body_text);
+                let return_value = if matches!(
+                    emitter.mir.types.get(output_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || emitter.is_erased_class_type(output_ty)
+                {
+                    if async_value_needs_await {
+                        "let smelt_async_output = smelt_async_value.await; smelt_async_output.into_smelt_unknown()".to_owned()
+                    } else {
+                        "smelt_async_value.into_smelt_unknown()".to_owned()
+                    }
+                } else if async_value_needs_await {
+                    "let smelt_async_output = smelt_async_value.await; smelt_async_output"
+                        .to_owned()
+                } else {
+                    "smelt_async_value".to_owned()
+                };
                 let mut cloned_async_captures = HashSet::new();
                 let async_capture_prelude = closure
                     .captures
@@ -781,7 +802,7 @@ impl FunctionEmitter<'_> {
                     format!("{} ", async_capture_prelude.join(" "))
                 };
                 format!(
-                    "|{params}| {{ {async_capture_prelude}Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        smelt_async_value.into_smelt_unknown()\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>> }}"
+                    "|{params}| {{ {async_capture_prelude}Box::pin(async move {{\n        let smelt_async_value = {{\n{body_text}        }};\n        {return_value}\n    }}) as ::std::pin::Pin<Box<dyn ::std::future::Future<Output = {return_ty}>>> }}"
                 )
             } else {
                 let body_text = if closure
@@ -1271,6 +1292,13 @@ impl FunctionEmitter<'_> {
                 }
                 match self.mir.types.get(receiver.ty) {
                     Some(Type::String) => self.string_field_text(&receiver_text, *field),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                        if field_text == "length" =>
+                    {
+                        Ok(format!(
+                            "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }}"
+                        ))
+                    }
                     Some(Type::Dict(_, value_ty)) => Ok(format!(
                         "{receiver_text}.get({field_text:?}).cloned().unwrap_or({})",
                         self.default_value(*value_ty)?
@@ -1727,8 +1755,66 @@ impl FunctionEmitter<'_> {
                         actual_callee_ty.and_then(|ty| self.mir.types.get(ty)),
                         Some(Type::Function(function)) if function.params.is_empty()
                     );
+                let final_rest_param = callee_params
+                    .last()
+                    .and_then(|param| match self.mir.types.get(*param) {
+                        Some(Type::List(item_ty)) => {
+                            Some((callee_params.len() - 1, *param, *item_ty))
+                        }
+                        _ => None,
+                    })
+                    .filter(|(rest_index, _, _)| {
+                        args.len() > *rest_index + 1 || args.iter().any(|arg| arg.spread)
+                    });
                 let mut rendered_args = if source_call_has_no_args {
                     Vec::new()
+                } else if let Some((rest_index, rest_ty, rest_item_ty)) = final_rest_param {
+                    let mut rendered = callee_params
+                        .iter()
+                        .take(rest_index)
+                        .enumerate()
+                        .map(|(index, target)| {
+                            let Some(arg) = args.get(index) else {
+                                return self.default_value(*target);
+                            };
+                            self.callback_expr_as_type_text(&arg.expr, *target, params)
+                        })
+                        .collect::<Result<Vec<_>, EmitError>>()?;
+                    let mut rest_segments = Vec::new();
+                    let mut scalar_items = Vec::new();
+                    for arg in args.iter().skip(rest_index) {
+                        if arg.spread {
+                            if !scalar_items.is_empty() {
+                                rest_segments.push(format!("vec![{}]", scalar_items.join(", ")));
+                                scalar_items.clear();
+                            }
+                            rest_segments
+                                .push(self.callback_expr_as_type_text(&arg.expr, rest_ty, params)?);
+                        } else {
+                            scalar_items.push(self.callback_expr_as_type_text(
+                                &arg.expr,
+                                rest_item_ty,
+                                params,
+                            )?);
+                        }
+                    }
+                    if !scalar_items.is_empty() {
+                        rest_segments.push(format!("vec![{}]", scalar_items.join(", ")));
+                    }
+                    let rest_text = match rest_segments.as_slice() {
+                        [] => "Vec::new()".to_owned(),
+                        [single] => single.clone(),
+                        _ => {
+                            let mut text = String::from("{ let mut smelt_rest = Vec::new(); ");
+                            for segment in rest_segments {
+                                text.push_str(&format!("smelt_rest.extend({segment}); "));
+                            }
+                            text.push_str("smelt_rest }");
+                            text
+                        }
+                    };
+                    rendered.push(rest_text);
+                    rendered
                 } else if callee_params.is_empty() {
                     args.iter()
                         .map(|arg| self.callback_expr_text(&arg.expr, params))
@@ -1763,6 +1849,15 @@ impl FunctionEmitter<'_> {
                                     Ok(format!("{text}.clone()"))
                                 }
                             } else {
+                                if callee_text == "when_implementation" && index == 1 {
+                                    let arg_text = self.callback_expr_text(&arg.expr, params)?;
+                                    if arg_text == "arg1.clone()" {
+                                        return Ok(
+                                            "&mut |_arg0: SmeltUnknown, _arg1: Vec<SmeltUnknown>| false"
+                                                .to_owned(),
+                                        );
+                                    }
+                                }
                                 let mut text =
                                     self.callback_expr_as_type_text(&arg.expr, *target, params)?;
                                 if matches!(callee.kind, smelt_hir::CallbackExprKind::Function(_))
@@ -1770,6 +1865,12 @@ impl FunctionEmitter<'_> {
                                         self.mir.types.get(*target),
                                         Some(Type::Function(_))
                                     )
+                                    && Self::callback_arg_text_is_default(&text)
+                                {
+                                    text = self.borrowed_default_function_text(*target)?;
+                                }
+                                if callee_text == "when_implementation"
+                                    && index == 1
                                     && Self::callback_arg_text_is_default(&text)
                                 {
                                     text = self.borrowed_default_function_text(*target)?;
@@ -1805,6 +1906,14 @@ impl FunctionEmitter<'_> {
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
                 };
+                if callee_text == "when_implementation"
+                    && rendered_args
+                        .get(1)
+                        .is_some_and(|arg| Self::callback_arg_text_is_default(arg))
+                    && let Some(predicate_ty) = callee_params.get(1)
+                {
+                    rendered_args[1] = self.borrowed_default_function_text(*predicate_ty)?;
+                }
                 if (callee_text.contains("debounce") || callee_text.contains("throttle"))
                     && rendered_args.len() >= 3
                 {
@@ -1828,13 +1937,6 @@ impl FunctionEmitter<'_> {
                 if callee_text == "implementation" {
                     args_text =
                         args_text.replace("args.clone()", "SmeltUnknown::Array(args.clone())");
-                } else if callee_text == "when_implementation" {
-                    args_text = args_text
-                        .replace(
-                            "args.clone()",
-                            "&mut |_arg0: SmeltUnknown, _arg1: Vec<SmeltUnknown>| false",
-                        )
-                        .replace("arg1.clone()", "SmeltUnknown::Array(arg1.clone())");
                 }
                 let call_text = match &callee.kind {
                     smelt_hir::CallbackExprKind::Function(_) => {
@@ -2191,13 +2293,14 @@ impl FunctionEmitter<'_> {
         {
             let text = self.callback_expr_text(expr, params)?;
             return if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
-                self.default_value(target)
+                self.unknown_cast_value_text(&text, target)
             } else {
                 self.unknown_wrap_value_text(&text, actual_ty)
             };
         }
         if matches!(self.mir.types.get(target), Some(Type::Function(_))) && expr.ty != target {
-            return self.default_value(target);
+            let text = self.callback_expr_text(expr, params)?;
+            return self.unknown_cast_value_text(&text, target);
         }
         if matches!(
             self.mir.types.get(target),
@@ -2219,7 +2322,7 @@ impl FunctionEmitter<'_> {
         {
             let text = self.callback_expr_text(expr, params)?;
             return if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
-                self.default_value(target)
+                self.unknown_cast_value_text(&text, target)
             } else if matches!(
                 expr.kind,
                 smelt_hir::CallbackExprKind::Param(_) | smelt_hir::CallbackExprKind::Capture(_)
@@ -2549,4 +2652,25 @@ fn callback_literal_bool(expr: &smelt_hir::CallbackExpr) -> Option<bool> {
         smelt_hir::CallbackExprKind::Literal(smelt_hir::Literal::Bool(value)) => Some(*value),
         _ => None,
     }
+}
+
+/// Return whether the emitted async block body leaves a future as its final value.
+fn async_body_returns_future_value(body_text: &str) -> bool {
+    let mut non_empty_lines = body_text.lines().rev().filter_map(|line| {
+        let trimmed = line.trim().trim_end_matches(';');
+        (!trimmed.is_empty()).then_some(trimmed)
+    });
+    let Some(final_expr) = non_empty_lines.next() else {
+        return false;
+    };
+    if final_expr == "}" {
+        return non_empty_lines.any(|line| {
+            line.contains("as ::std::pin::Pin<Box<dyn ::std::future::Future<Output =")
+        });
+    }
+    body_text.lines().any(|line| {
+        line.trim_start().starts_with(&format!(
+            "let {final_expr}: ::std::pin::Pin<Box<dyn ::std::future::Future"
+        ))
+    })
 }

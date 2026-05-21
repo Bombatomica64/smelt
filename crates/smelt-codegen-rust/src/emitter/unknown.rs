@@ -33,11 +33,30 @@ impl FunctionEmitter<'_> {
                     "SmeltUnknown::Object({text}.into_iter().map(|(key, value)| (key, {value_wrap})).collect())"
                 ))
             }
-            Some(Type::Dict(_, _)) | Some(Type::Class { .. }) => {
-                Ok("SmeltUnknown::Object(::std::collections::HashMap::new())".to_owned())
+            Some(Type::Dict(key, item)) => {
+                let key_wrap = self.property_key_to_string_text("key", *key)?;
+                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                Ok(format!(
+                    "SmeltUnknown::Object({text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect())"
+                ))
             }
-            Some(Type::Set(_)) | Some(Type::Tuple(_)) => {
-                Ok("SmeltUnknown::Array(Vec::new())".to_owned())
+            Some(Type::Class { name, .. })
+                if self.is_erased_class_type(self.operand_ty(operand)?) =>
+            {
+                Ok(text)
+            }
+            Some(Type::Class { name, .. }) => self.class_unknown_object_text(&text, *name),
+            Some(Type::Set(_)) => Ok("SmeltUnknown::Array(Vec::new())".to_owned()),
+            Some(Type::Tuple(items)) => {
+                let values = items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        self.unknown_wrap_value_text(&format!("{text}.{index}.clone()"), *item)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                Ok(format!("SmeltUnknown::Array(vec![{values}])"))
             }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.unknown_wrap_value_text("value", *inner)?;
@@ -100,10 +119,30 @@ impl FunctionEmitter<'_> {
                     "SmeltUnknown::Object({value_text}.into_iter().map(|(key, value)| (key, {value_wrap})).collect())"
                 ))
             }
-            Some(Type::Dict(_, _) | Type::Class { .. }) => {
-                Ok("SmeltUnknown::Object(::std::collections::HashMap::new())".to_owned())
+            Some(Type::Dict(key, item)) => {
+                let key_wrap = self.property_key_to_string_text("key", *key)?;
+                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                Ok(format!(
+                    "SmeltUnknown::Object({value_text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect())"
+                ))
             }
-            Some(Type::Set(_) | Type::Tuple(_)) => Ok("SmeltUnknown::Array(Vec::new())".to_owned()),
+            Some(Type::Class { .. }) if self.is_erased_class_type(ty) => Ok(value_text.to_owned()),
+            Some(Type::Class { name, .. }) => self.class_unknown_object_text(value_text, *name),
+            Some(Type::Set(_)) => Ok("SmeltUnknown::Array(Vec::new())".to_owned()),
+            Some(Type::Tuple(items)) => {
+                let values = items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        self.unknown_wrap_value_text(
+                            &format!("{value_text}.{index}.clone()"),
+                            *item,
+                        )
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                Ok(format!("SmeltUnknown::Array(vec![{values}])"))
+            }
             Some(Type::Optional(inner)) => {
                 let value_wrap = self.unknown_wrap_value_text("value", *inner)?;
                 Ok(format!(
@@ -116,17 +155,24 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, param_ty)| {
-                        let item = format!(
-                            "smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"
-                        );
+                        let missing = if index + 1 == function.params.len()
+                            && matches!(self.mir.types.get(*param_ty), Some(Type::List(_)))
+                        {
+                            "SmeltUnknown::Array(Vec::new())"
+                        } else {
+                            "SmeltUnknown::Null"
+                        };
+                        let item = format!("smelt_args.get({index}).cloned().unwrap_or({missing})");
                         self.unknown_cast_value_text(&item, *param_ty)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                let return_text = self.unknown_wrap_value_text(
-                    &format!("(&mut *smelt_function_value.borrow_mut())({args})"),
-                    function.return_ty,
-                )?;
+                let call_text = format!("(&mut *smelt_function_value.borrow_mut())({args})");
+                let return_text = if self.class_has_no_known_fields(function.return_ty) {
+                    call_text
+                } else {
+                    self.unknown_wrap_value_text(&call_text, function.return_ty)?
+                };
                 Ok(format!(
                     "{{ let smelt_function_value = {value_text}; SmeltUnknown::Function(::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}))) }}"
                 ))
@@ -134,6 +180,57 @@ impl FunctionEmitter<'_> {
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
             Some(Type::Future(_)) => Ok("SmeltUnknown::Null".to_owned()),
         }
+    }
+
+    /// Wrap a generated class or interface value into an erased object.
+    ///
+    /// TypeScript structural objects often reach erased helper surfaces through
+    /// callbacks. Preserving their known fields keeps those values observable
+    /// after the type is widened to `unknown` instead of silently replacing the
+    /// object with an empty map.
+    fn class_unknown_object_text(
+        &self,
+        value_text: &str,
+        name: Symbol,
+    ) -> Result<String, EmitError> {
+        let fields = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == name)
+            .map(|class| crate::classes::effective_class_fields(self.mir, class))
+            .or_else(|| {
+                self.mir
+                    .interfaces
+                    .iter()
+                    .find(|interface| interface.name == name)
+                    .map(|interface| {
+                        crate::classes::effective_interface_fields(self.mir, interface)
+                    })
+            })
+            .unwrap_or_default();
+
+        let entries = fields
+            .iter()
+            .map(|field| {
+                let source_name = self
+                    .mir
+                    .symbols
+                    .get(field.name)
+                    .ok_or_else(|| EmitError::new("class field has unknown symbol"))?;
+                let field_name = sanitize_ident(source_name);
+                let field_value = self.unknown_wrap_value_text(
+                    &format!("smelt_object_value.{field_name}"),
+                    field.ty,
+                )?;
+                Ok(format!("({source_name:?}.to_owned(), {field_value})"))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+
+        Ok(format!(
+            "{{ let smelt_object_value = {value_text}; SmeltUnknown::Object(::std::collections::HashMap::from([{entries}])) }}"
+        ))
     }
 
     /// Emits a runtime tag check for `SmeltUnknown`.
@@ -170,7 +267,11 @@ impl FunctionEmitter<'_> {
                 return Ok(format!("matches!({text}, SmeltUnknown::Function(_))"));
             }
             smelt_hir::UnknownKind::Array => "SmeltUnknown::Array(_)",
-            smelt_hir::UnknownKind::Object => "SmeltUnknown::Object(_)",
+            smelt_hir::UnknownKind::Object => {
+                return Ok(format!(
+                    "matches!({text}, SmeltUnknown::Object(_) | SmeltUnknown::Array(_) | SmeltUnknown::Null)"
+                ));
+            }
         };
         Ok(format!("matches!({text}, {pattern})"))
     }
@@ -246,15 +347,54 @@ impl FunctionEmitter<'_> {
                     "if let SmeltUnknown::Object(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not object\") }}"
                 ))
             }
+            Some(Type::Dict(key, item))
+                if self.mir.types.get(*key) == Some(&Type::String) && text == "value" =>
+            {
+                let item_text = self.unknown_cast_value_text("value", *item)?;
+                Ok(format!(
+                    "if let SmeltUnknown::Object(values) = value.clone() {{ values.into_iter().map(|(key, value)| (key, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ panic!(\"unknown is not object\") }}"
+                ))
+            }
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
+                let key_text =
+                    self.rendered_value_as_type_text("key", self.type_id(Type::String)?, *key)?;
+                let item_text = self.unknown_cast_value_text("value", *item)?;
+                Ok(format!(
+                    "if let SmeltUnknown::Object(values) = {text}.clone() {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ panic!(\"unknown is not object\") }}"
+                ))
+            }
             Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
-            Some(
-                Type::Set(_)
-                | Type::Dict(_, _)
-                | Type::Tuple(_)
-                | Type::Optional(_)
-                | Type::Class { .. },
-            ) => Ok("Default::default()".to_owned()),
+            Some(Type::Optional(inner)) => {
+                let inner_text = self.unknown_cast_value_text(text, *inner)?;
+                Ok(format!(
+                    "if matches!({text}.clone(), SmeltUnknown::Null) {{ None }} else {{ Some({inner_text}) }}"
+                ))
+            }
+            Some(Type::Tuple(items)) => {
+                let items_text = items
+                    .iter()
+                    .enumerate()
+                    .map(|(index, item)| {
+                        let value = format!(
+                            "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"
+                        );
+                        self.unknown_cast_value_text(&value, *item)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                let tuple_text = if items.len() == 1 {
+                    format!("({items_text},)")
+                } else {
+                    format!("({items_text})")
+                };
+                Ok(format!(
+                    "if let SmeltUnknown::Array(smelt_tuple_values) = {text}.clone() {{ {tuple_text} }} else {{ panic!(\"unknown is not tuple\") }}"
+                ))
+            }
+            Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
+                Ok("Default::default()".to_owned())
+            }
             Some(Type::Function(function)) => {
                 let target_text = self.type_text_with_impl_trait(target, false)?;
                 let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
@@ -279,8 +419,11 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                let return_text =
-                    self.unknown_cast_value_text("smelt_result", function.return_ty)?;
+                let return_text = if return_ty == "SmeltUnknown" {
+                    "smelt_result".to_owned()
+                } else {
+                    self.unknown_cast_value_text("smelt_result", function.return_ty)?
+                };
                 Ok(format!(
                     "if let SmeltUnknown::Function(smelt_function) = {text}.clone() {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ let smelt_result = (&mut *smelt_function.borrow_mut())(vec![{args}]); {return_text} }})); smelt_callback }} else {{ panic!(\"unknown is not function\") }}"
                 ))

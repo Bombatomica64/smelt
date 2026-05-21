@@ -33,7 +33,7 @@ const value = Number.parseInt("42");
 "#,
     );
 
-    assert!(source.contains(".parse::<i64>().expect(\"int() parse failed\") as f64"));
+    assert!(source.contains(".parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"));
 }
 
 #[test]
@@ -79,7 +79,7 @@ const floatValue = parseFloat("42.5");
 "#,
     );
 
-    assert!(source.contains(".parse::<i64>().expect(\"int() parse failed\") as f64"));
+    assert!(source.contains(".parse::<i64>().map(|value| value as f64).unwrap_or(f64::NAN)"));
     assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
 }
 

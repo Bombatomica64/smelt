@@ -799,6 +799,7 @@ impl<'mir> FunctionEmitter<'mir> {
             self.mir.types.get(inner),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(inner)
+            || self.structural_record_adapter_available(source, inner)
             || matches!(
                 (self.mir.types.get(source), self.mir.types.get(inner)),
                 (Some(Type::Int), Some(Type::Float))
@@ -807,6 +808,120 @@ impl<'mir> FunctionEmitter<'mir> {
                     | (Some(Type::List(_)), Some(Type::List(_)))
                     | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
             )
+    }
+
+    /// Returns the generated fields for a concrete class/interface storage type.
+    fn structural_record_fields(&self, ty: TypeId) -> Option<Vec<MirField>> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        if let Some(interface) = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == *name)
+        {
+            return Some(crate::classes::effective_interface_fields(
+                self.mir, interface,
+            ));
+        }
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == *name)
+            .map(|class| crate::classes::effective_class_fields(self.mir, class))
+    }
+
+    /// Returns whether a generated storage type is an interface-shaped record.
+    fn is_interface_record_type(&self, ty: TypeId) -> bool {
+        matches!(
+            self.mir.types.get(ty),
+            Some(Type::Class { name, .. })
+                if self
+                    .mir
+                    .interfaces
+                    .iter()
+                    .any(|interface| interface.name == *name)
+        )
+    }
+
+    /// Returns true when `source` can be field-wise adapted to `target`.
+    ///
+    /// TypeScript option bags are structurally compatible, but generated Rust
+    /// structs are nominal. This predicate intentionally only enables the
+    /// adapter when the destination is an emitted interface record; ordinary
+    /// class-to-class conversion still keeps Rust's nominal identity.
+    fn structural_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
+        self.structural_record_adapter_fields(source, target)
+            .is_some()
+    }
+
+    /// Returns matching source/target fields for a structural record adapter.
+    fn structural_record_adapter_fields(
+        &self,
+        source: TypeId,
+        target: TypeId,
+    ) -> Option<Vec<(Option<MirField>, MirField)>> {
+        if source == target || !self.is_interface_record_type(target) {
+            return None;
+        }
+        let source_fields = self.structural_record_fields(source)?;
+        let target_fields = self.structural_record_fields(target)?;
+        if target_fields.is_empty() {
+            return None;
+        }
+        let mut adapted_fields = Vec::new();
+        for target_field in target_fields {
+            let source_field = source_fields
+                .iter()
+                .find(|field| {
+                    self.symbol_name(field.name).ok().map(sanitize_ident)
+                        == self.symbol_name(target_field.name).ok().map(sanitize_ident)
+                })
+                .cloned();
+            if source_field.is_none()
+                && !matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_)))
+            {
+                return None;
+            }
+            adapted_fields.push((source_field, target_field));
+        }
+        Some(adapted_fields)
+    }
+
+    /// Emits a field-wise adapter between structurally compatible record types.
+    fn structural_record_adapter_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(adapted_fields) = self.structural_record_adapter_fields(source, target) else {
+            return Ok(None);
+        };
+        let Some(Type::Class { name, args }) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        let target_name = sanitize_ident(self.symbol_name(*name)?);
+        let mut field_text = Vec::new();
+        for (source_field_match, target_field) in adapted_fields {
+            let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
+            let value = if let Some(source_field) = source_field_match {
+                let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
+                let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
+                self.rendered_value_as_type_text(&source_value, source_field.ty, target_field.ty)?
+            } else {
+                self.default_value(target_field.ty)?
+            };
+            field_text.push(format!("{field_name}: {value}"));
+        }
+        if !args.is_empty() {
+            field_text.push("_smelt_phantom: ::std::marker::PhantomData".to_owned());
+        }
+        Ok(Some(format!(
+            "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
+            field_text.join(", ")
+        )))
     }
 
     /// Return the emitted Rust name for a free MIR function.
@@ -1145,9 +1260,6 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.default_value(target)?
             ));
         }
-        if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
-            return self.default_value(target);
-        }
         if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
             self.mir.types.get(self.operand_ty(operand)?),
             self.mir.types.get(target),
@@ -1171,6 +1283,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.operand_text(operand)?,
                 self.default_value(target)?
             ));
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+            return self.default_value(target);
         }
         if let (Some(Type::List(source_item)), Some(Type::List(target_item))) = (
             self.mir.types.get(self.operand_ty(operand)?),
@@ -1572,6 +1687,9 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return self.default_value(target);
         }
+        if let Some(adapter) = self.structural_record_adapter_text(value_text, source, target)? {
+            return Ok(adapter);
+        }
         if matches!(
             self.mir.types.get(target),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -1800,8 +1918,14 @@ impl<'mir> FunctionEmitter<'mir> {
             .iter()
             .enumerate()
             .map(|(index, param_ty)| {
-                let item =
-                    format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
+                let missing = if index + 1 == source.params.len()
+                    && matches!(self.mir.types.get(*param_ty), Some(Type::List(_)))
+                {
+                    "SmeltUnknown::Array(Vec::new())"
+                } else {
+                    "SmeltUnknown::Null"
+                };
+                let item = format!("smelt_args.get({index}).cloned().unwrap_or({missing})");
                 self.unknown_cast_value_text(&item, *param_ty)
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -1850,13 +1974,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 .zip(target_function.params.iter())
                 .any(|(source_param, target_param)| source_param != target_param);
         let return_mismatch = source.return_ty != target_function.return_ty;
-        if !parameter_mismatch
-            && !return_mismatch
-            && !matches!(
-                self.mir.types.get(target_function.return_ty),
-                Some(Type::Unknown)
-            )
-        {
+        if !parameter_mismatch && !return_mismatch {
             return Ok(None);
         }
         let (Operand::Copy(place) | Operand::Move(place)) = operand else {
@@ -1910,6 +2028,15 @@ impl<'mir> FunctionEmitter<'mir> {
             source.return_ty,
             target_function.return_ty,
         )?;
+        let return_text = if matches!(
+            self.mir.types.get(target_function.return_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && self.class_has_no_known_fields(source.return_ty)
+        {
+            call_text
+        } else {
+            return_text
+        };
         let return_text = if return_text == "Default::default()"
             && matches!(
                 self.mir.types.get(target_function.return_ty),
@@ -1934,6 +2061,26 @@ impl<'mir> FunctionEmitter<'mir> {
         }))
     }
 
+    /// Return true for structural class/interface placeholders that have no
+    /// emitted fields Smelt can use to construct an erased object.
+    pub(super) fn class_has_no_known_fields(&self, ty: TypeId) -> bool {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return false;
+        };
+        if let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) {
+            return crate::classes::effective_class_fields(self.mir, class).is_empty();
+        }
+        if let Some(interface) = self
+            .mir
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == *name)
+        {
+            return crate::classes::effective_interface_fields(self.mir, interface).is_empty();
+        }
+        true
+    }
+
     /// Adapts a concrete callback to Remeda's erased purry callback surface.
     pub(super) fn rest_vector_unknown_adapter_text(
         &self,
@@ -1948,8 +2095,14 @@ impl<'mir> FunctionEmitter<'mir> {
             .iter()
             .enumerate()
             .map(|(index, param_ty)| {
-                let item =
-                    format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
+                let missing = if index + 1 == source.params.len()
+                    && matches!(self.mir.types.get(*param_ty), Some(Type::List(_)))
+                {
+                    "SmeltUnknown::Array(Vec::new())"
+                } else {
+                    "SmeltUnknown::Null"
+                };
+                let item = format!("smelt_args.get({index}).cloned().unwrap_or({missing})");
                 self.unknown_cast_value_text(&item, *param_ty)
             })
             .collect::<Result<Vec<_>, _>>()?
@@ -1962,7 +2115,11 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             _ => format!("{function_text}({args})"),
         };
-        let return_text = self.unknown_wrap_value_text(&call, source.return_ty)?;
+        let return_text = if self.class_has_no_known_fields(source.return_ty) {
+            call
+        } else {
+            self.unknown_wrap_value_text(&call, source.return_ty)?
+        };
         Ok(Some(format!(
             "::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}))"
         )))
@@ -2085,6 +2242,11 @@ impl<'mir> FunctionEmitter<'mir> {
                     return false;
                 }
                 !self.mir.classes.iter().any(|class| class.name == *name)
+                    && !self
+                        .mir
+                        .interfaces
+                        .iter()
+                        .any(|interface| interface.name == *name)
             }
             _ => false,
         }
@@ -2372,7 +2534,7 @@ fn terminator_uses_local(terminator: &Terminator, local: LocalId) -> bool {
 }
 
 /// Return all direct successor blocks of a terminator.
-fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
+pub(super) fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
     match terminator {
         Terminator::Goto(target) => vec![*target],
         Terminator::Call { target, .. } => vec![*target],

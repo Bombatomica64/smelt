@@ -164,11 +164,11 @@ pub fn emit_crate(
     let output_dir = output_path.as_ref();
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
-    fs::write(
+    write_if_changed(
         output_dir.join("Cargo.toml"),
-        deps::cargo_toml(&options.crate_name, &generated_deps(mir)),
+        &deps::cargo_toml(&options.crate_name, &generated_deps(mir)),
     )?;
-    fs::write(src_dir.join("main.rs"), emit_source(mir)?)?;
+    write_if_changed(src_dir.join("main.rs"), &emit_source(mir)?)?;
     Ok(())
 }
 
@@ -187,17 +187,36 @@ pub fn emit_crate_with_modules(
     let output_dir = output_path.as_ref();
     let src_dir = output_dir.join("src");
     fs::create_dir_all(&src_dir)?;
-    fs::write(
+    write_if_changed(
         output_dir.join("Cargo.toml"),
-        deps::cargo_toml(&options.crate_name, &generated_deps(mir)),
+        &deps::cargo_toml(&options.crate_name, &generated_deps(mir)),
     )?;
 
     let mapped = emit_mapped_sources(mir, krate, modules)?;
-    fs::write(src_dir.join("main.rs"), mapped.root)?;
+    write_if_changed(src_dir.join("main.rs"), &mapped.root)?;
     for module in mapped.modules {
         let module_path = src_dir.join(format!("{}.rs", module.name));
-        fs::write(module_path, module.source)?;
+        write_if_changed(module_path, &module.source)?;
     }
+    Ok(())
+}
+
+/// Writes generated text only when the destination bytes actually change.
+///
+/// Cargo uses file mtimes as part of its freshness checks. Rewriting every
+/// generated Rust module on each Smelt build forces Cargo to recompile modules
+/// whose source is byte-for-byte identical, which dominates large projects such
+/// as Remeda. Keeping identical files untouched preserves incremental build
+/// artifacts without changing Smelt's lowering or codegen semantics.
+fn write_if_changed(
+    path: impl AsRef<Path>,
+    contents: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let destination = path.as_ref();
+    if fs::read_to_string(destination).is_ok_and(|existing| existing == contents) {
+        return Ok(());
+    }
+    fs::write(destination, contents)?;
     Ok(())
 }
 
@@ -684,7 +703,7 @@ struct MappedSources {
 
 /// One generated Rust module file.
 struct MappedModuleSource {
-    /// Rust module name and file stem.
+    /// Source-shaped Rust file stem.
     name: String,
     /// Module source text.
     source: String,
@@ -726,7 +745,12 @@ fn emit_mapped_sources(
     module_names.sort();
     let declarations = module_names
         .iter()
-        .map(|name| format!("mod {name};\npub(crate) use {name}::*;"))
+        .map(|name| {
+            let module_ident = generated_source_module_ident(name);
+            format!(
+                "#[path = \"{name}.rs\"]\nmod {module_ident};\npub(crate) use {module_ident}::*;"
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     if !declarations.is_empty() {
@@ -775,7 +799,7 @@ fn body_module_names(
     names
 }
 
-/// Returns a Rust module file name that cannot collide with the crate root.
+/// Returns the source-shaped Rust file stem for one lowered source module.
 fn source_module_name(name: &str) -> String {
     let sanitized = sanitize_ident(name);
     if sanitized == "main" || sanitized == "lib" {
@@ -783,6 +807,18 @@ fn source_module_name(name: &str) -> String {
     } else {
         sanitized
     }
+}
+
+/// Returns the private Rust module identifier used to include a source file.
+///
+/// The generated file stem intentionally tracks the source module name for
+/// readable artifacts. The Rust module item needs a separate internal name
+/// because Rust puts `mod Foo;` and `struct Foo` in the same type namespace.
+/// Date-fns has source modules such as `Setter.ts` that also define `Setter`,
+/// so declaring them through an internal identifier avoids double emission
+/// collisions while keeping `Setter.rs` as the artifact file.
+fn generated_source_module_ident(file_stem: &str) -> String {
+    sanitize_ident(&format!("__smelt_module_{file_stem}"))
 }
 
 /// Returns whether this generated function must remain the Rust crate root.

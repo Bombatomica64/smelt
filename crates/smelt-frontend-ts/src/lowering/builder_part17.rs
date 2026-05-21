@@ -57,6 +57,11 @@ impl ModuleBuilder<'_> {
             }
             PropertyKey::StaticMemberExpression(member) => self.static_member(member, body),
             PropertyKey::ComputedMemberExpression(member) => self.computed_member(member, body),
+            PropertyKey::LogicalExpression(logical) => self.logical_expression(logical, body),
+            PropertyKey::BinaryExpression(binary) => self.binary_expression(binary, body),
+            PropertyKey::ConditionalExpression(conditional) => {
+                self.conditional_expression(conditional, body, None)
+            }
             PropertyKey::TSAsExpression(assertion) => self.expression(&assertion.expression, body),
             PropertyKey::TSSatisfiesExpression(assertion) => {
                 self.expression(&assertion.expression, body)

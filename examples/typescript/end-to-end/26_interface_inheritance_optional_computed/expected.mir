@@ -7,8 +7,8 @@ fn new (FuncId(0)) -> User
     %0 user this: User
     %1 param id: String
   bb0:
-    %0 = struct4 {}
-    %0.field1 = copy %1
+    %0 = struct0 {}
+    %0.field2 = copy %1
     return move %0
 
 fn main (FuncId(1)) -> None
@@ -20,7 +20,7 @@ fn main (FuncId(1)) -> None
     %1 = call fn0("u1") -> bb1
   bb1:
     %0 = copy %1
-    %2 = call @console_log(copy %0.field1) -> bb2
+    %2 = call @console_log(copy %0.field2) -> bb2
   bb2:
     return none
 

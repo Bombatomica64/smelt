@@ -248,6 +248,37 @@ impl ModuleBuilder<'_> {
         if member.property.name != "split" {
             return Ok(None);
         }
+        if let Expression::Identifier(object) = &member.object
+            && (self.namespace_imports.contains(object.name.as_str())
+                || self.value_imports.contains(object.name.as_str()))
+        {
+            if call.arguments.len() < 2 || call.arguments.len() > 3 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "static string split requires value, separator, and optional limit arguments",
+                ));
+            }
+            let Some(haystack_argument) = call.arguments.first() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "static string split requires value, separator, and optional limit arguments",
+                ));
+            };
+            let Some(separator_argument) = call.arguments.get(1) else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "static string split requires value, separator, and optional limit arguments",
+                ));
+            };
+            let haystack = self.argument(haystack_argument, body)?;
+            let separator = self.argument(separator_argument, body)?;
+            let limit = call
+                .arguments
+                .get(2)
+                .map(|argument| self.argument(argument, body))
+                .transpose()?;
+            return self.finish_string_split_call(call, haystack, separator, limit, body);
+        }
         if call.arguments.is_empty() || call.arguments.len() > 2 {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -267,6 +298,18 @@ impl ModuleBuilder<'_> {
             .get(1)
             .map(|argument| self.argument(argument, body))
             .transpose()?;
+        self.finish_string_split_call(call, haystack, separator, limit, body)
+    }
+
+    /// Finish string split lowering after the receiver-style or helper-style arguments are known.
+    fn finish_string_split_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        haystack: smelt_hir::ExprId,
+        separator: smelt_hir::ExprId,
+        limit: Option<smelt_hir::ExprId>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let haystack_ty = Self::expr_ty(body, haystack);
         let separator_ty = Self::expr_ty(body, separator);
         if !(self.is_string_compatible_type(haystack_ty)
@@ -787,6 +830,16 @@ impl ModuleBuilder<'_> {
         binary: &oxc::ast::ast::BinaryExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if binary.operator == BinaryOperator::Exponential {
+            let base = self.expression(&binary.left, body)?;
+            let exponent = self.expression(&binary.right, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::NumericPow { base, exponent },
+                ty,
+                span: self.span(binary.span.start, binary.span.end),
+            }));
+        }
         let op = match binary.operator {
             BinaryOperator::Addition => BinOp::Add,
             BinaryOperator::Subtraction => BinOp::Sub,
@@ -874,6 +927,11 @@ impl ModuleBuilder<'_> {
             }
             if let Some(expr) =
                 self.logical_or_string_fallback_expression(logical, body, optional, optional_ty)?
+            {
+                return Ok(Some(expr));
+            }
+            if let Some(expr) =
+                self.logical_or_list_fallback_expression(logical, body, optional, optional_ty)?
             {
                 return Ok(Some(expr));
             }
@@ -987,6 +1045,42 @@ impl ModuleBuilder<'_> {
             ty: string_ty,
             span: self.span(logical.span.start, logical.span.end),
         })))
+    }
+
+    /// Lower JavaScript `left || []` fallback expressions for array values.
+    fn logical_or_list_fallback_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+        value: smelt_hir::ExprId,
+        value_ty: smelt_hir::TypeId,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(item_ty) = self.list_fallback_item_ty(value_ty) else {
+            return Ok(None);
+        };
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let fallback = self.expression_with_hint(&logical.right, body, Some(list_ty))?;
+        if !Self::is_empty_list_expr(body, fallback) && Self::expr_ty(body, fallback) != list_ty {
+            return Ok(None);
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::OptionalCoalesce {
+                optional: value,
+                fallback,
+            },
+            ty: list_ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
+    /// Return the item type for a value that can participate in an array fallback.
+    fn list_fallback_item_ty(&mut self, value_ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+        match self.ctx.krate.types.get(value_ty).cloned() {
+            Some(Type::List(item_ty)) => Some(item_ty),
+            Some(Type::Optional(inner_ty)) => self.list_fallback_item_ty(inner_ty),
+            Some(Type::Union(items)) => items.into_iter().find_map(|item| self.list_fallback_item_ty(item)),
+            _ => None,
+        }
     }
 
     /// Lower TypeScript nullish coalescing while preserving falsey values.
@@ -1189,6 +1283,135 @@ impl ModuleBuilder<'_> {
             ty: non_null_ty,
             span,
         })
+    }
+
+    /// Lower JavaScript `key in object` checks for dictionaries and static objects.
+    ///
+    /// Static object constants are often erased to reusable metadata before a
+    /// function body is lowered. For those, membership is a pure key-set test,
+    /// so emitting string equality checks keeps the generated Rust independent
+    /// from a runtime object allocation.
+    fn in_expression(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = self.span(binary.span.start, binary.span.end);
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+
+        if let Expression::Identifier(receiver_ident) = &binary.right
+            && let Some(object_const) = self.const_objects.get(receiver_ident.name.as_str()).cloned()
+        {
+            let key = self.expression(&binary.left, body)?;
+            if Self::expr_ty(body, key) != string_ty {
+                return Err(SmeltError::unsupported(
+                    self.span(binary.left.span().start, binary.left.span().end),
+                    "static-object `in` checks require a string key",
+                ));
+            }
+            let mut condition = None;
+            for entry in object_const.entries {
+                let rhs = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(entry.key)),
+                    ty: string_ty,
+                    span,
+                });
+                let equals_key = body.push_expr(Expr {
+                    kind: ExprKind::BinOp {
+                        op: BinOp::Eq,
+                        lhs: key,
+                        rhs,
+                    },
+                    ty: bool_ty,
+                    span,
+                });
+                condition = Some(condition.map_or(equals_key, |previous| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::BinOp {
+                            op: BinOp::Or,
+                            lhs: previous,
+                            rhs: equals_key,
+                        },
+                        ty: bool_ty,
+                        span,
+                    })
+                }));
+            }
+            return Ok(condition.unwrap_or_else(|| {
+                body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(false)),
+                    ty: bool_ty,
+                    span,
+                })
+            }));
+        }
+
+        let receiver = self.expression(&binary.right, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let mut key = self.expression(&binary.left, body)?;
+        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(receiver_ty) else {
+            if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown)
+                || self.erased_or_union_surface(receiver_ty)
+                || matches!(
+                    self.ctx.krate.types.get(receiver_ty),
+                    Some(
+                        Type::TypeParam { .. }
+                            | Type::Class { .. }
+                            | Type::List(_)
+                            | Type::Tuple(_)
+                            | Type::String
+                    )
+                )
+            {
+                let receiver = if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown) {
+                    receiver
+                } else {
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert {
+                            value: receiver,
+                        },
+                        ty,
+                        span,
+                    })
+                };
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictContainsKey {
+                        dict: receiver,
+                        key,
+                    },
+                    ty: bool_ty,
+                    span,
+                }));
+            }
+            return Err(SmeltError::unsupported(
+                span,
+                "`in` checks require a static object, record, map, or unknown receiver",
+            ));
+        };
+        let key_ty = *key_ty;
+        if Self::expr_ty(body, key) != key_ty && self.is_string_compatible_type(Self::expr_ty(body, key)) {
+            key = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: key },
+                ty: key_ty,
+                span,
+            });
+        }
+        if Self::expr_ty(body, key) != key_ty {
+            return Err(SmeltError::unsupported(
+                span,
+                "`in` check key must match the record or map key type",
+            ));
+        }
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DictContainsKey {
+                dict: receiver,
+                key,
+            },
+            ty: bool_ty,
+            span,
+        }))
     }
 
     /// Lower a unary expression.

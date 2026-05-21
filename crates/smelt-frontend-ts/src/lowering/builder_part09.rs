@@ -228,10 +228,17 @@ impl ModuleBuilder<'_> {
         let resolved_ty = self.type_param_constraint_or_self(ty);
         match self.ctx.krate.types.get(resolved_ty).cloned() {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Future(_)) => None,
+            Some(Type::Class { name, .. })
+                if self.ctx.krate.symbols.get(name) == Some("PropertyKey") =>
+            {
+                None
+            }
             Some(Type::Union(items)) => {
                 let mut matches = items
                     .into_iter()
-                    .filter_map(|item| self.static_typeof_match(item, expected));
+                    .map(|item| self.static_typeof_match(item, expected))
+                    .collect::<Option<Vec<_>>>()?
+                    .into_iter();
                 let first = matches.next()?;
                 if matches.all(|item| item == first) {
                     Some(first)
@@ -484,17 +491,18 @@ impl ModuleBuilder<'_> {
                 ident.span.end,
                 body,
             ),
+            Argument::ThisExpression(this_expr) => {
+                self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
+            }
+            Argument::Super(super_expr) => {
+                self.identifier_expression("this", super_expr.span.start, super_expr.span.end, body)
+            }
             Argument::BinaryExpression(binary) => {
                 if binary.operator == BinaryOperator::Instanceof {
                     return self.instanceof_expression(binary, body);
                 }
                 if binary.operator == BinaryOperator::In {
-                    let ty = self.ctx.krate.types.intern(Type::Bool);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::Bool(false)),
-                        ty,
-                        span: self.span(binary.span.start, binary.span.end),
-                    }));
+                    return self.in_expression(binary, body);
                 }
                 self.binary_expression(binary, body)
             }

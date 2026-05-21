@@ -2,16 +2,26 @@
 
 use std::collections::HashMap;
 
-use smelt_hir::{Crate as HirCrate, Field, FunctionType, ItemId, Literal, TypeId};
+use crate::lowering::ConstCollection;
+use smelt_hir::{Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId};
+
+/// Reusable value stored in a static object constant.
+#[derive(Debug, Clone)]
+pub enum ObjectConstValue {
+    /// Primitive literal value.
+    Literal(Literal),
+    /// Capturable HIR expression value.
+    Expr(ExprKind),
+}
 
 /// A static object-constant entry that can be recreated in later lowered bodies.
 #[derive(Debug, Clone)]
 pub struct ObjectConstEntry {
     /// Source object key.
     pub key: String,
-    /// Literal value stored under the key.
-    pub value: Literal,
-    /// HIR type of the literal value.
+    /// Value stored under the key.
+    pub value: ObjectConstValue,
+    /// HIR type of the value.
     pub value_ty: TypeId,
 }
 
@@ -29,6 +39,8 @@ pub struct ObjectConst {
 pub struct OverloadSignature {
     /// Parameter types in source order.
     pub params: Vec<TypeId>,
+    /// Source index of a rest parameter, when this overload declares one.
+    pub rest: Option<usize>,
     /// Return type promised by this overload.
     pub return_ty: TypeId,
     /// Whether the signature describes an async function.
@@ -50,6 +62,10 @@ pub struct HirCtx {
     pub object_namespaces: HashMap<String, HashMap<String, ItemId>>,
     /// Exported object constants with literal data values.
     pub object_consts: HashMap<String, ObjectConst>,
+    /// Exported object constants whose values can be projected by `Object.values`.
+    pub object_value_collections: HashMap<String, ConstCollection>,
+    /// Exported array/set constants that can be inlined by later modules.
+    pub const_collections: HashMap<String, ConstCollection>,
     /// Function overload signatures visible to later TypeScript modules.
     pub overloads: HashMap<String, Vec<OverloadSignature>>,
     /// Structural fields attached to type aliases visible to later modules.
@@ -74,6 +90,8 @@ impl HirCtx {
             module_exports: HashMap::new(),
             object_namespaces: HashMap::new(),
             object_consts: HashMap::new(),
+            object_value_collections: HashMap::new(),
+            const_collections: HashMap::new(),
             overloads: HashMap::new(),
             type_alias_fields: HashMap::new(),
             interface_extends: HashMap::new(),

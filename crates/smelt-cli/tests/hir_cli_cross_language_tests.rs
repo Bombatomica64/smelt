@@ -92,7 +92,7 @@ clone-strategy = "aggressive"
         "generated Rust should contain one executable main function",
     )?;
     ensure(
-        generated.contains("mod main_1;"),
+        generated.contains("#[path = \"main_1.rs\"]\nmod __smelt_module_main_1;"),
         "dependency module body should be emitted in its source module",
     )?;
     let dependency_module = fs::read_to_string(project_path.join("dist/src/main_1.rs"))?;

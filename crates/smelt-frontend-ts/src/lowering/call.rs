@@ -678,10 +678,35 @@ impl ModuleBuilder<'_> {
                     span: self.span(call.span.start, call.span.end),
                 }));
             } else {
-                return Err(SmeltError::unsupported(
-                    self.span(callee_ident.span.start, callee_ident.span.end),
-                    "callee item is not a function",
-                ));
+                let item_ty = self
+                    .item_expr_type(item, self.span(callee_ident.span.start, callee_ident.span.end))
+                    .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+                if let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() {
+                    let callee = body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty: item_ty,
+                        span: self.span(callee_ident.span.start, callee_ident.span.end),
+                    });
+                    let args = call
+                        .arguments
+                        .iter()
+                        .map(|arg| self.argument(arg, body))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCall { callee, args },
+                        ty: function.return_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                }
+                for arg in &call.arguments {
+                    let _ = self.argument(arg, body)?;
+                }
+                let ty = self.ctx.krate.types.intern(Type::Unknown);
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                }));
             };
             let mut rest = self.function_rests.get(callee_ident.name.as_str()).copied();
             let selected_overload = self.selected_overload_signature(
@@ -770,9 +795,21 @@ impl ModuleBuilder<'_> {
 
     /// Return whether the module source declares a callable with this local name.
     fn source_contains_forward_callable(&self, name: &str) -> bool {
-        let const_prefix = format!("const {name} =");
+        let const_prefix = format!("const {name}");
         let function_prefix = format!("function {name}(");
-        self.source.contains(&const_prefix) || self.source.contains(&function_prefix)
+        self.source.contains(&function_prefix)
+            || self
+                .source
+                .split(&const_prefix)
+                .skip(1)
+                .any(|suffix| suffix.starts_with(" =") || suffix.starts_with(':'))
+    }
+
+    /// Return whether the module source declares a class with this local name.
+    fn source_contains_class(&self, name: &str) -> bool {
+        let class_prefix = format!("class {name}");
+        let exported_class_prefix = format!("export class {name}");
+        self.source.contains(&class_prefix) || self.source.contains(&exported_class_prefix)
     }
 
     /// Rewrites the receiver for `value[index]?.method()` to optional indexing.
@@ -1260,17 +1297,29 @@ impl ModuleBuilder<'_> {
             let arg = self.argument(argument, body)?;
             lowered_arg_tys.push(Self::expr_ty(body, arg));
         }
-        for signature in &signatures {
+        let mut selected: Option<(usize, usize, OverloadSignature, HashMap<_, _>)> = None;
+        for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
             if self.overload_signature_matches_args(
                 signature,
                 &lowered_arg_tys,
                 &mut substitutions,
             ) {
-                return Ok(Some(
-                    self.instantiate_overload_signature(signature.clone(), &substitutions),
-                ));
+                let score =
+                    self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
+                let candidate = (score, usize::MAX - order, signature.clone(), substitutions);
+                if selected
+                    .as_ref()
+                    .is_none_or(|current| (candidate.0, candidate.1) > (current.0, current.1))
+                {
+                    selected = Some(candidate);
+                }
             }
+        }
+        if let Some((_, _, signature, substitutions)) = selected {
+            return Ok(Some(
+                self.instantiate_overload_signature(signature, &substitutions),
+            ));
         }
         if self.has_ts_expect_error_before(span.start, "ts2353") {
             return Ok(None);
@@ -1308,7 +1357,49 @@ impl ModuleBuilder<'_> {
 
     /// Return whether an overload has the same source-level argument count as a call.
     fn overload_signature_arity_matches(signature: &OverloadSignature, argument_count: usize) -> bool {
-        signature.params.len() == argument_count
+        signature.rest.map_or(signature.params.len() == argument_count, |rest| {
+            argument_count >= rest
+        })
+    }
+
+    /// Score a matching overload by source-shape specificity.
+    ///
+    /// Broad purry overloads often have a generic data-first parameter that can
+    /// accept an order-rule tuple. Counting concrete fixed/rest positions keeps
+    /// the intended data-last overload from being shadowed for single-rule calls
+    /// while still preferring data-first when it has an actual leading data
+    /// argument plus rule arguments.
+    fn overload_signature_specificity_score(
+        &self,
+        signature: &OverloadSignature,
+        argument_count: usize,
+    ) -> usize {
+        let fixed_arity = signature.rest.unwrap_or(signature.params.len());
+        let fixed_score = signature
+            .params
+            .iter()
+            .take(fixed_arity)
+            .filter(|ty| self.overload_param_is_specific(**ty))
+            .count();
+        let rest_score = signature.rest.map_or(0, |rest_index| {
+            let rest_ty = signature.params.get(rest_index).copied();
+            let rest_count = argument_count.saturating_sub(rest_index);
+            if rest_ty.is_some_and(|ty| self.overload_param_is_specific(ty)) {
+                rest_count
+            } else {
+                0
+            }
+        });
+        fixed_arity * 100 + fixed_score + rest_score
+    }
+
+    /// Return whether an overload parameter contributes useful shape
+    /// information beyond accepting any value.
+    fn overload_param_is_specific(&self, ty: smelt_hir::TypeId) -> bool {
+        !matches!(
+            self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        )
     }
 
     /// Return whether an overload signature accepts the lowered call argument types.
@@ -1334,9 +1425,15 @@ impl ModuleBuilder<'_> {
         {
             return true;
         }
+        let Some(rest_index) = signature.rest else {
+            return false;
+        };
         let Some((&rest_ty, fixed_params)) = signature.params.split_last() else {
             return arg_tys.is_empty();
         };
+        if rest_index != fixed_params.len() {
+            return false;
+        }
         if arg_tys.len() < fixed_params.len() {
             return false;
         }
@@ -1369,11 +1466,9 @@ impl ModuleBuilder<'_> {
                 .all(|(expected, actual)| {
                     self.infer_overload_type(*expected, *actual, &mut rest_substitutions)
                 }),
-            Some(Type::List(item_ty)) if !rest_args.is_empty() => {
-                rest_args.iter().all(|actual| {
-                    self.infer_overload_type(item_ty, *actual, &mut rest_substitutions)
-                })
-            }
+            Some(Type::List(item_ty)) => rest_args.iter().all(|actual| {
+                self.infer_overload_type(item_ty, *actual, &mut rest_substitutions)
+            }),
             _ => false,
         };
         if rest_matches {
@@ -1396,6 +1491,7 @@ impl ModuleBuilder<'_> {
         let return_ty = self.substitute_type_params(signature.return_ty, substitutions);
         OverloadSignature {
             params,
+            rest: signature.rest,
             return_ty,
             is_async: signature.is_async,
         }
@@ -1455,6 +1551,11 @@ impl ModuleBuilder<'_> {
                             self.infer_overload_type(expected_item, actual_item, substitutions)
                         })
             }
+            (Some(Type::Tuple(expected_items)), Some(Type::List(actual_item))) => expected_items
+                .into_iter()
+                .all(|expected_item| {
+                    self.infer_overload_type(expected_item, actual_item, substitutions)
+                }),
             (Some(Type::Class { name: expected_name, args: expected_args }), Some(Type::Class { name: actual_name, args: actual_args })) => {
                 expected_name == actual_name
                     && expected_args.len() == actual_args.len()
@@ -1484,8 +1585,17 @@ impl ModuleBuilder<'_> {
         actual: &FunctionType,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
-        if expected.is_async != actual.is_async || actual.params.len() > expected.params.len() {
+        if expected.is_async != actual.is_async {
             return false;
+        }
+        if actual.params.len() > expected.params.len() {
+            let has_trailing_rest_param = actual
+                .params
+                .last()
+                .is_some_and(|param| matches!(self.ctx.krate.types.get(*param), Some(Type::List(_))));
+            if !has_trailing_rest_param || actual.params.len() != expected.params.len() + 1 {
+                return false;
+            }
         }
         let mut actual_substitutions = HashMap::new();
         for (expected_param, actual_param) in expected.params.iter().zip(&actual.params) {
@@ -1772,11 +1882,19 @@ impl ModuleBuilder<'_> {
                         .get(fixed_index + offset)
                         .copied()
                         .unwrap_or_else(|| self.index_type(Self::expr_ty(body, spread_list)).unwrap_or(rest.item_ty));
-                    args.push(body.push_expr(Expr {
-                        kind: ExprKind::Index {
+                    let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+                        ExprKind::OptionalIndex {
                             receiver: spread_list,
                             index,
-                        },
+                        }
+                    } else {
+                        ExprKind::Index {
+                            receiver: spread_list,
+                            index,
+                        }
+                    };
+                    args.push(body.push_expr(Expr {
+                        kind,
                         ty,
                         span: self.span(spread.span.start, spread.span.end),
                     }));

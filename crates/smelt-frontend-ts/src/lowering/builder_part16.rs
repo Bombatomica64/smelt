@@ -200,10 +200,7 @@ impl ModuleBuilder<'_> {
             TSType::TSFunctionType(function) => self.function_type_to_hir(function),
             TSType::TSThisType(this_ty) => {
                 let Some(class_name) = &self.current_class else {
-                    return Err(SmeltError::unsupported(
-                        self.span(this_ty.span.start, this_ty.span.end),
-                        "this types outside classes are not lowered yet",
-                    ));
+                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
                 };
                 let Some(class_item) = self.classes.get(class_name).copied() else {
                     return Err(SmeltError::unsupported(
@@ -788,6 +785,9 @@ impl ModuleBuilder<'_> {
                 if operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof =>
             {
                 Ok(self.ctx.krate.types.intern(Type::String))
+            }
+            TSTupleElement::TSParenthesizedType(parenthesized) => {
+                self.ts_type_to_hir(&parenthesized.type_annotation)
             }
             TSTupleElement::TSFunctionType(function) => self.function_type_to_hir(function),
             TSTupleElement::TSUnionType(union) => {
@@ -1401,6 +1401,12 @@ impl ModuleBuilder<'_> {
             Type::String if self.ctx.krate.symbols.get(field) == Some("message") => {
                 Ok(self.ctx.krate.types.intern(Type::String))
             }
+            Type::String if self.ctx.krate.symbols.get(field) == Some("name") => {
+                Ok(self.ctx.krate.types.intern(Type::String))
+            }
+            Type::String if self.ctx.krate.symbols.get(field) == Some("prototype") => {
+                Ok(self.ctx.krate.types.intern(Type::Unknown))
+            }
             Type::String if self.allow_unknown_index_access => {
                 Ok(self.ctx.krate.types.intern(Type::Unknown))
             }
@@ -1632,7 +1638,8 @@ impl ModuleBuilder<'_> {
             _ => Err(SmeltError::unsupported(
                 self.span(0, 0),
                 format!(
-                    "field access is only lowered for Record<string, T>, class, and interface values for now (receiver: {receiver_type:?})"
+                    "field access is only lowered for Record<string, T>, class, and interface values for now (receiver: {receiver_type:?}, field: {})",
+                    self.ctx.krate.symbols.get(field).unwrap_or("<unknown>")
                 ),
             )),
         }
@@ -1891,6 +1898,8 @@ impl ModuleBuilder<'_> {
                         | Type::Dict(_, _)
                         | Type::List(_)
                         | Type::Set(_)
+                        | Type::Function(_)
+                        | Type::Future(_)
                 )
             ) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
@@ -2209,6 +2218,16 @@ impl ModuleBuilder<'_> {
             self.ctx.krate.types.get(receiver_ty),
             Some(Type::List(_) | Type::String | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. })
         )
+            || matches!(
+                self.ctx.krate.types.get(receiver_ty),
+                Some(Type::Class { name, .. })
+                    if self
+                        .ctx
+                        .krate
+                        .symbols
+                        .get(*name)
+                        .is_some_and(|name| !self.classes.contains_key(name) && !self.interfaces.contains_key(name))
+            )
     }
 
     /// Returns true when TypeScript `.size` can lower directly to Rust `.len()`.
@@ -2357,6 +2376,9 @@ impl ModuleBuilder<'_> {
                     span: self.span(start, end),
                 }));
             }
+            if name == "String" {
+                return Ok(self.string_constructor_closure_expression(start, end, body));
+            }
             if matches!(
                 name,
                 "Error"
@@ -2377,7 +2399,7 @@ impl ModuleBuilder<'_> {
             }
             if matches!(
                 name,
-                "AbortSignal" | "Object" | "process" | "strapi" | "require" | "this"
+                "AbortSignal" | "Object" | "Symbol" | "process" | "strapi" | "require" | "this"
             ) {
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 return self.module_global_expression(name, ty, start, end, body);
@@ -2434,6 +2456,64 @@ impl ModuleBuilder<'_> {
             }));
         }
         Ok(local_expr)
+    }
+
+    /// Lower the global `String` value to a callable primitive string converter.
+    fn string_constructor_closure_expression(
+        &mut self,
+        start: u32,
+        end: u32,
+        outer_body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        let span = self.span(start, end);
+        let value_name = self.intern_source_name("value");
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let mut closure_body = Body::new(None, span);
+        let value_local = closure_body.push_local(LocalDecl {
+            name: Some(value_name),
+            ty: value_ty,
+            mutable: false,
+            span,
+        });
+        closure_body.params.push(value_local);
+        let value_expr = closure_body.push_expr(Expr {
+            kind: ExprKind::Local(value_local),
+            ty: value_ty,
+            span,
+        });
+        let cast = closure_body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToString,
+                operand: value_expr,
+            },
+            ty: string_ty,
+            span,
+        });
+        closure_body.push_stmt(Stmt::Return(Some(cast)));
+        let body = self.ctx.krate.push_body(closure_body);
+        let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+            params: vec![value_ty],
+            return_ty: string_ty,
+            is_async: false,
+        }));
+        outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: vec![Param {
+                    name: value_name,
+                    local: value_local,
+                    ty: value_ty,
+                    span,
+                }],
+                return_ty: string_ty,
+                captures: Vec::new(),
+                body,
+                callback_body: None,
+                span,
+            }),
+            ty: closure_ty,
+            span,
+        })
     }
 
     /// Wrap a function item in a first-class closure value for argument positions.
@@ -2522,13 +2602,7 @@ impl ModuleBuilder<'_> {
             let items = collection
                 .items
                 .iter()
-                .map(|item| {
-                    body.push_expr(Expr {
-                        kind: ExprKind::Literal(item.literal.clone()),
-                        ty: item.ty,
-                        span,
-                    })
-                })
+                .map(|item| self.const_collection_item_expression(item, span, body))
                 .collect::<Vec<_>>();
             let kind = if collection.is_set {
                 ExprKind::SetLit(items)
@@ -2583,6 +2657,106 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(start, end),
         }))
+    }
+
+    /// Recreate one module-level constant collection element in the active body.
+    fn const_collection_item_expression(
+        &mut self,
+        item: &ConstCollectionItem,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        match &item.value {
+            ConstCollectionValue::Expr(kind) => body.push_expr(Expr {
+                kind: kind.clone(),
+                ty: item.ty,
+                span,
+            }),
+            ConstCollectionValue::UnknownNull => {
+                let none = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: self.ctx.krate.types.intern(Type::None),
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: none,
+                        target: item.ty,
+                    },
+                    ty: item.ty,
+                    span,
+                })
+            }
+            ConstCollectionValue::UnknownArray => {
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let list_ty = self.ctx.krate.types.intern(Type::List(unknown_ty));
+                let array = body.push_expr(Expr {
+                    kind: ExprKind::ListLit(Vec::new()),
+                    ty: list_ty,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: array,
+                        target: item.ty,
+                    },
+                    ty: item.ty,
+                    span,
+                })
+            }
+            ConstCollectionValue::UnknownObject => {
+                let key_ty = self.ctx.krate.types.intern(Type::String);
+                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                let object = body.push_expr(Expr {
+                    kind: ExprKind::DictLit(Vec::new()),
+                    ty: dict_ty,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: object,
+                        target: item.ty,
+                    },
+                    ty: item.ty,
+                    span,
+                })
+            }
+            ConstCollectionValue::UnknownFunction => {
+                let param_ty = self.ctx.krate.types.intern(Type::List(item.ty));
+                let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                    params: vec![param_ty],
+                    return_ty: item.ty,
+                    is_async: false,
+                }));
+                let function = FunctionType {
+                    params: vec![param_ty],
+                    return_ty: item.ty,
+                    is_async: false,
+                };
+                match self.module_global_function_expression(
+                    &function,
+                    function_ty,
+                    span.start,
+                    span.end,
+                    body,
+                ) {
+                    Ok(function_value) => body.push_expr(Expr {
+                        kind: ExprKind::UnknownCast {
+                            value: function_value,
+                            target: item.ty,
+                        },
+                        ty: item.ty,
+                        span,
+                    }),
+                    Err(_) => body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty: self.ctx.krate.types.intern(Type::None),
+                        span,
+                    }),
+                }
+            }
+        }
     }
 
     /// Synthesize a callable value for a known module-level function constant.

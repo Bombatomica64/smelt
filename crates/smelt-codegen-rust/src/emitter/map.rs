@@ -11,6 +11,19 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
+            if self.mir.types.get(dict_ty) == Some(&Type::Unknown) {
+                let dict_text = self.operand_text(dict)?;
+                let key_text = self.operand_text(key)?;
+                let key_value = match self.mir.types.get(self.operand_ty(key)?) {
+                    Some(Type::String) => key_text,
+                    Some(Type::Int | Type::Float | Type::Bool) => format!("{key_text}.to_string()"),
+                    Some(Type::Unknown) => format!("{key_text}.to_string()"),
+                    _ => return Ok("false".to_owned()),
+                };
+                return Ok(format!(
+                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
+                ));
+            }
             return Ok("false".to_owned());
         };
         if self.operand_ty(key)? != *key_ty {

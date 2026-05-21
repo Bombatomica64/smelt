@@ -378,13 +378,8 @@ impl ModuleBuilder<'_> {
         } else if let Some(function_ty) = &hinted_function {
             function_ty.return_ty
         } else {
-            match self.function_return_type_or_overload(function, name_text) {
-                Ok(value) => value,
-                Err(error) => {
-                    self.pop_type_parameter_scope();
-                    return Err(error);
-                }
-            }
+            self.function_return_type_or_overload(function, name_text)
+                .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown))
         };
         if function.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
         {
@@ -549,6 +544,7 @@ impl ModuleBuilder<'_> {
                 .insert(class_text.to_owned(), (base_name, base_args.clone()));
         }
         let mut fields = Vec::new();
+        let mut field_initializers = Vec::new();
         let mut constructor = None;
         let mut methods = Vec::new();
         let mut abstract_methods = Vec::new();
@@ -584,6 +580,14 @@ impl ModuleBuilder<'_> {
                     };
                     if property.optional {
                         ty = self.field_type_with_optional(ty, true);
+                    }
+                    if let Some(value) = &property.value {
+                        field_initializers.push((
+                            name,
+                            value,
+                            ty,
+                            self.span(property.span.start, property.span.end),
+                        ));
                     }
                     fields.push(Field {
                         name,
@@ -692,12 +696,26 @@ impl ModuleBuilder<'_> {
                             ));
                         }
                         let item =
-                            self.class_function(class_text, class_name, class_ty, method, true)?;
+                            self.class_function(
+                                class_text,
+                                class_name,
+                                class_ty,
+                                method,
+                                true,
+                                &field_initializers,
+                            )?;
                         constructor = Some(item);
                         item
                     } else {
                         let item =
-                            self.class_function(class_text, class_name, class_ty, method, false)?;
+                            self.class_function(
+                                class_text,
+                                class_name,
+                                class_ty,
+                                method,
+                                false,
+                                &[],
+                            )?;
                         methods.push(item);
                         item
                     };
@@ -726,10 +744,12 @@ impl ModuleBuilder<'_> {
 
         if constructor.is_none() {
             constructor = Some(self.synthesize_default_class_constructor(
+                class_text,
                 class_name,
                 class_ty,
+                &field_initializers,
                 self.span(class.span.start, class.span.end),
-            ));
+            )?);
         }
 
         let implements = class
@@ -786,21 +806,34 @@ impl ModuleBuilder<'_> {
     /// Synthesize the implicit zero-argument constructor for a TypeScript class.
     fn synthesize_default_class_constructor(
         &mut self,
+        class_text: &str,
         class_name: smelt_hir::Symbol,
         class_ty: smelt_hir::TypeId,
+        field_initializers: &[(
+            smelt_hir::Symbol,
+            &Expression<'_>,
+            smelt_hir::TypeId,
+            Span,
+        )],
         span: Span,
-    ) -> smelt_hir::ItemId {
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_class = self.current_class.replace(class_text.to_owned());
         let mut body = Body::new(None, span);
         let this_symbol = self.ctx.krate.symbols.intern("this");
-        body.push_local(LocalDecl {
+        let this_local = body.push_local(LocalDecl {
             name: Some(this_symbol),
             ty: class_ty,
             mutable: true,
             span,
         });
+        self.locals.insert("this".to_owned(), this_local);
+        self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
+        self.locals = saved_locals;
+        self.current_class = saved_class;
         let body_id = self.ctx.krate.push_body(body);
         let name = self.ctx.krate.symbols.intern("new");
-        self.ctx.krate.push_item(Item::Function(Function {
+        Ok(self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
             params: Vec::new(),
@@ -809,7 +842,45 @@ impl ModuleBuilder<'_> {
             is_test: false,
             body: Some(body_id),
             owner: FunctionOwner::Constructor { class: class_name },
-        }))
+        })))
+    }
+
+    /// Emit TypeScript instance field initializers at the start of a constructor.
+    ///
+    /// JavaScript evaluates public instance field initializers for each new
+    /// object before the constructor body runs. Lowering them as assignments to
+    /// `this` preserves observable fields for both native field reads and later
+    /// erasure through `unknown` object helpers.
+    fn emit_class_field_initializers(
+        &mut self,
+        this_local: smelt_hir::LocalId,
+        class_ty: smelt_hir::TypeId,
+        field_initializers: &[(
+            smelt_hir::Symbol,
+            &Expression<'_>,
+            smelt_hir::TypeId,
+            Span,
+        )],
+        body: &mut Body,
+    ) -> Result<(), SmeltError> {
+        for (field, initializer, field_ty, span) in field_initializers {
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(this_local),
+                ty: class_ty,
+                span: *span,
+            });
+            let target = body.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: *field,
+                },
+                ty: *field_ty,
+                span: *span,
+            });
+            let value = self.expression(initializer, body)?;
+            body.push_stmt(Stmt::Assign { target, value });
+        }
+        Ok(())
     }
 
     /// Lower the single supported TypeScript `extends` shape for class declarations.
@@ -820,13 +891,29 @@ impl ModuleBuilder<'_> {
         let Some(super_class) = &class.super_class else {
             return Ok((None, Vec::new()));
         };
-        let Expression::Identifier(identifier) = super_class else {
-            return Err(SmeltError::unsupported(
-                self.span(super_class.span().start, super_class.span().end),
-                "class extends currently requires a direct base class identifier",
-            ));
+        let name = match super_class {
+            Expression::Identifier(identifier) => identifier.name.to_string(),
+            Expression::StaticMemberExpression(member)
+                if matches!(
+                    &member.object,
+                    Expression::Identifier(object)
+                        if self.value_imports.contains(object.name.as_str())
+                            || self.namespace_imports.contains(object.name.as_str())
+                ) =>
+            {
+                let Expression::Identifier(object) = &member.object else {
+                    unreachable!("guarded by matches");
+                };
+                format!("{}.{}", object.name, member.property.name)
+            }
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(super_class.span().start, super_class.span().end),
+                    "class extends currently requires a direct base class identifier or imported namespace member",
+                ));
+            }
         };
-        let name = identifier.name.as_str();
+        let name = name.as_str();
         let base = self.intern_type_name(name);
         let allowed_builtin = matches!(
             name,
@@ -839,8 +926,15 @@ impl ModuleBuilder<'_> {
                 | "TypeError"
                 | "URIError"
                 | "AggregateError"
+                | "Map"
+                | "ReadonlyMap"
+                | "Set"
+                | "ReadonlySet"
         );
-        if !allowed_builtin && !self.classes.contains_key(name) && !self.value_imports.contains(name)
+        if !allowed_builtin
+            && !self.classes.contains_key(name)
+            && !self.value_imports.contains(name)
+            && !name.contains('.')
         {
             return Err(SmeltError::unsupported(
                 self.span(super_class.span().start, super_class.span().end),
@@ -939,6 +1033,12 @@ impl ModuleBuilder<'_> {
         class_ty: smelt_hir::TypeId,
         method: &oxc::ast::ast::MethodDefinition<'_>,
         is_constructor: bool,
+        field_initializers: &[(
+            smelt_hir::Symbol,
+            &Expression<'_>,
+            smelt_hir::TypeId,
+            Span,
+        )],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let Some(function_body) = &method.value.body else {
             return Err(SmeltError::unsupported(
@@ -1074,6 +1174,9 @@ impl ModuleBuilder<'_> {
                     .or_default()
                     .push(field);
             }
+        }
+        if is_constructor {
+            self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
         }
 
         let mut errors = Vec::new();

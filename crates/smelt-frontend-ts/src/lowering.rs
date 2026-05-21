@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    HirCtx, ObjectConst, ObjectConstEntry, OverloadSignature, SmeltError, camel_to_snake,
-    test_support,
+    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstValue, OverloadSignature, SmeltError,
+    camel_to_snake, test_support,
 };
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
@@ -54,7 +54,7 @@ enum TestMatcher {
     HaveProperty,
 }
 
-/// Literal value exported from another TypeScript module.
+/// Constant expression exported from another TypeScript module.
 #[derive(Debug, Clone)]
 struct ConstLiteral {
     /// Literal expression to inline at import use sites.
@@ -63,11 +63,43 @@ struct ConstLiteral {
     ty: smelt_hir::TypeId,
 }
 
+/// Constant collection element visible to nested function bodies.
+#[derive(Debug, Clone)]
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "split lowering modules share this internal type through the private parent module"
+)]
+pub(crate) struct ConstCollectionItem {
+    /// HIR expression template to recreate at each read site.
+    value: ConstCollectionValue,
+    /// HIR type of the recreated expression.
+    ty: smelt_hir::TypeId,
+}
+
+/// Reusable collection element value.
+#[derive(Debug, Clone)]
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "split lowering modules share this internal enum through the private parent module"
+)]
+pub(crate) enum ConstCollectionValue {
+    /// A self-contained expression kind with no references to body-local expr ids.
+    Expr(ExprKind),
+    /// A JavaScript `null` represented as erased unknown.
+    UnknownNull,
+    /// A JavaScript array represented as erased unknown.
+    UnknownArray,
+    /// A JavaScript object-like value represented as erased unknown.
+    UnknownObject,
+    /// A JavaScript function represented as erased unknown.
+    UnknownFunction,
+}
+
 /// Literal collection value visible to nested function bodies in the same module.
 #[derive(Debug, Clone)]
-struct ConstCollection {
+pub struct ConstCollection {
     /// Literal elements in source order.
-    items: Vec<ConstLiteral>,
+    items: Vec<ConstCollectionItem>,
     /// HIR type of the collection value.
     ty: smelt_hir::TypeId,
     /// Whether the collection should lower as a `Set` instead of an array.
@@ -329,8 +361,10 @@ struct ModuleBuilder<'ctx> {
     const_literals: HashMap<String, ConstLiteral>,
     /// Object literal constants visible from current and already-lowered modules.
     const_objects: HashMap<String, ObjectConst>,
-    /// Literal array/set constants visible from nested function bodies.
+    /// Array/set constants visible from nested function bodies.
     const_collections: HashMap<String, ConstCollection>,
+    /// Object constants whose values can be projected by `Object.values`.
+    const_object_value_collections: HashMap<String, ConstCollection>,
     /// User assertion functions declared with `asserts value is T`.
     assertion_functions: HashMap<String, AssertionNarrowing>,
     /// User predicate functions declared with `value is T`.

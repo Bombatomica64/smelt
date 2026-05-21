@@ -882,8 +882,8 @@ impl ModuleBuilder<'_> {
         let left = self.type_param_constraint_or_self(left);
         let right = self.type_param_constraint_or_self(right);
         match (self.ctx.krate.types.get(left), self.ctx.krate.types.get(right)) {
-            (Some(Type::Function(_)), Some(Type::Unknown | Type::Class { .. })) => Some(left),
-            (Some(Type::Unknown | Type::Class { .. }), Some(Type::Function(_))) => Some(right),
+            (Some(Type::Function(_)), Some(Type::Class { .. })) => Some(left),
+            (Some(Type::Class { .. }), Some(Type::Function(_))) => Some(right),
             _ => None,
         }
     }
@@ -1444,6 +1444,7 @@ impl ModuleBuilder<'_> {
         block: smelt_hir::BlockId,
     ) -> Result<(), SmeltError> {
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
+        let saved_outer_locals = self.locals.clone();
         let result = (|| {
         let contextual_function = self.contextual_function_type(type_hint);
         let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
@@ -1487,26 +1488,36 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?;
-        let callback_result = match self.arrow_return_expression(arrow) {
+        let callback_result = if arrow.r#async {
+            Err(SmeltError::unsupported(
+                self.span(arrow.span.start, arrow.span.end),
+                "async callbacks need closure-body lowering",
+            ))
+        } else {
+            match self.arrow_return_expression(arrow) {
             Ok(Expression::CallExpression(_)) => Err(SmeltError::unsupported(
                 self.span(arrow.span.start, arrow.span.end),
                 "call-bodied local arrows lower through closure bodies",
             )),
             _ => self.arrow_callback_from_params(arrow, &params, body),
+            }
         };
-        let return_ty = return_ty
+        let mut return_ty = return_ty
             .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
             .unwrap_or_else(|| {
-            callback_result.as_ref().map_or_else(
-                |_| self.ctx.krate.types.intern(Type::Unknown),
-                |callback| callback.ty,
-            )
-        });
+                callback_result.as_ref().map_or_else(
+                    |_| self.ctx.krate.types.intern(Type::Unknown),
+                    |callback| callback.ty,
+                )
+            });
+        if arrow.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))) {
+            return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
+        }
         let symbol = self.intern_source_name(name);
         let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: params.clone(),
             return_ty,
-            is_async: false,
+            is_async: arrow.r#async,
         }));
         let predeclared_local = self.local_arrow_existing_body_local(name, body);
         if let Ok(callback) = callback_result {
@@ -1577,6 +1588,14 @@ impl ModuleBuilder<'_> {
         Ok(())
         })();
         self.pop_type_parameter_scope();
+        let declared_local = result
+            .as_ref()
+            .ok()
+            .and_then(|()| self.locals.get(name).copied());
+        self.locals = saved_outer_locals;
+        if let Some(local) = declared_local {
+            self.locals.insert(name.to_owned(), local);
+        }
         result
     }
 
@@ -2022,13 +2041,23 @@ impl ModuleBuilder<'_> {
                 Ok(())
             }
             BindingPattern::ArrayPattern(array) => {
-                let Some(receiver) = value else {
+                let Some(initial_receiver) = value else {
                     return Err(SmeltError::unsupported(
                         self.span(array.span.start, array.span.end),
                         "array destructuring requires an initializer",
                     ));
                 };
-                let receiver_ty = Self::expr_ty(body, receiver);
+                let mut receiver = initial_receiver;
+                let mut receiver_ty = Self::expr_ty(body, receiver);
+                if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned()
+                {
+                    receiver = body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: receiver },
+                        ty: inner,
+                        span: self.span(array.span.start, array.span.end),
+                    });
+                    receiver_ty = inner;
+                }
                 let tuple_items = match self.ctx.krate.types.get(receiver_ty).cloned() {
                     Some(Type::Tuple(items)) => Some(items),
                     _ => None,
@@ -2042,7 +2071,7 @@ impl ModuleBuilder<'_> {
                     let Some(element) = element else {
                         continue;
                     };
-                    let item_ty = tuple_items
+                    let source_item_ty = tuple_items
                         .as_ref()
                         .and_then(|items| items.get(idx).copied())
                         .or(fallback_item_ty)
@@ -2064,18 +2093,26 @@ impl ModuleBuilder<'_> {
                         ty: index_ty,
                         span: self.span(array.span.start, array.span.end),
                     });
-                    let extracted_kind = if tuple_items.is_some() {
-                        ExprKind::TupleIndex {
-                            tuple: receiver,
-                            index: usize::try_from(idx).map_err(|err| {
-                                SmeltError::unsupported(
-                                    self.span(array.span.start, array.span.end),
-                                    format!("array destructuring tuple index is too large: {err}"),
-                                )
-                            })?,
-                        }
+                    let (extracted_kind, item_ty) = if tuple_items.is_some() {
+                        (
+                            ExprKind::TupleIndex {
+                                tuple: receiver,
+                                index: usize::try_from(idx).map_err(|err| {
+                                    SmeltError::unsupported(
+                                        self.span(array.span.start, array.span.end),
+                                        format!(
+                                            "array destructuring tuple index is too large: {err}"
+                                        ),
+                                    )
+                                })?,
+                            },
+                            source_item_ty,
+                        )
                     } else {
-                        ExprKind::Index { receiver, index }
+                        (
+                            ExprKind::OptionalIndex { receiver, index },
+                            self.ctx.krate.types.intern(Type::Optional(source_item_ty)),
+                        )
                     };
                     let extracted = body.push_expr(Expr {
                         kind: extracted_kind,

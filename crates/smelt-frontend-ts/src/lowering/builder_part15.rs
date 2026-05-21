@@ -42,6 +42,24 @@ impl ModuleBuilder<'_> {
                 function.is_async,
             )
         } else {
+            let item_ty = self.item_expr_type(item, span)?;
+            if let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() {
+                let callee = body.push_expr(Expr {
+                    kind: ExprKind::Item(item),
+                    ty: item_ty,
+                    span,
+                });
+                let args = call
+                    .arguments
+                    .iter()
+                    .map(|arg| self.argument(arg, body))
+                    .collect::<Result<Vec<_>, _>>()?;
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::ClosureCall { callee, args },
+                    ty: function.return_ty,
+                    span: self.span(call.span.start, call.span.end),
+                })));
+            }
             return Err(SmeltError::unsupported(
                 span,
                 format!("namespace member `{member_name}` is not callable"),
@@ -1116,6 +1134,9 @@ impl ModuleBuilder<'_> {
                 body,
             ),
             AssignmentTarget::StaticMemberExpression(member) => self.static_member(member, body),
+            AssignmentTarget::PrivateFieldExpression(member) => {
+                self.private_field_member(&member.object, member.field.name.as_str(), member.span, body)
+            }
             AssignmentTarget::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
             }
@@ -1161,6 +1182,9 @@ impl ModuleBuilder<'_> {
             SimpleAssignmentTarget::StaticMemberExpression(member) => {
                 self.static_member(member, body)
             }
+            SimpleAssignmentTarget::PrivateFieldExpression(member) => {
+                self.private_field_member(&member.object, member.field.name.as_str(), member.span, body)
+            }
             SimpleAssignmentTarget::ComputedMemberExpression(member) => {
                 self.computed_member(member, body)
             }
@@ -1169,6 +1193,25 @@ impl ModuleBuilder<'_> {
                 "update target must be a local, field, or index expression",
             )),
         }
+    }
+
+    /// Lower access to a private class field through the same field HIR as public fields.
+    fn private_field_member(
+        &mut self,
+        object: &Expression<'_>,
+        field_name: &str,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let receiver = self.expression(object, body)?;
+        let receiver_ty = Self::expr_ty(body, receiver);
+        let field = self.intern_source_name(field_name);
+        let ty = self.class_field_type(receiver_ty, field)?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::Field { receiver, field },
+            ty,
+            span: self.span(span.start, span.end),
+        }))
     }
 
     // Continued in the next split builder file.

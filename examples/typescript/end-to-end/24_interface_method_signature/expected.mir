@@ -6,8 +6,8 @@ fn new (FuncId(0)) -> User
     %0 user this: User
     %1 param name: String
   bb0:
-    %0 = struct4 {}
-    %0.field1 = copy %1
+    %0 = struct0 {}
+    %0.field2 = copy %1
     return move %0
 
 fn label (FuncId(1)) -> String
@@ -16,7 +16,7 @@ fn label (FuncId(1)) -> String
     %1 param prefix: String
     %2 temp: String
   bb0:
-    %2 = copy %1 + copy %0.field1
+    %2 = copy %1 + copy %0.field2
     return copy %2
 
 fn main (FuncId(2)) -> None

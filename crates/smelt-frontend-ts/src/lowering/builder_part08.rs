@@ -100,6 +100,7 @@ impl ModuleBuilder<'_> {
             }
             if self.value_imports.contains(callee.name.as_str())
                 || self.module_globals.contains_key(callee.name.as_str())
+                || self.source_contains_class(callee.name.as_str())
             {
                 let class_name = self.intern_type_name(callee.name.as_str());
                 let args = new_expr
@@ -434,6 +435,9 @@ impl ModuleBuilder<'_> {
             Expression::ThisExpression(this_expr) => {
                 self.identifier_expression("this", this_expr.span.start, this_expr.span.end, body)
             }
+            Expression::Super(super_expr) => {
+                self.identifier_expression("this", super_expr.span.start, super_expr.span.end, body)
+            }
             Expression::RegExpLiteral(literal) => {
                 let ty = self.regexp_type();
                 let pattern = Self::regex_literal_pattern_text_without_flags(literal);
@@ -466,18 +470,23 @@ impl ModuleBuilder<'_> {
                     return self.instanceof_expression(binary, body);
                 }
                 if binary.operator == BinaryOperator::In {
-                    let ty = self.ctx.krate.types.intern(Type::Bool);
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::Bool(false)),
-                        ty,
-                        span: self.span(binary.span.start, binary.span.end),
-                    }));
+                    return self.in_expression(binary, body);
                 }
                 if let Some(expr) = self.unknown_typeof_comparison(binary, body)? {
                     return Ok(expr);
                 }
                 if let Some(expr) = self.unknown_null_comparison(binary, body)? {
                     return Ok(expr);
+                }
+                if binary.operator == BinaryOperator::Exponential {
+                    let base = self.expression(&binary.left, body)?;
+                    let exponent = self.expression(&binary.right, body)?;
+                    let ty = self.ctx.krate.types.intern(Type::Float);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::NumericPow { base, exponent },
+                        ty,
+                        span: self.span(binary.span.start, binary.span.end),
+                    }));
                 }
                 let op = match binary.operator {
                     BinaryOperator::Addition => BinOp::Add,
@@ -494,8 +503,7 @@ impl ModuleBuilder<'_> {
                     BinaryOperator::ShiftLeft => BinOp::Shl,
                     BinaryOperator::ShiftRight => BinOp::Shr,
                     BinaryOperator::ShiftRightZeroFill => BinOp::UShr,
-                    BinaryOperator::Exponential
-                    | BinaryOperator::BitwiseOR
+                    BinaryOperator::Exponential | BinaryOperator::BitwiseOR
                     | BinaryOperator::BitwiseXOR
                     | BinaryOperator::BitwiseAnd
                     | BinaryOperator::In

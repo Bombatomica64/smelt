@@ -77,7 +77,7 @@ impl ModuleBuilder<'_> {
             }
             (Type::Function(actual_fn), Type::Function(expected_fn)) => {
                 actual_fn.params.len() == expected_fn.params.len()
-                    && actual_fn.is_async == expected_fn.is_async
+                    && self.function_async_assignable(&actual_fn, &expected_fn, depth)
                     && actual_fn
                         .params
                         .iter()
@@ -116,6 +116,22 @@ impl ModuleBuilder<'_> {
             }
             (actual_ty, expected_ty) => actual_ty == expected_ty,
         }
+    }
+
+    /// Return whether function async metadata is compatible for assignment.
+    ///
+    /// TypeScript allows an `async` implementation where the expected function
+    /// returns a `Promise<T>`-compatible union, such as `T | Promise<T>`. Smelt
+    /// keeps both the async bit and the return surface, so the async bit can be
+    /// relaxed when the actual return type already satisfies the expected one.
+    fn function_async_assignable(
+        &self,
+        actual: &FunctionType,
+        expected: &FunctionType,
+        depth: usize,
+    ) -> bool {
+        actual.is_async == expected.is_async
+            || self.type_assignable_to_inner(actual.return_ty, expected.return_ty, depth + 1)
     }
 
     /// Return whether a key argument can be used with a lowered map key type.
@@ -343,7 +359,48 @@ impl ModuleBuilder<'_> {
         if member.property.name != "join" {
             return Ok(None);
         }
-        let mut items = self.expression(&member.object, body)?;
+        if let Expression::Identifier(object) = &member.object
+            && (self.namespace_imports.contains(object.name.as_str())
+                || self.value_imports.contains(object.name.as_str()))
+        {
+            if call.arguments.is_empty() || call.arguments.len() > 2 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "static array join requires array and optional string separator arguments",
+                ));
+            }
+            let Some(items_argument) = call.arguments.first() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "static array join requires array and optional string separator arguments",
+                ));
+            };
+            let items = self.argument(items_argument, body)?;
+            let separator = call.arguments.get(1);
+            return self.finish_string_join_call(call, items, separator, body);
+        }
+        let items = self.expression(&member.object, body)?;
+        let separator = match call.arguments.as_slice() {
+            [] => None,
+            [separator_argument] => Some(separator_argument),
+            _ => {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "array join supports zero or one string separator argument",
+                ));
+            }
+        };
+        self.finish_string_join_call(call, items, separator, body)
+    }
+
+    /// Finish array join lowering after receiver-style or helper-style arguments are known.
+    fn finish_string_join_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        mut items: smelt_hir::ExprId,
+        separator_argument: Option<&Argument<'_>>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let items_ty = self.type_param_constraint_or_self(Self::expr_ty(body, items));
         let items_ty = match self.ctx.krate.types.get(items_ty) {
@@ -354,7 +411,7 @@ impl ModuleBuilder<'_> {
                 items = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: items },
                     ty: list_ty,
-                    span: self.span(member.object.span().start, member.object.span().end),
+                    span: self.span(call.span.start, call.span.end),
                 });
                 list_ty
             }
@@ -371,7 +428,7 @@ impl ModuleBuilder<'_> {
                 items = body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: items },
                     ty: list_ty,
-                    span: self.span(member.object.span().start, member.object.span().end),
+                    span: self.span(call.span.start, call.span.end),
                 });
                 list_ty
             }
@@ -394,27 +451,25 @@ impl ModuleBuilder<'_> {
                 "array join currently requires primitive or unknown array items",
             ));
         }
-        let separator = match call.arguments.as_slice() {
-            [] => body.push_expr(Expr {
+        let separator = match separator_argument {
+            None => body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(",".to_owned())),
                 ty: string_ty,
                 span: self.span(call.span.start, call.span.end),
             }),
-            [separator_argument] => {
+            Some(separator_argument) => {
                 let separator = self.argument(separator_argument, body)?;
-                if self.ctx.krate.types.get(Self::expr_ty(body, separator)) != Some(&Type::String) {
+                let separator_ty = Self::expr_ty(body, separator);
+                if !self.is_string_compatible_type(separator_ty)
+                    && !self.type_contains_unknown(separator_ty)
+                    && !self.erased_or_union_surface(separator_ty)
+                {
                     return Err(SmeltError::unsupported(
                         self.span(call.span.start, call.span.end),
                         "array join separator must be a string",
                     ));
                 }
                 separator
-            }
-            _ => {
-                return Err(SmeltError::unsupported(
-                    self.span(call.span.start, call.span.end),
-                    "array join supports zero or one string separator argument",
-                ));
             }
         };
         Ok(Some(body.push_expr(Expr {
@@ -477,8 +532,12 @@ impl ModuleBuilder<'_> {
         let mut needle = self.argument(needle_argument, body)?;
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let haystack_ty = Self::expr_ty(body, haystack);
+        if self.list_surface_type(haystack_ty).is_some() {
+            return Ok(None);
+        }
         if self.ctx.krate.types.get(haystack_ty) == Some(&Type::Unknown)
             || self.type_contains_unknown(haystack_ty)
+            || self.erased_or_union_surface(haystack_ty)
         {
             haystack = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: haystack },
@@ -489,6 +548,7 @@ impl ModuleBuilder<'_> {
         let needle_ty = Self::expr_ty(body, needle);
         if self.ctx.krate.types.get(needle_ty) == Some(&Type::Unknown)
             || self.type_contains_unknown(needle_ty)
+            || self.erased_or_union_surface(needle_ty)
         {
             needle = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: needle },
@@ -529,12 +589,18 @@ impl ModuleBuilder<'_> {
         if call.arguments.len() != 1 {
             return Ok(None);
         }
-        let list = self.expression(&member.object, body)?;
+        let mut list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
-        let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(list_ty) else {
+        let Some((list_ty, item_ty)) = self.list_surface_type(list_ty) else {
             return Ok(None);
         };
-        let item_ty = *list_item_ty;
+        if Self::expr_ty(body, list) != list_ty {
+            list = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: list },
+                ty: list_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+        }
         let Some(item_argument) = call.arguments.first() else {
             return Ok(None);
         };
@@ -551,6 +617,21 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
+    }
+
+    /// Return the concrete list and item type for list-like receiver surfaces.
+    fn list_surface_type(
+        &self,
+        ty: smelt_hir::TypeId,
+    ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::List(item_ty)) => Some((ty, *item_ty)),
+            Some(Type::Optional(inner)) => match self.ctx.krate.types.get(*inner) {
+                Some(Type::List(item_ty)) => Some((*inner, *item_ty)),
+                _ => None,
+            },
+            _ => None,
+        }
     }
 
     /// Lower direct TypeScript `Set.prototype.has`.

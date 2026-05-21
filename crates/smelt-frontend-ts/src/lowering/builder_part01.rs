@@ -4,6 +4,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let (items, classes, interfaces) = Self::visible_items(ctx);
         let const_literals = Self::visible_const_literals(ctx);
         let const_objects = ctx.object_consts.clone();
+        let const_object_value_collections = ctx.object_value_collections.clone();
+        let const_collections = ctx.const_collections.clone();
         let object_namespaces = ctx.object_namespaces.clone();
         let function_overloads = ctx.overloads.clone();
         let type_alias_fields = ctx.type_alias_fields.clone();
@@ -44,7 +46,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             object_namespaces,
             const_literals,
             const_objects,
-            const_collections: HashMap::new(),
+            const_collections,
+            const_object_value_collections,
             assertion_functions: HashMap::new(),
             predicate_functions: HashMap::new(),
             narrowed_locals: Vec::new(),
@@ -154,6 +157,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
 
         let mut before_each = Vec::new();
         let mut after_each = Vec::new();
+        let mut top_level_test_setup = Vec::new();
         for statement in &program.body {
             if let Statement::ImportDeclaration(import) = statement {
                 self.import_declaration(import, &mut module);
@@ -179,6 +183,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         for statement in &program.body {
             if let Statement::ImportDeclaration(_) = statement {
+                continue;
+            }
+            if let Statement::VariableDeclaration(_) = statement {
+                if !self.is_predeclared_arrow_const_statement(statement) {
+                    top_level_test_setup.push(statement);
+                }
                 continue;
             }
             if let Statement::FunctionDeclaration(function) = statement {
@@ -237,7 +247,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 match self.table_test_declarations(
                     table_call,
                     None,
-                    &[],
+                    &top_level_test_setup,
                     &before_each,
                     &after_each,
                     &[],
@@ -250,7 +260,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(test_call) = self.test_case_call(&expr_stmt.expression)
             {
-                match self.test_case_declaration(test_call, None, &[], &before_each, &after_each, &[]) {
+                match self.test_case_declaration(
+                    test_call,
+                    None,
+                    &top_level_test_setup,
+                    &before_each,
+                    &after_each,
+                    &[],
+                ) {
                     Ok(item) => module.items.push(item),
                     Err(error) => errors.push(error),
                 }
@@ -259,7 +276,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if let Statement::ExpressionStatement(expr_stmt) = statement
                 && let Some(describe_call) = self.describe_call(&expr_stmt.expression)
             {
-                match self.describe_declaration(describe_call, &[], &before_each, &after_each) {
+                match self.describe_declaration(
+                    describe_call,
+                    &top_level_test_setup,
+                    &before_each,
+                    &after_each,
+                ) {
                     Ok(items) => module.items.extend(items),
                     Err(error) => errors.push(error),
                 }
@@ -453,8 +475,25 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 && let Some(object) = Self::object_const_initializer(init)
                 && let Ok(value) = self.object_const_from_expression(object, None)
             {
+                if let Some(collection) = self.const_collection_from_object_const(&value) {
+                    self.const_object_value_collections
+                        .insert(binding.name.as_str().to_owned(), collection.clone());
+                    self.ctx
+                        .object_value_collections
+                        .insert(binding.name.as_str().to_owned(), collection);
+                }
                 self.const_objects
                     .insert(binding.name.as_str().to_owned(), value);
+            } else if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const
+                && let Some(init) = &declarator.init
+                && let Some(object) = Self::object_const_initializer(init)
+                && let Some(collection) = self.const_unknown_value_collection_from_object(object)
+            {
+                self.const_object_value_collections
+                    .insert(binding.name.as_str().to_owned(), collection.clone());
+                self.ctx
+                    .object_value_collections
+                    .insert(binding.name.as_str().to_owned(), collection);
             }
             if matches!(
                 decl.kind,
@@ -491,6 +530,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         .insert(binding.name.as_str().to_owned(), ty);
                     if let Some(collection) = self.const_collection_from_initializer(init, ty) {
                         self.const_collections
+                            .insert(binding.name.as_str().to_owned(), collection.clone());
+                        self.ctx
+                            .const_collections
                             .insert(binding.name.as_str().to_owned(), collection);
                     }
                 }
@@ -590,6 +632,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if matches!(callee.name.as_str(), "Set" | "Map")
                         || Self::is_numeric_typed_array_constructor(callee.name.as_str())
             ),
+            Expression::CallExpression(call) => Self::object_values_identifier_argument(call)
+                .is_some(),
             Expression::TSAsExpression(as_expr) => {
                 Self::is_module_global_array_initializer(&as_expr.expression)
             }
@@ -643,6 +687,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     is_set: true,
                 })
             }
+            Expression::CallExpression(call) => {
+                let name = Self::object_values_identifier_argument(call)?;
+                self.const_object_value_collections.get(&name).cloned()
+            }
             Expression::TSAsExpression(as_expr) => {
                 self.const_collection_from_initializer(&as_expr.expression, ty)
             }
@@ -663,22 +711,37 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn const_collection_items<'a>(
         &mut self,
         elements: impl Iterator<Item = &'a ArrayExpressionElement<'a>>,
-    ) -> Option<Vec<ConstLiteral>> {
+    ) -> Option<Vec<ConstCollectionItem>> {
         let mut items = Vec::new();
         for element in elements {
             match element {
-                ArrayExpressionElement::StringLiteral(literal) => items.push(ConstLiteral {
-                    literal: Literal::String(literal.value.to_string()),
-                    ty: self.ctx.krate.types.intern(Type::String),
-                }),
-                ArrayExpressionElement::NumericLiteral(literal) => items.push(ConstLiteral {
-                    literal: Literal::Float(literal.value),
-                    ty: self.ctx.krate.types.intern(Type::Float),
-                }),
-                ArrayExpressionElement::BooleanLiteral(literal) => items.push(ConstLiteral {
-                    literal: Literal::Bool(literal.value),
-                    ty: self.ctx.krate.types.intern(Type::Bool),
-                }),
+                ArrayExpressionElement::StringLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::String);
+                    items.push(ConstCollectionItem {
+                        value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::String(
+                            literal.value.to_string(),
+                        ))),
+                        ty,
+                    });
+                }
+                ArrayExpressionElement::NumericLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::Float);
+                    items.push(ConstCollectionItem {
+                        value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::Float(
+                            literal.value,
+                        ))),
+                        ty,
+                    });
+                }
+                ArrayExpressionElement::BooleanLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::Bool);
+                    items.push(ConstCollectionItem {
+                        value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::Bool(
+                            literal.value,
+                        ))),
+                        ty,
+                    });
+                }
                 ArrayExpressionElement::SpreadElement(spread) => {
                     let Expression::Identifier(identifier) = &spread.argument else {
                         return None;
@@ -691,6 +754,148 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
         }
         Some(items)
+    }
+
+    /// Return the identifier passed to a direct `Object.values(identifier)` call.
+    fn object_values_identifier_argument(
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> Option<String> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return None;
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Object" || member.property.name != "values" {
+            return None;
+        }
+        let [Argument::Identifier(identifier)] = call.arguments.as_slice() else {
+            return None;
+        };
+        Some(identifier.name.as_str().to_owned())
+    }
+
+    /// Build an `Object.values` collection from a reusable static object const.
+    fn const_collection_from_object_const(&mut self, value: &ObjectConst) -> Option<ConstCollection> {
+        let Type::Dict(_, value_ty) = self.ctx.krate.types.get(value.ty)? else {
+            return None;
+        };
+        let items = value
+            .entries
+            .iter()
+            .map(|entry| {
+                let value = match &entry.value {
+                    ObjectConstValue::Literal(literal) => {
+                        ConstCollectionValue::Expr(ExprKind::Literal(literal.clone()))
+                    }
+                    ObjectConstValue::Expr(kind) => ConstCollectionValue::Expr(kind.clone()),
+                };
+                ConstCollectionItem {
+                    value,
+                    ty: entry.value_ty,
+                }
+            })
+            .collect();
+        let ty = self.ctx.krate.types.intern(Type::List(*value_ty));
+        Some(ConstCollection {
+            items,
+            ty,
+            is_set: false,
+        })
+    }
+
+    /// Build an approximate erased collection for `Object.values` over dynamic objects.
+    ///
+    /// Mixed JavaScript value-provider objects are frequently exported as module
+    /// constants and projected in tests. The object itself still lowers as a
+    /// runtime const; this side table only gives nested function/test bodies a
+    /// stable list shape while preserving null versus undefined.
+    fn const_unknown_value_collection_from_object(
+        &mut self,
+        object: &oxc::ast::ast::ObjectExpression<'_>,
+    ) -> Option<ConstCollection> {
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let optional_unknown_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
+        let mut items = Vec::new();
+        for property in &object.properties {
+            let ObjectPropertyKind::ObjectProperty(object_property) = property else {
+                return None;
+            };
+            if object_property.computed || object_property.method {
+                return None;
+            }
+            items.push(self.const_unknown_value_item(&object_property.value, unknown_ty));
+        }
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::List(optional_unknown_ty));
+        Some(ConstCollection {
+            items,
+            ty,
+            is_set: false,
+        })
+    }
+
+    /// Approximate one dynamic object value as an optional erased JS value.
+    fn const_unknown_value_item(
+        &mut self,
+        expression: &Expression<'_>,
+        unknown_ty: smelt_hir::TypeId,
+    ) -> ConstCollectionItem {
+        match expression {
+            Expression::StringLiteral(literal) => ConstCollectionItem {
+                value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::String(
+                    literal.value.to_string(),
+                ))),
+                ty: self.ctx.krate.types.intern(Type::String),
+            },
+            Expression::NumericLiteral(literal) => ConstCollectionItem {
+                value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::Float(literal.value))),
+                ty: self.ctx.krate.types.intern(Type::Float),
+            },
+            Expression::BooleanLiteral(literal) => ConstCollectionItem {
+                value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::Bool(literal.value))),
+                ty: self.ctx.krate.types.intern(Type::Bool),
+            },
+            Expression::NullLiteral(_) => ConstCollectionItem {
+                value: ConstCollectionValue::UnknownNull,
+                ty: unknown_ty,
+            },
+            Expression::Identifier(identifier) if identifier.name == "undefined" => {
+                ConstCollectionItem {
+                    value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::None)),
+                    ty: self.ctx.krate.types.intern(Type::None),
+                }
+            }
+            Expression::ArrayExpression(_) | Expression::NewExpression(_) => ConstCollectionItem {
+                value: ConstCollectionValue::UnknownArray,
+                ty: unknown_ty,
+            },
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_) => {
+                ConstCollectionItem {
+                    value: ConstCollectionValue::UnknownFunction,
+                    ty: unknown_ty,
+                }
+            }
+            Expression::TSAsExpression(as_expr) => {
+                self.const_unknown_value_item(&as_expr.expression, unknown_ty)
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.const_unknown_value_item(&satisfies.expression, unknown_ty)
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                self.const_unknown_value_item(&non_null.expression, unknown_ty)
+            }
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.const_unknown_value_item(&parenthesized.expression, unknown_ty)
+            }
+            _ => ConstCollectionItem {
+                value: ConstCollectionValue::UnknownObject,
+                ty: unknown_ty,
+            },
+        }
     }
 
     /// Collect TypeScript overload signatures for concrete implementations.
@@ -765,7 +970,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         "overload rest parameters must have explicit type annotations",
                     )
                 })?;
-                params.push(self.ts_type_to_hir(&annotation.type_annotation)?);
+                let rest_ty = self.ts_type_to_hir(&annotation.type_annotation)?;
+                params.push(self.type_param_constraint_or_self(rest_ty));
             }
             let return_ty = function
                 .return_type
@@ -780,6 +986,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 })?;
             Ok(OverloadSignature {
                 params,
+                rest: function.params.rest.as_ref().map(|_| function.params.items.len()),
                 return_ty,
                 is_async: function.r#async,
             })
@@ -1318,6 +1525,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             || self.interfaces.contains_key(local)
             || self.const_literals.contains_key(local)
             || self.const_objects.contains_key(local)
+            || self.const_collections.contains_key(local)
             || self.object_namespaces.contains_key(local)
             || self.function_overloads.contains_key(local)
     }
@@ -1373,6 +1581,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
         if let Some(value) = self.const_objects.get(imported).cloned() {
             self.const_objects.insert(local.to_owned(), value);
         }
+        if let Some(value) = self.const_collections.get(imported).cloned() {
+            self.const_collections.insert(local.to_owned(), value);
+        }
         if let Some(namespace) = self.object_namespaces.get(imported).cloned() {
             self.object_namespaces.insert(local.to_owned(), namespace);
         }
@@ -1420,15 +1631,22 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
             }
             if let Some(object) = Self::object_const_initializer(init) {
-                let item = match self.object_const_declaration(
+                let item = if let Ok(item) = self.object_const_declaration(
                     binding.name.as_str(),
                     object,
                     type_hint,
                 ) {
-                    Ok(item) => item,
-                    Err(_) => {
-                        self.dynamic_object_const_declaration(binding.name.as_str(), object, type_hint)?
+                    item
+                } else {
+                    if let Some(collection) = self.const_unknown_value_collection_from_object(object)
+                    {
+                        self.const_object_value_collections
+                            .insert(binding.name.as_str().to_owned(), collection.clone());
+                        self.ctx
+                            .object_value_collections
+                            .insert(binding.name.as_str().to_owned(), collection);
                     }
+                    self.dynamic_object_const_declaration(binding.name.as_str(), object, type_hint)?
                 };
                 items.push(item);
                 continue;
@@ -1463,6 +1681,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 self.items.insert(name_text.to_owned(), item);
                 self.ctx.export_aliases.insert(name_text.to_owned(), item);
                 self.module_globals.insert(name_text.to_owned(), ty);
+                if let Some(collection) = self.const_collection_from_initializer(init, ty) {
+                    self.const_collections
+                        .insert(name_text.to_owned(), collection.clone());
+                    self.ctx
+                        .const_collections
+                        .insert(name_text.to_owned(), collection);
+                }
                 items.push(item);
                 continue;
             }
@@ -1489,7 +1714,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 items.push(item);
                 continue;
             }
-            if matches!(init, Expression::CallExpression(_))
+            if matches!(init, Expression::CallExpression(_) | Expression::NewExpression(_))
                 && self.literal_const_expression(init).is_err()
             {
                 let span = self.span(binding.span.start, binding.span.end);
@@ -1902,6 +2127,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.items.insert(name_text.to_owned(), item);
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), value.ty);
+        if let Some(collection) = self.const_collection_from_object_const(&value) {
+            self.const_object_value_collections
+                .insert(name_text.to_owned(), collection.clone());
+            self.ctx
+                .object_value_collections
+                .insert(name_text.to_owned(), collection);
+        }
         self.const_objects
             .insert(name_text.to_owned(), value.clone());
         self.ctx.object_consts.insert(name_text.to_owned(), value);
@@ -1936,6 +2168,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.items.insert(name_text.to_owned(), item);
         self.ctx.export_aliases.insert(name_text.to_owned(), item);
         self.module_globals.insert(name_text.to_owned(), ty);
+        if let Some(collection) = self.const_unknown_value_collection_from_object(object) {
+            self.const_object_value_collections
+                .insert(name_text.to_owned(), collection.clone());
+            self.ctx
+                .object_value_collections
+                .insert(name_text.to_owned(), collection);
+        }
         Ok(item)
     }
 
@@ -1972,15 +2211,63 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ));
                 }
             };
-            let literal = self.literal_const_expression(&object_property.value)?;
+            let (value, value_ty) = self.object_const_entry_value(&object_property.value)?;
             entries.push(ObjectConstEntry {
                 key,
-                value: literal.literal,
-                value_ty: literal.ty,
+                value,
+                value_ty,
             });
         }
         let ty = self.object_const_type(&entries, type_hint);
         Ok(ObjectConst { entries, ty })
+    }
+
+    /// Lower one reusable static object-constant value.
+    ///
+    /// Primitive values are stored as literals. Function-valued lookup tables
+    /// such as Remeda's `COMPARATORS` store their closure expression so later
+    /// module-global reads can recreate the object with callable entries.
+    fn object_const_entry_value(
+        &mut self,
+        expression: &Expression<'_>,
+    ) -> Result<(ObjectConstValue, smelt_hir::TypeId), SmeltError> {
+        if let Ok(literal) = self.literal_const_expression(expression) {
+            return Ok((ObjectConstValue::Literal(literal.literal), literal.ty));
+        }
+        if let Expression::RegExpLiteral(literal) = expression {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok((
+                ObjectConstValue::Literal(Literal::String(Self::regex_literal_pattern_text(literal))),
+                ty,
+            ));
+        }
+        if matches!(expression, Expression::ArrowFunctionExpression(_)) {
+            let span = self.span(expression.span().start, expression.span().end);
+            let mut body = Body::new(None, span);
+            let expr = self.expression(expression, &mut body)?;
+            let value_ty = Self::expr_ty(&body, expr);
+            let kind = body
+                .exprs
+                .get(expr.0 as usize)
+                .map(|expr| expr.kind.clone())
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        span,
+                        "object const function value did not produce an expression",
+                    )
+                })?;
+            if !matches!(kind, ExprKind::Closure(_)) {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "object const function values must lower to closures",
+                ));
+            }
+            return Ok((ObjectConstValue::Expr(kind), value_ty));
+        }
+        Err(SmeltError::unsupported(
+            self.span(expression.span().start, expression.span().end),
+            "object const values must be literals or function expressions",
+        ))
     }
 
     /// Infer the HIR dictionary type for a static object const.
@@ -2021,11 +2308,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ty: key_ty,
                     span,
                 });
-                let entry_value = body.push_expr(Expr {
-                    kind: ExprKind::Literal(entry.value.clone()),
-                    ty: entry.value_ty,
-                    span,
-                });
+                let entry_value = match &entry.value {
+                    ObjectConstValue::Literal(value) => body.push_expr(Expr {
+                        kind: ExprKind::Literal(value.clone()),
+                        ty: entry.value_ty,
+                        span,
+                    }),
+                    ObjectConstValue::Expr(kind) => body.push_expr(Expr {
+                        kind: kind.clone(),
+                        ty: entry.value_ty,
+                        span,
+                    }),
+                };
                 (key, entry_value)
             })
             .collect();

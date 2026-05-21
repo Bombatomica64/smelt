@@ -48,7 +48,7 @@ impl FunctionEmitter<'_> {
             if has_header_work {
                 out.push_str("    loop {\n");
                 for statement in &block.statements {
-                    self.emit_statement(statement, out)?;
+                    self.emit_statement_for_block(block, statement, out)?;
                 }
                 out.push_str(&format!(
                     "    if !({}) {{ break; }}\n",
@@ -80,7 +80,7 @@ impl FunctionEmitter<'_> {
             if has_header_work {
                 out.push_str("    loop {\n");
                 for statement in &block.statements {
-                    self.emit_statement(statement, out)?;
+                    self.emit_statement_for_block(block, statement, out)?;
                 }
                 out.push_str(&format!(
                     "    if !({}) {{ break; }}\n",
@@ -101,13 +101,53 @@ impl FunctionEmitter<'_> {
         }
 
         for statement in &block.statements {
-            self.emit_statement(statement, out)?;
+            self.emit_statement_for_block(block, statement, out)?;
         }
 
         let Some(terminator) = &block.terminator else {
             return Err(EmitError::new("basic block has no terminator"));
         };
         self.emit_terminator(block.id, terminator, out)
+    }
+
+    /// Emits a statement unless it is a dead narrowing cast before an unknown return.
+    fn emit_statement_for_block(
+        &self,
+        block: &BasicBlock,
+        statement: &Statement,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        if self.statement_is_dead_unknown_return_cast(block, statement)? {
+            return Ok(());
+        }
+        self.emit_statement(statement, out)
+    }
+
+    /// Returns whether a statement only narrows an unknown value immediately returned as unknown.
+    fn statement_is_dead_unknown_return_cast(
+        &self,
+        block: &BasicBlock,
+        statement: &Statement,
+    ) -> Result<bool, EmitError> {
+        if self.mir.types.get(self.function.return_ty) != Some(&Type::Unknown) {
+            return Ok(false);
+        }
+        let Statement::Assign {
+            dest,
+            value: Rvalue::UnknownCast { value, .. },
+        } = statement
+        else {
+            return Ok(false);
+        };
+        if self.mir.types.get(self.operand_ty(value)?) != Some(&Type::Unknown) {
+            return Ok(false);
+        }
+        Ok(matches!(
+            &block.terminator,
+            Some(Terminator::Return(
+                Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))
+            )) if local == dest
+        ))
     }
 
     /// Emits a single statement.
@@ -305,6 +345,9 @@ impl FunctionEmitter<'_> {
         match terminator {
             Terminator::Goto(target) => {
                 if target.0 <= current.0 {
+                    if self.block_eventually_terminates(*target, &mut HashSet::new())? {
+                        return self.emit_block(self.block(*target)?, out);
+                    }
                     return self.emit_fallthrough_return(out);
                 }
                 self.emit_block(self.block(*target)?, out)
@@ -664,6 +707,22 @@ impl FunctionEmitter<'_> {
             return self.emit_block(then, out);
         }
 
+        if let (Some(then_join), Some(else_join)) = (
+            self.branch_join_target(then.id, &mut HashSet::new())?,
+            self.branch_join_target(else_.id, &mut HashSet::new())?,
+        ) && then_join == else_join
+        {
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            self.emit_block_until_goto(then, then_join, None, out)?;
+            out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
+            self.emit_block_until_goto(else_, then_join, None, out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            return self.emit_block(self.block(then_join)?, out);
+        }
+
         let branch_declared = self.declared_locals_snapshot();
         out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
         for statement in &then.statements {
@@ -677,6 +736,23 @@ impl FunctionEmitter<'_> {
         out.push_str("    }\n");
         self.restore_declared_locals(branch_declared);
         Ok(())
+    }
+
+    /// Finds a straight-line join block reached by a branch.
+    fn branch_join_target(
+        &self,
+        block_id: smelt_mir::BlockId,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<Option<smelt_mir::BlockId>, EmitError> {
+        if !visited.insert(block_id) {
+            return Ok(None);
+        }
+        let block = self.block(block_id)?;
+        match &block.terminator {
+            Some(Terminator::Goto(target)) => Ok(Some(*target)),
+            Some(Terminator::Call { target, .. }) => self.branch_join_target(*target, visited),
+            _ => Ok(None),
+        }
     }
 
     /// Returns whether every straight-line successor from `block_id` ends in a
@@ -750,6 +826,9 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         };
         let then = self.block(*then_block)?;
+        if !self.block_reaches_target(*then_block, block.id, &mut HashSet::new()) {
+            return Ok(None);
+        }
         if !self.block_exits_to_loop(then, block.id, *else_block, &mut HashSet::new())? {
             return Ok(None);
         }
@@ -837,10 +916,42 @@ impl FunctionEmitter<'_> {
                 break_target,
                 visited,
             )?),
+            Some(Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable) => {
+                Ok(true)
+            }
             _ => Ok(false),
         }?;
         self.loop_exit_cache.borrow_mut().insert(cache_key, result);
         Ok(result)
+    }
+
+    /// Returns whether a control-flow path can reach `target`.
+    fn block_reaches_target(
+        &self,
+        block_id: smelt_mir::BlockId,
+        target: smelt_mir::BlockId,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> bool {
+        if block_id == target {
+            return true;
+        }
+        if !visited.insert(block_id) {
+            return false;
+        }
+        let Some(block) = self
+            .function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+        else {
+            return false;
+        };
+        let Some(terminator) = &block.terminator else {
+            return false;
+        };
+        control_flow_successors(terminator)
+            .into_iter()
+            .any(|successor| self.block_reaches_target(successor, target, visited))
     }
 
     /// Checks if a block starts a while loop with a latch block.
@@ -1082,4 +1193,24 @@ fn branch_trailing_assignment(
         return None;
     };
     Some((prefix, *dest, value))
+}
+
+/// Returns successor blocks for MIR terminators that continue execution.
+fn control_flow_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
+    match terminator {
+        Terminator::Goto(target) | Terminator::Call { target, .. } => vec![*target],
+        Terminator::Switch {
+            then_block,
+            else_block,
+            ..
+        } => vec![*then_block, *else_block],
+        Terminator::Match { arms, default, .. } => {
+            let mut successors = arms.iter().map(|arm| arm.target).collect::<Vec<_>>();
+            if let Some(default) = default {
+                successors.push(*default);
+            }
+            successors
+        }
+        Terminator::Return(_) | Terminator::Throw(_) | Terminator::Unreachable => Vec::new(),
+    }
 }
