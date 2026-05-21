@@ -1,5 +1,0 @@
-   Compiling smelt-frontend-ts v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-frontend-ts)
-   Compiling smelt-codegen-rust v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-codegen-rust)
-   Compiling smelt-cli v0.1.0 (/home/lollo/Playground/smelt/crates/smelt-cli)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.83s
-     Running `target/debug/smelt --manifest-path third_party/remeda/Smelt.toml build`

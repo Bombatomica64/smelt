@@ -1,8 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
-     Running `target/debug/smelt dump-mir --manifest-path third_party/remeda/Smelt.toml`
-error: the following required arguments were not provided:
-  <FILE>
-
-Usage: smelt dump-mir --manifest-path <MANIFEST_PATH> <FILE>
-
-For more information, try '--help'.

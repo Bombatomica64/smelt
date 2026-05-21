@@ -1,2 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
-     Running `target/debug/smelt --manifest-path third_party/remeda/Smelt.toml build`
