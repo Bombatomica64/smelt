@@ -415,6 +415,7 @@ impl ModuleBuilder<'_> {
             params: vec![param_ty],
             return_ty,
             is_async: false,
+                            may_throw: false,
         }));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
@@ -496,6 +497,7 @@ impl ModuleBuilder<'_> {
             params: vec![param_ty],
             return_ty,
             is_async: false,
+                            may_throw: false,
         }));
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),

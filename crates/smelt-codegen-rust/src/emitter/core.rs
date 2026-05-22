@@ -992,8 +992,13 @@ impl<'mir> FunctionEmitter<'mir> {
                     .params
                     .iter()
                     .map(|param| {
+                        let mutability = if self.mutable_locals.contains(param) {
+                            "mut "
+                        } else {
+                            ""
+                        };
                         Ok(format!(
-                            "{}: {}",
+                            "{mutability}{}: {}",
                             self.local_name(*param)?,
                             self.parameter_decl_type_text(*param)?
                         ))
@@ -1017,8 +1022,13 @@ impl<'mir> FunctionEmitter<'mir> {
                     .iter()
                     .skip(1)
                     .map(|param| {
+                        let mutability = if self.mutable_locals.contains(param) {
+                            "mut "
+                        } else {
+                            ""
+                        };
                         Ok(format!(
-                            "{}: {}",
+                            "{mutability}{}: {}",
                             self.local_name(*param)?,
                             self.parameter_decl_type_text(*param)?
                         ))
@@ -1598,7 +1608,12 @@ impl<'mir> FunctionEmitter<'mir> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
-        let return_text = self.default_value(function.return_ty)?;
+        let return_value = self.default_value(function.return_ty)?;
+        let return_text = if function.may_throw {
+            format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
+        } else {
+            return_value
+        };
         Ok(format!("&mut |{params}| {return_text}"))
     }
 
@@ -1935,14 +1950,55 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             format!("(&mut *{function_text}.borrow_mut())({args})")
         };
-        let return_text =
-            self.rendered_value_as_type_text(&call, source.return_ty, target_function.return_ty)?;
+        let source_returns_future =
+            matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let call_value = if source.may_throw
+            && source_returns_future
+            && !target_function.may_throw
+            && let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) = (
+                self.mir.types.get(source.return_ty),
+                self.mir.types.get(target_function.return_ty),
+            )
+        {
+            let awaited = self.rendered_value_as_type_text(
+                "smelt_async_output",
+                *source_item,
+                *target_item,
+            )?;
+            let target_future_ty = self.type_text_with_impl_trait(target_function.return_ty, false)?;
+            if is_borrowed_param {
+                format!(
+                    "Box::pin(async move {{ let smelt_async_output = {call}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty}"
+                )
+            } else {
+                let async_call = call.replace(&function_text, "smelt_async_callback");
+                format!(
+                    "{{ let smelt_async_callback = {function_text}.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty} }}"
+                )
+            }
+        } else if source.may_throw && !source_returns_future && target_function.may_throw {
+            format!("{call}?")
+        } else if source.may_throw && !source_returns_future {
+            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+        } else {
+            call
+        };
+        let return_text = self.rendered_value_as_type_text(
+            &call_value,
+            source.return_ty,
+            target_function.return_ty,
+        )?;
         let return_text = if return_text == "Default::default()"
             && matches!(
                 self.mir.types.get(target_function.return_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) {
             "SmeltUnknown::Null".to_owned()
+        } else {
+            return_text
+        };
+        let return_text = if target_function.may_throw {
+            format!("Ok::<_, Box<dyn std::error::Error>>({return_text})")
         } else {
             return_text
         };
@@ -2023,8 +2079,42 @@ impl<'mir> FunctionEmitter<'mir> {
                 )),
             )
         };
+        let uses_adapted_callback = callback_prelude.is_some();
+        let source_returns_future =
+            matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
+        let call_value = if source.may_throw
+            && source_returns_future
+            && !target_function.may_throw
+            && let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) = (
+                self.mir.types.get(source.return_ty),
+                self.mir.types.get(target_function.return_ty),
+            )
+        {
+            let awaited = self.rendered_value_as_type_text(
+                "smelt_async_output",
+                *source_item,
+                *target_item,
+            )?;
+            let target_future_ty = self.type_text_with_impl_trait(target_function.return_ty, false)?;
+            if uses_adapted_callback {
+                let async_call = call_text.replace("_smelt_adapted_callback", "smelt_async_callback");
+                format!(
+                    "{{ let smelt_async_callback = _smelt_adapted_callback.clone(); Box::pin(async move {{ let smelt_async_output = {async_call}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty} }}"
+                )
+            } else {
+                format!(
+                    "Box::pin(async move {{ let smelt_async_output = {call_text}.await.unwrap_or_else(|error| panic!(\"{{}}\", error)); {awaited} }}) as {target_future_ty}"
+                )
+            }
+        } else if source.may_throw && !source_returns_future && target_function.may_throw {
+            format!("{call_text}?")
+        } else if source.may_throw && !source_returns_future {
+            format!("{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+        } else {
+            call_text
+        };
         let return_text = self.rendered_value_as_type_text(
-            &call_text,
+            &call_value,
             source.return_ty,
             target_function.return_ty,
         )?;
@@ -2033,7 +2123,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.class_has_no_known_fields(source.return_ty)
         {
-            call_text
+            call_value
         } else {
             return_text
         };
@@ -2043,6 +2133,11 @@ impl<'mir> FunctionEmitter<'mir> {
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) {
             "SmeltUnknown::Null".to_owned()
+        } else {
+            return_text
+        };
+        let return_text = if target_function.may_throw {
+            format!("Ok::<_, Box<dyn std::error::Error>>({return_text})")
         } else {
             return_text
         };
@@ -2116,9 +2211,17 @@ impl<'mir> FunctionEmitter<'mir> {
             _ => format!("{function_text}({args})"),
         };
         let return_text = if self.class_has_no_known_fields(source.return_ty) {
-            call
+            if source.may_throw {
+                call
+            } else {
+                format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call})")
+            }
+        } else if source.may_throw {
+            let value = self.unknown_wrap_value_text(&format!("{call}?"), source.return_ty)?;
+            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
         } else {
-            self.unknown_wrap_value_text(&call, source.return_ty)?
+            let value = self.unknown_wrap_value_text(&call, source.return_ty)?;
+            format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
         };
         Ok(Some(format!(
             "::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}))"
@@ -2537,7 +2640,11 @@ fn terminator_uses_local(terminator: &Terminator, local: LocalId) -> bool {
 pub(super) fn terminator_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
     match terminator {
         Terminator::Goto(target) => vec![*target],
-        Terminator::Call { target, .. } => vec![*target],
+        Terminator::Call { target, unwind, .. } => unwind
+            .iter()
+            .map(|handler| handler.catch_block)
+            .chain(std::iter::once(*target))
+            .collect(),
         Terminator::Switch {
             then_block,
             else_block,

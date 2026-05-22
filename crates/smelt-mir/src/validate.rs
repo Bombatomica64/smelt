@@ -134,6 +134,7 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     args,
                     dest,
                     target,
+                    unwind,
                 } => {
                     validate_callee_exists(mir, function, callee, errors);
                     for arg in args {
@@ -141,6 +142,12 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                     }
                     validate_local_exists(function, *dest, errors);
                     validate_block_exists(function, *target, errors);
+                    if let Some(handler) = unwind {
+                        validate_block_exists(function, handler.catch_block, errors);
+                        if let Some(local) = handler.exception_local {
+                            validate_local_exists(function, local, errors);
+                        }
+                    }
                 }
                 Terminator::Switch {
                     cond,
@@ -931,11 +938,20 @@ fn validate_definite_assignment(
             match terminator {
                 Terminator::Goto(_) | Terminator::Unreachable => {}
                 Terminator::Call {
-                    callee, args, dest, ..
+                    callee,
+                    args,
+                    dest,
+                    unwind,
+                    ..
                 } => {
                     validate_callee(mir, function, &definitions, callee, errors);
                     for arg in args {
                         validate_operand(mir, function, &definitions, arg, errors);
+                    }
+                    if let Some(handler) = unwind
+                        && let Some(local) = handler.exception_local
+                    {
+                        validate_local_exists(function, local, errors);
                     }
                     definitions.insert(*dest);
                 }
@@ -957,7 +973,11 @@ fn validate_definite_assignment(
 fn successors(terminator: &Terminator) -> Vec<crate::BlockId> {
     match terminator {
         Terminator::Goto(target) => vec![*target],
-        Terminator::Call { target, .. } => vec![*target],
+        Terminator::Call { target, unwind, .. } => unwind
+            .iter()
+            .map(|handler| handler.catch_block)
+            .chain(std::iter::once(*target))
+            .collect(),
         Terminator::Switch {
             then_block,
             else_block,

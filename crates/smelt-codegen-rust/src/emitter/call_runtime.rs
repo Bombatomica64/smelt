@@ -634,9 +634,20 @@ impl FunctionEmitter<'_> {
                     }
                     _ => format!("(&mut *{callee_text}.borrow_mut())({args_text})"),
                 };
-                let source_ty = match self.mir.types.get(callee_ty) {
-                    Some(Type::Function(function)) => function.return_ty,
-                    _ => dest_ty,
+                let (source_ty, call_text) = match self.mir.types.get(callee_ty) {
+                    Some(Type::Function(function)) => {
+                        let returns_future = matches!(
+                            self.mir.types.get(function.return_ty),
+                            Some(Type::Future(_))
+                        );
+                        let call_text = if function.may_throw && !returns_future {
+                            format!("{call_text}?")
+                        } else {
+                            call_text
+                        };
+                        (function.return_ty, call_text)
+                    }
+                    _ => (dest_ty, call_text),
                 };
                 self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
             }

@@ -220,20 +220,29 @@ impl FunctionEmitter<'_> {
                     let data_arg = args
                         .get(1)
                         .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
-                    let callback_arity = match self.mir.types.get(self.operand_ty(first_arg)?) {
-                        Some(Type::Function(function)) => function.params.len(),
-                        _ => 1,
-                    };
-                    let callback_param = function.params.first().ok_or_else(|| {
-                        EmitError::new("purry function is missing callback param")
-                    })?;
-                    let callback_ty = self.function_local_decl(function, *callback_param)?.ty;
-                    let callback_text =
-                        if self.function_parameter_requires_owned_in(function, *callback_param)? {
+                    let (callback_arity, callback_may_throw) =
+                        match self.mir.types.get(self.operand_ty(first_arg)?) {
+                            Some(Type::Function(function)) => (function.params.len(), true),
+                            _ => (1, false),
+                        };
+                    let (callback_text, callback_is_rc) = if let Some(adapter) =
+                        self.rest_vector_unknown_adapter_text(first_arg)?
+                    {
+                        (adapter, true)
+                    } else {
+                        let callback_param = function.params.first().ok_or_else(|| {
+                            EmitError::new("purry function is missing callback param")
+                        })?;
+                        let callback_ty = self.function_local_decl(function, *callback_param)?.ty;
+                        let text = if self
+                            .function_parameter_requires_owned_in(function, *callback_param)?
+                        {
                             self.operand_as_type_text(first_arg, callback_ty)?
                         } else {
                             self.borrowed_function_argument_text(first_arg, callback_ty)?
                         };
+                        (text, false)
+                    };
                     let callback_text = callback_text
                         .strip_prefix("&mut ")
                         .unwrap_or(&callback_text)
@@ -248,8 +257,23 @@ impl FunctionEmitter<'_> {
                     } else {
                         "None".to_owned()
                     };
+                    let direct_call = if callback_may_throw {
+                        "(&mut *smelt_purry_fn.borrow_mut())(smelt_purry_args.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())"
+                    } else {
+                        "Ok::<SmeltUnknown, Box<dyn std::error::Error>>((&mut *smelt_purry_fn.borrow_mut())(smelt_purry_args.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>()))"
+                    };
+                    let partial_call = if callback_may_throw {
+                        "(&mut *smelt_purry_fn.borrow_mut())(smelt_call_args)"
+                    } else {
+                        "Ok::<SmeltUnknown, Box<dyn std::error::Error>>((&mut *smelt_purry_fn.borrow_mut())(smelt_call_args))"
+                    };
+                    let smelt_purry_fn_init = if callback_is_rc {
+                        callback_text
+                    } else {
+                        format!("::std::rc::Rc::new(::std::cell::RefCell::new({callback_text}))")
+                    };
                     return Ok(format!(
-                        "{{ let smelt_purry_fn = ::std::rc::Rc::new(::std::cell::RefCell::new({callback_text})); let smelt_purry_args = {data_text}; let smelt_purry_diff = {callback_arity}i64 - smelt_purry_args.len() as i64; if smelt_purry_diff == 0 {{ Ok::<SmeltUnknown, Box<dyn std::error::Error>>((&mut *smelt_purry_fn.borrow_mut())(smelt_purry_args.into_iter().map(|value| value.into_smelt_unknown()).collect::<Vec<_>>())) }} else if smelt_purry_diff == 1 {{ let smelt_purry_args = smelt_purry_args.clone(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Function(::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_data_args: Vec<SmeltUnknown>| {{ let mut smelt_call_args = smelt_data_args; smelt_call_args.extend(smelt_purry_args.clone().into_iter().map(|value| value.into_smelt_unknown())); (&mut *smelt_purry_fn.borrow_mut())(smelt_call_args) }})))) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", \"Wrong number of arguments\".to_owned())).into()) }} }}{}",
+                        "{{ let smelt_purry_fn = {smelt_purry_fn_init}; let smelt_purry_args = {data_text}; let smelt_purry_diff = {callback_arity}i64 - smelt_purry_args.len() as i64; if smelt_purry_diff == 0 {{ {direct_call} }} else if smelt_purry_diff == 1 {{ let smelt_purry_args = smelt_purry_args.clone(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Function(::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_data_args: Vec<SmeltUnknown>| {{ let mut smelt_call_args = smelt_data_args; smelt_call_args.extend(smelt_purry_args.clone().into_iter().map(|value| value.into_smelt_unknown())); {partial_call} }})))) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", \"Wrong number of arguments\".to_owned())).into()) }} }}{}",
                         self.throwing_call_suffix(function)
                     ));
                 }
@@ -515,7 +539,28 @@ impl FunctionEmitter<'_> {
                     self.throwing_call_suffix(function)
                 ))
             }
-            Callee::Indirect(_) => Err(EmitError::new("indirect calls are not implemented yet")),
+            Callee::Indirect(callee) => {
+                let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
+                else {
+                    return Err(EmitError::new("indirect call target is not a function"));
+                };
+                let callee_text = self.operand_text(callee)?;
+                let rendered_args = args
+                    .iter()
+                    .enumerate()
+                    .map(|(index, arg)| {
+                        let target_ty = function.params.get(index).copied().ok_or_else(|| {
+                            EmitError::new("indirect call has too many arguments")
+                        })?;
+                        self.operand_as_type_text(arg, target_ty)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .join(", ");
+                let suffix = if function.may_throw { "?" } else { "" };
+                Ok(format!(
+                    "(&mut *{callee_text}.borrow_mut())({rendered_args}){suffix}"
+                ))
+            }
         }
     }
 
@@ -583,13 +628,12 @@ impl FunctionEmitter<'_> {
         self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
     }
 
-    /// Converts a function call inside a non-throwing Rust closure.
+    /// Converts a function call inside a Rust closure body.
     ///
-    /// MIR closures are emitted as plain `FnMut` values, not as closures
-    /// returning `Result`. When their body calls a throwing Smelt function, the
-    /// error cannot be propagated with `?` through the callback signature, so
-    /// this renderer makes that boundary explicit by unwrapping the throwing
-    /// call before applying normal destination coercions.
+    /// Throwing closure bodies use the same `Result` ABI as free functions, so
+    /// calls that can throw keep their `?` and propagate through the closure's
+    /// returned function value instead of being unwrapped at the callback
+    /// boundary.
     pub(super) fn closure_call_text_for_dest(
         &self,
         callee: &Callee,
@@ -597,17 +641,12 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let call_text = self.call_text(callee, args)?;
-        let call_text = if let Some(without_try) = call_text.strip_suffix('?') {
-            format!("{without_try}.expect(\"throwing call failed inside non-throwing closure\")")
-        } else {
-            call_text
-        };
         let source_ty = self.call_source_ty(callee)?;
         self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
     }
 
     /// Returns the static return type of a call expression.
-    fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
+    pub(super) fn call_source_ty(&self, callee: &Callee) -> Result<TypeId, EmitError> {
         let source_ty = match callee {
             Callee::Builtin(BuiltinFn::ConsoleLog) => self.none_ty,
             Callee::Static(func) => {
@@ -618,8 +657,12 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
                 function.return_ty
             }
-            Callee::Indirect(_) => {
-                return Err(EmitError::new("indirect calls are not implemented yet"));
+            Callee::Indirect(callee) => {
+                let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
+                else {
+                    return Err(EmitError::new("indirect call target is not a function"));
+                };
+                function.return_ty
             }
         };
         Ok(source_ty)

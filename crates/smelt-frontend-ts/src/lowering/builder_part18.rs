@@ -161,6 +161,7 @@ impl ModuleBuilder<'_> {
                     params,
                     return_ty,
                     is_async: function.is_async,
+                            may_throw: false,
                 }))
             }
             Type::Future(item) => {

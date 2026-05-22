@@ -8,7 +8,7 @@ pub enum SmeltUnknown {
     String(String),
     Array(Vec<SmeltUnknown>),
     Object(::std::collections::HashMap<String, SmeltUnknown>),
-    Function(::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown>>),
+    Function(::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>),
 }
 
 impl Clone for SmeltUnknown {

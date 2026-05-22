@@ -169,9 +169,18 @@ impl FunctionEmitter<'_> {
                     .join(", ");
                 let call_text = format!("(&mut *smelt_function_value.borrow_mut())({args})");
                 let return_text = if self.class_has_no_known_fields(function.return_ty) {
-                    call_text
+                    if function.may_throw {
+                        call_text
+                    } else {
+                        format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({call_text})")
+                    }
+                } else if function.may_throw {
+                    let value =
+                        self.unknown_wrap_value_text(&format!("{call_text}?"), function.return_ty)?;
+                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
                 } else {
-                    self.unknown_wrap_value_text(&call_text, function.return_ty)?
+                    let value = self.unknown_wrap_value_text(&call_text, function.return_ty)?;
+                    format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
                 };
                 Ok(format!(
                     "{{ let smelt_function_value = {value_text}; SmeltUnknown::Function(::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}))) }}"
@@ -419,13 +428,25 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
+                let call_text = if function.may_throw {
+                    format!("(&mut *smelt_function.borrow_mut())(vec![{args}])?")
+                } else {
+                    format!(
+                        "(&mut *smelt_function.borrow_mut())(vec![{args}]).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                    )
+                };
                 let return_text = if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
                 } else {
                     self.unknown_cast_value_text("smelt_result", function.return_ty)?
                 };
+                let return_text = if function.may_throw {
+                    format!("Ok::<_, Box<dyn std::error::Error>>({return_text})")
+                } else {
+                    return_text
+                };
                 Ok(format!(
-                    "if let SmeltUnknown::Function(smelt_function) = {text}.clone() {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ let smelt_result = (&mut *smelt_function.borrow_mut())(vec![{args}]); {return_text} }})); smelt_callback }} else {{ panic!(\"unknown is not function\") }}"
+                    "if let SmeltUnknown::Function(smelt_function) = {text}.clone() {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }})); smelt_callback }} else {{ panic!(\"unknown is not function\") }}"
                 ))
             }
             Some(Type::Future(_)) => Ok("Default::default()".to_owned()),

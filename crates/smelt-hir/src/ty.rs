@@ -58,6 +58,8 @@ pub struct FunctionType {
     pub return_ty: TypeId,
     /// Whether the function is async.
     pub is_async: bool,
+    /// Whether calls can leave through a source-language throw.
+    pub may_throw: bool,
 }
 
 /// Interns and deduplicates types.

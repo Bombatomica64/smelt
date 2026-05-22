@@ -749,6 +749,7 @@ impl ModuleBuilder<'_> {
                 params: params.clone(),
                 return_ty: implementation_return_ty,
                 is_async,
+                may_throw: false,
             };
             let args = if rest.is_some() && call.arguments.iter().any(Argument::is_spread) {
                 self.spread_closure_call_arguments(&function_ty, rest, call, body)?
@@ -939,6 +940,7 @@ impl ModuleBuilder<'_> {
                 params,
                 return_ty: unknown,
                 is_async: false,
+                            may_throw: false,
             };
             let function_ty = self.ctx.krate.types.intern(Type::Function(function.clone()));
             (function_ty, function)
@@ -1147,6 +1149,7 @@ impl ModuleBuilder<'_> {
             params: remaining_params,
             return_ty: function.return_ty,
             is_async: function.is_async,
+                            may_throw: false,
         }));
         Ok(Some(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -2189,6 +2192,7 @@ impl ModuleBuilder<'_> {
                 params: callback.params,
                 return_ty: callback.return_ty,
                 is_async: false,
+                            may_throw: false,
             }));
         }
         let Some(Type::Function(function)) = function_ty else {

@@ -1036,6 +1036,7 @@ impl ModuleBuilder<'_> {
                             params: vec![unknown_ty],
                             return_ty: unknown_ty,
                             is_async: false,
+                            may_throw: false,
                         }))
                     })
             }
@@ -1114,6 +1115,7 @@ impl ModuleBuilder<'_> {
             params,
             return_ty,
             is_async: signature.is_async,
+                            may_throw: false,
         })))
     }
 
@@ -1287,6 +1289,7 @@ impl ModuleBuilder<'_> {
                             params: vec![unknown; arrow.params.items.len()],
                             return_ty,
                             is_async: arrow.r#async,
+                            may_throw: false,
                         }))
                     });
                 let symbol = self.intern_source_name(binding.name.as_str());
@@ -1345,6 +1348,7 @@ impl ModuleBuilder<'_> {
                     params,
                     return_ty,
                     is_async: function.r#async,
+                            may_throw: false,
                 }));
                 let symbol = self.intern_source_name(id.name.as_str());
                 let local = body.push_local(LocalDecl {
@@ -1518,6 +1522,7 @@ impl ModuleBuilder<'_> {
             params: params.clone(),
             return_ty,
             is_async: arrow.r#async,
+                            may_throw: false,
         }));
         let predeclared_local = self.local_arrow_existing_body_local(name, body);
         if let Ok(callback) = callback_result {
@@ -1701,6 +1706,7 @@ impl ModuleBuilder<'_> {
                 params: param_tys.clone(),
                 return_ty: provisional_return_ty,
                 is_async: function.r#async,
+                            may_throw: false,
             }));
             let function_symbol = self.intern_source_name(id.name.as_str());
             let self_local = closure_body.push_local(LocalDecl {
@@ -1789,6 +1795,7 @@ impl ModuleBuilder<'_> {
                 params: param_tys,
                 return_ty,
                 is_async: function.r#async,
+                            may_throw: false,
             }));
             let local = if let Some(existing) = self.locals.get(id.name.as_str()).copied() {
                 if let Ok(index) = usize::try_from(existing.0)
@@ -1871,6 +1878,7 @@ impl ModuleBuilder<'_> {
             params,
             return_ty,
             is_async: arrow.r#async,
+                            may_throw: false,
         })))
     }
 
@@ -2110,8 +2118,8 @@ impl ModuleBuilder<'_> {
                         )
                     } else {
                         (
-                            ExprKind::OptionalIndex { receiver, index },
-                            self.ctx.krate.types.intern(Type::Optional(source_item_ty)),
+                            ExprKind::Index { receiver, index },
+                            source_item_ty,
                         )
                     };
                     let extracted = body.push_expr(Expr {

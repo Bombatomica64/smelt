@@ -123,6 +123,8 @@ pub struct MirClosure {
     /// Non-escaping closures can borrow captures, which preserves source
     /// mutation semantics for iterator-style callbacks.
     pub escapes: bool,
+    /// Whether this closure can return through a source-language throw.
+    pub can_throw: bool,
     /// Callback-expression body used while legacy callback lowering is migrated.
     pub callback_body: Option<smelt_hir::CallbackExpr>,
 }
@@ -1361,6 +1363,8 @@ pub enum Terminator {
         dest: LocalId,
         /// Successor block after the call.
         target: BlockId,
+        /// Exception handler used when a throwing callee returns an error.
+        unwind: Option<ExceptionHandler>,
     },
     /// Branch on a boolean condition.
     Switch {
@@ -1386,6 +1390,15 @@ pub enum Terminator {
     Throw(Operand),
     /// Abort control flow.
     Unreachable,
+}
+
+/// MIR edge for source-language exceptions from throwing calls.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ExceptionHandler {
+    /// Block reached when the call throws.
+    pub catch_block: BlockId,
+    /// Optional local receiving the thrown payload.
+    pub exception_local: Option<LocalId>,
 }
 
 /// A single match arm.

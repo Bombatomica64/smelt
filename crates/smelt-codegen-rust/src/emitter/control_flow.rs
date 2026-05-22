@@ -195,9 +195,15 @@ impl FunctionEmitter<'_> {
                         .map(|index| format!("arg{index}"))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    rendered_value = format!(
-                        "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> f64 {{ (&mut *smelt_fn.borrow_mut())({call_args}).smelt_into_f64() }})) }}"
-                    );
+                    rendered_value = if function.may_throw {
+                        format!(
+                            "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> Result<f64, Box<dyn std::error::Error>> {{ Ok::<_, Box<dyn std::error::Error>>((&mut *smelt_fn.borrow_mut())({call_args})?.smelt_into_f64()) }})) }}"
+                        )
+                    } else {
+                        format!(
+                            "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> f64 {{ (&mut *smelt_fn.borrow_mut())({call_args}).smelt_into_f64() }})) }}"
+                        )
+                    };
                 }
                 if name == "SmeltUnknown::Null" {
                     out.push_str(&format!("    let _ = {rendered_value};\n"));
@@ -357,7 +363,13 @@ impl FunctionEmitter<'_> {
                 args,
                 dest,
                 target,
+                unwind,
             } => {
+                if let Some(handler) = unwind {
+                    return self.emit_throwing_call_terminator(
+                        callee, args, *dest, *target, *handler, out,
+                    );
+                }
                 self.emit_call_terminator_statement(callee, args, *dest, out)?;
                 self.emit_block(self.block(*target)?, out)
             }
@@ -463,6 +475,66 @@ impl FunctionEmitter<'_> {
             ));
         }
         self.mark_local_declared(dest);
+        Ok(())
+    }
+
+    /// Emits a throwing call with explicit normal and exception continuations.
+    fn emit_throwing_call_terminator(
+        &self,
+        callee: &Callee,
+        args: &[Operand],
+        dest: LocalId,
+        target: smelt_mir::BlockId,
+        handler: smelt_mir::ExceptionHandler,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let local = self.local_decl(dest)?;
+        let call_text = self.call_text(callee, args)?;
+        let Some(raw_call) = call_text.strip_suffix('?') else {
+            self.emit_call_terminator_statement(callee, args, dest, out)?;
+            return self.emit_block(self.block(target)?, out);
+        };
+        let source_ty = self.call_source_ty(callee)?;
+        out.push_str(&format!("    match {raw_call} {{\n"));
+        out.push_str("        Ok(__smelt_value) => {\n");
+        let value_text = self.rendered_value_as_type_text("__smelt_value", source_ty, local.ty)?;
+        let name = self.local_name(dest)?;
+        let mutability = if self.local_binding_needs_mut(dest) {
+            "mut "
+        } else {
+            ""
+        };
+        if matches!(
+            self.mir.types.get(local.ty),
+            Some(Type::Future(_) | Type::Function(_))
+        ) {
+            out.push_str(&format!(
+                "            let {mutability}{name} = {value_text};\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "            let {mutability}{name}: {} = {value_text};\n",
+                self.type_text_with_impl_trait(local.ty, false)?
+            ));
+        }
+        self.mark_local_declared(dest);
+        self.emit_block(self.block(target)?, out)?;
+        out.push_str("        }\n");
+        out.push_str("        Err(__smelt_error) => {\n");
+        if let Some(exception_local) = handler.exception_local {
+            let exception_name = self.local_name(exception_local)?;
+            let exception_decl = self.local_decl(exception_local)?;
+            let value = match self.mir.types.get(exception_decl.ty) {
+                Some(Type::String) => "__smelt_error.to_string()".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error.to_string())".to_owned(),
+                _ => self.default_value(exception_decl.ty)?,
+            };
+            out.push_str(&format!("            let {exception_name} = {value};\n"));
+            self.mark_local_declared(exception_local);
+        }
+        self.emit_block(self.block(handler.catch_block)?, out)?;
+        out.push_str("        }\n");
+        out.push_str("    }\n");
         Ok(())
     }
 
@@ -1054,6 +1126,7 @@ impl FunctionEmitter<'_> {
                 args,
                 dest,
                 target,
+                unwind: _,
             }) => {
                 self.emit_call_terminator_statement(callee, args, *dest, out)?;
                 self.emit_block_until_goto_inner(
@@ -1136,6 +1209,7 @@ impl FunctionEmitter<'_> {
                 args,
                 dest,
                 target,
+                unwind: _,
             }) => {
                 self.emit_call_terminator_statement(callee, args, *dest, out)?;
                 self.emit_loop_branch_inner(
@@ -1198,7 +1272,12 @@ fn branch_trailing_assignment(
 /// Returns successor blocks for MIR terminators that continue execution.
 fn control_flow_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
     match terminator {
-        Terminator::Goto(target) | Terminator::Call { target, .. } => vec![*target],
+        Terminator::Goto(target) => vec![*target],
+        Terminator::Call { target, unwind, .. } => unwind
+            .iter()
+            .map(|handler| handler.catch_block)
+            .chain(std::iter::once(*target))
+            .collect(),
         Terminator::Switch {
             then_block,
             else_block,

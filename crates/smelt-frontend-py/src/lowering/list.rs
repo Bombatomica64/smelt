@@ -376,6 +376,7 @@ impl ModuleBuilder<'_> {
             params: params.to_vec(),
             return_ty,
             is_async: false,
+                            may_throw: false,
         }));
         body.push_expr(HirExpr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {

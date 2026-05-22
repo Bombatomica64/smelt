@@ -2272,6 +2272,7 @@ impl ModuleBuilder<'_> {
                     params: params.iter().map(|param| param.ty).collect(),
                     return_ty,
                     is_async: function.r#async,
+                            may_throw: false,
                 }))
             },
             |(ty, _)| ty,

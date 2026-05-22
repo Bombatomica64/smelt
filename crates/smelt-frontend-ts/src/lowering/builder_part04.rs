@@ -189,6 +189,7 @@ impl ModuleBuilder<'_> {
                                         self.ctx.krate.types.get(return_ty),
                                         Some(Type::Future(_))
                                     ),
+                                    may_throw: false,
                                 },
                             ));
                             fields.push(Field {
@@ -236,6 +237,7 @@ impl ModuleBuilder<'_> {
                                 self.ctx.krate.types.get(return_ty),
                                 Some(Type::Future(_))
                             ),
+                            may_throw: false,
                         });
                     }
                     TSSignature::TSIndexSignature(index) => {

@@ -1032,14 +1032,19 @@ fn terminator_text(terminator: &Terminator) -> String {
             args,
             dest,
             target,
+            unwind,
         } => {
             let arg_list = args.iter().map(operand_text).collect::<Vec<_>>().join(", ");
+            let unwind_text = unwind.map_or_else(String::new, |handler| {
+                format!(" unwind bb{}", handler.catch_block.0)
+            });
             format!(
-                "{} = call {}({}) -> bb{}",
+                "{} = call {}({}) -> bb{}{}",
                 local_ref(*dest),
                 callee_text(callee),
                 arg_list,
-                target.0
+                target.0,
+                unwind_text
             )
         }
         Terminator::Switch {

@@ -240,6 +240,7 @@ impl ModuleBuilder<'_> {
                 params,
                 return_ty: function.return_ty,
                 is_async: function.is_async,
+                            may_throw: false,
             }));
         }
         self.ctx.krate.types.intern(Type::Unknown)
@@ -916,6 +917,7 @@ impl ModuleBuilder<'_> {
                 params,
                 return_ty,
                 is_async: false,
+                            may_throw: false,
             })))
         })();
         self.pop_type_parameter_scope();
@@ -1491,6 +1493,7 @@ impl ModuleBuilder<'_> {
                         params,
                         return_ty: method.return_ty,
                         is_async: method.is_async,
+                            may_throw: false,
                     })))
                 });
                 let interface = self.find_interface(name).cloned();
@@ -1527,6 +1530,7 @@ impl ModuleBuilder<'_> {
                         params,
                         return_ty,
                         is_async: method.is_async,
+                            may_throw: false,
                     })))
                 });
                 let alias_fields = self
@@ -1665,6 +1669,7 @@ impl ModuleBuilder<'_> {
             params,
             return_ty: method.return_ty,
             is_async: method.is_async,
+                            may_throw: false,
         })))
     }
 
@@ -2496,6 +2501,7 @@ impl ModuleBuilder<'_> {
             params: vec![value_ty],
             return_ty: string_ty,
             is_async: false,
+                            may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -2573,6 +2579,7 @@ impl ModuleBuilder<'_> {
             params: function.params.iter().map(|param| param.ty).collect(),
             return_ty: function.return_ty,
             is_async: function.is_async,
+                            may_throw: false,
         }));
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -2728,11 +2735,13 @@ impl ModuleBuilder<'_> {
                     params: vec![param_ty],
                     return_ty: item.ty,
                     is_async: false,
+                            may_throw: false,
                 }));
                 let function = FunctionType {
                     params: vec![param_ty],
                     return_ty: item.ty,
                     is_async: false,
+                            may_throw: false,
                 };
                 match self.module_global_function_expression(
                     &function,

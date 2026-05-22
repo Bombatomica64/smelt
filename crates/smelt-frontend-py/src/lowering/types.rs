@@ -146,6 +146,7 @@ impl ModuleBuilder<'_> {
                     params,
                     return_ty,
                     is_async: false,
+                            may_throw: false,
                 })))
             }
             "Awaitable" | "Coroutine" => {

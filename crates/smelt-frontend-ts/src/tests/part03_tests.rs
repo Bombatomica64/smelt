@@ -33,6 +33,79 @@ const trunc = Math.trunc(value);
 }
 
 #[test]
+fn lowers_math_ceil_after_sorted_array_destructuring() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+export function overlap(right: number, left: number, millisecondsInDay: number): number {
+  const [start, end] = [right, left].sort((a, b) => a - b);
+  return Math.ceil((end - start) / millisecondsInDay);
+}
+"#),
+        &mut ctx,
+    )?;
+
+    let float_ty = ctx.krate.types.intern(Type::Float);
+    ensure!(
+        ctx.krate.bodies.iter().any(|body| {
+            body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::NumericRound {
+                        op: NumericRoundOp::Ceil,
+                        operand
+                    } if body
+                        .exprs
+                        .get(operand.0 as usize)
+                        .is_some_and(|operand| operand.ty == float_ty)
+                )
+            })
+        }),
+        "expected Math.ceil operand to stay a concrete number after array destructuring"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_math_ceil_after_datearg_array_destructuring() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type DateArg<DateType extends Date> = DateType | number | string;
+interface Interval<DateType extends Date = Date> {
+  start: DateArg<DateType>;
+  end: DateArg<DateType>;
+}
+function toDate<DateType extends Date>(date: DateArg<DateType>): DateType {
+  return date as DateType;
+}
+function offset(value: number): number {
+  return value;
+}
+export function overlap(intervalLeft: Interval, intervalRight: Interval, millisecondsInDay: number): number {
+  const [leftStart, leftEnd] = [
+    +toDate(intervalLeft.start),
+    +toDate(intervalLeft.end),
+  ].sort((a, b) => a - b);
+  const [rightStart, rightEnd] = [
+    +toDate(intervalRight.start),
+    +toDate(intervalRight.end),
+  ].sort((a, b) => a - b);
+  const overlapLeft = rightStart < leftStart ? leftStart : rightStart;
+  const left = overlapLeft - offset(overlapLeft);
+  const overlapRight = rightEnd > leftEnd ? leftEnd : rightEnd;
+  const right = overlapRight - offset(overlapRight);
+  return Math.ceil((right - left) / millisecondsInDay);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn narrows_unannotated_local_after_numeric_assignment() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

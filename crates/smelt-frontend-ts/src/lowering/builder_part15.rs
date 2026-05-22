@@ -80,6 +80,7 @@ impl ModuleBuilder<'_> {
                     params,
                     return_ty,
                     is_async,
+                    may_throw: false,
                 })),
             span,
         });
@@ -120,6 +121,7 @@ impl ModuleBuilder<'_> {
                         params: function.params.iter().map(|param| param.ty).collect(),
                         return_ty: function.return_ty,
                         is_async: function.is_async,
+                            may_throw: false,
                     })))
             }
             Item::Class(class) => Ok(self.ctx.krate.types.intern(Type::Class {
@@ -320,6 +322,7 @@ impl ModuleBuilder<'_> {
             params: param_tys,
             return_ty,
             is_async: false,
+                            may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -508,6 +511,7 @@ impl ModuleBuilder<'_> {
             params: vec![number_ty],
             return_ty: number_ty,
             is_async: false,
+                            may_throw: false,
         }));
         Some(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -793,6 +797,7 @@ impl ModuleBuilder<'_> {
             params: vec![number_ty],
             return_ty: number_ty,
             is_async: false,
+                            may_throw: false,
         }));
         Some(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {

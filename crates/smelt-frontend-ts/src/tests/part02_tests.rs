@@ -779,7 +779,7 @@ const { count } = data;
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::OptionalIndex { .. })),
+            .any(|expr| matches!(expr.kind, ExprKind::Index { .. })),
         "missing array destructuring index"
     );
     ensure!(

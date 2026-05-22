@@ -46,6 +46,7 @@ impl ModuleBuilder<'_> {
                 params: vec![string_ty],
                 return_ty: string_ty,
                 is_async: false,
+                            may_throw: false,
             }));
             let callback = self.argument_with_hint(replacement_arg, body, Some(callback_ty))?;
             let callback_ty_actual = Self::expr_ty(body, callback);

@@ -12,9 +12,9 @@ use smelt_hir::{
 };
 
 use crate::{
-    BasicBlock, BlockId, BuiltinFn, Callee, ClosureId, Constant, FuncId, HirOrigin, LocalDecl,
-    LocalId, LocalKind, Mir, MirClosure, MirClosureCapture, MirFunction, MirListSpliceItem,
-    Operand, Place, Rvalue, Statement, Terminator,
+    BasicBlock, BlockId, BuiltinFn, Callee, ClosureId, Constant, ExceptionHandler, FuncId,
+    HirOrigin, LocalDecl, LocalId, LocalKind, Mir, MirClosure, MirClosureCapture, MirFunction,
+    MirListSpliceItem, Operand, Place, Rvalue, Statement, Terminator,
 };
 
 /// Converts a `usize` into `u32`, panicking if it does not fit.
@@ -274,9 +274,331 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     if errors.is_empty() {
         mark_escaping_closures(&mut mir);
         propagate_throwing_functions(&mut mir);
+        synchronize_throwing_closure_types(&mut mir);
+        propagate_throwing_functions(&mut mir);
+        synchronize_throwing_closure_types(&mut mir);
         Ok(mir)
     } else {
         Err(errors)
+    }
+}
+
+/// Widen MIR locals that hold throwing closures to the throwing function ABI.
+///
+/// HIR closure expressions initially carry the syntactic function type. MIR can
+/// later discover additional throwing behavior through lowered calls inside the
+/// closure body, so the local receiving `Rvalue::Closure` must be updated after
+/// throw propagation. Keeping this in MIR avoids frontend guesses about which
+/// callees will eventually use a `Result` ABI.
+fn synchronize_throwing_closure_types(mir: &mut Mir) {
+    for function_index in 0..mir.functions.len() {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let assignments = {
+                let function = &mir.functions[function_index];
+                function
+                    .blocks
+                    .iter()
+                    .flat_map(|block| block.statements.iter())
+                    .filter_map(|statement| {
+                        let Statement::Assign {
+                            dest,
+                            value: Rvalue::Use(operand),
+                        } = statement
+                        else {
+                            return None;
+                        };
+                        let source = operand_local(operand)?;
+                        Some((*dest, source))
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for (dest, source) in assignments {
+                if widen_function_local_from_source(
+                    &mut mir.types,
+                    &mut mir.functions[function_index].locals,
+                    dest,
+                    source,
+                ) {
+                    changed = true;
+                }
+            }
+        }
+        let updates = {
+            let function = &mir.functions[function_index];
+            let mut updates = Vec::new();
+            for block in &function.blocks {
+                for statement in &block.statements {
+                    let Statement::Assign {
+                        dest,
+                        value: Rvalue::Closure { id, .. },
+                    } = statement
+                    else {
+                        continue;
+                    };
+                    let Some(closure) = mir
+                        .closures
+                        .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                    else {
+                        continue;
+                    };
+                    if !closure.can_throw {
+                        continue;
+                    }
+                    updates.push((*dest, closure.return_ty));
+                }
+            }
+            updates
+        };
+        for (local, return_ty) in updates {
+            let Some(local_decl) = mir.functions[function_index]
+                .locals
+                .get(local.0 as usize)
+                .cloned()
+            else {
+                continue;
+            };
+            let Some(Type::Function(mut function_ty)) = mir.types.get(local_decl.ty).cloned()
+            else {
+                continue;
+            };
+            if function_ty.may_throw {
+                continue;
+            }
+            function_ty.may_throw = true;
+            function_ty.return_ty = return_ty;
+            let widened = mir.types.intern(Type::Function(function_ty));
+            if let Some(local_decl) = mir.functions[function_index]
+                .locals
+                .get_mut(local.0 as usize)
+            {
+                local_decl.ty = widened;
+            }
+        }
+        let assignments = local_alias_assignments(&mir.functions[function_index].blocks);
+        propagate_throwing_function_aliases(
+            &mut mir.types,
+            &mut mir.functions[function_index].locals,
+            &assignments,
+        );
+        synchronize_closure_capture_types_from_locals(
+            &mut mir.closures,
+            &mir.functions[function_index].locals,
+            closure_ids_in_blocks(&mir.functions[function_index].blocks),
+        );
+    }
+    for closure_index in 0..mir.closures.len() {
+        let mut changed = true;
+        while changed {
+            changed = false;
+            let assignments = {
+                let closure = &mir.closures[closure_index];
+                closure
+                    .blocks
+                    .iter()
+                    .flat_map(|block| block.statements.iter())
+                    .filter_map(|statement| {
+                        let Statement::Assign {
+                            dest,
+                            value: Rvalue::Use(operand),
+                        } = statement
+                        else {
+                            return None;
+                        };
+                        let source = operand_local(operand)?;
+                        Some((*dest, source))
+                    })
+                    .collect::<Vec<_>>()
+            };
+            for (dest, source) in assignments {
+                if widen_function_local_from_source(
+                    &mut mir.types,
+                    &mut mir.closures[closure_index].locals,
+                    dest,
+                    source,
+                ) {
+                    changed = true;
+                }
+            }
+        }
+        let updates = {
+            let closure = &mir.closures[closure_index];
+            let mut updates = Vec::new();
+            for block in &closure.blocks {
+                for statement in &block.statements {
+                    let Statement::Assign {
+                        dest,
+                        value: Rvalue::Closure { id, .. },
+                    } = statement
+                    else {
+                        continue;
+                    };
+                    let Some(nested) = mir
+                        .closures
+                        .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                    else {
+                        continue;
+                    };
+                    if nested.can_throw {
+                        updates.push((*dest, nested.return_ty));
+                    }
+                }
+            }
+            updates
+        };
+        for (local, return_ty) in updates {
+            let Some(local_decl) = mir.closures[closure_index]
+                .locals
+                .get(local.0 as usize)
+                .cloned()
+            else {
+                continue;
+            };
+            let Some(Type::Function(mut function_ty)) = mir.types.get(local_decl.ty).cloned()
+            else {
+                continue;
+            };
+            if function_ty.may_throw {
+                continue;
+            }
+            function_ty.may_throw = true;
+            function_ty.return_ty = return_ty;
+            let widened = mir.types.intern(Type::Function(function_ty));
+            if let Some(local_decl) = mir.closures[closure_index].locals.get_mut(local.0 as usize) {
+                local_decl.ty = widened;
+            }
+        }
+        let assignments = local_alias_assignments(&mir.closures[closure_index].blocks);
+        propagate_throwing_function_aliases(
+            &mut mir.types,
+            &mut mir.closures[closure_index].locals,
+            &assignments,
+        );
+        let owner_locals = mir.closures[closure_index].locals.clone();
+        let closure_ids = closure_ids_in_blocks(&mir.closures[closure_index].blocks);
+        synchronize_closure_capture_types_from_locals(
+            &mut mir.closures,
+            &owner_locals,
+            closure_ids,
+        );
+    }
+}
+
+/// Return closure IDs constructed by assignments in a block list.
+fn closure_ids_in_blocks(blocks: &[BasicBlock]) -> Vec<ClosureId> {
+    blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .filter_map(|statement| {
+            let Statement::Assign {
+                value: Rvalue::Closure { id, .. },
+                ..
+            } = statement
+            else {
+                return None;
+            };
+            Some(*id)
+        })
+        .collect()
+}
+
+/// Keep capture metadata and captured locals aligned with widened source locals.
+fn synchronize_closure_capture_types_from_locals(
+    closures: &mut [MirClosure],
+    owner_locals: &[LocalDecl],
+    closure_ids: Vec<ClosureId>,
+) {
+    for closure_id in closure_ids {
+        let Some(closure) = closures.get_mut(closure_id.0 as usize) else {
+            continue;
+        };
+        for capture in &mut closure.captures {
+            let Some(source_ty) = owner_locals
+                .get(capture.source_local.0 as usize)
+                .map(|decl| decl.ty)
+            else {
+                continue;
+            };
+            capture.ty = source_ty;
+            if let Some(target_local) = capture.target_local
+                && let Some(local) = closure.locals.get_mut(target_local.0 as usize)
+            {
+                local.ty = source_ty;
+            }
+        }
+    }
+}
+
+/// Return local alias assignments from a block list.
+fn local_alias_assignments(blocks: &[BasicBlock]) -> Vec<(LocalId, LocalId)> {
+    blocks
+        .iter()
+        .flat_map(|block| block.statements.iter())
+        .filter_map(|statement| {
+            let Statement::Assign {
+                dest,
+                value: Rvalue::Use(operand),
+            } = statement
+            else {
+                return None;
+            };
+            let source = operand_local(operand)?;
+            Some((*dest, source))
+        })
+        .collect()
+}
+
+/// Propagate throwing function ABI through local-to-local aliases in blocks.
+fn propagate_throwing_function_aliases(
+    types: &mut smelt_hir::TypeInterner,
+    locals: &mut [LocalDecl],
+    assignments: &[(LocalId, LocalId)],
+) {
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (dest, source) in assignments.iter().copied() {
+            if widen_function_local_from_source(types, locals, dest, source) {
+                changed = true;
+            }
+        }
+    }
+}
+
+/// Widen a function-typed destination local when it aliases a throwing source.
+fn widen_function_local_from_source(
+    types: &mut smelt_hir::TypeInterner,
+    locals: &mut [LocalDecl],
+    dest: LocalId,
+    source: LocalId,
+) -> bool {
+    let Some(source_ty) = locals.get(source.0 as usize).map(|decl| decl.ty) else {
+        return false;
+    };
+    let Some(Type::Function(source_fn)) = types.get(source_ty).cloned() else {
+        return false;
+    };
+    if !source_fn.may_throw {
+        return false;
+    }
+    let Some(dest_ty) = locals.get(dest.0 as usize).map(|decl| decl.ty) else {
+        return false;
+    };
+    let Some(Type::Function(mut dest_fn)) = types.get(dest_ty).cloned() else {
+        return false;
+    };
+    if dest_fn.may_throw {
+        return false;
+    }
+    dest_fn.may_throw = true;
+    dest_fn.return_ty = source_fn.return_ty;
+    let widened = types.intern(Type::Function(dest_fn));
+    if let Some(local) = locals.get_mut(dest.0 as usize) {
+        local.ty = widened;
+        true
+    } else {
+        false
     }
 }
 
@@ -1131,6 +1453,7 @@ impl<'hir> LoweringCtx<'hir> {
                     args: lowered_args,
                     dest,
                     target,
+                    unwind: self.current_exception_handler(),
                 })?;
                 self.current_block = target;
                 Operand::Copy(Place::Local(dest))
@@ -2888,6 +3211,7 @@ impl<'hir> LoweringCtx<'hir> {
                     args: lowered_args,
                     dest,
                     target,
+                    unwind: self.current_exception_handler(),
                 })?;
                 self.current_block = target;
                 Operand::Copy(Place::Local(dest))
@@ -2915,6 +3239,7 @@ impl<'hir> LoweringCtx<'hir> {
                     args: lowered_args,
                     dest,
                     target,
+                    unwind: self.current_exception_handler(),
                 })?;
                 self.current_block = target;
                 Operand::Copy(Place::Local(dest))
@@ -3024,6 +3349,10 @@ impl<'hir> LoweringCtx<'hir> {
                         }],
                         entry: BlockId(0),
                         escapes: false,
+                        can_throw: closure
+                            .callback_body
+                            .as_ref()
+                            .is_some_and(callback_expr_can_throw),
                         callback_body: closure.callback_body.clone(),
                     });
                 } else {
@@ -3060,6 +3389,7 @@ impl<'hir> LoweringCtx<'hir> {
                         blocks: function.blocks,
                         entry: function.entry,
                         escapes: false,
+                        can_throw: function.can_throw,
                         callback_body: None,
                     });
                     self.closures.extend(nested_closures);
@@ -3075,12 +3405,28 @@ impl<'hir> LoweringCtx<'hir> {
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ClosureCall { callee, args } => {
+                let callee_ty = self.hir_expr(*callee)?.ty;
                 let callee_operand = self.lower_expr(*callee)?;
                 let lowered_args = args
                     .iter()
                     .map(|arg| self.lower_expr(*arg))
                     .collect::<Result<Vec<_>, _>>()?;
                 let dest = self.push_temp(expr.ty, expr.span);
+                if matches!(
+                    self.krate.types.get(callee_ty),
+                    Some(Type::Function(function)) if function.may_throw
+                ) {
+                    let target = self.function.push_block(expr.span);
+                    self.set_terminator(Terminator::Call {
+                        callee: Callee::Indirect(callee_operand),
+                        args: lowered_args,
+                        dest,
+                        target,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.current_block = target;
+                    return Ok(Operand::Copy(Place::Local(dest)));
+                }
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ClosureCall {
@@ -3524,6 +3870,16 @@ impl<'hir> LoweringCtx<'hir> {
         Ok(())
     }
 
+    /// Returns the active source-language exception handler for a throwing call.
+    fn current_exception_handler(&self) -> Option<ExceptionHandler> {
+        self.exception_targets
+            .last()
+            .map(|target| ExceptionHandler {
+                catch_block: target.catch_block,
+                exception_local: target.exception_local,
+            })
+    }
+
     /// Creates a lowering error with optional span information.
     fn error(&self, message: impl Into<String>, span: Option<Span>) -> LowerError {
         let mut message = message.into();
@@ -3563,6 +3919,7 @@ fn propagate_throwing_functions(mir: &mut Mir) {
             .iter()
             .map(|function| function.can_throw)
             .collect::<Vec<_>>();
+        let types = mir.types.clone();
         let mut changed = false;
 
         for function in &mut mir.functions {
@@ -3571,12 +3928,36 @@ fn propagate_throwing_functions(mir: &mut Mir) {
             }
             let can_throw = function.blocks.iter().any(|block| {
                 block
-                    .terminator
-                    .as_ref()
-                    .is_some_and(|terminator| terminator_can_throw(terminator, &throwing))
+                    .statements
+                    .iter()
+                    .any(|statement| statement_can_throw(statement, &function.locals, &types))
+                    || block
+                        .terminator
+                        .as_ref()
+                        .is_some_and(|terminator| terminator_can_throw(terminator, &throwing))
             });
             if can_throw {
                 function.can_throw = true;
+                changed = true;
+            }
+        }
+
+        for closure in &mut mir.closures {
+            if closure.can_throw {
+                continue;
+            }
+            let can_throw = closure.blocks.iter().any(|block| {
+                block
+                    .statements
+                    .iter()
+                    .any(|statement| statement_can_throw(statement, &closure.locals, &types))
+                    || block
+                        .terminator
+                        .as_ref()
+                        .is_some_and(|terminator| terminator_can_throw(terminator, &throwing))
+            });
+            if can_throw {
+                closure.can_throw = true;
                 changed = true;
             }
         }
@@ -3587,22 +3968,102 @@ fn propagate_throwing_functions(mir: &mut Mir) {
     }
 }
 
+/// Returns whether a MIR statement can throw through an expression-level call.
+fn statement_can_throw(
+    statement: &Statement,
+    locals: &[LocalDecl],
+    types: &smelt_hir::TypeInterner,
+) -> bool {
+    let Statement::Assign {
+        value: Rvalue::ClosureCall { callee, .. },
+        ..
+    } = statement
+    else {
+        return false;
+    };
+    let Some(local) = operand_local(callee) else {
+        return true;
+    };
+    locals
+        .get(local.0 as usize)
+        .and_then(|decl| types.get(decl.ty))
+        .is_some_and(|ty| matches!(ty, Type::Function(function) if function.may_throw))
+}
+
 /// Returns whether a terminator can leave through an uncaught exception path.
 fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
     match terminator {
         Terminator::Throw(_) => true,
         Terminator::Call {
             callee: Callee::Static(func),
+            unwind: None,
             ..
         } => match usize_from_u32(func.0, "MIR function index does not fit in usize") {
             Ok(index) => throwing.get(index).copied().unwrap_or(false),
             Err(_) => false,
         },
+        Terminator::Call {
+            callee: Callee::Indirect(_),
+            unwind: None,
+            ..
+        } => true,
         Terminator::Goto(_)
         | Terminator::Call { .. }
         | Terminator::Switch { .. }
         | Terminator::Match { .. }
         | Terminator::Return(_)
         | Terminator::Unreachable => false,
+    }
+}
+
+/// Returns whether a legacy callback expression contains a source throw.
+fn callback_expr_can_throw(expr: &smelt_hir::CallbackExpr) -> bool {
+    use smelt_hir::CallbackExprKind;
+    match &expr.kind {
+        CallbackExprKind::Throw { .. } => true,
+        CallbackExprKind::Unary { operand, .. } => callback_expr_can_throw(operand),
+        CallbackExprKind::Binary { lhs, rhs, .. } => {
+            callback_expr_can_throw(lhs) || callback_expr_can_throw(rhs)
+        }
+        CallbackExprKind::Conditional {
+            cond,
+            then_expr,
+            else_expr,
+        } => {
+            callback_expr_can_throw(cond)
+                || callback_expr_can_throw(then_expr)
+                || callback_expr_can_throw(else_expr)
+        }
+        CallbackExprKind::Call { callee, args } => {
+            callback_expr_can_throw(callee)
+                || args.iter().any(|arg| callback_expr_can_throw(&arg.expr))
+        }
+        CallbackExprKind::MethodCall { receiver, args, .. } => {
+            callback_expr_can_throw(receiver)
+                || args.iter().any(|arg| callback_expr_can_throw(&arg.expr))
+        }
+        CallbackExprKind::ListLit(items) => items.iter().any(callback_expr_can_throw),
+        CallbackExprKind::DictLit(entries) => entries
+            .iter()
+            .any(|(_, value)| callback_expr_can_throw(value)),
+        CallbackExprKind::Index { receiver, .. } => callback_expr_can_throw(receiver),
+        CallbackExprKind::DynamicIndex { receiver, index } => {
+            callback_expr_can_throw(receiver) || callback_expr_can_throw(index)
+        }
+        CallbackExprKind::Field { receiver, .. }
+        | CallbackExprKind::HasField { receiver, .. }
+        | CallbackExprKind::FieldTruthy { receiver, .. }
+        | CallbackExprKind::UnknownIs {
+            value: receiver, ..
+        } => callback_expr_can_throw(receiver),
+        CallbackExprKind::FunctionTableLookup { key, .. } => callback_expr_can_throw(key),
+        CallbackExprKind::HasDynamicField { receiver, field } => {
+            callback_expr_can_throw(receiver) || callback_expr_can_throw(field)
+        }
+        CallbackExprKind::AssignCapture { value, .. } => callback_expr_can_throw(value),
+        CallbackExprKind::Sequence { effects, result } => {
+            effects.iter().any(callback_expr_can_throw) || callback_expr_can_throw(result)
+        }
+        _ => false,
     }
 }

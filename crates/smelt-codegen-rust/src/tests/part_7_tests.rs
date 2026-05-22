@@ -89,6 +89,64 @@ const date = new UTCDate();
 }
 
 #[test]
+fn emits_regex_replace_callbacks_as_closures() {
+    let source = source_for(
+        r#"
+export function localize(enNumber: number): string {
+  const suffix = "!";
+  return enNumber.toString().replace(/\d/g, (match) => match + suffix);
+}
+"#,
+    );
+
+    assert!(source.contains("replace_all"), "{source}");
+    assert!(source.contains("|arg0: String|"), "{source}");
+    assert!(
+        !source.contains("|caps: &regex::Captures<'_>| (_smelt_tmp_"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_mutable_class_method_parameters_when_reassigned() {
+    let source = source_for(
+        r#"
+class Parser {
+  set(date: number, value: number): number {
+    date = value + 1;
+    return date;
+  }
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn set(&self, mut date: f64, value: f64) -> f64"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_mutable_constructor_parameters_when_reassigned() {
+    let source = source_for(
+        r#"
+class Box {
+  value: number;
+  constructor(value: number) {
+    value = value + 1;
+    this.value = value;
+  }
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn new(mut value: f64) -> Self"),
+        "{source}"
+    );
+}
+
+#[test]
 fn deduplicates_interface_fields_after_inheritance_expansion() {
     let source = source_for(
         r#"

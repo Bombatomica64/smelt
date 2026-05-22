@@ -3,6 +3,20 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
+    /// Returns a Rust closure return type, wrapping throwing closures in `Result`.
+    fn closure_return_type_text(
+        &self,
+        return_ty: TypeId,
+        can_throw: bool,
+    ) -> Result<String, EmitError> {
+        let inner = self.type_text_with_impl_trait(return_ty, false)?;
+        if can_throw {
+            Ok(format!("Result<{inner}, Box<dyn std::error::Error>>"))
+        } else {
+            Ok(inner)
+        }
+    }
+
     /// Return true when rendered callback argument text is a generated no-op.
     fn callback_arg_text_is_default(arg: &str) -> bool {
         arg.contains("RefCell<dyn FnMut")
@@ -628,6 +642,11 @@ impl FunctionEmitter<'_> {
             let param_refs = param_names.iter().map(String::as_str).collect::<Vec<_>>();
             let return_ty = return_override.unwrap_or(closure.return_ty);
             let body_expr = self.callback_expr_as_type_text(callback, return_ty, &param_refs)?;
+            let body_expr = if closure.can_throw {
+                format!("Ok::<_, Box<dyn std::error::Error>>({body_expr})")
+            } else {
+                body_expr
+            };
             let body = if matches!(self.mir.types.get(return_ty), Some(Type::Future(_))) {
                 format!("Box::pin(async move {{ {body_expr} }})")
             } else {
@@ -653,7 +672,7 @@ impl FunctionEmitter<'_> {
             format!(
                 "|{}| -> {} {{ {body} }}",
                 param_decls.join(", "),
-                self.type_text_with_impl_trait(return_ty, false)?
+                self.closure_return_type_text(return_ty, closure.can_throw)?
             )
         } else {
             let mut closure_locals = closure.locals.clone();
@@ -692,7 +711,7 @@ impl FunctionEmitter<'_> {
                 origin: HirOrigin::Body(smelt_hir::BodyId(u32::MAX)),
                 is_async: false,
                 is_test: false,
-                can_throw: false,
+                can_throw: closure.can_throw,
                 params: closure.params.clone(),
                 return_ty: return_override.unwrap_or(closure.return_ty),
                 locals: closure_locals,
@@ -758,9 +777,35 @@ impl FunctionEmitter<'_> {
                     Some(Type::Future(item)) => *item,
                     _ => function.return_ty,
                 };
-                let return_ty = emitter.type_text_with_impl_trait(output_ty, false)?;
+                let output_text = emitter.type_text_with_impl_trait(output_ty, false)?;
+                let return_ty = if closure.can_throw {
+                    format!("Result<{output_text}, Box<dyn std::error::Error>>")
+                } else {
+                    output_text
+                };
                 let async_value_needs_await = async_body_returns_future_value(&body_text);
-                let return_value = if matches!(
+                let return_value = if closure.can_throw && async_value_needs_await {
+                    if matches!(
+                        emitter.mir.types.get(output_ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || emitter.is_erased_class_type(output_ty)
+                    {
+                        "let smelt_async_output = smelt_async_value?.await; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output.into_smelt_unknown())".to_owned()
+                    } else {
+                        "let smelt_async_output = smelt_async_value?.await; Ok::<_, Box<dyn std::error::Error>>(smelt_async_output)"
+                            .to_owned()
+                    }
+                } else if closure.can_throw {
+                    if matches!(
+                        emitter.mir.types.get(output_ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) || emitter.is_erased_class_type(output_ty)
+                    {
+                        "Ok::<_, Box<dyn std::error::Error>>(smelt_async_value?.into_smelt_unknown())".to_owned()
+                    } else {
+                        "Ok::<_, Box<dyn std::error::Error>>(smelt_async_value?)".to_owned()
+                    }
+                } else if matches!(
                     emitter.mir.types.get(output_ty),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                 ) || emitter.is_erased_class_type(output_ty)
@@ -918,12 +963,20 @@ impl FunctionEmitter<'_> {
                     {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
-                    out.push_str("    ()\n");
+                    if self.function.can_throw {
+                        out.push_str("    Ok::<(), Box<dyn std::error::Error>>(())\n");
+                    } else {
+                        out.push_str("    ()\n");
+                    }
                 } else {
-                    out.push_str(&format!(
-                        "    {}\n",
-                        self.operand_as_type_text(operand, self.function.return_ty)?
-                    ));
+                    let value = self.operand_as_type_text(operand, self.function.return_ty)?;
+                    if self.function.can_throw {
+                        out.push_str(&format!(
+                            "    Ok::<_, Box<dyn std::error::Error>>({value})\n"
+                        ));
+                    } else {
+                        out.push_str(&format!("    {value}\n"));
+                    }
                 }
                 Ok(())
             }
@@ -939,6 +992,7 @@ impl FunctionEmitter<'_> {
                 args,
                 dest,
                 target,
+                unwind: _,
             } => {
                 let local = self.local_decl(*dest)?;
                 let call_text = self.closure_call_text_for_dest(callee, args, local.ty)?;
@@ -972,7 +1026,7 @@ impl FunctionEmitter<'_> {
             } => self.emit_closure_match(scrutinee, arms, *default, out, active, stop),
             Terminator::Throw(operand) => {
                 out.push_str(&format!(
-                    "    panic!(\"{{}}\", {});\n",
+                    "    return Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into());\n",
                     self.operand_text(operand)?
                 ));
                 Ok(())
@@ -1072,8 +1126,8 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Resolve a callback operand to a Rust closure expression.
-    fn closure_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    /// Resolve a callback operand to the Rust closure expression that constructed it.
+    pub(super) fn closure_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let local = match operand {
             Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
             _ => {
@@ -1243,11 +1297,11 @@ impl FunctionEmitter<'_> {
             smelt_hir::CallbackExprKind::Throw { message } => {
                 if let Some(thrown_message) = message {
                     Ok(format!(
-                        "panic!(\"{{}}\", {})",
+                        "return Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", {})).into())",
                         self.callback_expr_text(thrown_message, params)?
                     ))
                 } else {
-                    Ok("panic!(\"callback threw\")".to_owned())
+                    Ok("return Err(std::io::Error::new(std::io::ErrorKind::Other, \"callback threw\").into())".to_owned())
                 }
             }
             smelt_hir::CallbackExprKind::Index { receiver, index } => {

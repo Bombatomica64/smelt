@@ -241,7 +241,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             unknown_writer.line("String(String),");
             unknown_writer.line("Array(Vec<SmeltUnknown>),");
             unknown_writer.line("Object(::std::collections::HashMap<String, SmeltUnknown>),");
-            unknown_writer.line("Function(::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> SmeltUnknown>>),");
+            unknown_writer.line("Function(::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>),");
         });
         writer.blank_line();
         writer.block("impl Clone for SmeltUnknown", |impl_writer| {

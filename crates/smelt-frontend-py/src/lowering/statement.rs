@@ -421,6 +421,7 @@ impl ModuleBuilder<'_> {
             params: params.clone(),
             return_ty,
             is_async: false,
+                            may_throw: false,
         }));
         let local = body.push_local(LocalDecl {
             name: Some(name),

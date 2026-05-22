@@ -405,6 +405,7 @@ impl ModuleBuilder<'_> {
                 params: vec![list_ty],
                 return_ty,
                 is_async: false,
+                            may_throw: false,
             }));
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
@@ -978,10 +979,12 @@ impl ModuleBuilder<'_> {
             .collect::<Vec<_>>();
         let body_id = self.ctx.krate.push_body(closure_body);
         let captures = self.callback_captures(&callback, body);
+        let may_throw = Self::callback_expr_contains_throw(&callback);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: params.to_vec(),
             return_ty,
             is_async: false,
+            may_throw,
         }));
         body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -1676,6 +1679,7 @@ impl ModuleBuilder<'_> {
             params: expected_param_tys.to_vec(),
             return_ty: unknown_ty,
             is_async: false,
+                            may_throw: false,
         }));
         let args = expected_param_tys
             .iter()
@@ -2791,11 +2795,13 @@ impl ModuleBuilder<'_> {
             }
         }
         lowering_result?;
+        let may_throw = Self::body_contains_uncaught_throw(&closure_body);
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys.to_vec(),
             return_ty,
             is_async: arrow.r#async,
+            may_throw,
         }));
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
@@ -2809,6 +2815,146 @@ impl ModuleBuilder<'_> {
             ty: closure_ty,
             span,
         }))
+    }
+
+    /// Returns whether a legacy callback expression contains a source throw.
+    fn callback_expr_contains_throw(callback: &CallbackExpr) -> bool {
+        match &callback.kind {
+            CallbackExprKind::Throw { .. } => true,
+            CallbackExprKind::Unary { operand, .. } => Self::callback_expr_contains_throw(operand),
+            CallbackExprKind::Binary { lhs, rhs, .. } => {
+                Self::callback_expr_contains_throw(lhs) || Self::callback_expr_contains_throw(rhs)
+            }
+            CallbackExprKind::UnknownIs { value, .. } => Self::callback_expr_contains_throw(value),
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                Self::callback_expr_contains_throw(cond)
+                    || Self::callback_expr_contains_throw(then_expr)
+                    || Self::callback_expr_contains_throw(else_expr)
+            }
+            CallbackExprKind::Call { callee, args } => {
+                Self::callback_expr_contains_throw(callee)
+                    || args
+                        .iter()
+                        .any(|arg| Self::callback_expr_contains_throw(&arg.expr))
+            }
+            CallbackExprKind::MethodCall { receiver, args, .. } => {
+                Self::callback_expr_contains_throw(receiver)
+                    || args
+                        .iter()
+                        .any(|arg| Self::callback_expr_contains_throw(&arg.expr))
+            }
+            CallbackExprKind::ListLit(items) => items.iter().any(Self::callback_expr_contains_throw),
+            CallbackExprKind::DictLit(entries) => entries
+                .iter()
+                .any(|(_, value)| Self::callback_expr_contains_throw(value)),
+            CallbackExprKind::Sequence { effects, result } => {
+                effects.iter().any(Self::callback_expr_contains_throw)
+                    || Self::callback_expr_contains_throw(result)
+            }
+            CallbackExprKind::FunctionTableLookup { key, .. } => {
+                Self::callback_expr_contains_throw(key)
+            }
+            CallbackExprKind::AssignCapture { value, .. } => {
+                Self::callback_expr_contains_throw(value)
+            }
+            CallbackExprKind::Index { receiver, .. }
+            | CallbackExprKind::Field { receiver, .. }
+            | CallbackExprKind::HasField { receiver, .. }
+            | CallbackExprKind::FieldTruthy { receiver, .. } => {
+                Self::callback_expr_contains_throw(receiver)
+            }
+            CallbackExprKind::DynamicIndex { receiver, index } => {
+                Self::callback_expr_contains_throw(receiver)
+                    || Self::callback_expr_contains_throw(index)
+            }
+            CallbackExprKind::HasDynamicField { receiver, field } => {
+                Self::callback_expr_contains_throw(receiver)
+                    || Self::callback_expr_contains_throw(field)
+            }
+            CallbackExprKind::Param(_)
+            | CallbackExprKind::Capture(_)
+            | CallbackExprKind::Function(_)
+            | CallbackExprKind::Literal(_) => false,
+        }
+    }
+
+    /// Returns whether a lowered closure body can throw past its own boundary.
+    ///
+    /// Try bodies with a catch handler are considered locally handled here: the
+    /// MIR lowering attaches exception edges for nested calls and explicit
+    /// throws, so only statements that can escape the closure need to widen the
+    /// closure ABI to `Result`.
+    fn body_contains_uncaught_throw(body: &Body) -> bool {
+        Self::block_contains_uncaught_throw(body, body.root)
+    }
+
+    /// Returns whether a HIR block contains a throw not protected by catch.
+    fn block_contains_uncaught_throw(body: &Body, block: smelt_hir::BlockId) -> bool {
+        let Some(block_data) = body.blocks.get(block.0 as usize) else {
+            return false;
+        };
+        block_data.stmts.iter().any(|stmt_id| {
+            let Some(stmt) = body.stmts.get(stmt_id.0 as usize) else {
+                return false;
+            };
+            Self::stmt_contains_uncaught_throw(body, stmt)
+        })
+    }
+
+    /// Returns whether a HIR statement can throw out of the surrounding body.
+    fn stmt_contains_uncaught_throw(body: &Body, stmt: &Stmt) -> bool {
+        match stmt {
+            Stmt::Throw(_) => true,
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => {
+                Self::block_contains_uncaught_throw(body, *then_block)
+                    || else_block
+                        .is_some_and(|block| Self::block_contains_uncaught_throw(body, block))
+            }
+            Stmt::While { body: loop_body, .. }
+            | Stmt::WhileUpdate {
+                body: loop_body, ..
+            }
+            | Stmt::For {
+                body: loop_body, ..
+            } => Self::block_contains_uncaught_throw(body, *loop_body),
+            Stmt::Match { arms, default, .. } => {
+                arms.iter()
+                    .any(|arm| Self::block_contains_uncaught_throw(body, arm.body))
+                    || default
+                        .is_some_and(|block| Self::block_contains_uncaught_throw(body, block))
+            }
+            Stmt::TryCatch {
+                body: try_body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                let try_escapes = if catch_body.is_none() {
+                    Self::block_contains_uncaught_throw(body, *try_body)
+                } else {
+                    false
+                };
+                let catch_escapes = catch_body
+                    .is_some_and(|block| Self::block_contains_uncaught_throw(body, block));
+                let finally_escapes = finally_body
+                    .is_some_and(|block| Self::block_contains_uncaught_throw(body, block));
+                try_escapes || catch_escapes || finally_escapes
+            }
+            Stmt::Let { .. }
+            | Stmt::Assign { .. }
+            | Stmt::Expr(_)
+            | Stmt::Return(_)
+            | Stmt::Break
+            | Stmt::Continue => false,
+        }
     }
 
     /// Lower an arrow function expression as a first-class closure value.
@@ -3269,6 +3415,7 @@ impl ModuleBuilder<'_> {
                     params: vec![param_ty],
                     return_ty,
                     is_async: false,
+                            may_throw: false,
                 }));
                 let expr = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),

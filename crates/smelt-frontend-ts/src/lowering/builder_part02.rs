@@ -304,6 +304,7 @@ impl ModuleBuilder<'_> {
             params: function.params,
             return_ty,
             is_async: function.is_async,
+                            may_throw: false,
         }))
     }
 
@@ -481,6 +482,7 @@ impl ModuleBuilder<'_> {
                     .collect(),
                 return_ty: target_function.return_ty,
                 is_async: target_function.is_async,
+                            may_throw: false,
             })),
             span,
         });

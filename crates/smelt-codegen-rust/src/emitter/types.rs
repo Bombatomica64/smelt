@@ -328,7 +328,20 @@ impl FunctionEmitter<'_> {
                     .map(|param| self.type_text_with_impl_trait(*param, false))
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
-                let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
+                let return_ty = if function.may_throw
+                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                {
+                    format!(
+                        "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
+                        self.type_text_with_impl_trait(*item, false)?
+                    )
+                } else if function.may_throw {
+                    let inner_return_ty =
+                        self.type_text_with_impl_trait(function.return_ty, false)?;
+                    format!("Result<{inner_return_ty}, Box<dyn std::error::Error>>")
+                } else {
+                    self.type_text_with_impl_trait(function.return_ty, false)?
+                };
                 if allow_impl_trait {
                     Ok(format!("impl FnMut({params}) -> {return_ty}"))
                 } else {
@@ -411,8 +424,34 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                let return_text = self.default_value(function.return_ty)?;
-                let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
+                let return_ty = if function.may_throw
+                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                {
+                    format!(
+                        "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
+                        self.type_text_with_impl_trait(*item, false)?
+                    )
+                } else if function.may_throw {
+                    format!(
+                        "Result<{}, Box<dyn std::error::Error>>",
+                        self.type_text_with_impl_trait(function.return_ty, false)?
+                    )
+                } else {
+                    self.type_text_with_impl_trait(function.return_ty, false)?
+                };
+                let return_value = self.default_value(function.return_ty)?;
+                let return_text = if function.may_throw
+                    && let Some(Type::Future(item)) = self.mir.types.get(function.return_ty)
+                {
+                    let item_value = self.default_value(*item)?;
+                    format!(
+                        "Box::pin(async move {{ Ok::<_, Box<dyn std::error::Error>>({item_value}) }}) as {return_ty}"
+                    )
+                } else if function.may_throw {
+                    format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
+                } else {
+                    return_value
+                };
                 let function_type = self.type_text_with_impl_trait(ty, false)?;
                 Ok(format!(
                     "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ {return_text} }})); smelt_default_callback }}"

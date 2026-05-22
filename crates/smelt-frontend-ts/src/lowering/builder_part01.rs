@@ -1086,6 +1086,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             params,
             return_ty,
             is_async: function.r#async,
+                            may_throw: false,
         }));
         Ok((name, ty, rest))
     }

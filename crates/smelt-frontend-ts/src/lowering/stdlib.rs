@@ -309,6 +309,7 @@ impl ModuleBuilder<'_> {
                     params: Vec::new(),
                     return_ty: unknown,
                     is_async: false,
+                    may_throw: false,
                 }))
         };
         Ok(Some(body.push_expr(Expr {

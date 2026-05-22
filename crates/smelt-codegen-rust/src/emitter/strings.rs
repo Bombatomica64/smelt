@@ -306,7 +306,9 @@ impl FunctionEmitter<'_> {
             self.operand_text(pattern)?
         );
         let haystack_text = self.operand_text(haystack)?;
-        let callback_text = self.operand_text(callback)?;
+        let callback_text = self
+            .closure_operand_text(callback)
+            .or_else(|_| self.operand_text(callback))?;
         let replacement = format!(
             "|caps: &regex::Captures<'_>| ({callback_text})(caps.get(0).expect(\"regex match missing\").as_str().to_string())"
         );
