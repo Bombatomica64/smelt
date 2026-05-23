@@ -31,7 +31,7 @@ impl BackendDependency {
             Self::SerdeJson => {
                 "serde = { version = \"1\", features = [\"derive\"] }\nserde_json = \"1\"\n"
             }
-            Self::Regex => "regex = \"1\"\n",
+            Self::Regex => "regex = \"1\"\nfancy-regex = \"0.14\"\n",
             Self::Rand => "rand = \"0.9\"\n",
             Self::Chrono => "chrono = \"0.4\"\n",
             Self::Url => "url = \"2\"\n",

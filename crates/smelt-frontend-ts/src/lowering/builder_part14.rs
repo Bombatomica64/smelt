@@ -975,6 +975,20 @@ impl ModuleBuilder<'_> {
         }
         let optional = self.expression(&logical.left, body)?;
         let optional_ty = Self::expr_ty(body, optional);
+        if self.ctx.krate.types.get(optional_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(optional_ty)
+        {
+            let optional = self.optionalize_index_receiver(optional, body);
+            let optional_ty = Self::expr_ty(body, optional);
+            if self.is_nullishable_type(optional_ty) {
+                let fallback = self.expression_with_hint(&logical.right, body, Some(optional_ty))?;
+                return Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::OptionalCoalesce { optional, fallback },
+                    ty: self.ctx.krate.types.intern(Type::Unknown),
+                    span: self.span(logical.span.start, logical.span.end),
+                })));
+            }
+        }
         if !self.is_nullishable_type(optional_ty) {
             if let Some(expr) =
                 self.logical_or_numeric_fallback_expression(logical, body, optional, optional_ty)?
@@ -1003,6 +1017,12 @@ impl ModuleBuilder<'_> {
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty {
             ty
+        } else if self.ctx.krate.types.get(ty) == Some(&Type::Unknown)
+            || self.ctx.krate.types.get(fallback_ty) == Some(&Type::Unknown)
+            || self.type_contains_unknown(ty)
+            || self.type_contains_unknown(fallback_ty)
+        {
+            self.ctx.krate.types.intern(Type::Unknown)
         } else if self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty)
         {
             self.ctx.krate.types.intern(Type::String)
@@ -1232,7 +1252,7 @@ impl ModuleBuilder<'_> {
         let ty = if fallback_ty == ty {
             ty
         } else if self.ctx.krate.types.get(ty) == Some(&Type::Unknown) {
-            fallback_ty
+            ty
         } else if self.numeric_type_compatible(ty, fallback_ty) {
             ty
         } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)

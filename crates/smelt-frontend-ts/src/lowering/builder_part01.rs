@@ -48,6 +48,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             value_imports: HashSet::new(),
             object_namespaces,
             const_literals,
+            const_regexps: HashMap::new(),
             const_objects,
             const_collections,
             const_object_value_collections,
@@ -504,6 +505,24 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     | oxc::ast::ast::VariableDeclarationKind::Let
             )
                 && let Some(init) = &declarator.init
+                && let Expression::RegExpLiteral(literal) = init
+            {
+                let pattern = Self::regex_literal_pattern_text_without_flags(literal);
+                let flags = literal.regex.flags.to_string();
+                let ty = self.regexp_type();
+                self.module_globals
+                    .insert(binding.name.as_str().to_owned(), ty);
+                if decl.kind == oxc::ast::ast::VariableDeclarationKind::Const {
+                    self.const_regexps
+                        .insert(binding.name.as_str().to_owned(), (pattern, flags, ty));
+                }
+            }
+            if matches!(
+                decl.kind,
+                oxc::ast::ast::VariableDeclarationKind::Const
+                    | oxc::ast::ast::VariableDeclarationKind::Let
+            )
+                && let Some(init) = &declarator.init
                 && let Ok(value) = self.literal_const_expression(init)
             {
                 self.module_globals
@@ -792,6 +811,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         ConstCollectionValue::Expr(ExprKind::Literal(literal.clone()))
                     }
                     ObjectConstValue::Expr(kind) => ConstCollectionValue::Expr(kind.clone()),
+                    ObjectConstValue::List(_) => ConstCollectionValue::UnknownArray,
+                    ObjectConstValue::Object(_) => ConstCollectionValue::UnknownObject,
                 };
                 ConstCollectionItem {
                     value: item_value,
@@ -2040,6 +2061,9 @@ return_ty,
     ) -> Result<bool, SmeltError> {
         let mut members = HashMap::new();
         let function_hint = self.function_table_value_type(type_hint);
+        if type_hint.is_some() && function_hint.is_none() {
+            return Ok(false);
+        }
         for property in &object.properties {
             let ObjectPropertyKind::ObjectProperty(object_property) = property else {
                 return Err(SmeltError::unsupported(
@@ -2126,10 +2150,10 @@ return_ty,
         let name_text = format!("{namespace}_{key}");
         match &property.value {
             Expression::FunctionExpression(function) => {
-                self.function_expression_item(&name_text, function, type_hint)
+                self.function_expression_item_with_source_name(&name_text, function, type_hint)
             }
             Expression::ArrowFunctionExpression(arrow) => {
-                self.arrow_function_const_declaration(&name_text, arrow, type_hint)
+                self.arrow_function_const_declaration_with_source_name(&name_text, arrow, type_hint)
             }
             _ => Err(SmeltError::unsupported(
                 self.span(property.span.start, property.span.end),
@@ -2265,8 +2289,31 @@ return_ty,
         &mut self,
         expression: &Expression<'_>,
     ) -> Result<(ObjectConstValue, smelt_hir::TypeId), SmeltError> {
+        match expression {
+            Expression::ParenthesizedExpression(parenthesized) => {
+                return self.object_const_entry_value(&parenthesized.expression);
+            }
+            Expression::TSAsExpression(as_expr) => {
+                return self.object_const_entry_value(&as_expr.expression);
+            }
+            Expression::TSSatisfiesExpression(satisfies) => {
+                return self.object_const_entry_value(&satisfies.expression);
+            }
+            Expression::TSNonNullExpression(non_null) => {
+                return self.object_const_entry_value(&non_null.expression);
+            }
+            _ => {}
+        }
         if let Ok(literal) = self.literal_const_expression(expression) {
             return Ok((ObjectConstValue::Literal(literal.literal), literal.ty));
+        }
+        if let Expression::ArrayExpression(array) = expression {
+            return self.array_object_const_entry_value(array);
+        }
+        if let Some(object) = Self::object_const_initializer(expression) {
+            let value = self.object_const_from_expression(object, None)?;
+            let ty = value.ty;
+            return Ok((ObjectConstValue::Object(value), ty));
         }
         if let Expression::RegExpLiteral(literal) = expression {
             let ty = self.ctx.krate.types.intern(Type::String);
@@ -2300,8 +2347,99 @@ return_ty,
         }
         Err(SmeltError::unsupported(
             self.span(expression.span().start, expression.span().end),
-            "object const values must be literals or function expressions",
+            "object const values must be literals, arrays, objects, or function expressions",
         ))
+    }
+
+    /// Lower a literal array nested inside reusable object-constant metadata.
+    fn array_object_const_entry_value(
+        &mut self,
+        array: &oxc::ast::ast::ArrayExpression<'_>,
+    ) -> Result<(ObjectConstValue, smelt_hir::TypeId), SmeltError> {
+        let mut items = Vec::new();
+        for element in &array.elements {
+            let expression = match element {
+                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => {
+                    return Err(SmeltError::unsupported(
+                        self.span(element.span().start, element.span().end),
+                        "object const array values do not support spread or elision yet",
+                    ));
+                }
+                ArrayExpressionElement::NumericLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::Float);
+                    items.push(ObjectConstEntryValue {
+                        value: ObjectConstValue::Literal(Literal::Float(literal.value)),
+                        ty,
+                    });
+                    continue;
+                }
+                ArrayExpressionElement::BigIntLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::Int);
+                    let value = literal.value.parse::<i64>().unwrap_or(0);
+                    items.push(ObjectConstEntryValue {
+                        value: ObjectConstValue::Literal(Literal::Int(value)),
+                        ty,
+                    });
+                    continue;
+                }
+                ArrayExpressionElement::StringLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::String);
+                    items.push(ObjectConstEntryValue {
+                        value: ObjectConstValue::Literal(Literal::String(literal.value.to_string())),
+                        ty,
+                    });
+                    continue;
+                }
+                ArrayExpressionElement::BooleanLiteral(literal) => {
+                    let ty = self.ctx.krate.types.intern(Type::Bool);
+                    items.push(ObjectConstEntryValue {
+                        value: ObjectConstValue::Literal(Literal::Bool(literal.value)),
+                        ty,
+                    });
+                    continue;
+                }
+                ArrayExpressionElement::NullLiteral(_) => {
+                    let ty = self.ctx.krate.types.intern(Type::None);
+                    items.push(ObjectConstEntryValue {
+                        value: ObjectConstValue::Literal(Literal::None),
+                        ty,
+                    });
+                    continue;
+                }
+                ArrayExpressionElement::ArrayExpression(array) => {
+                    let (value, ty) = self.array_object_const_entry_value(array)?;
+                    items.push(ObjectConstEntryValue { value, ty });
+                    continue;
+                }
+                ArrayExpressionElement::ObjectExpression(object) => {
+                    let value = self.object_const_from_expression(object, None)?;
+                    let ty = value.ty;
+                    items.push(ObjectConstEntryValue {
+                        value: ObjectConstValue::Object(value),
+                        ty,
+                    });
+                    continue;
+                }
+                ArrayExpressionElement::TSAsExpression(as_expr) => &as_expr.expression,
+                ArrayExpressionElement::TSSatisfiesExpression(satisfies) => &satisfies.expression,
+                ArrayExpressionElement::TSNonNullExpression(non_null) => &non_null.expression,
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(element.span().start, element.span().end),
+                        "object const array values must be static literal values",
+                    ));
+                }
+            };
+            let (value, ty) = self.object_const_entry_value(expression)?;
+            items.push(ObjectConstEntryValue { value, ty });
+        }
+        let item_ty = items
+            .first()
+            .map(|item| item.ty)
+            .filter(|first_ty| items.iter().all(|item| item.ty == *first_ty))
+            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        Ok((ObjectConstValue::List(items), ty))
     }
 
     /// Infer the HIR dictionary type for a static object const.
@@ -2343,16 +2481,7 @@ return_ty,
                     span,
                 });
                 let entry_value = match &entry.value {
-                    ObjectConstValue::Literal(literal) => body.push_expr(Expr {
-                        kind: ExprKind::Literal(literal.clone()),
-                        ty: entry.value_ty,
-                        span,
-                    }),
-                    ObjectConstValue::Expr(kind) => body.push_expr(Expr {
-                        kind: kind.clone(),
-                        ty: entry.value_ty,
-                        span,
-                    }),
+                    value => self.object_const_value_expression(value, entry.value_ty, span, body),
                 };
                 (key, entry_value)
             })
@@ -2362,6 +2491,40 @@ return_ty,
             ty: value.ty,
             span,
         })
+    }
+
+    /// Recreate one nested static object-constant value inside the active body.
+    fn object_const_value_expression(
+        &mut self,
+        value: &ObjectConstValue,
+        ty: smelt_hir::TypeId,
+        span: Span,
+        body: &mut Body,
+    ) -> smelt_hir::ExprId {
+        match value {
+            ObjectConstValue::Literal(literal) => body.push_expr(Expr {
+                kind: ExprKind::Literal(literal.clone()),
+                ty,
+                span,
+            }),
+            ObjectConstValue::List(items) => {
+                let values = items
+                    .iter()
+                    .map(|item| self.object_const_value_expression(&item.value, item.ty, span, body))
+                    .collect();
+                body.push_expr(Expr {
+                    kind: ExprKind::ListLit(values),
+                    ty,
+                    span,
+                })
+            }
+            ObjectConstValue::Object(object) => self.object_const_expression(object, span.start, span.end, body),
+            ObjectConstValue::Expr(kind) => body.push_expr(Expr {
+                kind: kind.clone(),
+                ty,
+                span,
+            }),
+        }
     }
 
     // Continued in the next split builder file.

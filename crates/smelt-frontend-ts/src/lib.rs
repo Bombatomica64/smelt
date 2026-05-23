@@ -63,7 +63,10 @@ mod lowering;
 #[doc(hidden)]
 pub mod test_support;
 
-pub use context::{HirCtx, ObjectConst, ObjectConstEntry, ObjectConstValue, OverloadSignature};
+pub use context::{
+    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
+    OverloadSignature,
+};
 pub use error::SmeltError;
 pub use ident::camel_to_snake;
 pub use lowering::{ConstCollection, InterfaceHeritageRef, RestParam, to_hir, to_hir_with_path};

@@ -232,9 +232,11 @@ impl ModuleBuilder<'_> {
             }));
         }
         if member.property.name == "length"
-            && let Some(Type::Function(function)) = self.ctx.krate.types.get(access_receiver_ty)
+            && matches!(
+                self.ctx.krate.types.get(access_receiver_ty),
+                Some(Type::Function(_))
+            )
         {
-            let arity = f64::from(u32::try_from(function.params.len()).unwrap_or(u32::MAX));
             if optional_access {
                 return Err(SmeltError::unsupported(
                     self.span(member.span.start, member.span.end),
@@ -243,7 +245,7 @@ impl ModuleBuilder<'_> {
             }
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(arity)),
+                kind: ExprKind::Len { operand: receiver },
                 ty,
                 span: self.span(member.span.start, member.span.end),
             }));

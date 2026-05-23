@@ -4399,6 +4399,7 @@ return_ty,
                 let field = self.intern_source_name(member.property.name.as_str());
                 let ty = match self.ctx.krate.types.get(receiver.ty) {
                     Some(Type::Dict(_, value)) => *value,
+                    Some(Type::Optional(_)) => self.class_field_type(receiver.ty, field)?,
                     Some(Type::Class { .. }) => self.class_field_type(receiver.ty, field)?,
                     Some(Type::Unknown | Type::TypeParam { .. }) => {
                         self.ctx.krate.types.intern(Type::Unknown)
@@ -5392,22 +5393,26 @@ return_ty,
             "lastIndexOf" => ListSearchOp::RFind,
             _ => return Ok(None),
         };
-        let list = self.expression(&member.object, body)?;
+        let mut list = self.expression(&member.object, body)?;
         let list_ty = Self::expr_ty(body, list);
-        let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
+        let Some((list_ty, item_ty)) = self.list_surface_type(list_ty) else {
             return Ok(None);
         };
+        if Self::expr_ty(body, list) != list_ty {
+            list = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: list },
+                ty: list_ty,
+                span: self.span(member.object.span().start, member.object.span().end),
+            });
+        }
         let [item_argument] = call.arguments.as_slice() else {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array indexOf/lastIndexOf currently require exactly one item argument",
             ));
         };
-        let item_ty = *element_ty;
         let item = self.argument(item_argument, body)?;
-        if Self::expr_ty(body, item) != item_ty
-            && self.ctx.krate.types.get(item_ty) != Some(&Type::Unknown)
-        {
+        if !self.array_item_type_compatible(Self::expr_ty(body, item), item_ty) {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
                 "array indexOf/lastIndexOf argument must match the array element type",

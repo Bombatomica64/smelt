@@ -22,9 +22,14 @@ impl FunctionEmitter<'_> {
                     } else {
                         self.default_value(*key)?
                     };
+                    let base_text = self.local_name(*base)?;
+                    if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
+                        return Ok(format!(
+                            "{base_text}.get(&{key_text}).expect(\"missing field\")"
+                        ));
+                    }
                     return Ok(format!(
-                        "{}.get(&{key_text}).cloned().expect(\"missing field\")",
-                        self.local_name(*base)?
+                        "{base_text}.get(&{key_text}).cloned().expect(\"missing field\")"
                     ));
                 }
                 if matches!(
@@ -57,7 +62,7 @@ impl FunctionEmitter<'_> {
                     let field_name = self.symbol_source_name(*field)?;
                     let base_text = self.local_name(*base)?;
                     return Ok(format!(
-                        "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}).cloned())"
+                        "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -117,7 +122,29 @@ impl FunctionEmitter<'_> {
                             "{base_text}.get({index_text}).cloned().unwrap_or({missing})"
                         ))
                     }
-                    Some(Type::Dict(key_ty, _)) => {
+                    Some(Type::Optional(inner_ty))
+                        if matches!(self.mir.types.get(*inner_ty), Some(Type::List(_))) =>
+                    {
+                        let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
+                            return Ok("SmeltUnknown::Null".to_owned());
+                        };
+                        let base_text = self.local_name(*base)?;
+                        let index_text = self.normalized_index_text(
+                            &format!("{base_text}.as_ref().map_or(0, Vec::len)"),
+                            index,
+                        )?;
+                        let access =
+                            if matches!(self.mir.types.get(*item_ty), Some(Type::Optional(_))) {
+                                "values.get({index_text}).cloned().flatten()"
+                            } else {
+                                "values.get({index_text}).cloned()"
+                            };
+                        Ok(format!(
+                            "{base_text}.as_ref().and_then(|values| {})",
+                            access.replace("{index_text}", &index_text)
+                        ))
+                    }
+                    Some(Type::Dict(key_ty, value_ty)) => {
                         let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
                             let source_key = self.operand_ty(index)?;
                             let index_text = self.operand_text(index)?;
@@ -125,10 +152,33 @@ impl FunctionEmitter<'_> {
                         } else {
                             self.operand_as_type_text(index, *key_ty)?
                         };
-                        Ok(format!(
-                            "{}.get(&{key_text}).cloned().expect(\"index out of bounds\")",
-                            self.local_name(*base)?
-                        ))
+                        let base_text = self.local_name(*base)?;
+                        let value_is_unknownish = matches!(
+                            self.mir.types.get(*value_ty),
+                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                        );
+                        if (self.dict_uses_smelt_record(*key_ty)
+                            || self.dict_uses_js_key_map(*key_ty))
+                            && value_is_unknownish
+                        {
+                            Ok(format!(
+                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null)"
+                            ))
+                        } else if self.dict_uses_smelt_record(*key_ty)
+                            || self.dict_uses_js_key_map(*key_ty)
+                        {
+                            Ok(format!(
+                                "{base_text}.get(&{key_text}).expect(\"index out of bounds\")"
+                            ))
+                        } else if value_is_unknownish {
+                            Ok(format!(
+                                "{base_text}.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null)"
+                            ))
+                        } else {
+                            Ok(format!(
+                                "{base_text}.get(&{key_text}).cloned().expect(\"index out of bounds\")"
+                            ))
+                        }
                     }
                     Some(Type::String) => {
                         let base_text = self.local_name(*base)?;
@@ -224,7 +274,7 @@ impl FunctionEmitter<'_> {
         if matches!(self.mir.types.get(index_ty), Some(Type::String)) {
             return Ok(format!(
                 r#"match {base_text}.clone() {{
-                    SmeltUnknown::Object(values) => values.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null),
+                    SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
                     _ => panic!("unknown is not object"),
                 }}"#
             ));
@@ -249,22 +299,20 @@ impl FunctionEmitter<'_> {
 
         Ok(format!(
             r#"match {base_text}.clone() {{
-                SmeltUnknown::String(value) => {{
-                    let len = value.chars().count() as i64;
-                    let index = {numeric_index_text} as i64;
-                    let normalized = if index < 0 {{ len + index }} else {{ index }};
-                    let index = usize::try_from(normalized).expect("negative index out of bounds");
-                    SmeltUnknown::String(value.chars().nth(index).map(|ch| ch.to_string()).expect("index out of bounds"))
-                }}
-                SmeltUnknown::Array(values) => {{
-                    let len = values.len() as i64;
-                    let index = {numeric_index_text} as i64;
-                    let normalized = if index < 0 {{ len + index }} else {{ index }};
-                    let index = usize::try_from(normalized).expect("negative index out of bounds");
-                    values.get(index).cloned().expect("index out of bounds")
-                }}
-                SmeltUnknown::Object(values) => values.get(&{key_text}).cloned().unwrap_or(SmeltUnknown::Null),
-                _ => panic!("unknown is not indexable"),
+                    SmeltUnknown::String(value) => {{
+                        let len = value.chars().count() as i64;
+                        let index = {numeric_index_text} as i64;
+                        let normalized = if index < 0 {{ len + index }} else {{ index }};
+                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
+                    }}
+                    SmeltUnknown::Array(values) => {{
+                        let len = values.len() as i64;
+                        let index = {numeric_index_text} as i64;
+                        let normalized = if index < 0 {{ len + index }} else {{ index }};
+                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
+                    }}
+                SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
+                _ => SmeltUnknown::Null,
             }}"#
         ))
     }

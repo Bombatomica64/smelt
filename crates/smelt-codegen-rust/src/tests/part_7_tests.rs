@@ -1155,6 +1155,51 @@ function pair(value: unknown): unknown {
 }
 
 #[test]
+fn emits_cycle_safe_unknown_structural_equality_runtime() {
+    let source = source_for(
+        r#"
+declare const left: unknown;
+declare const right: unknown;
+const same = left === right;
+"#,
+    );
+
+    assert!(
+        source.contains("fn smelt_unknown_structural_eq"),
+        "{source}"
+    );
+    assert!(source.contains("fn smelt_object_structural_eq"), "{source}");
+    assert!(
+        source.contains("if !seen.insert(key) { return true; }"),
+        "{source}"
+    );
+    assert!(
+        source.contains("left.is_nan() && right.is_nan()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_cycle_safe_unknown_structural_hash_runtime() {
+    let source = source_for(
+        r#"
+declare const value: unknown;
+const values = new Set<unknown>([value]);
+"#,
+    );
+
+    assert!(
+        source.contains("fn smelt_unknown_structural_hash"),
+        "{source}"
+    );
+    assert!(
+        source.contains("fn smelt_object_structural_hash"),
+        "{source}"
+    );
+    assert!(source.contains("if !seen.insert(object.id)"), "{source}");
+}
+
+#[test]
 fn emits_unknown_partial_ordering_runtime_support() {
     let source = source_for(
         r#"
@@ -1673,7 +1718,39 @@ function matchUnknown(value: unknown): string[] | undefined {
         source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"),
         "{source}"
     );
-    assert!(source.contains(".find(&match "), "{source}");
+    assert!(source.contains(".match_string(&match "), "{source}");
+}
+
+#[test]
+fn emits_string_match_with_regexp_flags_preserved() {
+    let source = source_for(
+        r#"
+function parts(value: string): string[] | undefined {
+  const tokens = /a+|b/g;
+  return value.match(tokens);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRegExp::new(\"a+|b\".to_owned(), \"g\".to_owned())"),
+        "{source}"
+    );
+    assert!(source.contains("tokens.clone().match_string(&"), "{source}");
+}
+
+#[test]
+fn emits_javascript_any_character_regex_translation() {
+    let source = source_for(
+        r#"
+function inner(value: string): string[] | undefined {
+  return value.match(/^'([^]*?)'?$/);
+}
+"#,
+    );
+
+    assert!(source.contains("replace(\"[^]\", \"(?s:.)\")"), "{source}");
+    assert!(source.contains(".match_string(&"), "{source}");
 }
 
 #[test]

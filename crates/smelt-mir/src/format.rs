@@ -89,6 +89,46 @@ pub fn format_compact(mir: &Mir) -> String {
         }
         out.push('\n');
     }
+    for closure in &mir.closures {
+        out.push_str(&format!(
+            "closure {:?} -> {}{}\n",
+            closure.id,
+            type_ref(mir, closure.return_ty),
+            if closure.can_throw { " throws" } else { "" }
+        ));
+        if !closure.locals.is_empty() {
+            out.push_str("  locals\n");
+            for (idx, local) in closure.locals.iter().enumerate() {
+                let local_id = index_to_u32(idx, "MIR closure local index");
+                out.push_str(&format!(
+                    "    {} {}: {}\n",
+                    local_ref(LocalId(local_id)),
+                    local_kind_text(mir, local.kind),
+                    type_ref(mir, local.ty)
+                ));
+            }
+        }
+        for block in &closure.blocks {
+            out.push_str(&format!("  bb{}:\n", block.id.0));
+            for phi in &block.phis {
+                out.push_str(&format!(
+                    "    {} = phi {}\n",
+                    local_ref(phi.dest),
+                    type_ref(mir, phi.ty)
+                ));
+            }
+            for statement in &block.statements {
+                out.push_str(&format!("    {}\n", statement_text(statement)));
+            }
+            let terminator = block
+                .terminator
+                .as_ref()
+                .map(terminator_text)
+                .unwrap_or_else(|| "<missing terminator>".to_owned());
+            out.push_str(&format!("    {terminator}\n"));
+        }
+        out.push('\n');
+    }
     out
 }
 

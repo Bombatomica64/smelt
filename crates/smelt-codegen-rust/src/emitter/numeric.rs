@@ -22,7 +22,6 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a length rvalue to Rust text for the destination numeric type.
-    /// Converts a length rvalue to Rust text for the destination numeric type.
     pub(super) fn len_text(&self, operand: &Operand, dest_ty: TypeId) -> Result<String, EmitError> {
         let cast = match self.mir.types.get(dest_ty) {
             Some(Type::Int) => "i64",
@@ -49,6 +48,14 @@ impl FunctionEmitter<'_> {
             operand_ty
         };
         let len_expr = match self.mir.types.get(len_ty) {
+            Some(Type::Function(function))
+                if self.is_erased_unknown_rest_function(function) && !function.may_throw =>
+            {
+                format!("{receiver_text}.length")
+            }
+            Some(Type::Function(_)) => {
+                format!("{}.0", self.operand_function_length(operand)?)
+            }
             Some(Type::String) => format!("{receiver_text}.chars().count()"),
             Some(Type::Optional(inner))
                 if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
@@ -59,6 +66,14 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(*inner), Some(Type::List(_))) =>
             {
                 format!("{receiver_text}.as_ref().map_or(0, Vec::len)")
+            }
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+                ) || self.is_erased_class_type(*inner) =>
+            {
+                format!("{receiver_text}.as_ref().map_or(0, SmeltUnknown::len)")
             }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 format!(
@@ -90,15 +105,17 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
-            Some(Type::Float)
-        ) {
+        let operand_ty = self.operand_ty(operand)?;
+        if matches!(self.mir.types.get(operand_ty), Some(Type::Int)) {
+            let operand_text = self.operand_text(operand)?;
             return Ok(if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
-                "0_i64".to_owned()
+                operand_text
             } else {
-                "0.0".to_owned()
+                format!("{operand_text} as f64")
             });
+        }
+        if !matches!(self.mir.types.get(operand_ty), Some(Type::Float)) {
+            return Err(EmitError::new("numeric round operand must be numeric"));
         }
         let method_name = match op {
             smelt_hir::NumericRoundOp::Floor => "floor",

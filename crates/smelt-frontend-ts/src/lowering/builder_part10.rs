@@ -77,10 +77,9 @@ return_ty: string_ty,
             })));
         }
         let replacement = self.argument(replacement_arg, body)?;
-        if !matches!(
-            self.ctx.krate.types.get(Self::expr_ty(body, haystack)),
-            Some(Type::String | Type::Unknown)
-        ) || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
+        if !(self.is_string_compatible_type(Self::expr_ty(body, haystack))
+            || self.type_contains_unknown(Self::expr_ty(body, haystack)))
+            || self.ctx.krate.types.get(Self::expr_ty(body, pattern)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, replacement)) != Some(&Type::String)
         {
             return Err(SmeltError::unsupported(
@@ -160,6 +159,41 @@ return_ty: string_ty,
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 }), op)))
+            }
+            Argument::Identifier(identifier) => {
+                let Some((pattern, flags, _ty)) =
+                    self.const_regexps.get(identifier.name.as_str()).cloned()
+                else {
+                    return Ok(None);
+                };
+                if flags
+                    .chars()
+                    .any(|flag| !matches!(flag, 'g' | 'i' | 'm' | 's'))
+                {
+                    return Err(SmeltError::unsupported(
+                        self.span(identifier.span.start, identifier.span.end),
+                        "regex replacement supports only g/i/m/s RegExp literal flags",
+                    ));
+                }
+                let op = flags.contains('g').then_some(StringReplaceOp::All);
+                let ty = self.ctx.krate.types.intern(Type::String);
+                let pattern = if flags.chars().any(|flag| matches!(flag, 'i' | 'm' | 's')) {
+                    let inline_flags = flags
+                        .chars()
+                        .filter(|flag| matches!(flag, 'i' | 'm' | 's'))
+                        .collect::<String>();
+                    format!("(?{inline_flags}){pattern}")
+                } else {
+                    pattern
+                };
+                Ok(Some((
+                    body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::String(pattern)),
+                        ty,
+                        span: self.span(identifier.span.start, identifier.span.end),
+                    }),
+                    op,
+                )))
             }
             _ => Ok(None),
         }

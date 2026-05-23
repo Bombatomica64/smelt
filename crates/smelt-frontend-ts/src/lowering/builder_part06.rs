@@ -138,8 +138,27 @@ impl ModuleBuilder<'_> {
         })?;
         let actual = self.argument(actual_arg, body)?;
         let expected = self.argument(expected_arg, body)?;
-        let mut failed =
-            self.expect_matcher_failure_expr(matcher, actual, expected, call.span, body)?;
+        let use_strict_identity = matcher == TestMatcher::Be
+            && self.test_to_be_needs_strict_identity(actual, expected, body);
+        let mut failed = if use_strict_identity {
+            let op = if inverted {
+                BinOp::StrictEq
+            } else {
+                BinOp::StrictNotEq
+            };
+            self.comparison_expr(op, actual, expected, call.span, body)
+        } else {
+            self.expect_matcher_failure_expr(matcher, actual, expected, call.span, body)?
+        };
+        if use_strict_identity {
+            self.push_test_failure_if(
+                failed,
+                &format!("expect(...).{}(...) failed", matcher.source_name()),
+                call.span,
+                body,
+            );
+            return Ok(true);
+        }
         if inverted {
             failed = self.unary_bool_expr(UnaryOp::Not, failed, call.span, body);
         }
@@ -150,6 +169,46 @@ impl ModuleBuilder<'_> {
             body,
         );
         Ok(true)
+    }
+
+    /// Return whether Vitest `toBe` needs JavaScript object/function identity.
+    fn test_to_be_needs_strict_identity(
+        &self,
+        actual: smelt_hir::ExprId,
+        expected: smelt_hir::ExprId,
+        body: &Body,
+    ) -> bool {
+        let actual_ty = self.type_param_constraint_or_self(Self::expr_ty(body, actual));
+        let expected_ty = self.type_param_constraint_or_self(Self::expr_ty(body, expected));
+        let actual_ref = self.test_to_be_identity_type(actual_ty);
+        let expected_ref = self.test_to_be_identity_type(expected_ty);
+        if actual_ref || expected_ref {
+            return true;
+        }
+        self.test_to_be_erased_type(actual_ty) && self.test_to_be_erased_type(expected_ty)
+    }
+
+    /// Return whether a type has reference identity under JavaScript `toBe`.
+    fn test_to_be_identity_type(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(
+                Type::List(_)
+                    | Type::Dict(_, _)
+                    | Type::Set(_)
+                    | Type::Tuple(_)
+                    | Type::Class { .. }
+                    | Type::Function(_)
+            )
+        )
+    }
+
+    /// Return whether a type is erased enough that `toBe` must defer to runtime.
+    fn test_to_be_erased_type(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        )
     }
 
     /// Lower nullish zero-argument matchers to a `None` equality check.

@@ -357,20 +357,58 @@ impl SmeltRegExp {
         self.flags.chars().any(|value| value == flag)
     }
     /// Compile the Rust regex equivalent for this JavaScript RegExp.
-    fn compiled(&self) -> regex::Regex {
+    fn compiled(&self) -> fancy_regex::Regex {
+        self.try_compiled().expect("regex compile failed")
+    }
+    /// Try to compile the Rust regex equivalent for this JavaScript RegExp.
+    fn try_compiled(&self) -> Option<fancy_regex::Regex> {
         let mut prefix = String::new();
         if self.has_flag('i') { prefix.push('i'); }
         if self.has_flag('m') { prefix.push('m'); }
         if self.has_flag('s') { prefix.push('s'); }
-        let pattern = if prefix.is_empty() { self.source.clone() } else { format!("(?{prefix}){}", self.source) };
-        regex::Regex::new(&pattern).expect("regex compile failed")
+        let translated_source = self.source.replace("[^]", "(?s:.)");
+        let pattern = if prefix.is_empty() { translated_source } else { format!("(?{prefix}){translated_source}") };
+        fancy_regex::Regex::new(&pattern).ok()
+    }
+    /// Match a string with JavaScript String.prototype.match semantics.
+    pub fn match_string(&self, haystack: &str) -> Option<Vec<String>> {
+        let regex = self.try_compiled()?;
+        if self.has_flag('g') {
+            let matches = regex.find_iter(haystack).filter_map(Result::ok).map(|value| value.as_str().to_owned()).collect::<Vec<_>>();
+            if matches.is_empty() { None } else { Some(matches) }
+        }
+        else {
+            let captures = regex.captures(haystack).ok().flatten()?;
+            Some((0..captures.len()).map(|index| captures.get(index).map_or(String::new(), |value| value.as_str().to_owned())).collect::<Vec<_>>())
+        }
+    }
+    /// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.
+    pub fn replace_string(&self, haystack: &str, replacement: &str, force_all: bool) -> String {
+        let Some(regex) = self.try_compiled() else { return haystack.to_owned(); };
+        let replace_all = force_all || self.has_flag('g');
+        if replace_all {
+            let mut output = String::new();
+            let mut last_end = 0usize;
+            for matched in regex.find_iter(haystack).filter_map(Result::ok) {
+                output.push_str(&haystack[last_end..matched.start()]);
+                output.push_str(replacement);
+                last_end = matched.end();
+            }
+            output.push_str(&haystack[last_end..]);
+            output
+        }
+        else if let Ok(Some(matched)) = regex.find(haystack) {
+            format!("{}{}{}", &haystack[..matched.start()], replacement, &haystack[matched.end()..])
+        } else {
+            haystack.to_owned()
+        }
     }
     /// Execute this RegExp and return a JavaScript-like match object.
     pub fn exec(&self, haystack: &str) -> Option<SmeltUnknown> {
         let regex = self.compiled();
         let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };
         let suffix = haystack.get(start..).unwrap_or("");
-        let captures = regex.captures(suffix)?;
+        let captures = regex.captures(suffix).ok().flatten()?;
         let matched = captures.get(0)?;
         if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
         if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }

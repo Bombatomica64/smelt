@@ -276,7 +276,7 @@ impl FunctionEmitter<'_> {
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
                     out.push_str(&format!(
-                        "    match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert({:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(map); }} }}\n",
+                        "    match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert({:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }}\n",
                         self.local_name(*base)?,
                         self.symbol_name(*field)?,
                         self.symbol_name(*field)?
@@ -341,6 +341,12 @@ impl FunctionEmitter<'_> {
         let assignment = self.assignment_place_text(place)?;
         if assignment == "SmeltUnknown::Null" {
             out.push_str(&format!("    let _ = {rendered_value};\n"));
+            return Ok(());
+        }
+        if assignment.starts_with("(*smelt_capture_") && rendered_value.contains(&assignment) {
+            out.push_str(&format!(
+                "    {{ let smelt_next_value = {rendered_value}; {assignment} = smelt_next_value; }}\n"
+            ));
             return Ok(());
         }
         out.push_str(&format!("    {assignment} = {rendered_value};\n"));

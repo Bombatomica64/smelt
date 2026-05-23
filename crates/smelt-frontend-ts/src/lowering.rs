@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::{
-    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstValue, OverloadSignature, SmeltError,
-    camel_to_snake, test_support,
+    HirCtx, ObjectConst, ObjectConstEntry, ObjectConstEntryValue, ObjectConstValue,
+    OverloadSignature, SmeltError, camel_to_snake, test_support,
 };
 use oxc::allocator::Allocator;
 use oxc::ast::ast::{
@@ -367,6 +367,8 @@ struct ModuleBuilder<'ctx> {
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Literal constant items visible from already-lowered modules.
     const_literals: HashMap<String, ConstLiteral>,
+    /// `RegExp` literal constants visible from nested function bodies.
+    const_regexps: HashMap<String, (String, String, smelt_hir::TypeId)>,
     /// Object literal constants visible from current and already-lowered modules.
     const_objects: HashMap<String, ObjectConst>,
     /// Array/set constants visible from nested function bodies.

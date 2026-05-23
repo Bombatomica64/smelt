@@ -94,7 +94,7 @@ const assigned = Object.assign(fnValue, { lazy: fnValue });
     );
 
     assert!(
-        source.contains("let assigned =") || source.contains("let mut assigned ="),
+        source.contains("let assigned") || source.contains("let mut assigned"),
         "{source}"
     );
     assert!(source.contains("_smelt_tmp_"));
@@ -207,7 +207,7 @@ console.log(result);
     assert!(source.contains("match status.as_str() {"));
     assert!(source.contains("\"pending\" => {"));
     assert!(source.contains("return \"Waiting\".to_owned();"));
-    assert!(source.contains("_ => unreachable!(),"));
+    assert!(source.contains("_ => {"));
 }
 
 #[test]
@@ -235,7 +235,7 @@ console.log(result);
     assert!(source.contains("match closure_arg_0.as_str() {"));
     assert!(source.contains("\"pending\" => {"));
     assert!(source.contains("\"Waiting\".to_owned()"));
-    assert!(source.contains("_ => unreachable!(),"));
+    assert!(source.contains("_ => {"));
 }
 
 #[test]

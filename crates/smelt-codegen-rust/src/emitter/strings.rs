@@ -110,8 +110,18 @@ impl FunctionEmitter<'_> {
         replacement: &Operand,
     ) -> Result<String, EmitError> {
         let haystack_text = self.string_like_operand_text(haystack, "string replace")?;
-        let pattern_text = self.string_like_operand_text(pattern, "string replace")?;
         let replacement_text = self.string_like_operand_text(replacement, "string replace")?;
+        if matches!(
+            self.mir.types.get(self.operand_ty(pattern)?),
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+        ) {
+            let regex_text = self.regexp_operand_text(pattern)?;
+            let force_all = matches!(op, smelt_hir::StringReplaceOp::All);
+            return Ok(format!(
+                "{regex_text}.replace_string(&{haystack_text}, &{replacement_text}, {force_all})"
+            ));
+        }
+        let pattern_text = self.string_like_operand_text(pattern, "string replace")?;
         match op {
             smelt_hir::StringReplaceOp::First => Ok(format!(
                 "{haystack_text}.replacen(&{pattern_text}, &{replacement_text}, 1)"
@@ -274,22 +284,13 @@ impl FunctionEmitter<'_> {
         replacement: &Operand,
     ) -> Result<String, EmitError> {
         self.require_string_operands(&[pattern, haystack, replacement], "regex replace")?;
-        let regex_text = format!(
-            "regex::Regex::new(&{}).expect(\"regex compile failed\")",
-            self.operand_text(pattern)?
-        );
-        let haystack_text = self.operand_text(haystack)?;
-        let replacement_text = self.operand_text(replacement)?;
-        Ok(match op {
-            smelt_hir::StringReplaceOp::First => {
-                format!("{regex_text}.replace(&{haystack_text}, &{replacement_text}).to_string()")
-            }
-            smelt_hir::StringReplaceOp::All => {
-                format!(
-                    "{regex_text}.replace_all(&{haystack_text}, &{replacement_text}).to_string()"
-                )
-            }
-        })
+        let regex_text = self.regexp_operand_text(pattern)?;
+        let haystack_text = self.string_like_operand_text(haystack, "regex replace")?;
+        let replacement_text = self.string_like_operand_text(replacement, "regex replace")?;
+        let force_all = matches!(op, smelt_hir::StringReplaceOp::All);
+        Ok(format!(
+            "{regex_text}.replace_string(&{haystack_text}, &{replacement_text}, {force_all})"
+        ))
     }
 
     /// Converts a regex replacement callback operation to Rust text.
@@ -363,11 +364,9 @@ impl FunctionEmitter<'_> {
         pattern: &Operand,
         haystack: &Operand,
     ) -> Result<String, EmitError> {
-        let pattern_text = self.string_like_operand_text(pattern, "regex find")?;
+        let pattern_text = self.regexp_operand_text(pattern)?;
         let haystack_text = self.string_like_operand_text(haystack, "regex find")?;
-        Ok(format!(
-            "regex::Regex::new(&{pattern_text}).ok().and_then(|regex| regex.find(&{haystack_text}).map(|m| vec![m.as_str().to_owned()]))"
-        ))
+        Ok(format!("{pattern_text}.match_string(&{haystack_text})"))
     }
 
     /// Converts JavaScript `RegExp.prototype.exec` to a stateful match object.

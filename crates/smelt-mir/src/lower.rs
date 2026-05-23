@@ -1717,11 +1717,19 @@ impl<'hir> LoweringCtx<'hir> {
             }
         }
 
-        let default_target = default.map(|default_body| {
-            *targets_by_hir_block
-                .entry(default_body)
-                .or_insert_with(|| self.function.push_block(span))
-        });
+        let default_target = default
+            .map(|default_body| {
+                *targets_by_hir_block
+                    .entry(default_body)
+                    .or_insert_with(|| self.function.push_block(span))
+            })
+            .or_else(|| {
+                let target = self.function.push_block(span);
+                if let Some(block) = self.function.blocks.get_mut(target.0 as usize) {
+                    block.terminator = Some(Terminator::Goto(join));
+                }
+                Some(target)
+            });
         self.set_terminator(Terminator::Match {
             scrutinee: lowered_scrutinee,
             arms: mir_arms,

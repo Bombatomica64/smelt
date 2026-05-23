@@ -239,6 +239,23 @@ const trunc = Math.trunc(value);
 }
 
 #[test]
+fn emits_math_trunc_on_integer_expressions_without_zeroing() {
+    let source = source_for(
+        r#"
+const value = 1234;
+const whole = Math.trunc(value / 1000);
+const text = whole.toString();
+"#,
+    );
+
+    assert!(source.contains("value.clone() / 1000.0;"));
+    assert!(source.contains("_smelt_tmp_3.clone().trunc();"));
+    assert!(source.contains("whole.clone().to_string();"));
+    assert!(!source.contains("= 0_i64;"));
+    assert!(!source.contains("= 0.0;"));
+}
+
+#[test]
 fn emits_math_extrema_calls() {
     let source = source_for(
         r#"
@@ -271,6 +288,11 @@ const factor = 2;
 const captured = values.map((value, index) => value * factor + index);
 const scale = (value: number): number => value + factor;
 const localClosure = values.map(scale);
+function construct(context: unknown, value: unknown): unknown {
+  return value;
+}
+const normalize = construct.bind(null, undefined);
+const normalized = values.map(normalize);
 let mutableTotal = 0;
 values.forEach(value => mutableTotal += value);
 const noInitial = values.reduce((acc, value, index) => acc + value + index);
@@ -290,6 +312,10 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains(".map_or(-1.0"));
     assert!(source.contains("(item * 2.0)"), "{source}");
     assert!(source.contains("(item + 2.0)"));
+    assert!(
+        source.contains("(&mut *smelt_callback.borrow_mut())(SmeltUnknown::Number(item.clone() as f64))"),
+        "{source}"
+    );
     assert!(source.contains("let mut mutable_total"));
     assert!(source.contains("mutable_total.clone() +"));
     assert!(source.contains("mutable_total ="));

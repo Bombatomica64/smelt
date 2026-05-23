@@ -357,7 +357,8 @@ impl ModuleBuilder<'_> {
     /// Exported object namespace constants can contain method syntax, as in
     /// date-fns formatter tables. Each method is represented as a private
     /// module function and referenced from the namespace metadata.
-    fn function_expression_item(
+    /// Lower a synthetic object-table function while preserving exact key spelling.
+    fn function_expression_item_with_source_name(
         &mut self,
         name_text: &str,
         function: &oxc::ast::ast::Function<'_>,
@@ -376,7 +377,7 @@ impl ModuleBuilder<'_> {
             ));
         }
 
-        let name = self.intern_source_name(name_text);
+        let name = self.intern_exact_source_name(name_text);
         let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let hinted_function = type_hint.and_then(|ty| match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::Function(function_ty)) => Some(function_ty),

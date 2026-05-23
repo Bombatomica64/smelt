@@ -620,7 +620,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the concrete list and item type for list-like receiver surfaces.
-    fn list_surface_type(
+    pub(super) fn list_surface_type(
         &self,
         ty: smelt_hir::TypeId,
     ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {

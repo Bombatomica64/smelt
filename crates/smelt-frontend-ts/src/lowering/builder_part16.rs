@@ -143,14 +143,10 @@ impl ModuleBuilder<'_> {
             TSType::TSConditionalType(conditional) => {
                 let true_ty = self.ts_type_to_hir(&conditional.true_type)?;
                 let false_ty = self.ts_type_to_hir(&conditional.false_type)?;
-                if true_ty == false_ty
-                    || matches!(self.ctx.krate.types.get(false_ty), Some(Type::Never))
-                {
+                if true_ty == false_ty {
                     Ok(true_ty)
-                } else if matches!(self.ctx.krate.types.get(true_ty), Some(Type::Never)) {
-                    Ok(false_ty)
                 } else {
-                    Ok(self.ctx.krate.types.intern(Type::Union(vec![true_ty, false_ty])))
+                    Ok(self.ctx.krate.types.intern(Type::Unknown))
                 }
             }
             TSType::TSArrayType(array) => {
@@ -2419,6 +2415,17 @@ return_ty: method.return_ty,
         symbol
     }
 
+    /// Intern a generated source name without case-folding it.
+    ///
+    /// Synthetic object function-table entries need exact key spelling because
+    /// JavaScript object keys are case-sensitive (`M` and `m` are distinct
+    /// date-fns formatters).
+    fn intern_exact_source_name(&mut self, name: &str) -> smelt_hir::Symbol {
+        let symbol = self.ctx.krate.symbols.intern(name);
+        self.ctx.krate.names.record(symbol, name);
+        symbol
+    }
+
     /// Intern a type name symbol.
     fn intern_type_name(&mut self, name: &str) -> smelt_hir::Symbol {
         let symbol = self.ctx.krate.symbols.intern(name);
@@ -2502,6 +2509,28 @@ return_ty: method.return_ty,
             ));
         }
         let Some(local) = self.locals.get(name).copied() else {
+            if let Some((pattern, flags, ty)) = self.const_regexps.get(name).cloned() {
+                let span = self.span(start, end);
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let pattern = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(pattern)),
+                    ty: string_ty,
+                    span,
+                });
+                let flags = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(flags)),
+                    ty: string_ty,
+                    span,
+                });
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: self.intern_type_name("RegExp"),
+                        args: vec![pattern, flags],
+                    },
+                    ty,
+                    span,
+                }));
+            }
             if let Some(value) = self.const_literals.get(name) {
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::Literal(value.literal.clone()),
@@ -2511,6 +2540,11 @@ return_ty: method.return_ty,
             }
             if let Some(value) = self.const_objects.get(name).cloned() {
                 return Ok(self.object_const_expression(&value, start, end, body));
+            }
+            if let Some(item) = self.items.get(name).copied()
+                && let Item::Const(const_item) = self.item_ref(item).clone()
+            {
+                return self.const_item_expression(&const_item, start, end, body);
             }
             if let Some(item) = self.items.get(name).copied()
                 && matches!(self.item_ref(item), Item::Function(_))
@@ -2589,6 +2623,16 @@ return_ty: method.return_ty,
             .ok()
             .is_none_or(|index| index >= body.locals.len())
         {
+            if let Some(value) = self.const_objects.get(name).cloned() {
+                return Ok(self.object_const_expression(&value, start, end, body));
+            }
+            if let Some(value) = self.const_literals.get(name) {
+                return Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(value.literal.clone()),
+                    ty: value.ty,
+                    span: self.span(start, end),
+                }));
+            }
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
@@ -3048,6 +3092,130 @@ return_ty: function.return_ty,
             }
         };
         Ok(body.push_expr(Expr { kind, ty, span }))
+    }
+
+    /// Inline an importable HIR const item into the current expression body.
+    fn const_item_expression(
+        &mut self,
+        const_item: &ConstItem,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let source_body = self
+            .ctx
+            .krate
+            .bodies
+            .get(usize::try_from(const_item.body.0).unwrap_or(usize::MAX))
+            .cloned()
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    self.span(start, end),
+                    "const item body is not available for inlining",
+                )
+            })?;
+        self.clone_const_body_expr(&source_body, const_item.value, body)
+    }
+
+    /// Clone one expression from a const body, remapping nested expression IDs.
+    fn clone_const_body_expr(
+        &mut self,
+        source_body: &Body,
+        expr_id: smelt_hir::ExprId,
+        target_body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let expr = source_body
+            .exprs
+            .get(usize::try_from(expr_id.0).unwrap_or(usize::MAX))
+            .cloned()
+            .ok_or_else(|| {
+                SmeltError::unsupported(
+                    source_body.blocks[source_body.root.0 as usize].span,
+                    "const expression is missing",
+                )
+            })?;
+        let kind = match expr.kind {
+            ExprKind::Literal(value) => ExprKind::Literal(value),
+            ExprKind::Item(item) => ExprKind::Item(item),
+            ExprKind::Closure(closure) => ExprKind::Closure(closure),
+            ExprKind::Call { callee, args } => ExprKind::Call {
+                callee: self.clone_const_body_expr(source_body, callee, target_body)?,
+                args: args
+                    .into_iter()
+                    .map(|arg| self.clone_const_body_expr(source_body, arg, target_body))
+                    .collect::<Result<Vec<_>, _>>()?,
+            },
+            ExprKind::Field { receiver, field } => ExprKind::Field {
+                receiver: self.clone_const_body_expr(source_body, receiver, target_body)?,
+                field,
+            },
+            ExprKind::OptionalField { receiver, field } => ExprKind::OptionalField {
+                receiver: self.clone_const_body_expr(source_body, receiver, target_body)?,
+                field,
+            },
+            ExprKind::TypeAssert { value } => ExprKind::TypeAssert {
+                value: self.clone_const_body_expr(source_body, value, target_body)?,
+            },
+            ExprKind::DictLit(entries) => ExprKind::DictLit(
+                entries
+                    .into_iter()
+                    .map(|(key, value)| {
+                        Ok((
+                            self.clone_const_body_expr(source_body, key, target_body)?,
+                            self.clone_const_body_expr(source_body, value, target_body)?,
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, SmeltError>>()?,
+            ),
+            ExprKind::ListLit(items) => ExprKind::ListLit(
+                items
+                    .into_iter()
+                    .map(|item| self.clone_const_body_expr(source_body, item, target_body))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            ExprKind::TupleLit(items) => ExprKind::TupleLit(
+                items
+                    .into_iter()
+                    .map(|item| self.clone_const_body_expr(source_body, item, target_body))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            ExprKind::New { class, args } => ExprKind::New {
+                class,
+                args: args
+                    .into_iter()
+                    .map(|arg| self.clone_const_body_expr(source_body, arg, target_body))
+                    .collect::<Result<Vec<_>, _>>()?,
+            },
+            ExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => ExprKind::Conditional {
+                cond: self.clone_const_body_expr(source_body, cond, target_body)?,
+                then_expr: self.clone_const_body_expr(source_body, then_expr, target_body)?,
+                else_expr: self.clone_const_body_expr(source_body, else_expr, target_body)?,
+            },
+            ExprKind::BinOp { op, lhs, rhs } => ExprKind::BinOp {
+                op,
+                lhs: self.clone_const_body_expr(source_body, lhs, target_body)?,
+                rhs: self.clone_const_body_expr(source_body, rhs, target_body)?,
+            },
+            ExprKind::UnaryOp { op, operand } => ExprKind::UnaryOp {
+                op,
+                operand: self.clone_const_body_expr(source_body, operand, target_body)?,
+            },
+            _ => {
+                return Err(SmeltError::unsupported(
+                    expr.span,
+                    "const item expression shape is not supported for inlining yet",
+                ));
+            }
+        };
+        Ok(target_body.push_expr(Expr {
+            kind,
+            ty: expr.ty,
+            span: expr.span,
+        }))
     }
 
     /// Ensure a console.log item exists in the HIR.

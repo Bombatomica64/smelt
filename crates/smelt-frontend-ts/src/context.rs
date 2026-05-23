@@ -11,8 +11,21 @@ use smelt_hir::{Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Litera
 pub enum ObjectConstValue {
     /// Primitive literal value.
     Literal(Literal),
+    /// Literal array value.
+    List(Vec<ObjectConstEntryValue>),
+    /// Literal object value.
+    Object(ObjectConst),
     /// Capturable HIR expression value.
     Expr(ExprKind),
+}
+
+/// A nested static value stored inside an object constant.
+#[derive(Debug, Clone)]
+pub struct ObjectConstEntryValue {
+    /// Nested value payload.
+    pub value: ObjectConstValue,
+    /// HIR type of the nested value.
+    pub ty: TypeId,
 }
 
 /// A static object-constant entry that can be recreated in later lowered bodies.

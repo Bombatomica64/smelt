@@ -1275,6 +1275,35 @@ function read(options: Options, date: number): number {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    let localize_item = ctx
+        .krate
+        .items
+        .iter()
+        .find_map(|item| match item {
+            Item::Const(const_item)
+                if ctx.krate.symbols.get(const_item.name) == Some("localize") =>
+            {
+                Some(const_item)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "expected localize const item".to_owned())?;
+    let localize_body = ctx
+        .krate
+        .bodies
+        .get(localize_item.body.0 as usize)
+        .ok_or_else(|| "expected localize const body".to_owned())?;
+    let has_static_locale_values = localize_body.exprs.iter().any(|expr| {
+        matches!(
+            &expr.kind,
+            ExprKind::Literal(Literal::String(value))
+                if value == "Before Christ" || value == "B"
+        )
+    });
+    ensure!(
+        has_static_locale_values,
+        "expected exported locale const body to preserve nested static object array values"
+    );
     Ok(())
 }
 
@@ -1894,6 +1923,50 @@ export const formatters: { [token: string]: Formatter } = {
     )?;
     let _ = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn object_function_table_preserves_case_distinct_keys() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Formatter = (date: Date, token: string) => string;
+
+export const formatters: { [token: string]: Formatter } = {
+  M: function (date, token) {
+    return "month";
+  },
+  m: function (date, token) {
+    return "minute";
+  },
+};
+"#),
+        &mut ctx,
+    )?;
+    let namespace = ctx
+        .object_namespaces
+        .get("formatters")
+        .ok_or_else(|| "expected formatters namespace metadata".to_owned())?;
+    let month = namespace
+        .get("M")
+        .and_then(|item| ctx.krate.items.get(item.0 as usize))
+        .and_then(|item| match item {
+            Item::Function(function) => ctx.krate.symbols.get(function.name),
+            _ => None,
+        })
+        .ok_or_else(|| "expected M formatter function".to_owned())?;
+    let minute = namespace
+        .get("m")
+        .and_then(|item| ctx.krate.items.get(item.0 as usize))
+        .and_then(|item| match item {
+            Item::Function(function) => ctx.krate.symbols.get(function.name),
+            _ => None,
+        })
+        .ok_or_else(|| "expected m formatter function".to_owned())?;
+    ensure!(month != minute);
+    ensure_eq!(month, "formatters_M");
+    ensure_eq!(minute, "formatters_m");
     Ok(())
 }
 

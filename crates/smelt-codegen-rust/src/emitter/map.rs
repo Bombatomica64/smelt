@@ -64,10 +64,14 @@ impl FunctionEmitter<'_> {
                     "dict get destination with default must match the dict value type",
                 ));
             }
+            let get_text =
+                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    format!("{}.get(&{})", self.operand_text(dict)?, key_text)
+                } else {
+                    format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
+                };
             return Ok(format!(
-                "{}.get(&{}).cloned().unwrap_or({})",
-                self.operand_text(dict)?,
-                key_text,
+                "{get_text}.unwrap_or({})",
                 self.operand_text(default_operand)?
             ));
         }
@@ -75,17 +79,25 @@ impl FunctionEmitter<'_> {
             (Some(Type::Optional(value_inner)), Some(Type::Optional(dest_inner)))
                 if value_inner == dest_inner =>
             {
-                Ok(format!(
-                    "{}.get(&{}).cloned().flatten()",
-                    self.operand_text(dict)?,
-                    key_text
-                ))
+                let get_text =
+                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                        format!("{}.get(&{})", self.operand_text(dict)?, key_text)
+                    } else {
+                        format!("{}.get(&{}).cloned()", self.operand_text(dict)?, key_text)
+                    };
+                Ok(format!("{get_text}.flatten()"))
             }
-            (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => Ok(format!(
-                "{}.get(&{}).cloned()",
-                self.operand_text(dict)?,
-                key_text
-            )),
+            (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => {
+                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    Ok(format!("{}.get(&{})", self.operand_text(dict)?, key_text))
+                } else {
+                    Ok(format!(
+                        "{}.get(&{}).cloned()",
+                        self.operand_text(dict)?,
+                        key_text
+                    ))
+                }
+            }
             _ => Err(EmitError::new(
                 "dict get destination without default must be optional value",
             )),
@@ -136,9 +148,15 @@ impl FunctionEmitter<'_> {
         let dict_text = self.local_name(*local)?;
         let key_text = self.operand_text(key)?;
         let default_text = self.operand_text(default)?;
-        Ok(format!(
-            "{{ {dict_text}.entry({key_text}).or_insert({default_text}).clone() }}"
-        ))
+        if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+            Ok(format!(
+                "{{ if let Some(value) = {dict_text}.get(&{key_text}) {{ value }} else {{ {dict_text}.insert({key_text}, {default_text}.clone()); {default_text} }} }}"
+            ))
+        } else {
+            Ok(format!(
+                "{{ {dict_text}.entry({key_text}).or_insert({default_text}).clone() }}"
+            ))
+        }
     }
 
     /// Converts a dictionary insertion operation to Rust text.
@@ -400,10 +418,10 @@ impl FunctionEmitter<'_> {
         ) {
             return match op {
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().cloned().collect::<Vec<_>>(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.values().cloned().collect::<Vec<_>>(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.values(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.into_iter().collect::<Vec<_>>(), _ => Vec::new() }}"
@@ -418,14 +436,34 @@ impl FunctionEmitter<'_> {
         }
         match op {
             smelt_hir::DictProjectionOp::Keys => {
-                Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
+                if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
+                    && (self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty))
+                {
+                    Ok(format!("{dict_text}.keys().collect::<Vec<_>>()"))
+                } else {
+                    Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
+                }
             }
             smelt_hir::DictProjectionOp::Values => {
-                Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
+                if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
+                    && (self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty))
+                {
+                    Ok(format!("{dict_text}.values().collect::<Vec<_>>()"))
+                } else {
+                    Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
+                }
             }
-            smelt_hir::DictProjectionOp::Entries => Ok(format!(
-                "{dict_text}.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
-            )),
+            smelt_hir::DictProjectionOp::Entries => {
+                if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
+                    && (self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty))
+                {
+                    Ok(format!("{dict_text}.iter().collect::<Vec<_>>()"))
+                } else {
+                    Ok(format!(
+                        "{dict_text}.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+                    ))
+                }
+            }
         }
     }
 

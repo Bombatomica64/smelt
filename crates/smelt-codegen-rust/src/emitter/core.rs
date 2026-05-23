@@ -760,6 +760,17 @@ impl<'mir> FunctionEmitter<'mir> {
         function: &MirFunction,
         local: LocalId,
     ) -> bool {
+        self.parameter_needs_mutable_reference_in_seen(function, local, &mut Vec::new())
+    }
+
+    /// Returns whether a parameter needs mutable-reference ABI, tracking the
+    /// active query stack so recursive forwarding does not loop forever.
+    fn parameter_needs_mutable_reference_in_seen(
+        &self,
+        function: &MirFunction,
+        local: LocalId,
+        seen: &mut Vec<(usize, LocalId)>,
+    ) -> bool {
         if !function.params.contains(&local) {
             return false;
         }
@@ -771,8 +782,14 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return false;
         }
-        function.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| match statement {
+        let function_ptr: *const MirFunction = function;
+        let key = (function_ptr as usize, local);
+        if seen.contains(&key) {
+            return false;
+        }
+        seen.push(key);
+        let needs_reference = function.blocks.iter().any(|block| {
+            if block.statements.iter().any(|statement| match statement {
                 Statement::AssignPlace {
                     place:
                         Place::Local(candidate)
@@ -786,8 +803,35 @@ impl<'mir> FunctionEmitter<'mir> {
                 } if *candidate == local => true,
                 Statement::Assign { value, .. } => self.rvalue_mutates_local(value, local),
                 _ => false,
-            })
-        })
+            }) {
+                return true;
+            }
+            if let Some(Terminator::Call {
+                callee: Callee::Static(function_id),
+                args,
+                ..
+            }) = &block.terminator
+            {
+                return args.iter().enumerate().any(|(index, arg)| {
+                    operand_local(arg) == Some(local)
+                        && self
+                            .mir
+                            .functions
+                            .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
+                            .and_then(|callee| {
+                                callee.params.get(index).map(|param| {
+                                    self.parameter_needs_mutable_reference_in_seen(
+                                        callee, *param, seen,
+                                    )
+                                })
+                            })
+                            .unwrap_or(false)
+                });
+            }
+            false
+        });
+        seen.pop();
+        needs_reference
     }
 
     /// Renders an argument for a mutable-reference collection parameter.
@@ -799,6 +843,8 @@ impl<'mir> FunctionEmitter<'mir> {
         let text = match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 if let Place::Local(local) = place
+                    && self.function.id.0 != u32::MAX
+                    && self.function.params.contains(local)
                     && self.parameter_needs_mutable_reference(*local)
                 {
                     return self.place_text(place);
@@ -979,6 +1025,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(inner)
             || self.structural_record_adapter_available(source, inner)
+            || self.string_dict_record_adapter_available(source, inner)
             || matches!(
                 (self.mir.types.get(source), self.mir.types.get(inner)),
                 (Some(Type::Int), Some(Type::Float))
@@ -986,6 +1033,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     | (Some(Type::List(_)), Some(Type::Tuple(_)))
                     | (Some(Type::List(_)), Some(Type::List(_)))
                     | (Some(Type::Dict(_, _)), Some(Type::Dict(_, _)))
+                    | (Some(Type::Function(_)), Some(Type::Function(_)))
             )
     }
 
@@ -1033,6 +1081,36 @@ impl<'mir> FunctionEmitter<'mir> {
     fn structural_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
         self.structural_record_adapter_fields(source, target)
             .is_some()
+    }
+
+    /// Returns true when a string-keyed dictionary can fill a structural record.
+    fn string_dict_record_adapter_available(&self, source: TypeId, target: TypeId) -> bool {
+        let Some(Type::Dict(source_key, _)) = self.mir.types.get(source) else {
+            return false;
+        };
+        self.mir.types.get(*source_key) == Some(&Type::String)
+            && self.is_structural_record_adapter_target(target)
+            && self
+                .structural_record_fields(target)
+                .is_some_and(|fields| !fields.is_empty())
+    }
+
+    /// Returns whether an erased object can be safely expanded into a record.
+    ///
+    /// Unknown object extraction is intentionally bounded: records whose
+    /// required fields are themselves nominal records can recurse through large
+    /// option-bag graphs while rendering Rust. Optional nested records can use
+    /// `None`, and required function/primitive fields still use their normal
+    /// unknown conversions.
+    pub(super) fn can_extract_unknown_object_record(&self, target: TypeId) -> bool {
+        let Some(fields) = self.structural_record_fields(target) else {
+            return false;
+        };
+        !fields.is_empty()
+            && fields.iter().all(|field| {
+                matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
+                    || !matches!(self.mir.types.get(field.ty), Some(Type::Class { .. }))
+            })
     }
 
     /// Returns matching source/target fields for a structural record adapter.
@@ -1120,7 +1198,7 @@ impl<'mir> FunctionEmitter<'mir> {
     /// semantics when the frontend has not retained the original literal at the
     /// destination site. Missing optional fields become `None`; missing required
     /// fields fall back to the target field default.
-    fn string_dict_record_adapter_text(
+    pub(super) fn string_dict_record_adapter_text(
         &self,
         value_text: &str,
         source_key: TypeId,
@@ -1166,17 +1244,26 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 format!("smelt_record_map.get({source_key:?})")
             };
+            let lookup_value = if let Some(Type::Dict(key, _)) = self.mir.types.get(source_value) {
+                if self.dict_uses_smelt_record(*key) {
+                    lookup_text
+                } else {
+                    format!("{lookup_text}.cloned()")
+                }
+            } else {
+                format!("{lookup_text}.cloned()")
+            };
             let value = if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
                 if self.can_render_dict_value_as(source_value, *inner) {
                     let mapped = self.rendered_value_as_type_text("value", source_value, *inner)?;
-                    format!("{lookup_text}.cloned().map(|value| {mapped})")
+                    format!("{lookup_value}.map(|value| {mapped})")
                 } else {
                     "None".to_owned()
                 }
             } else {
                 let mapped = self.rendered_value_as_type_text("value", source_value, field.ty)?;
                 format!(
-                    "{lookup_text}.cloned().map_or({}, |value| {mapped})",
+                    "{lookup_value}.map_or({}, |value| {mapped})",
                     self.default_value(field.ty)?
                 )
             };
@@ -1230,8 +1317,13 @@ impl<'mir> FunctionEmitter<'mir> {
             entries.push(format!("({key:?}.to_owned(), {value})"));
         }
 
+        let constructor = if self.dict_uses_smelt_record(target_key) {
+            "SmeltRecord::from"
+        } else {
+            "::std::collections::HashMap::from"
+        };
         Ok(Some(format!(
-            "{{ let smelt_struct_value = {value_text}.clone(); ::std::collections::HashMap::from([{}]) }}",
+            "{{ let smelt_struct_value = {value_text}.clone(); {constructor}([{}]) }}",
             entries.join(", ")
         )))
     }
@@ -1661,6 +1753,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 Some(Type::Function(_))
             )
         {
+            if let Some(adapter) = self.erased_rest_function_value_text(operand, target)? {
+                return Ok(adapter);
+            }
             if let Some(adapter) = self.rest_vector_function_adapter_text(operand, target, false)? {
                 return Ok(adapter);
             }
@@ -1780,8 +1875,9 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let value_text =
                 self.rendered_value_as_type_text("value", *source_item, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
             return Ok(format!(
-                "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<::std::collections::HashMap<_, _>>()",
+                "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<{target_text}>()",
                 self.operand_text(operand)?
             ));
         }
@@ -1826,8 +1922,9 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let mapped_value_text =
                 self.rendered_value_as_type_text("value", *source_value, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
             return Ok(format!(
-                "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<::std::collections::HashMap<_, _>>()",
+                "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()",
                 self.operand_text(operand)?
             ));
         }
@@ -1861,6 +1958,137 @@ impl<'mir> FunctionEmitter<'mir> {
             return self.default_value(target);
         }
         self.operand_text(operand)
+    }
+
+    /// Return whether a function type is represented as an erased JS rest callable.
+    pub(super) fn is_erased_unknown_rest_function(&self, function: &FunctionType) -> bool {
+        if function.is_async
+            || matches!(
+                self.mir.types.get(function.return_ty),
+                Some(Type::Future(_))
+            )
+        {
+            return false;
+        }
+        let Some(0) = function.rest else {
+            return false;
+        };
+        let [param] = function.params.as_slice() else {
+            return false;
+        };
+        matches!(
+            self.mir.types.get(*param),
+            Some(Type::List(item))
+                if matches!(
+                    self.mir.types.get(*item),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Never)
+                )
+        )
+    }
+
+    /// Adapt a concrete callable to an erased JS rest callable while preserving
+    /// the source `Function.length` metadata.
+    fn erased_rest_function_value_text(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Function(target_function)) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        if !self.is_erased_unknown_rest_function(target_function) || target_function.may_throw {
+            return Ok(None);
+        }
+        let Some(callback) = self.smelt_erased_function_callback_text(operand, target)? else {
+            return Ok(None);
+        };
+        let length = self.operand_function_length(operand)?;
+        Ok(Some(format!(
+            "SmeltErasedFunction {{ callback: {callback}, length: {length}.0 }}"
+        )))
+    }
+
+    /// Adapt a typed function operand to the runtime callback stored by
+    /// `SmeltErasedFunction`.
+    ///
+    /// The erased callable ABI always stores a `Vec<SmeltUnknown> ->
+    /// SmeltUnknown` callback, even when the static function type has a more
+    /// precise return. This keeps function values first-class while ensuring the
+    /// erased representation can be called uniformly by JavaScript-style helper
+    /// code.
+    fn smelt_erased_function_callback_text(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Function(source)) = self.mir.types.get(self.operand_ty(operand)?) else {
+            return Ok(None);
+        };
+        let Some(Type::Function(target_function)) = self.mir.types.get(target) else {
+            return Ok(None);
+        };
+        if !self.is_erased_unknown_rest_function(target_function) || target_function.may_throw {
+            return Ok(None);
+        }
+        let function_text = self.operand_text(operand)?;
+        let is_borrowed_param = match operand {
+            Operand::Copy(place) | Operand::Move(place) => {
+                self.is_function_parameter_place(place)?
+            }
+            Operand::Const(_) => false,
+        };
+        let args = self.function_args_from_smelt_args_text(source)?;
+        let callback_text = if is_borrowed_param {
+            function_text.clone()
+        } else {
+            "smelt_callback".to_owned()
+        };
+        let call = if is_borrowed_param {
+            format!("{callback_text}({args})")
+        } else {
+            format!("(&mut *{callback_text}.borrow_mut())({args})")
+        };
+        let call_value = if source.may_throw {
+            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+        } else {
+            call
+        };
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
+            "SmeltUnknown::Null".to_owned()
+        } else {
+            self.rendered_value_as_type_text(&call_value, source.return_ty, unknown_ty)?
+        };
+        let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
+        Ok(Some(if is_borrowed_param {
+            format!("::std::rc::Rc::new(::std::cell::RefCell::new({closure}))")
+        } else {
+            format!(
+                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new({closure})) }}"
+            )
+        }))
+    }
+
+    /// Return the JavaScript `Function.length` represented by a function operand.
+    pub(super) fn operand_function_length(&self, operand: &Operand) -> Result<usize, EmitError> {
+        if let Some(local) = operand_local(operand)
+            && let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied()
+            && let Some(closure) = self
+                .mir
+                .closures
+                .get(id_index(closure_id.0, "closure index does not fit usize")?)
+        {
+            return Ok(closure
+                .required_params
+                .unwrap_or_else(|| closure.rest.unwrap_or(closure.params.len())));
+        }
+
+        Ok(match self.mir.types.get(self.operand_ty(operand)?) {
+            Some(Type::Function(function)) => function
+                .required_params
+                .unwrap_or_else(|| function.rest.unwrap_or(function.params.len())),
+            _ => 1,
+        })
     }
 
     /// Return true when a place names a borrowed function parameter.
@@ -2319,8 +2547,9 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let item_text =
                 self.rendered_value_as_type_text("value", *source_item, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
             return Ok(format!(
-                "{value_text}.into_iter().enumerate().map(|(index, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>()"
+                "{value_text}.into_iter().enumerate().map(|(index, value)| ({key_text}, {item_text})).collect::<{target_text}>()"
             ));
         }
         if let (
@@ -2336,8 +2565,9 @@ impl<'mir> FunctionEmitter<'mir> {
             };
             let mapped_value_text =
                 self.rendered_value_as_type_text("value", *source_value, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
             return Ok(format!(
-                "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<::std::collections::HashMap<_, _>>()"
+                "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()"
             ));
         }
         if let (Some(Type::Dict(source_key, source_value)), Some(Type::Class { .. })) =
@@ -2476,7 +2706,11 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             converted_return_text
         };
-        let return_text = if target_function.may_throw
+        let return_text = if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
+            && !source_returns_future
+        {
+            format!("{{ {call_value}; () }}")
+        } else if target_function.may_throw
             && source_returns_future
             && !source_async_output_may_throw
             && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
@@ -2744,7 +2978,7 @@ impl<'mir> FunctionEmitter<'mir> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) && self.class_has_no_known_fields(source.return_ty)
         {
-            call_value
+            call_value.clone()
         } else {
             converted_return_text
         };
@@ -2757,7 +2991,11 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             field_adjusted_return_text
         };
-        let return_text = if target_function.may_throw
+        let return_text = if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
+            && !source_returns_future
+        {
+            format!("{{ {call_value}; () }}")
+        } else if target_function.may_throw
             && source_returns_future
             && !source_async_output_may_throw
             && let Some(Type::Future(item)) = self.mir.types.get(source.return_ty)
@@ -2818,7 +3056,7 @@ impl<'mir> FunctionEmitter<'mir> {
         true
     }
 
-    /// Adapts a concrete callback to Remeda's erased purry callback surface.
+    /// Adapts a concrete callback to the erased JavaScript callback surface.
     pub(super) fn rest_vector_unknown_adapter_text(
         &self,
         operand: &Operand,
@@ -2985,6 +3223,58 @@ impl<'mir> FunctionEmitter<'mir> {
                 | Type::Class { .. },
             )
             | None => true,
+        }
+    }
+
+    /// Returns whether a dictionary must use JavaScript `Map` key equality.
+    ///
+    /// Rust `HashMap` is correct for primitive key spaces, but JavaScript Map
+    /// compares objects and functions by identity and treats `NaN` as equal to
+    /// itself. Dictionaries keyed by erased, generic, or object-like values
+    /// therefore use the generated linear `SmeltJsMap` runtime container.
+    pub(super) fn dict_uses_js_key_map(&self, key_ty: TypeId) -> bool {
+        match self.mir.types.get(key_ty) {
+            Some(Type::Bool | Type::Int | Type::String) => false,
+            Some(Type::Float) => true,
+            Some(Type::Optional(inner) | Type::Future(inner)) => self.dict_uses_js_key_map(*inner),
+            Some(Type::Union(items)) => items.iter().any(|item| self.dict_uses_js_key_map(*item)),
+            Some(
+                Type::Unknown
+                | Type::TypeParam { .. }
+                | Type::Never
+                | Type::List(_)
+                | Type::Set(_)
+                | Type::Dict(_, _)
+                | Type::Tuple(_)
+                | Type::Function(_)
+                | Type::Class { .. },
+            )
+            | None => true,
+            Some(Type::None) => false,
+        }
+    }
+
+    /// Returns whether a string-keyed dictionary should carry object identity.
+    ///
+    /// TypeScript object literals lower to records internally. When one of
+    /// those records is later boxed as `unknown`, JavaScript observes the
+    /// original object identity for Map/Set keys. `SmeltRecord` preserves that
+    /// identity while keeping structural equality for assertions.
+    pub(super) fn dict_uses_smelt_record(&self, key_ty: TypeId) -> bool {
+        crate::stdlib::needs_unknown_type(self.mir)
+            && self.mir.types.get(key_ty) == Some(&Type::String)
+    }
+
+    /// Returns whether list membership should use JavaScript SameValueZero.
+    ///
+    /// `Array.prototype.includes`, `indexOf`, and `splice`-style removals do
+    /// not use structural object equality. They compare objects/functions by
+    /// reference and treat `NaN` as equal to itself.
+    pub(super) fn list_item_uses_same_value_zero(&self, item_ty: TypeId) -> bool {
+        match self.mir.types.get(item_ty) {
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Float) => true,
+            Some(Type::Class { .. }) => self.is_erased_class_type(item_ty),
+            _ => false,
         }
     }
 

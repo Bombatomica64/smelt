@@ -55,12 +55,13 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let props = self.object_assign_callable_props(source_args, body)?;
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::CallableObjectAssign {
                     callable: target,
                     props,
                 },
-                ty: target_ty,
+                ty: unknown_ty,
                 span: self.span(call.span.start, call.span.end),
             })));
         }

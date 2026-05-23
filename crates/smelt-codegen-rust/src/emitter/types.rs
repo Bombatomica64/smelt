@@ -270,6 +270,16 @@ impl FunctionEmitter<'_> {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item)) => Ok(*item),
+                    Some(Type::Optional(inner)) => {
+                        if let Some(Type::List(item)) = self.mir.types.get(*inner) {
+                            return if matches!(self.mir.types.get(*item), Some(Type::Optional(_))) {
+                                Ok(*item)
+                            } else {
+                                self.type_id(Type::Optional(*item))
+                            };
+                        }
+                        self.type_id(Type::Unknown)
+                    }
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::String) => self.type_id(Type::String),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
@@ -406,6 +416,15 @@ impl FunctionEmitter<'_> {
                 "Vec<{}>",
                 self.type_text_with_impl_trait(*item, false)?
             )),
+            Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => Ok(format!(
+                "SmeltRecord<String, {}>",
+                self.type_text_with_impl_trait(*value, false)?
+            )),
+            Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => Ok(format!(
+                "SmeltJsMap<{}, {}>",
+                self.type_text_with_impl_trait(*key, false)?,
+                self.type_text_with_impl_trait(*value, false)?
+            )),
             Type::Dict(key, value) => Ok(format!(
                 "::std::collections::HashMap<{}, {}>",
                 self.type_text_with_impl_trait(*key, false)?,
@@ -429,6 +448,9 @@ impl FunctionEmitter<'_> {
             )),
             Type::Union(_) => Ok("SmeltUnknown".to_owned()),
             Type::Function(function) => {
+                if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+                    return Ok("SmeltErasedFunction".to_owned());
+                }
                 let params = function
                     .params
                     .iter()
@@ -496,6 +518,12 @@ impl FunctionEmitter<'_> {
                 Ok("::std::collections::HashSet::new()".to_owned())
             }
             Type::Set(_) => Ok("Vec::new()".to_owned()),
+            Type::Dict(key, _) if self.dict_uses_smelt_record(*key) => {
+                Ok("SmeltRecord::new()".to_owned())
+            }
+            Type::Dict(key, _) if self.dict_uses_js_key_map(*key) => {
+                Ok("SmeltJsMap::new()".to_owned())
+            }
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
             Type::Optional(inner) => Ok(format!(
                 "None::<{}>",
@@ -519,6 +547,9 @@ impl FunctionEmitter<'_> {
             }
             Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
+                if self.is_erased_unknown_rest_function(function) && !function.may_throw {
+                    return Ok("SmeltErasedFunction { callback: ::std::rc::Rc::new(::std::cell::RefCell::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null)), length: 0.0 }".to_owned());
+                }
                 let params = function
                     .params
                     .iter()

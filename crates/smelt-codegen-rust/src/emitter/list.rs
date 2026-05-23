@@ -16,11 +16,19 @@ impl FunctionEmitter<'_> {
         if self.operand_ty(item)? != *item_ty {
             return Ok("false".to_owned());
         }
-        Ok(format!(
-            "{}.contains(&{})",
-            self.operand_text(list)?,
-            self.operand_text(item)?
-        ))
+        let list_text = self.operand_text(list)?;
+        let item_text = self.operand_text(item)?;
+        if self.list_item_uses_same_value_zero(*item_ty) {
+            if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+                return Ok(format!(
+                    "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())) }}"
+                ));
+            }
+            return Ok(format!(
+                "{{ let smelt_needle = {item_text}; {list_text}.iter().any(|item| item.same_js_key(&smelt_needle)) }}"
+            ));
+        }
+        Ok(format!("{list_text}.contains(&{item_text})"))
     }
 
     /// Converts a set containment operation to Rust text.
@@ -101,13 +109,19 @@ impl FunctionEmitter<'_> {
         else {
             return Ok("Default::default()".to_owned());
         };
-        if matches!(self.mir.types.get(*left_item), Some(Type::Never)) {
+        if matches!(self.mir.types.get(*left_item), Some(Type::Never))
+            && self.is_empty_list_operand(left)?
+        {
             return Ok(format!("{}.clone()", self.operand_text(right)?));
         }
-        if matches!(self.mir.types.get(*right_item), Some(Type::Never)) {
+        if matches!(self.mir.types.get(*right_item), Some(Type::Never))
+            && self.is_empty_list_operand(right)?
+        {
             return Ok(format!("{}.clone()", self.operand_text(left)?));
         }
-        if left_item != right_item {
+        let has_never_item = matches!(self.mir.types.get(*left_item), Some(Type::Never))
+            || matches!(self.mir.types.get(*right_item), Some(Type::Never));
+        if left_item != right_item && !has_never_item {
             return Ok("Default::default()".to_owned());
         }
         Ok(format!(
@@ -115,6 +129,51 @@ impl FunctionEmitter<'_> {
             self.operand_text(left)?,
             self.operand_text(right)?
         ))
+    }
+
+    /// Return whether an operand is statically known to be an empty list.
+    fn is_empty_list_operand(&self, operand: &Operand) -> Result<bool, EmitError> {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return Ok(false);
+        };
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                let Statement::Assign { dest, value } = statement else {
+                    continue;
+                };
+                if dest == local && matches!(value, Rvalue::List(items) if items.is_empty()) {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// Inline a local list-concat temporary when it is consumed as a spread
+    /// argument vector before regular statement emission preserved it.
+    pub(super) fn inline_list_concat_operand_text(
+        &self,
+        operand: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = operand
+        else {
+            return Ok(None);
+        };
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                let Statement::Assign { dest, value } = statement else {
+                    continue;
+                };
+                if dest != local {
+                    continue;
+                }
+                if let Rvalue::ListConcat { left, right } = value {
+                    return self.list_concat_text(left, right).map(Some);
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// Converts a list search operation to Rust text.
@@ -129,6 +188,13 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
+        if matches!(
+            self.mir.types.get(list_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(list_ty)
+        {
+            return self.unknown_list_slice_text(list, start, end, dest_ty);
+        }
         let Some(Type::List(source_item_ty)) = self.mir.types.get(list_ty) else {
             return Ok("Default::default()".to_owned());
         };
@@ -152,6 +218,42 @@ impl FunctionEmitter<'_> {
             { self.rendered_value_as_type_text("value", *source_item_ty, *dest_item_ty)? };
         Ok(format!(
             "{list_text}.iter().skip({start_text}).take({len_text}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
+        ))
+    }
+
+    /// Converts `.slice(...)` on an erased value to Rust text.
+    fn unknown_list_slice_text(
+        &self,
+        list: &Operand,
+        start: Option<&Operand>,
+        end: Option<&Operand>,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let float_ty = self.type_id(Type::Float)?;
+        let list_text = self.operand_as_type_text(list, self.type_id(Type::Unknown)?)?;
+        let start_text = start.map_or_else(
+            || Ok("0.0".to_owned()),
+            |operand| self.operand_as_type_text(operand, float_ty),
+        )?;
+        let end_text = end.map_or_else(
+            || Ok("None::<f64>".to_owned()),
+            |operand| {
+                self.operand_as_type_text(operand, float_ty)
+                    .map(|text| format!("Some({text})"))
+            },
+        )?;
+        let result_text = "smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>()";
+        let result_text = if matches!(
+            self.mir.types.get(dest_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(dest_ty)
+        {
+            format!("SmeltUnknown::Array({result_text})")
+        } else {
+            result_text.to_owned()
+        };
+        Ok(format!(
+            "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text}; let smelt_slice_end = {end_text}; let smelt_slice_values = match smelt_slice_value {{ SmeltUnknown::Array(values) => values, SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 {{ smelt_slice_len + smelt_start_index }} else {{ smelt_start_index }}.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| {{ let end = end as i64; if end < 0 {{ smelt_slice_len + end }} else {{ end }} }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; {result_text} }}"
         ))
     }
 

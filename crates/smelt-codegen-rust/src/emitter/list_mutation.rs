@@ -321,6 +321,16 @@ impl FunctionEmitter<'_> {
         };
         let list_text = self.local_name(*local)?;
         let item_text = self.operand_text(item)?;
+        if self.list_item_uses_same_value_zero(*item_ty) {
+            if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+                return Ok(format!(
+                    "{{ let smelt_needle = {item_text}; let remove_index = {list_text}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list remove missing item\"); {list_text}.remove(remove_index); () }}"
+                ));
+            }
+            return Ok(format!(
+                "{{ let smelt_needle = {item_text}; let remove_index = {list_text}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list remove missing item\"); {list_text}.remove(remove_index); () }}"
+            ));
+        }
         Ok(format!(
             "{{ let remove_index = {list_text}.iter().position(|item| item == &{item_text}).expect(\"list remove missing item\"); {list_text}.remove(remove_index); () }}"
         ))

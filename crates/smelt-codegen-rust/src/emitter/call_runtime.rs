@@ -187,7 +187,7 @@ impl FunctionEmitter<'_> {
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", ");
                     return Ok(format!(
-                        "SmeltUnknown::Object(::std::collections::HashMap::from([{entries_text}]))"
+                        "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([{entries_text}])))"
                     ));
                 }
                 let dict_types = match self.mir.types.get(dest_ty) {
@@ -219,6 +219,14 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
+                if let Some((key_ty, _)) = dict_types {
+                    if self.dict_uses_smelt_record(key_ty) {
+                        return Ok(format!("SmeltRecord::from([{entries_text}])"));
+                    }
+                    if self.dict_uses_js_key_map(key_ty) {
+                        return Ok(format!("SmeltJsMap::from([{entries_text}])"));
+                    }
+                }
                 Ok(format!(
                     "::std::collections::HashMap::from([{entries_text}])"
                 ))
@@ -264,6 +272,9 @@ impl FunctionEmitter<'_> {
                     return Ok(text);
                 }
                 if let Some(text) = self.unknown_binary_text(*op, lhs, rhs)? {
+                    return Ok(text);
+                }
+                if let Some(text) = self.strict_identity_text(*op, lhs, rhs)? {
                     return Ok(text);
                 }
                 if *op == smelt_hir::BinOp::Add
@@ -384,7 +395,27 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::Unary { op, operand } => match op {
                 smelt_hir::UnaryOp::Not => Ok(format!("!({})", self.truthy_operand_text(operand)?)),
-                smelt_hir::UnaryOp::Neg => Ok(format!("-{}", self.operand_text(operand)?)),
+                smelt_hir::UnaryOp::Neg => {
+                    let operand_ty = self.operand_ty(operand)?;
+                    let numeric_text = if matches!(
+                        self.mir.types.get(operand_ty),
+                        Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
+                    ) {
+                        let float_ty = self.type_id(Type::Float)?;
+                        self.primitive_cast_text(
+                            smelt_hir::PrimitiveCastOp::ToFloat,
+                            operand,
+                            float_ty,
+                        )?
+                    } else {
+                        self.operand_text(operand)?
+                    };
+                    if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
+                        Ok(format!("SmeltUnknown::Number(-({numeric_text}) as f64)"))
+                    } else {
+                        Ok(format!("-({numeric_text})"))
+                    }
+                }
             },
             Rvalue::Conditional {
                 cond,
@@ -625,7 +656,7 @@ impl FunctionEmitter<'_> {
                         format!("vec![{}]", rendered_args.join(", "))
                     };
                     let call_text = format!(
-                        "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {smelt_call_args}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(mut smelt_object) => match smelt_object.remove(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (&mut *smelt_function.borrow_mut())(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+                        "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {smelt_call_args}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (&mut *smelt_function.borrow_mut())(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
                     );
                     let unknown_ty = self.type_id(Type::Unknown)?;
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
@@ -639,29 +670,6 @@ impl FunctionEmitter<'_> {
                 let callee_text = self.operand_text(callee)?;
                 if callee_text == "()" {
                     return self.default_value(dest_ty);
-                }
-                if callee_text.starts_with("purry_")
-                    && args.len() >= 2
-                    && let Some(first_arg) = args.first()
-                {
-                    let data_arg = args
-                        .get(1)
-                        .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
-                    let mut rendered_args = Vec::new();
-                    let first_arg_text =
-                        if let Some(adapter) = self.rest_vector_unknown_adapter_text(first_arg)? {
-                            adapter
-                        } else {
-                            self.operand_text(first_arg)?
-                        };
-                    rendered_args.push(first_arg_text);
-                    rendered_args.push(self.operand_text(data_arg)?);
-                    if let Some(lazy_arg) = args.get(2) {
-                        rendered_args.push(self.operand_text(lazy_arg)?);
-                    } else {
-                        rendered_args.push("None".to_owned());
-                    }
-                    return Ok(format!("{callee_text}({})", rendered_args.join(", ")));
                 }
                 let emitted_params = self.emitted_function_param_types(&callee_text)?;
                 let local_function = match callee {
@@ -724,7 +732,15 @@ impl FunctionEmitter<'_> {
                     rendered_args.clear();
                 }
                 let args_text = rendered_args.join(", ");
+                let callee_is_erased_rest = matches!(
+                    self.mir.types.get(callee_ty),
+                    Some(Type::Function(function))
+                        if self.is_erased_unknown_rest_function(function) && !function.may_throw
+                );
                 let call_text = match callee {
+                    _ if callee_is_erased_rest => {
+                        format!("(&mut *{callee_text}.borrow_mut())({args_text})")
+                    }
                     Operand::Copy(place) | Operand::Move(place)
                         if self.is_function_parameter_place(place)? =>
                     {
@@ -758,16 +774,26 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(rendered_call_text);
                 }
+                if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
+                    return Ok(format!("{{ {rendered_call_text}; () }}"));
+                }
                 self.rendered_value_as_type_text(&rendered_call_text, source_ty, dest_ty)
             }
             Rvalue::ClosureCallSpread { callee, args } => {
                 let callee_text = self.operand_text(callee)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let args_ty = self.type_id(Type::List(unknown_ty))?;
-                let args_text = self.operand_as_type_text(args, args_ty)?;
+                let args_text = self
+                    .inline_list_concat_operand_text(args)?
+                    .unwrap_or(self.operand_as_type_text(args, args_ty)?);
                 if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
                 {
+                    let callee_is_erased_rest =
+                        self.is_erased_unknown_rest_function(function) && !function.may_throw;
                     let call_text = match callee {
+                        _ if callee_is_erased_rest => {
+                            format!("(&mut *{callee_text}.borrow_mut())({args_text})")
+                        }
                         Operand::Copy(place) | Operand::Move(place)
                             if self.is_function_parameter_place(place)? =>
                         {
@@ -781,6 +807,9 @@ impl FunctionEmitter<'_> {
                         }
                         _ => format!("(&mut *{callee_text}.borrow_mut())({args_text})"),
                     };
+                    if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
+                        return Ok(format!("{{ {call_text}; () }}"));
+                    }
                     return self.rendered_value_as_type_text(
                         &call_text,
                         function.return_ty,
@@ -788,7 +817,7 @@ impl FunctionEmitter<'_> {
                     );
                 }
                 let call_text = format!(
-                    "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {args_text}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(mut smelt_object) => match smelt_object.remove(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (&mut *smelt_function.borrow_mut())(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
+                    "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {args_text}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (&mut *smelt_function.borrow_mut())(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
                 );
                 if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                     return Ok(call_text);
@@ -1047,7 +1076,13 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
 
-        if matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+        if matches!(
+            op,
+            smelt_hir::BinOp::Eq
+                | smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::StrictEq
+                | smelt_hir::BinOp::StrictNotEq
+        ) {
             return self.optional_equality_text(op, lhs, rhs, lhs_inner, rhs_inner);
         }
 
@@ -1089,7 +1124,13 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<String>, EmitError> {
-        if !matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Eq
+                | smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::StrictEq
+                | smelt_hir::BinOp::StrictNotEq
+        ) {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
@@ -1104,6 +1145,10 @@ impl FunctionEmitter<'_> {
         ) || self.is_erased_class_type(rhs_ty);
         let lhs_is_none = self.mir.types.get(lhs_ty) == Some(&Type::None);
         let rhs_is_none = self.mir.types.get(rhs_ty) == Some(&Type::None);
+        let strict = matches!(
+            op,
+            smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
+        );
         let text = if lhs_is_erased && rhs_is_none {
             format!("matches!({}, SmeltUnknown::Null)", self.operand_text(lhs)?)
         } else if rhs_is_erased && lhs_is_none {
@@ -1121,15 +1166,21 @@ impl FunctionEmitter<'_> {
             } else {
                 self.unknown_wrap_text(rhs)?
             };
-            format!("{lhs_text} == {rhs_text}")
+            if strict {
+                format!("{lhs_text}.same_js_key(&{rhs_text})")
+            } else {
+                format!("{lhs_text} == {rhs_text}")
+            }
         } else {
             return Ok(None);
         };
-        Ok(Some(if op == smelt_hir::BinOp::NotEq {
-            format!("!({text})")
-        } else {
-            text
-        }))
+        Ok(Some(
+            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq) {
+                format!("!({text})")
+            } else {
+                text
+            },
+        ))
     }
 
     /// Emits equality and inequality for optional operands.
@@ -1141,7 +1192,7 @@ impl FunctionEmitter<'_> {
         lhs_inner: Option<TypeId>,
         rhs_inner: Option<TypeId>,
     ) -> Result<Option<String>, EmitError> {
-        let negate = op == smelt_hir::BinOp::NotEq;
+        let negate = matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq);
         let text = if lhs_inner.is_some() && self.operand_ty(rhs)? == self.none_ty {
             format!("{}.is_none()", self.operand_text(lhs)?)
         } else if rhs_inner.is_some() && self.operand_ty(lhs)? == self.none_ty {
@@ -1218,7 +1269,13 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<String>, EmitError> {
-        if !matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Eq
+                | smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::StrictEq
+                | smelt_hir::BinOp::StrictNotEq
+        ) {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
@@ -1239,7 +1296,80 @@ impl FunctionEmitter<'_> {
         } else {
             "false".to_owned()
         };
-        Ok(Some(if op == smelt_hir::BinOp::NotEq {
+        Ok(Some(
+            if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq) {
+                format!("!({equal_text})")
+            } else {
+                equal_text
+            },
+        ))
+    }
+
+    /// Emits JavaScript strict identity checks for concrete reference values.
+    fn strict_identity_text(
+        &self,
+        op: smelt_hir::BinOp,
+        lhs: &Operand,
+        rhs: &Operand,
+    ) -> Result<Option<String>, EmitError> {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::StrictEq | smelt_hir::BinOp::StrictNotEq
+        ) {
+            return Ok(None);
+        }
+        let lhs_ty = self.operand_ty(lhs)?;
+        let rhs_ty = self.operand_ty(rhs)?;
+        let equal_text = match (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)) {
+            (Some(Type::Dict(lhs_key, _)), Some(Type::Dict(rhs_key, _)))
+                if self.mir.types.get(*lhs_key) == Some(&Type::String)
+                    && self.mir.types.get(*rhs_key) == Some(&Type::String) =>
+            {
+                format!(
+                    "{}.id == {}.id",
+                    self.operand_text(lhs)?,
+                    self.operand_text(rhs)?
+                )
+            }
+            (Some(Type::Function(_)), Some(Type::Function(_))) if lhs_ty == rhs_ty => {
+                format!(
+                    "::std::rc::Rc::ptr_eq(&{}, &{})",
+                    self.operand_text(lhs)?,
+                    self.operand_text(rhs)?
+                )
+            }
+            (
+                Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
+                Some(Type::List(_) | Type::Set(_) | Type::Tuple(_) | Type::Class { .. }),
+            ) => "false".to_owned(),
+            (left, right)
+                if matches!(
+                    left,
+                    Some(
+                        Type::List(_)
+                            | Type::Dict(_, _)
+                            | Type::Set(_)
+                            | Type::Tuple(_)
+                            | Type::Class { .. }
+                            | Type::Function(_)
+                    )
+                ) || matches!(
+                    right,
+                    Some(
+                        Type::List(_)
+                            | Type::Dict(_, _)
+                            | Type::Set(_)
+                            | Type::Tuple(_)
+                            | Type::Class { .. }
+                            | Type::Function(_)
+                    )
+                ) =>
+            {
+                "false".to_owned()
+            }
+            _ => return Ok(None),
+        };
+        Ok(Some(if op == smelt_hir::BinOp::StrictNotEq {
             format!("!({equal_text})")
         } else {
             equal_text
@@ -1259,13 +1389,29 @@ impl FunctionEmitter<'_> {
         lhs: &Operand,
         rhs: &Operand,
     ) -> Result<Option<String>, EmitError> {
-        if !matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) {
+        if !matches!(
+            op,
+            smelt_hir::BinOp::Eq
+                | smelt_hir::BinOp::NotEq
+                | smelt_hir::BinOp::StrictEq
+                | smelt_hir::BinOp::StrictNotEq
+        ) {
             return Ok(None);
         }
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
         if lhs_ty == rhs_ty {
             return Ok(None);
+        }
+        if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
+            let text = "false".to_owned();
+            return Ok(Some(
+                if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq) {
+                    format!("!({text})")
+                } else {
+                    text
+                },
+            ));
         }
         let lhs_needs_erased = self.type_contains_unknown(lhs_ty)
             || matches!(
@@ -1301,8 +1447,6 @@ impl FunctionEmitter<'_> {
                     self.operand_text(rhs)?
                 )
             }
-        } else if self.equality_shapes_are_definitely_incompatible(lhs_ty, rhs_ty) {
-            "false".to_owned()
         } else {
             return Ok(None);
         };
@@ -1367,6 +1511,14 @@ impl FunctionEmitter<'_> {
                         | (Some(Type::None), Some(Type::None))
                 ) && self.mir.types.get(left) != self.mir.types.get(right)
             }
+            (
+                Some(Type::Class { .. }),
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
+            )
+            | (
+                Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None),
+                Some(Type::Class { .. }),
+            ) => true,
             _ => false,
         }
     }
@@ -1859,7 +2011,7 @@ impl FunctionEmitter<'_> {
     fn callable_object_assign_text(
         &self,
         callable: &Operand,
-        _props: &[(Symbol, Operand)],
+        props: &[(Symbol, Operand)],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         if matches!(
@@ -1867,7 +2019,21 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(dest_ty)
         {
-            return self.unknown_wrap_text(callable);
+            let callable_text = self.unknown_wrap_text(callable)?;
+            let mut entries = vec![format!(
+                "smelt_object.insert(\"__smelt_call\".to_owned(), {callable_text});"
+            )];
+            for (key, value) in props {
+                let key_text = self.symbol_source_name(*key)?;
+                let value_text = self.operand_as_type_text(value, self.type_id(Type::Unknown)?)?;
+                entries.push(format!(
+                    "smelt_object.insert({key_text:?}.to_owned(), {value_text});"
+                ));
+            }
+            return Ok(format!(
+                "{{ let mut smelt_object = ::std::collections::HashMap::new(); {} SmeltUnknown::Object(SmeltObject::new(smelt_object)) }}",
+                entries.join(" ")
+            ));
         }
         self.operand_text(callable)
     }
@@ -1907,7 +2073,7 @@ impl FunctionEmitter<'_> {
             format!("({args_text},)")
         };
         Ok(format!(
-            "{{ let _smelt_external_args = {args_tuple_text}; let mut _smelt_external = ::std::collections::HashMap::new(); _smelt_external.insert(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned())); SmeltUnknown::Object(_smelt_external) }}"
+            "{{ let _smelt_external_args = {args_tuple_text}; let mut _smelt_external = ::std::collections::HashMap::new(); _smelt_external.insert(\"__class\".to_owned(), SmeltUnknown::String({class_name:?}.to_owned())); SmeltUnknown::Object(SmeltObject::new(_smelt_external)) }}"
         ))
     }
 
@@ -1922,6 +2088,11 @@ impl FunctionEmitter<'_> {
             && self.mir.types.get(*key) == Some(&Type::String)
         {
             let field_name = self.symbol_source_name(field)?;
+            if self.dict_uses_smelt_record(*key) {
+                return Ok(format!(
+                    "{receiver_text}.get({field_name:?}).expect(\"missing field\")"
+                ));
+            }
             return Ok(format!(
                 "{receiver_text}.get({field_name:?}).cloned().expect(\"missing field\")"
             ));
@@ -1933,7 +2104,7 @@ impl FunctionEmitter<'_> {
         {
             let field_name = self.symbol_source_name(field)?;
             return Ok(format!(
-                "match {receiver_text} {{ SmeltUnknown::Object(map) => match map.get({field_name:?}).cloned().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (&mut *smelt_getter.borrow_mut())(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                "match {receiver_text} {{ SmeltUnknown::Object(map) => match map.get({field_name:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (&mut *smelt_getter.borrow_mut())(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
             ));
         }
         if matches!(self.mir.types.get(receiver_ty), Some(Type::String)) {
@@ -2140,7 +2311,11 @@ impl FunctionEmitter<'_> {
                 } else {
                     self.operand_as_type_text(index, *key_ty)?
                 };
-                Ok(format!("{receiver_text}.get(&{key_text}).cloned()"))
+                if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                    Ok(format!("{receiver_text}.get(&{key_text})"))
+                } else {
+                    Ok(format!("{receiver_text}.get(&{key_text}).cloned()"))
+                }
             }
             Some(Type::String) => {
                 let index_text =
@@ -2189,10 +2364,10 @@ impl FunctionEmitter<'_> {
                 };
                 let object_some = if self.mir.types.get(result_ty) == Some(&Type::String) {
                     format!(
-                        "values.get(&{key_text}).cloned().map(|value| match value {{ SmeltUnknown::String(value) => value, other => other.to_string() }})"
+                        "values.get(&{key_text}).map(|value| match value {{ SmeltUnknown::String(value) => value, other => other.to_string() }})"
                     )
                 } else {
-                    format!("values.get(&{key_text}).cloned()")
+                    format!("values.get(&{key_text})")
                 };
                 let primitive_none = "SmeltUnknown::Bool(_) | SmeltUnknown::Number(_) | SmeltUnknown::Symbol(_) | SmeltUnknown::Null | SmeltUnknown::Function(_) => None";
                 Ok(format!(

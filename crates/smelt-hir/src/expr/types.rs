@@ -19,6 +19,10 @@ pub enum BinOp {
     Eq,
     /// Inequality operator.
     NotEq,
+    /// JavaScript strict identity equality operator.
+    StrictEq,
+    /// JavaScript strict identity inequality operator.
+    StrictNotEq,
     /// Less-than operator.
     Lt,
     /// Less-than-or-equal operator.
@@ -48,8 +52,8 @@ pub const fn bin_op_text(op: BinOp) -> &'static str {
         BinOp::Mul => "*",
         BinOp::Div => "/",
         BinOp::Rem => "%",
-        BinOp::Eq => "==",
-        BinOp::NotEq => "!=",
+        BinOp::Eq | BinOp::StrictEq => "==",
+        BinOp::NotEq | BinOp::StrictNotEq => "!=",
         BinOp::Lt => "<",
         BinOp::Lte => "<=",
         BinOp::Gt => ">",

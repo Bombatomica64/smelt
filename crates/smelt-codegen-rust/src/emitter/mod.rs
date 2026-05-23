@@ -323,6 +323,28 @@ fn callback_param_escapes_locally(
                 })
         })
     });
+    let captured_by_erased_return = type_erases_values(mir, function.return_ty)
+        && function.blocks.iter().any(|block| {
+            let Some(Terminator::Return(
+                Operand::Copy(Place::Local(returned)) | Operand::Move(Place::Local(returned)),
+            )) = &block.terminator
+            else {
+                return false;
+            };
+            closure_source_for_local(function, *returned, Some(&closure_defs))
+                .and_then(|closure_id| {
+                    mir.closures.get(
+                        id_index(closure_id.0, "closure index does not fit usize")
+                            .unwrap_or(usize::MAX),
+                    )
+                })
+                .is_some_and(|closure| {
+                    closure
+                        .captures
+                        .iter()
+                        .any(|capture| capture.source_local == local)
+                })
+        });
     let erased_or_dynamic_escape = function.blocks.iter().any(|block| {
         block
             .statements
@@ -332,6 +354,7 @@ fn callback_param_escapes_locally(
     Ok(directly_returned
         || erased_or_dynamic_escape
         || captured_by_erased_closure_value
+        || captured_by_erased_return
         || type_contains_function(mir, function.return_ty)
         || (matches!(mir.types.get(function.return_ty), Some(Type::Function(_)))
             && captured_by_any_closure)
@@ -385,8 +408,28 @@ fn statement_erases_callback_param(
                 && args.iter().any(|arg| operand_local(arg) == Some(local))
         }
         Rvalue::CallableObjectAssign { callable, props } => {
+            let closure_defs = closure_definitions(function).ok();
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
                 && (operand_local(callable) == Some(local)
+                    || operand_local(callable)
+                        .and_then(|callable_local| {
+                            closure_source_for_local(
+                                function,
+                                callable_local,
+                                closure_defs.as_ref(),
+                            )
+                        })
+                        .and_then(|closure_id| {
+                            mir.closures.get(
+                                id_index(closure_id.0, "closure index does not fit usize").ok()?,
+                            )
+                        })
+                        .is_some_and(|closure| {
+                            closure
+                                .captures
+                                .iter()
+                                .any(|capture| capture.source_local == local)
+                        })
                     || props
                         .iter()
                         .any(|(_, prop_value)| operand_local(prop_value) == Some(local)))
@@ -397,6 +440,44 @@ fn statement_erases_callback_param(
         }
         _ => false,
     }
+}
+
+/// Resolve a local through simple copy aliases to the closure assigned to it.
+fn closure_source_for_local(
+    function: &MirFunction,
+    local: LocalId,
+    closure_defs: Option<&HashMap<LocalId, smelt_mir::ClosureId>>,
+) -> Option<smelt_mir::ClosureId> {
+    let closure_defs = closure_defs?;
+    if let Some(closure_id) = closure_defs.get(&local).copied() {
+        return Some(closure_id);
+    }
+    let mut current = local;
+    let mut seen = HashSet::new();
+    while seen.insert(current) {
+        let next = function.blocks.iter().find_map(|block| {
+            block.statements.iter().find_map(|statement| {
+                let Statement::Assign { dest, value } = statement else {
+                    return None;
+                };
+                if *dest != current {
+                    return None;
+                }
+                match value {
+                    Rvalue::Use(
+                        Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
+                        | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
+                    ) => Some(*source),
+                    _ => None,
+                }
+            })
+        })?;
+        if let Some(closure_id) = closure_defs.get(&next).copied() {
+            return Some(closure_id);
+        }
+        current = next;
+    }
+    None
 }
 
 /// Return whether a Rust value of `ty` erases nested values into unknown state.

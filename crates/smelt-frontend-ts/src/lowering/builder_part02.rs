@@ -6,6 +6,27 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.arrow_function_const_declaration_inner(name_text, arrow, type_hint, false)
+    }
+
+    /// Lower a synthetic object-table arrow function while preserving exact key spelling.
+    fn arrow_function_const_declaration_with_source_name(
+        &mut self,
+        name_text: &str,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.arrow_function_const_declaration_inner(name_text, arrow, type_hint, true)
+    }
+
+    /// Shared implementation for arrow function constants.
+    fn arrow_function_const_declaration_inner(
+        &mut self,
+        name_text: &str,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+        preserve_source_name: bool,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
         let function_hint = self.contextual_function_type(type_hint);
         let _type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let explicit_return_ty = match arrow
@@ -254,7 +275,11 @@ impl ModuleBuilder<'_> {
         self.pop_type_parameter_scope();
 
         let body_id = self.ctx.krate.push_body(body);
-        let name = self.intern_source_name(name_text);
+        let name = if preserve_source_name {
+            self.intern_exact_source_name(name_text)
+        } else {
+            self.intern_source_name(name_text)
+        };
         let item = self.ctx.krate.push_item(Item::Function(Function {
             name,
             span: self.span(arrow.span.start, arrow.span.end),

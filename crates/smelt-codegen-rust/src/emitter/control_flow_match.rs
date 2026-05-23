@@ -30,7 +30,7 @@ impl FunctionEmitter<'_> {
             out.push_str("        }\n");
             self.restore_declared_locals(match_declared);
         } else {
-            out.push_str("        _ => unreachable!(),\n");
+            out.push_str("        _ => {}\n");
         }
         out.push_str("    }\n");
         if let Some(join) = self.match_join(arms, default)? {

@@ -2705,7 +2705,7 @@ function makeValue(): Promise<number> {
 }
 
 #[test]
-fn lowers_function_length_to_static_arity() -> Result<(), String> {
+fn lowers_function_length_to_len_expr() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -2718,9 +2718,9 @@ const arity = fnValue.length;
     let body = module_body(&ctx, module)?;
 
     ensure!(
-        body.exprs.iter().any(
-            |expr| matches!(expr.kind, ExprKind::Literal(Literal::Float(value)) if value == 2.0)
-        )
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Len { .. }))
     );
     Ok(())
 }

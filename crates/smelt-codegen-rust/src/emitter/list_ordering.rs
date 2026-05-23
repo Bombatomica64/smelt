@@ -248,10 +248,20 @@ impl FunctionEmitter<'_> {
         if !matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             return Err(EmitError::new("list index destination must be int"));
         }
+        let list_text = self.operand_text(list)?;
+        let item_text = self.operand_text(item)?;
+        if self.list_item_uses_same_value_zero(*item_ty) {
+            if self.mir.types.get(*item_ty) == Some(&Type::Float) {
+                return Ok(format!(
+                    "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|item| *item == smelt_needle || (item.is_nan() && smelt_needle.is_nan())).expect(\"list index missing item\") as i64 }}"
+                ));
+            }
+            return Ok(format!(
+                "{{ let smelt_needle = {item_text}; {list_text}.iter().position(|item| item.same_js_key(&smelt_needle)).expect(\"list index missing item\") as i64 }}"
+            ));
+        }
         Ok(format!(
-            "{}.iter().position(|item| item == &{}).expect(\"list index missing item\") as i64",
-            self.operand_text(list)?,
-            self.operand_text(item)?
+            "{list_text}.iter().position(|item| item == &{item_text}).expect(\"list index missing item\") as i64"
         ))
     }
 
