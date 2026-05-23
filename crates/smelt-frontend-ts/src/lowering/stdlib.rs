@@ -3,8 +3,8 @@
 use oxc::ast::ast::{Argument, CallExpression, Expression, ObjectPropertyKind, PropertyKey};
 use oxc::span::GetSpan;
 use smelt_hir::{
-    BinOp, Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, RegexMatchOp,
-    Type,
+    BinOp, Body, Expr, ExprKind, ListCallbackOp, ListProjectionOp, ListSpliceItem, Literal,
+    Pattern, RegexMatchOp, Stmt, Type, UnaryOp,
 };
 use smelt_stdlib::RuleId;
 
@@ -307,13 +307,26 @@ impl ModuleBuilder<'_> {
                 .types
                 .intern(Type::Function(smelt_hir::FunctionType {
                     params: Vec::new(),
+                    rest: None,
+                    required_params: None,
                     return_ty: unknown,
                     is_async: false,
                     may_throw: false,
                 }))
         };
+        if let Some(implementation) = call.arguments.first() {
+            let value = self.argument(implementation, body)?;
+            if Self::expr_ty(body, value) == function_ty {
+                return Ok(Some(value));
+            }
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value },
+                ty: function_ty,
+                span: self.span(implementation.span().start, implementation.span().end),
+            })));
+        }
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            kind: ExprKind::Literal(Literal::None),
             ty: function_ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -389,7 +402,7 @@ impl ModuleBuilder<'_> {
         }
         let ty = self.ctx.krate.types.intern(Type::None);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            kind: ExprKind::Literal(Literal::None),
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -403,7 +416,7 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let ty = self.ctx.krate.types.intern(Type::Unknown);
         body.push_expr(Expr {
-            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            kind: ExprKind::Literal(Literal::None),
             ty,
             span,
         })
@@ -439,6 +452,15 @@ impl ModuleBuilder<'_> {
                 "expect(...).resolves/rejects matcher requires an actual promise",
             ));
         };
+        if modifier.property.name == "rejects"
+            && matches!(
+                matcher.property.name.as_str(),
+                "toThrow" | "toThrowErrorMatchingInlineSnapshot"
+            )
+        {
+            return self.vitest_rejects_to_throw_call(call, actual_arg, body);
+        }
+
         let actual = self.argument(actual_arg, body)?;
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, actual)),
@@ -455,9 +477,133 @@ impl ModuleBuilder<'_> {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            kind: ExprKind::Literal(Literal::None),
             ty,
             span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower `await expect(promise).rejects.toThrow(...)` to native exception flow.
+    fn vitest_rejects_to_throw_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        actual_arg: &Argument<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let span = self.span(call.span.start, call.span.end);
+        let did_throw_name = self.intern_source_name("did_throw");
+        let did_throw = body.push_local(smelt_hir::LocalDecl {
+            name: Some(did_throw_name),
+            ty: bool_ty,
+            mutable: true,
+            span,
+        });
+        let did_throw_pat = body.push_pattern(Pattern::Binding(did_throw));
+        let false_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(false)),
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt(Stmt::Let {
+            pat: did_throw_pat,
+            ty: bool_ty,
+            value: Some(false_expr),
+        });
+
+        let try_block = body.push_block(span);
+        let actual = self.argument(actual_arg, body)?;
+        let Some(item_ty) = self.future_inner_type(Self::expr_ty(body, actual)) else {
+            return Err(SmeltError::unsupported(
+                self.span(actual_arg.span().start, actual_arg.span().end),
+                "expect(...).rejects.toThrow(...) actual value must be a Promise<T>",
+            ));
+        };
+        let awaited = body.push_expr(Expr {
+            kind: ExprKind::Await(actual),
+            ty: item_ty,
+            span,
+        });
+        body.push_stmt_to_block(try_block, Stmt::Expr(awaited));
+
+        let catch_message = body.push_local(smelt_hir::LocalDecl {
+            name: Some(self.intern_source_name("error")),
+            ty: string_ty,
+            mutable: false,
+            span,
+        });
+        let catch_block = body.push_block(span);
+        let did_throw_target = body.push_expr(Expr {
+            kind: ExprKind::Local(did_throw),
+            ty: bool_ty,
+            span,
+        });
+        let true_expr = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Bool(true)),
+            ty: bool_ty,
+            span,
+        });
+        body.push_stmt_to_block(
+            catch_block,
+            Stmt::Assign {
+                target: did_throw_target,
+                value: true_expr,
+            },
+        );
+        if let Some(expected_arg) = call.arguments.first() {
+            let expected = self.argument(expected_arg, body)?;
+            if Self::expr_ty(body, expected) == string_ty {
+                let error_expr = body.push_expr(Expr {
+                    kind: ExprKind::Local(catch_message),
+                    ty: string_ty,
+                    span,
+                });
+                let contains = self.contains_expr(error_expr, expected, call.span, body)?;
+                let failed = self.unary_bool_expr(UnaryOp::Not, contains, call.span, body);
+                let failure_block = body.push_block(span);
+                let message = self.string_literal_expr(
+                    "expect(...).rejects.toThrow(...) message failed",
+                    call.span,
+                    body,
+                );
+                body.push_stmt_to_block(failure_block, Stmt::Throw(message));
+                body.push_stmt_to_block(
+                    catch_block,
+                    Stmt::If {
+                        cond: failed,
+                        then_block: failure_block,
+                        else_block: None,
+                    },
+                );
+            }
+        }
+        body.push_stmt(Stmt::TryCatch {
+            body: try_block,
+            catch_binding: Some(catch_message),
+            catch_body: Some(catch_block),
+            finally_body: None,
+        });
+
+        let did_throw_check = body.push_expr(Expr {
+            kind: ExprKind::Local(did_throw),
+            ty: bool_ty,
+            span,
+        });
+        let failed = self.unary_bool_expr(UnaryOp::Not, did_throw_check, call.span, body);
+        self.push_test_failure_if(
+            failed,
+            "expect(...).rejects.toThrow(...) failed",
+            call.span,
+            body,
+        );
+
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let ty = self.ctx.krate.types.intern(Type::Future(none_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty,
+            span,
         })))
     }
 
@@ -495,7 +641,7 @@ impl ModuleBuilder<'_> {
                 args: Vec::new(),
             });
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(smelt_hir::Literal::None),
+                kind: ExprKind::Literal(Literal::None),
                 ty,
                 span: self.span(call.span.start, call.span.end),
             })));
@@ -529,7 +675,7 @@ impl ModuleBuilder<'_> {
         }
         let ty = self.ctx.krate.types.intern(Type::None);
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(smelt_hir::Literal::None),
+            kind: ExprKind::Literal(Literal::None),
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -745,7 +891,7 @@ impl ModuleBuilder<'_> {
                 span: self.span(call.span.start, call.span.end),
             });
             let none = body.push_expr(Expr {
-                kind: ExprKind::Literal(smelt_hir::Literal::None),
+                kind: ExprKind::Literal(Literal::None),
                 ty: self.ctx.krate.types.intern(Type::None),
                 span: self.span(call.span.start, call.span.end),
             });
@@ -967,7 +1113,7 @@ impl ModuleBuilder<'_> {
             })?
         } else {
             body.push_expr(Expr {
-                kind: ExprKind::Literal(smelt_hir::Literal::String(String::new())),
+                kind: ExprKind::Literal(Literal::String(String::new())),
                 ty: self.ctx.krate.types.intern(Type::String),
                 span: self.span(new_expr.span.start, new_expr.span.end),
             })
@@ -1051,9 +1197,9 @@ impl ModuleBuilder<'_> {
             Expression::RegExpLiteral(literal) => {
                 let ty = self.ctx.krate.types.intern(Type::String);
                 Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::Literal(smelt_hir::Literal::String(
-                        Self::regex_literal_pattern_text(literal),
-                    )),
+                    kind: ExprKind::Literal(Literal::String(Self::regex_literal_pattern_text(
+                        literal,
+                    ))),
                     ty,
                     span: self.span(literal.span.start, literal.span.end),
                 })))
@@ -1379,10 +1525,10 @@ impl ModuleBuilder<'_> {
             let other = if matches!(self.ctx.krate.types.get(other_ty), Some(Type::List(_))) {
                 other
             } else {
-                let list_ty = self.ctx.krate.types.intern(Type::List(element_ty));
+                let list_value_ty = self.ctx.krate.types.intern(Type::List(element_ty));
                 body.push_expr(Expr {
                     kind: ExprKind::TypeAssert { value: other },
-                    ty: list_ty,
+                    ty: list_value_ty,
                     span: self.span(spread.span.start, spread.span.end),
                 })
             };

@@ -114,7 +114,10 @@ impl ModuleBuilder<'_> {
             }
             "Optional" => {
                 let inner = self.annotation_to_hir(&sub.slice)?;
-                Ok(self.intern_type(Type::Optional(inner)))
+                Ok(smelt_hir::type_normalize::optional_of(
+                    &mut self.ctx.krate.types,
+                    inner,
+                ))
             }
             "Union" => {
                 let types = if let Expr::Tuple(t) = sub.slice.as_ref() {
@@ -144,9 +147,11 @@ impl ModuleBuilder<'_> {
                 let return_ty = self.annotation_to_hir(return_expr)?;
                 Ok(self.intern_type(Type::Function(FunctionType {
                     params,
+                    rest: None,
+                    required_params: None,
                     return_ty,
                     is_async: false,
-                            may_throw: false,
+                    may_throw: false,
                 })))
             }
             "Awaitable" | "Coroutine" => {
@@ -200,7 +205,10 @@ impl ModuleBuilder<'_> {
                         "internal error: union normalization expected one non-None type",
                     ));
                 };
-                Ok(self.intern_type(Type::Optional(*inner)))
+                Ok(smelt_hir::type_normalize::optional_of(
+                    &mut self.ctx.krate.types,
+                    *inner,
+                ))
             }
             (1, false) => {
                 let [inner] = types.as_slice() else {
@@ -213,9 +221,21 @@ impl ModuleBuilder<'_> {
             }
             (_, true) => {
                 types.push(none_ty);
-                Ok(self.intern_type(Type::Union(types)))
+                let union = self.intern_type(Type::Union(types));
+                Ok(smelt_hir::type_normalize::normalize_type(
+                    &mut self.ctx.krate.types,
+                    union,
+                    smelt_hir::type_normalize::NormalizeOptions::default(),
+                ))
             }
-            (_, false) => Ok(self.intern_type(Type::Union(types))),
+            (_, false) => {
+                let union = self.intern_type(Type::Union(types));
+                Ok(smelt_hir::type_normalize::normalize_type(
+                    &mut self.ctx.krate.types,
+                    union,
+                    smelt_hir::type_normalize::NormalizeOptions::default(),
+                ))
+            }
         }
     }
 

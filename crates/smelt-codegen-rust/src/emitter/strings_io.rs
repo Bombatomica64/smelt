@@ -43,7 +43,7 @@ impl FunctionEmitter<'_> {
     /// option bags and formatter APIs. Rust emission accepts those surfaces here
     /// and maps values that cannot produce a timestamp to `NaN`, matching the
     /// existing invalid-date sentinel path.
-    fn date_timestamp_text(&self, timestamp_ms: &Operand) -> Result<String, EmitError> {
+    pub(super) fn date_timestamp_text(&self, timestamp_ms: &Operand) -> Result<String, EmitError> {
         let ty = self.operand_ty(timestamp_ms)?;
         let text = self.operand_text(timestamp_ms)?;
         self.date_timestamp_value_text(&text, ty)
@@ -54,7 +54,9 @@ impl FunctionEmitter<'_> {
         match self.mir.types.get(ty) {
             Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
             Some(Type::Bool) => Ok(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}")),
-            Some(Type::String) => Ok(format!("{value_text}.parse::<f64>().unwrap_or(f64::NAN)")),
+            Some(Type::String) => Ok(format!(
+                "chrono::DateTime::parse_from_rfc3339(&{value_text}).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| {value_text}.parse::<f64>().unwrap_or(f64::NAN))"
+            )),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_value_text("value", *inner)?;
                 Ok(format!(
@@ -70,7 +72,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 Ok(format!(
-                    "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                    "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
                 ))
             }
             _ => Ok("f64::NAN".to_owned()),
@@ -164,7 +166,7 @@ impl FunctionEmitter<'_> {
                 let month = value_texts.get(1).map_or("date.month0()", String::as_str);
                 let day = value_texts.get(2).map_or("date.day()", String::as_str);
                 format!(
-                    "date.with_year({year} as i32).and_then(|date| date.with_month0({month} as u32)).and_then(|date| date.with_day({day} as u32))"
+                    "{{ let month_index = {month} as i32; let normalized_year = ({year} as i32) + month_index.div_euclid(12); let normalized_month0 = month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(normalized_year, normalized_month0 + 1, 1).and_then(|base| base.and_hms_nano_opt(date.hour(), date.minute(), date.second(), date.nanosecond())).map(|base| base + chrono::Duration::days(({day} as i64) - 1)).map(|date| date.and_utc()) }}"
                 )
             }
             smelt_hir::DatePart::Month => {
@@ -173,14 +175,16 @@ impl FunctionEmitter<'_> {
                 };
                 let day = value_texts.get(1).map_or("date.day()", String::as_str);
                 format!(
-                    "date.with_month0({month} as u32).and_then(|date| date.with_day({day} as u32))"
+                    "{{ let month_index = {month} as i32; let normalized_year = date.year() + month_index.div_euclid(12); let normalized_month0 = month_index.rem_euclid(12) as u32; chrono::NaiveDate::from_ymd_opt(normalized_year, normalized_month0 + 1, 1).and_then(|base| base.and_hms_nano_opt(date.hour(), date.minute(), date.second(), date.nanosecond())).map(|base| base + chrono::Duration::days(({day} as i64) - 1)).map(|date| date.and_utc()) }}"
                 )
             }
             smelt_hir::DatePart::Date => {
                 let Some(day) = value_texts.first() else {
                     return Err(EmitError::new("Date.setDate requires a day value"));
                 };
-                format!("date.with_day({day} as u32)")
+                format!(
+                    "chrono::NaiveDate::from_ymd_opt(date.year(), date.month(), 1).and_then(|base| base.and_hms_nano_opt(date.hour(), date.minute(), date.second(), date.nanosecond())).map(|base| base + chrono::Duration::days(({day} as i64) - 1)).map(|date| date.and_utc())"
+                )
             }
             smelt_hir::DatePart::Day => {
                 return Err(EmitError::new("Date.setDay is not a JavaScript API"));

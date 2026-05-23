@@ -12,12 +12,13 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let scrutinee_text = self.match_scrutinee_text(scrutinee)?;
+        let scrutinee_ty = self.operand_ty(scrutinee)?;
         out.push_str(&format!("    match {scrutinee_text} {{\n"));
         let match_declared = self.declared_locals_snapshot();
         for arm in arms {
             out.push_str(&format!(
                 "        {} => {{\n",
-                self.match_label_text(&arm.label)
+                self.match_label_text_for_scrutinee(&arm.label, scrutinee_ty)
             ));
             self.emit_block_as_match_arm(self.block(arm.target)?, out)?;
             out.push_str("        }\n");
@@ -82,7 +83,8 @@ impl FunctionEmitter<'_> {
     /// Emits a block's statements until reaching a goto to the stop target.
     /// Converts a match scrutinee operand to its Rust text representation.
     pub(super) fn match_scrutinee_text(&self, operand: &Operand) -> Result<String, EmitError> {
-        if self.operand_ty(operand)? == self.type_id(Type::String)? {
+        let operand_ty = self.operand_ty(operand)?;
+        if operand_ty == self.type_id(Type::String)? {
             match operand {
                 Operand::Copy(place) | Operand::Move(place) => {
                     Ok(format!("{}.as_str()", self.place_text(place)?))
@@ -90,6 +92,11 @@ impl FunctionEmitter<'_> {
                 Operand::Const(Constant::String(value)) => Ok(format!("{value:?}")),
                 Operand::Const(_) => self.operand_text(operand),
             }
+        } else if matches!(
+            self.mir.types.get(operand_ty),
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
+        ) {
+            Ok(format!("{}.as_deref()", self.operand_text(operand)?))
         } else {
             self.operand_text(operand)
         }
@@ -102,6 +109,18 @@ impl FunctionEmitter<'_> {
             Constant::String(value) => format!("{value:?}"),
             _ => constant_text(constant),
         }
+    }
+
+    /// Converts a constant to a Rust match label for the scrutinee type.
+    fn match_label_text_for_scrutinee(&self, constant: &Constant, scrutinee_ty: TypeId) -> String {
+        if matches!(
+            self.mir.types.get(scrutinee_ty),
+            Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String)
+        ) && let Constant::String(value) = constant
+        {
+            return format!("Some({value:?})");
+        }
+        self.match_label_text(constant)
     }
 
     // Gets the type of an operand.

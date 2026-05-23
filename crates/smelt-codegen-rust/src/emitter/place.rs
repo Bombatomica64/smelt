@@ -10,7 +10,7 @@ impl FunctionEmitter<'_> {
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty) {
-                    let field_name = self.symbol_name(*field)?;
+                    let field_name = self.symbol_source_name(*field)?;
                     let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
                         format!("{field_name:?}.to_owned()")
                     } else if matches!(
@@ -32,10 +32,10 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
                 ) || self.is_erased_class_type(base_ty)
                 {
-                    let field_name = self.symbol_name(*field)?;
+                    let field_name = self.symbol_source_name(*field)?;
                     let base_text = self.local_name(*base)?;
                     return Ok(format!(
-                        "match {base_text}.clone() {{ SmeltUnknown::Object(map) => map.get({field_name:?}).cloned().unwrap_or(SmeltUnknown::Null), _ => SmeltUnknown::Null }}"
+                        "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
                     ));
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
@@ -44,17 +44,55 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
                     ) || self.is_erased_class_type(*inner))
                 {
-                    let field_name = self.symbol_name(*field)?;
+                    let field_name = self.symbol_source_name(*field)?;
                     let base_text = self.local_name(*base)?;
                     return Ok(format!(
-                        "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(map) => map.get({field_name:?}).cloned().unwrap_or(SmeltUnknown::Null), _ => SmeltUnknown::Null }}"
+                        "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
                     ));
+                }
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && let Some(Type::Dict(key_ty, _)) = self.mir.types.get(*inner)
+                    && self.mir.types.get(*key_ty) == Some(&Type::String)
+                {
+                    let field_name = self.symbol_source_name(*field)?;
+                    let base_text = self.local_name(*base)?;
+                    return Ok(format!(
+                        "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}).cloned())"
+                    ));
+                }
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && let Some(fields) = self.structural_record_fields(*inner)
+                    && let Some(field_ty) = fields
+                        .iter()
+                        .find(|candidate| candidate.name == *field)
+                        .map(|candidate| candidate.ty)
+                {
+                    let base_text = self.local_name(*base)?;
+                    let field_name = sanitize_ident(self.symbol_name(*field)?);
+                    return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
+                        Ok(format!(
+                            "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.{field_name}.clone())"
+                        ))
+                    } else {
+                        Ok(format!(
+                            "{base_text}.as_ref().map(|_smelt_value| _smelt_value.{field_name}.clone())"
+                        ))
+                    };
                 }
                 if matches!(self.mir.types.get(base_ty), Some(Type::Function(_))) {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }
+                if self.symbol_source_name(*field)? == "constructor" {
+                    return Ok("SmeltUnknown::Null".to_owned());
+                }
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
                     return self.string_field_text(self.local_name(*base)?, *field);
+                }
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && let Some(method_text) =
+                        self.class_method_reference_text(self.local_name(*base)?, *name, *field)?
+                {
+                    return Ok(method_text);
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
@@ -203,7 +241,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 format!(
-                    "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                    "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
                 )
             }
             _ => "f64::NAN".to_owned(),

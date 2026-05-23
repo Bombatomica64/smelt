@@ -365,10 +365,8 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let pattern_text = self.string_like_operand_text(pattern, "regex find")?;
         let haystack_text = self.string_like_operand_text(haystack, "regex find")?;
-        let regex_text =
-            format!("regex::Regex::new(&{pattern_text}).expect(\"regex compile failed\")");
         Ok(format!(
-            "{regex_text}.find(&{haystack_text}).map(|m| vec![m.as_str().to_owned()])"
+            "regex::Regex::new(&{pattern_text}).ok().and_then(|regex| regex.find(&{haystack_text}).map(|m| vec![m.as_str().to_owned()]))"
         ))
     }
 
@@ -441,7 +439,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 let text = self.operand_text(operand)?;
                 Ok(format!(
-                    "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
+                    "match {text} {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
                 ))
             }
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => {
@@ -518,13 +516,27 @@ impl FunctionEmitter<'_> {
         haystack: &Operand,
         needle: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(haystack)?),
-            Some(Type::String)
-        ) || !matches!(
-            self.mir.types.get(self.operand_ty(needle)?),
-            Some(Type::String)
-        ) {
+        let haystack_ty = self.operand_ty(haystack)?;
+        let needle_ty = self.operand_ty(needle)?;
+        if self.mir.types.get(haystack_ty) == Some(&Type::Unknown) {
+            return Ok(format!(
+                "{}.includes({})",
+                self.operand_text(haystack)?,
+                self.operand_text(needle)?
+            ));
+        }
+        if self.mir.types.get(needle_ty) == Some(&Type::Unknown)
+            && self.mir.types.get(haystack_ty) == Some(&Type::String)
+        {
+            return Ok(format!(
+                "SmeltUnknown::String({}.clone()).includes({})",
+                self.operand_text(haystack)?,
+                self.operand_text(needle)?
+            ));
+        }
+        if !matches!(self.mir.types.get(haystack_ty), Some(Type::String))
+            || !matches!(self.mir.types.get(needle_ty), Some(Type::String))
+        {
             return Err(EmitError::new("string contains operands must be strings"));
         }
         Ok(format!(
@@ -638,7 +650,7 @@ impl FunctionEmitter<'_> {
         let item_text = match self.mir.types.get(*item_ty) {
             Some(Type::Bool | Type::Int | Type::Float) => "item.to_string()".to_owned(),
             Some(Type::Unknown) => {
-                "match item { SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) => value.clone(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }".to_owned()
+                "match item { SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value.clone(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }".to_owned()
             }
             Some(Type::Optional(inner)) => match self.mir.types.get(*inner) {
                 Some(Type::Bool | Type::Int | Type::Float) => {

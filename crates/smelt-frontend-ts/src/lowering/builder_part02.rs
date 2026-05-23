@@ -259,7 +259,9 @@ impl ModuleBuilder<'_> {
             name,
             span: self.span(arrow.span.start, arrow.span.end),
             params,
-            return_ty,
+            rest: rest.map(|rest| rest.index),
+            required_params: None,
+return_ty,
             is_async: arrow.r#async,
             is_test: false,
             body: Some(body_id),
@@ -268,6 +270,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.function_rests.insert(name_text.to_owned(), rest);
+            self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
         Ok(item)
     }
@@ -302,7 +305,9 @@ impl ModuleBuilder<'_> {
         };
         self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: function.params,
-            return_ty,
+            rest: function.rest,
+            required_params: None,
+return_ty,
             is_async: function.is_async,
                             may_throw: false,
         }))
@@ -480,7 +485,9 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .map(|param| param.ty)
                     .collect(),
-                return_ty: target_function.return_ty,
+                rest: target_function.rest,
+                required_params: None,
+return_ty: target_function.return_ty,
                 is_async: target_function.is_async,
                             may_throw: false,
             })),
@@ -515,7 +522,9 @@ impl ModuleBuilder<'_> {
             name,
             span,
             params: wrapper_params,
-            return_ty: target_function.return_ty,
+            rest: target_function.rest,
+            required_params: None,
+return_ty: target_function.return_ty,
             is_async: target_function.is_async,
             is_test: false,
             body: Some(body_id),
@@ -801,8 +810,8 @@ impl ModuleBuilder<'_> {
                 ));
             }
             return Ok(ConstLiteral {
-                literal: Literal::String("symbol".to_owned()),
-                ty: self.ctx.krate.types.intern(Type::String),
+                literal: Literal::Symbol(format!("Symbol()@{}", call.span.start)),
+                ty: self.ctx.krate.types.intern(Type::Unknown),
             });
         }
         let Some(op) = stdlib_dispatch::pure_math_call(call) else {

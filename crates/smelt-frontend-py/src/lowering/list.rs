@@ -374,13 +374,17 @@ impl ModuleBuilder<'_> {
         let return_ty = callback.ty;
         let closure_ty = self.intern_type(Type::Function(FunctionType {
             params: params.to_vec(),
+            rest: None,
+            required_params: None,
             return_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         body.push_expr(HirExpr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
+                rest: None,
+                required_params: None,
                 return_ty,
                 captures,
                 body: body_id,

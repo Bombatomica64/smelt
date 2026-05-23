@@ -518,19 +518,7 @@ impl ModuleBuilder<'_> {
                 let rhs = self.expression(&binary.right, body)?;
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
-                let ty = if matches!(
-                    op,
-                    BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
-                ) {
-                    self.ctx.krate.types.intern(Type::Bool)
-                } else if op == BinOp::Add
-                    && (self.is_string_compatible_type(lhs_ty)
-                        || self.is_string_compatible_type(rhs_ty))
-                {
-                    self.ctx.krate.types.intern(Type::String)
-                } else {
-                    lhs_ty
-                };
+                let ty = self.binary_result_type(op, lhs_ty, rhs_ty);
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::BinOp { op, lhs, rhs },
                     ty,
@@ -543,6 +531,9 @@ impl ModuleBuilder<'_> {
                 }
                 if logical.operator == LogicalOperator::Coalesce {
                     return self.nullish_coalesce_expression(logical, body, type_hint);
+                }
+                if let Some(expr) = self.logical_and_numeric_value_expression(logical, body)? {
+                    return Ok(expr);
                 }
                 let op = if logical.operator == LogicalOperator::And {
                     BinOp::And
@@ -1056,18 +1047,11 @@ impl ModuleBuilder<'_> {
             }));
         }
         if self.is_nullishable_type(cond_ty) || self.type_is_truthy_condition_surface(cond_ty) {
-            let none_ty = self.ctx.krate.types.intern(Type::None);
-            let none = body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::None),
-                ty: none_ty,
-                span: self.expression_span(expression),
-            });
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::BinOp {
-                    op: BinOp::NotEq,
-                    lhs: cond,
-                    rhs: none,
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToBool,
+                    operand: cond,
                 },
                 ty: bool_ty,
                 span: self.expression_span(expression),
@@ -1075,20 +1059,32 @@ impl ModuleBuilder<'_> {
         }
         Err(SmeltError::unsupported(
             self.expression_span(expression),
-            "condition expression must be boolean or optional",
+            format!(
+                "condition expression must be boolean or optional (got {:?})",
+                self.ctx.krate.types.get(cond_ty)
+            ),
         ))
     }
 
     /// Return whether a non-boolean type can appear in a JavaScript truthiness guard.
     fn type_is_truthy_condition_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. } | Type::Unknown) => {
-                true
-            }
+            Some(
+                Type::Function(_)
+                | Type::Class { .. }
+                | Type::TypeParam { .. }
+                | Type::Unknown
+                | Type::Never,
+            ) => true,
             Some(Type::Union(items)) => items
                 .iter()
                 .copied()
-                .any(|item| self.type_is_truthy_condition_surface(item)),
+                .any(|item| {
+                    matches!(
+                        self.ctx.krate.types.get(item),
+                        Some(Type::Bool | Type::Int | Type::Float | Type::String | Type::None)
+                    ) || self.type_is_truthy_condition_surface(item)
+                }),
             _ => false,
         }
     }

@@ -560,12 +560,43 @@ impl ModuleBuilder<'_> {
                     self.ctx.krate.types.get(callable_ty).cloned()
                 else {
                     if self.erased_or_union_surface(callee_ty) {
-                        for arg in &call.arguments {
-                            let _ = self.argument(arg, body)?;
+                        if self.call_has_spread_arguments_or_source_spread(call) {
+                            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                            let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
+                            let callee =
+                                if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
+                                    callee
+                                } else {
+                                    body.push_expr(Expr {
+                                        kind: ExprKind::TypeAssert { value: callee },
+                                        ty: unknown_ty,
+                                        span: self
+                                            .span(callee_ident.span.start, callee_ident.span.end),
+                                    })
+                                };
+                            return Ok(body.push_expr(Expr {
+                                kind: ExprKind::ClosureCallSpread { callee, args },
+                                ty: unknown_ty,
+                                span: self.span(call.span.start, call.span.end),
+                            }));
                         }
+                        let args = call
+                            .arguments
+                            .iter()
+                            .map(|arg| self.argument(arg, body))
+                            .collect::<Result<Vec<_>, _>>()?;
                         let ty = self.ctx.krate.types.intern(Type::Unknown);
+                        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
+                            callee
+                        } else {
+                            body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value: callee },
+                                ty,
+                                span: self.span(callee_ident.span.start, callee_ident.span.end),
+                            })
+                        };
                         return Ok(body.push_expr(Expr {
-                            kind: ExprKind::Literal(Literal::None),
+                            kind: ExprKind::ClosureCall { callee, args },
                             ty,
                             span: self.span(call.span.start, call.span.end),
                         }));
@@ -593,6 +624,23 @@ impl ModuleBuilder<'_> {
                         self.span(call.span.start, call.span.end),
                         "calls through function types with never parameters are not lowered",
                     ));
+                }
+                if self.call_has_spread_arguments_or_source_spread(call) {
+                    let item_ty = function
+                        .rest
+                        .and_then(|index| function.params.get(index).copied())
+                        .or_else(|| function.params.first().copied())
+                        .and_then(|param| match self.ctx.krate.types.get(param) {
+                            Some(Type::List(item_ty)) => Some(*item_ty),
+                            _ => None,
+                        })
+                        .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                    let args = self.packed_spread_call_arguments(item_ty, call, body)?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCallSpread { callee, args },
+                        ty: function.return_ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
                 }
                 return Ok(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall { callee, args },
@@ -656,7 +704,7 @@ impl ModuleBuilder<'_> {
                     format!("unresolved function `{}`", callee_ident.name),
                 ));
             };
-            let (params, implementation_return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
+            let (params, item_rest, item_required_params, implementation_return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
             {
                 (
                     function
@@ -664,6 +712,8 @@ impl ModuleBuilder<'_> {
                         .iter()
                         .map(|param| param.ty)
                         .collect::<Vec<_>>(),
+                    function.rest,
+                    function.required_params,
                     function.return_ty,
                     function.is_async,
                 )
@@ -709,6 +759,16 @@ impl ModuleBuilder<'_> {
                 }));
             };
             let mut rest = self.function_rests.get(callee_ident.name.as_str()).copied();
+            if rest.is_none()
+                && let Some(index) = item_rest
+                && let Some(Type::List(item_ty)) =
+                    params.get(index).and_then(|param| self.ctx.krate.types.get(*param))
+            {
+                rest = Some(RestParam {
+                    index,
+                    item_ty: *item_ty,
+                });
+            }
             let selected_overload = self.selected_overload_signature(
                 callee_ident.name.as_str(),
                 &call.arguments,
@@ -716,13 +776,13 @@ impl ModuleBuilder<'_> {
                 body,
             )?;
             if rest.is_none()
-                && selected_overload.is_some()
-                && call.arguments.len() >= params.len()
-                && let Some(param_ty) = params.last()
-                && let Some(Type::List(item_ty)) = self.ctx.krate.types.get(*param_ty)
+                && let Some(signature) = &selected_overload
+                && let Some(index) = signature.rest
+                && let Some(Type::List(item_ty)) =
+                    signature.params.get(index).and_then(|param| self.ctx.krate.types.get(*param))
             {
                 rest = Some(RestParam {
-                    index: params.len().saturating_sub(1),
+                    index,
                     item_ty: *item_ty,
                 });
             }
@@ -747,6 +807,8 @@ impl ModuleBuilder<'_> {
             }
             let function_ty = FunctionType {
                 params: params.clone(),
+                rest: rest.map(|rest| rest.index),
+                required_params: item_required_params,
                 return_ty: implementation_return_ty,
                 is_async,
                 may_throw: false,
@@ -832,7 +894,7 @@ impl ModuleBuilder<'_> {
             .clone();
         let ExprKind::Index {
             receiver: index_receiver,
-            index,
+            index: static_index,
         } = expr.kind
         else {
             return receiver;
@@ -841,7 +903,7 @@ impl ModuleBuilder<'_> {
         body.push_expr(Expr {
             kind: ExprKind::OptionalIndex {
                 receiver: index_receiver,
-                index,
+                index: static_index,
             },
             ty,
             span: expr.span,
@@ -938,7 +1000,9 @@ impl ModuleBuilder<'_> {
                 .collect::<Vec<_>>();
             let function = FunctionType {
                 params,
-                return_ty: unknown,
+                rest: None,
+                required_params: None,
+return_ty: unknown,
                 is_async: false,
                             may_throw: false,
             };
@@ -1147,14 +1211,18 @@ impl ModuleBuilder<'_> {
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: remaining_params,
-            return_ty: function.return_ty,
+            rest: None,
+            required_params: None,
+return_ty: function.return_ty,
             is_async: function.is_async,
                             may_throw: false,
         }));
         Ok(Some(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
-                return_ty: function.return_ty,
+            rest: None,
+                required_params: None,
+return_ty: function.return_ty,
                 captures,
                 body: body_id,
                 callback_body: None,
@@ -1233,7 +1301,7 @@ impl ModuleBuilder<'_> {
             && object.name == "Symbol"
             && member.property.name == "for"
         {
-            return self.symbol_like_call(call, body);
+            return self.symbol_like_call(call, body, true);
         }
         let Expression::Identifier(callee) = &call.callee else {
             return Ok(None);
@@ -1241,7 +1309,7 @@ impl ModuleBuilder<'_> {
         if callee.name != "Symbol" {
             return Ok(None);
         }
-        self.symbol_like_call(call, body)
+        self.symbol_like_call(call, body, false)
     }
 
     /// Lower a supported symbol-producing call as a stable opaque string.
@@ -1249,6 +1317,7 @@ impl ModuleBuilder<'_> {
         &mut self,
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
+        global: bool,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if call.arguments.len() > 1 {
             return Err(SmeltError::unsupported(
@@ -1256,12 +1325,11 @@ impl ModuleBuilder<'_> {
                 "Symbol(...) supports at most one description argument",
             ));
         }
-        let description = call
-            .arguments
-            .first()
+        let description_arg = call.arguments.first();
+        let description = description_arg
             .map(|argument| self.argument(argument, body))
             .transpose()?;
-        let ty = self.ctx.krate.types.intern(Type::String);
+        let ty = self.ctx.krate.types.intern(Type::Unknown);
         if let Some(description) = description
             && !matches!(self.ctx.krate.types.get(Self::expr_ty(body, description)), Some(Type::String))
         {
@@ -1270,8 +1338,19 @@ impl ModuleBuilder<'_> {
                 "Symbol(...) description must be a string",
             ));
         }
+        let description = description_arg
+            .and_then(|argument| match argument {
+                Argument::StringLiteral(literal) => Some(literal.value.as_str().to_owned()),
+                _ => None,
+            })
+            .unwrap_or_default();
+        let value = if global {
+            format!("Symbol.for({description})")
+        } else {
+            format!("Symbol({description})@{}", call.span.start)
+        };
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::String("symbol".to_owned())),
+            kind: ExprKind::Literal(Literal::Symbol(value)),
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -1328,12 +1407,32 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         }
         if self.allow_unknown_index_access {
-            if let Some(signature) = signatures
-                .into_iter()
-                .find(|signature| Self::overload_signature_arity_matches(signature, arguments.len()))
-            {
+            let mut loose_selected: Option<(usize, usize, OverloadSignature, HashMap<_, _>)> = None;
+            for (order, signature) in signatures.iter().enumerate() {
+                if !Self::overload_signature_arity_matches(signature, arguments.len()) {
+                    continue;
+                }
+                let mut substitutions = HashMap::new();
+                if !self.loose_overload_signature_matches_args(
+                    signature,
+                    &lowered_arg_tys,
+                    &mut substitutions,
+                ) {
+                    continue;
+                }
+                let score =
+                    self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
+                let candidate = (score, usize::MAX - order, signature.clone(), substitutions);
+                if loose_selected
+                    .as_ref()
+                    .is_none_or(|current| (candidate.0, candidate.1) > (current.0, current.1))
+                {
+                    loose_selected = Some(candidate);
+                }
+            }
+            if let Some((_, _, signature, substitutions)) = loose_selected {
                 return Ok(Some(
-                    self.instantiate_overload_signature(signature, &HashMap::new()),
+                    self.instantiate_overload_signature(signature, &substitutions),
                 ));
             }
             return Ok(None);
@@ -1356,6 +1455,123 @@ impl ModuleBuilder<'_> {
                     .collect::<Vec<_>>()
             ),
         ))
+    }
+
+    /// Return whether an overload accepts the call under permissive top-level shape checks.
+    ///
+    /// This is used only as the unknown-index fallback after strict inference has
+    /// failed. It still rejects source-shape mismatches such as a primitive value
+    /// being passed where an overload expects a tuple/case value, which keeps
+    /// broad Remeda data-last signatures from shadowing data-first calls.
+    fn loose_overload_signature_matches_args(
+        &mut self,
+        signature: &OverloadSignature,
+        arg_tys: &[smelt_hir::TypeId],
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        if signature.params.len() == arg_tys.len()
+            && signature.params.iter().zip(arg_tys).all(|(expected, actual)| {
+                self.loose_overload_type_matches(*expected, *actual, substitutions)
+            })
+        {
+            return true;
+        }
+        let Some(rest_index) = signature.rest else {
+            return false;
+        };
+        let Some((&rest_ty, fixed_params)) = signature.params.split_last() else {
+            return arg_tys.is_empty();
+        };
+        if rest_index != fixed_params.len() || arg_tys.len() < fixed_params.len() {
+            return false;
+        }
+        let mut rest_substitutions = substitutions.clone();
+        let Some(fixed_args) = arg_tys.get(..fixed_params.len()) else {
+            return false;
+        };
+        if !fixed_params.iter().zip(fixed_args).all(|(expected, actual)| {
+            self.loose_overload_type_matches(*expected, *actual, &mut rest_substitutions)
+        }) {
+            return false;
+        }
+        let Some(rest_args) = arg_tys.get(fixed_params.len()..) else {
+            return false;
+        };
+        let rest_matches = match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(rest_ty))
+            .cloned()
+        {
+            Some(Type::Tuple(items)) if items.len() == rest_args.len() => items
+                .iter()
+                .zip(rest_args)
+                .all(|(expected, actual)| {
+                    self.loose_overload_type_matches(
+                        *expected,
+                        *actual,
+                        &mut rest_substitutions,
+                    )
+                }),
+            Some(Type::List(item_ty)) => rest_args.iter().all(|actual| {
+                self.loose_overload_type_matches(item_ty, *actual, &mut rest_substitutions)
+            }),
+            _ => false,
+        };
+        if rest_matches {
+            *substitutions = rest_substitutions;
+        }
+        rest_matches
+    }
+
+    /// Return whether an argument has a plausible top-level shape for an overload parameter.
+    fn loose_overload_type_matches(
+        &mut self,
+        expected: smelt_hir::TypeId,
+        actual: smelt_hir::TypeId,
+        substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        let expected = self.substitute_type_params(expected, substitutions);
+        if expected == actual || self.infer_overload_type(expected, actual, substitutions) {
+            return true;
+        }
+        match (
+            self.ctx.krate.types.get(self.type_param_constraint_or_self(expected)).cloned(),
+            self.ctx.krate.types.get(actual).cloned(),
+        ) {
+            (Some(Type::TypeParam { name }), _) => {
+                substitutions.insert(name, actual);
+                true
+            }
+            (Some(Type::Unknown), _) | (_, Some(Type::Unknown | Type::TypeParam { .. })) => true,
+            (Some(Type::Optional(_)), Some(Type::None)) => true,
+            (Some(Type::Optional(inner)), _) => {
+                self.loose_overload_type_matches(inner, actual, substitutions)
+            }
+            (Some(Type::Union(items)), _) => items.into_iter().any(|item| {
+                self.loose_overload_type_matches(item, actual, &mut substitutions.clone())
+            }),
+            (_, Some(Type::Union(items))) => items.into_iter().any(|item| {
+                self.loose_overload_type_matches(expected, item, &mut substitutions.clone())
+            }),
+            (Some(Type::Tuple(_)), Some(Type::Tuple(_) | Type::List(_))) => true,
+            (Some(Type::List(_)), Some(Type::List(_) | Type::Tuple(_))) => true,
+            (Some(Type::Function(_)), Some(Type::Function(_))) => true,
+            (
+                Some(Type::Class { name: expected_name, .. }),
+                Some(Type::Class { name: actual_name, .. }),
+            ) => expected_name == actual_name,
+            (Some(Type::Dict(_, _)), Some(Type::Dict(_, _))) => true,
+            (Some(Type::Set(_)), Some(Type::Set(_))) => true,
+            (Some(Type::Future(_)), Some(Type::Future(_))) => true,
+            (Some(Type::Bool), Some(Type::Bool))
+            | (Some(Type::String), Some(Type::String))
+            | (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float))
+            | (Some(Type::None), Some(Type::None))
+            | (Some(Type::Never), _) => true,
+            _ => false,
+        }
     }
 
     /// Return whether an overload has the same source-level argument count as a call.
@@ -1495,7 +1711,8 @@ impl ModuleBuilder<'_> {
         OverloadSignature {
             params,
             rest: signature.rest,
-            return_ty,
+            required_params: None,
+return_ty,
             is_async: signature.is_async,
         }
     }
@@ -1591,14 +1808,11 @@ impl ModuleBuilder<'_> {
         if expected.is_async != actual.is_async {
             return false;
         }
-        if actual.params.len() > expected.params.len() {
-            let has_trailing_rest_param = actual
-                .params
-                .last()
-                .is_some_and(|param| matches!(self.ctx.krate.types.get(*param), Some(Type::List(_))));
-            if !has_trailing_rest_param || actual.params.len() != expected.params.len() + 1 {
-                return false;
-            }
+        if actual.params.len() > expected.params.len()
+            && (actual.rest != actual.params.len().checked_sub(1)
+                || actual.params.len() != expected.params.len() + 1)
+        {
+            return false;
         }
         let mut actual_substitutions = HashMap::new();
         for (expected_param, actual_param) in expected.params.iter().zip(&actual.params) {
@@ -1682,7 +1896,7 @@ impl ModuleBuilder<'_> {
             _ if matches!(
                 self.ctx.krate.types.get(callee_ty),
                 Some(Type::Unknown | Type::TypeParam { .. })
-            ) =>
+            ) || self.is_callable_object_erased_class(callee_ty) =>
             {
                 let args = call
                     .arguments
@@ -1690,6 +1904,15 @@ impl ModuleBuilder<'_> {
                     .map(|arg| self.argument(arg, body))
                     .collect::<Result<Vec<_>, _>>()?;
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
+                let callee = if self.is_callable_object_erased_class(callee_ty) {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert { value: callee },
+                        ty,
+                        span: self.span(callee_ident.span.start, callee_ident.span.end),
+                    })
+                } else {
+                    callee
+                };
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::ClosureCall { callee, args },
                     ty,
@@ -1716,7 +1939,28 @@ impl ModuleBuilder<'_> {
         };
         let supplied_arg_count = call.arguments.len();
         let callback_meta = self.local_callbacks.get(callee_ident.name.as_str()).cloned();
+        if callback_meta.is_none()
+            && self.call_has_spread_arguments_or_source_spread(call)
+            && (matches!(
+                self.ctx.krate.types.get(callee_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_callable_object_erased_class(callee_ty))
+        {
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let packed = self.packed_spread_call_arguments(unknown_ty, call, body)?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::ClosureCallSpread {
+                    callee,
+                    args: packed,
+                },
+                ty: call_return_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         let variadic_item_ty = function.params.first().and_then(|param| {
+            if function.rest.is_some() {
+                return None;
+            }
             if function.params.len() != 1 {
                 return None;
             }
@@ -1727,14 +1971,14 @@ impl ModuleBuilder<'_> {
             }
         });
         if callback_meta.is_none()
-            && call.arguments.iter().any(Argument::is_spread)
+            && self.call_has_spread_arguments_or_source_spread(call)
             && let Some(item_ty) = variadic_item_ty
         {
             let packed = self.packed_spread_call_arguments(item_ty, call, body)?;
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall {
+                kind: ExprKind::ClosureCallSpread {
                     callee,
-                    args: vec![packed],
+                    args: packed,
                 },
                 ty: call_return_ty,
                 span: self.span(call.span.start, call.span.end),
@@ -1746,14 +1990,11 @@ impl ModuleBuilder<'_> {
                 callback.defaults.clone()
             });
         let rest = callback_meta.as_ref().and_then(|callback| callback.rest).or_else(|| {
-            if call.arguments.iter().any(Argument::is_spread) {
-                function.params.last().and_then(|param| {
-                    let param = self.type_param_constraint_or_self(*param);
+            if self.call_has_spread_arguments_or_source_spread(call) {
+                function.rest.and_then(|index| {
+                    let param = self.type_param_constraint_or_self(*function.params.get(index)?);
                     match self.ctx.krate.types.get(param) {
-                        Some(Type::List(item_ty)) => Some(RestParam {
-                            index: function.params.len().saturating_sub(1),
-                            item_ty: *item_ty,
-                        }),
+                        Some(Type::List(item_ty)) => Some(RestParam { index, item_ty: *item_ty }),
                         _ => None,
                     }
                 })
@@ -1762,7 +2003,7 @@ impl ModuleBuilder<'_> {
             }
         });
         let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
-        if rest.is_some() && call.arguments.iter().any(Argument::is_spread) {
+        if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
             let args = self.spread_closure_call_arguments(&function, rest, call, body)?;
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::ClosureCall { callee, args },
@@ -1843,6 +2084,14 @@ impl ModuleBuilder<'_> {
                 ty: call_return_ty,
                 span: self.span(call.span.start, call.span.end),
             })))
+    }
+
+    /// Return whether a local's structural class type is an erased callable object.
+    fn is_callable_object_erased_class(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Class { name, .. }) => self.callable_object_aliases.contains(name),
+            _ => false,
+        }
     }
 
     /// Expand a JavaScript spread call into fixed function parameters plus rest.
@@ -2129,6 +2378,42 @@ impl ModuleBuilder<'_> {
             .any(|argument| matches!(argument, Argument::SpreadElement(_)))
     }
 
+    /// Return whether a call contains JavaScript spread syntax.
+    ///
+    /// Some parser surfaces can preserve the argument expression while hiding
+    /// the spread wrapper after TypeScript-specific normalization. The source
+    /// span probe keeps spread-call lowering tied to source syntax instead of
+    /// treating the argument as an ordinary array value.
+    fn call_has_spread_arguments_or_source_spread(
+        &self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+    ) -> bool {
+        Self::call_has_spread_arguments(call)
+            || self
+                .source
+                .get(
+                    usize::try_from(call.span.start).unwrap_or(0)
+                        ..usize::try_from(call.span.end).unwrap_or(0),
+                )
+                .is_some_and(|text| text.contains("..."))
+            || call.arguments.iter().any(|argument| {
+                let span = argument.span();
+                let start = usize::try_from(call.span.start).unwrap_or(0);
+                let argument_start = usize::try_from(span.start).unwrap_or(start);
+                if self
+                    .source
+                    .get(argument_start..)
+                    .is_some_and(|suffix| suffix.starts_with("..."))
+                {
+                    return true;
+                }
+                let end = argument_start;
+                self.source
+                    .get(start..end)
+                    .is_some_and(|prefix| prefix.trim_end().ends_with("..."))
+            })
+    }
+
     /// Lower Remeda's `$typed<T>()` declaration-test helper to an opaque value.
     fn typed_test_value_call(
         &mut self,
@@ -2185,11 +2470,15 @@ impl ModuleBuilder<'_> {
                 callback.return_ty,
                 callback.callback,
                 &callback.params,
+                callback.rest.map(|rest| rest.index),
+                callback.required_params,
                 self.span(identifier.span.start, identifier.span.end),
                 body,
             );
             function_ty = Some(Type::Function(FunctionType {
                 params: callback.params,
+                rest: callback.rest.map(|rest| rest.index),
+                required_params: callback.required_params,
                 return_ty: callback.return_ty,
                 is_async: false,
                             may_throw: false,

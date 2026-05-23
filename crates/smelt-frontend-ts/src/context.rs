@@ -1,12 +1,13 @@
 //! HIR construction context for TypeScript frontend lowering.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::lowering::ConstCollection;
+use crate::lowering::{ConstCollection, RestParam};
 use smelt_hir::{Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId};
 
 /// Reusable value stored in a static object constant.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ObjectConstValue {
     /// Primitive literal value.
     Literal(Literal),
@@ -41,6 +42,8 @@ pub struct OverloadSignature {
     pub params: Vec<TypeId>,
     /// Source index of a rest parameter, when this overload declares one.
     pub rest: Option<usize>,
+    /// Number of leading parameters counted by JavaScript `Function.length`.
+    pub required_params: Option<usize>,
     /// Return type promised by this overload.
     pub return_ty: TypeId,
     /// Whether the signature describes an async function.
@@ -68,6 +71,8 @@ pub struct HirCtx {
     pub const_collections: HashMap<String, ConstCollection>,
     /// Function overload signatures visible to later TypeScript modules.
     pub overloads: HashMap<String, Vec<OverloadSignature>>,
+    /// Rest-parameter metadata visible to later TypeScript modules.
+    pub function_rests: HashMap<String, RestParam>,
     /// Structural fields attached to type aliases visible to later modules.
     pub type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses visible to later modules for lazy field lookup.
@@ -78,6 +83,8 @@ pub struct HirCtx {
     pub interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Structural fields attached to callable intersection types.
     pub callable_fields: HashMap<TypeId, Vec<Field>>,
+    /// Type aliases whose source surface is a callable object intersection.
+    pub callable_object_aliases: HashSet<smelt_hir::Symbol>,
 }
 
 impl HirCtx {
@@ -93,11 +100,13 @@ impl HirCtx {
             object_value_collections: HashMap::new(),
             const_collections: HashMap::new(),
             overloads: HashMap::new(),
+            function_rests: HashMap::new(),
             type_alias_fields: HashMap::new(),
             interface_extends: HashMap::new(),
             interface_index_values: HashMap::new(),
             interface_call_signatures: HashMap::new(),
             callable_fields: HashMap::new(),
+            callable_object_aliases: HashSet::new(),
         }
     }
 }

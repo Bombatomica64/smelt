@@ -8,11 +8,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let const_collections = ctx.const_collections.clone();
         let object_namespaces = ctx.object_namespaces.clone();
         let function_overloads = ctx.overloads.clone();
+        let function_rests = ctx.function_rests.clone();
         let type_alias_fields = ctx.type_alias_fields.clone();
         let interface_extends = ctx.interface_extends.clone();
         let interface_index_values = ctx.interface_index_values.clone();
         let interface_call_signatures = ctx.interface_call_signatures.clone();
         let callable_fields = ctx.callable_fields.clone();
+        let callable_object_aliases = ctx.callable_object_aliases.clone();
         let allow_unknown_index_access = Self::is_declaration_type_test_path(&path);
         Self {
             file_id,
@@ -33,6 +35,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             interface_index_values,
             interface_call_signatures,
             callable_fields,
+            callable_object_aliases,
             type_namespace_prefix: Vec::new(),
             current_class: None,
             current_async: false,
@@ -54,7 +57,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             type_param_scopes: Vec::new(),
             type_param_constraint_scopes: Vec::new(),
             local_callbacks: HashMap::new(),
-            function_rests: HashMap::new(),
+            function_rests,
             forward_function_types: HashMap::new(),
             local_function_items: HashMap::new(),
             function_overloads,
@@ -784,14 +787,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .entries
             .iter()
             .map(|entry| {
-                let value = match &entry.value {
+                let item_value = match &entry.value {
                     ObjectConstValue::Literal(literal) => {
                         ConstCollectionValue::Expr(ExprKind::Literal(literal.clone()))
                     }
                     ObjectConstValue::Expr(kind) => ConstCollectionValue::Expr(kind.clone()),
                 };
                 ConstCollectionItem {
-                    value,
+                    value: item_value,
                     ty: entry.value_ty,
                 }
             })
@@ -987,7 +990,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
             Ok(OverloadSignature {
                 params,
                 rest: function.params.rest.as_ref().map(|_| function.params.items.len()),
-                return_ty,
+                required_params: None,
+return_ty,
                 is_async: function.r#async,
             })
         })();
@@ -1044,6 +1048,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 .insert(id.name.to_string(), (symbol, ty));
             if let Some(rest) = rest {
                 self.function_rests.insert(id.name.to_string(), rest);
+                self.ctx.function_rests.insert(id.name.to_string(), rest);
             }
         }
     }
@@ -1084,9 +1089,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
-            return_ty,
+            rest: rest.map(|rest| rest.index),
+            required_params: None,
+return_ty,
             is_async: function.r#async,
-                            may_throw: false,
+            may_throw: false,
         }));
         Ok((name, ty, rest))
     }
@@ -1267,6 +1274,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 span,
             });
         }
+        let mut rest_index = None;
         if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 return Err(SmeltError::unsupported(
@@ -1288,13 +1296,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 )
             })?;
             let index = params.len();
-            self.function_rests.insert(
-                name_text.to_owned(),
-                RestParam {
-                    index,
-                    item_ty,
-                },
-            );
+            rest_index = Some(index);
+            let rest_param = RestParam { index, item_ty };
+            self.function_rests.insert(name_text.to_owned(), rest_param);
+            self.ctx.function_rests.insert(name_text.to_owned(), rest_param);
             params.push(Param {
                 name: self.intern_source_name(binding.name.as_str()),
                 local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
@@ -1305,10 +1310,18 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let return_ty = self
             .function_return_type_or_overload(function, name_text)
             .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+        let required_params = function
+            .params
+            .items
+            .iter()
+            .position(Self::formal_parameter_has_default)
+            .unwrap_or(function.params.items.len());
         Ok(Function {
             name,
             span: self.span(function.span.start, function.span.end),
             params,
+            rest: rest_index,
+            required_params: Some(required_params),
             return_ty,
             is_async: function.r#async,
             is_test: false,
@@ -1339,7 +1352,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 alias,
                 span,
             });
-            self.alias_imported_item(&imported, &exported);
+            self.alias_imported_item(source_text, &imported, &exported);
             if let Some(item) = self.items.get(&exported).copied() {
                 self.ctx.export_aliases.insert(exported.clone(), item);
             }
@@ -1510,7 +1523,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             {
                 self.test_builtins.insert(local.clone());
             } else if imported != "*" {
-                self.alias_imported_item(&imported, &local);
+                self.alias_imported_item(source, &imported, &local);
                 if !self.type_only_imports.contains(&local) && !self.import_alias_resolved(&local) {
                     let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                     self.module_globals.insert(local.clone(), unknown_ty);
@@ -1532,7 +1545,22 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Add a local alias for an imported item when it is already known.
-    fn alias_imported_item(&mut self, imported: &str, local: &str) {
+    fn alias_imported_item(&mut self, source: &str, imported: &str, local: &str) {
+        if let Some(exports) = self.source_module_exports(source)
+            && let Some(item) = exports.get(imported).copied()
+        {
+            self.items.insert(local.to_owned(), item);
+            match self.item_ref(item) {
+                Item::Class(_) => {
+                    self.classes.insert(local.to_owned(), item);
+                }
+                Item::Interface(_) => {
+                    self.interfaces.insert(local.to_owned(), item);
+                }
+                _ => {}
+            }
+            return;
+        }
         if let Some(item) = self.items.get(imported).copied() {
             self.items.insert(local.to_owned(), item);
         }
@@ -1592,6 +1620,11 @@ impl<'ctx> ModuleBuilder<'ctx> {
             self.function_overloads.insert(local.to_owned(), overloads);
         } else if let Some(overloads) = self.ctx.overloads.get(imported).cloned() {
             self.function_overloads.insert(local.to_owned(), overloads);
+        }
+        if let Some(rest) = self.function_rests.get(imported).copied() {
+            self.function_rests.insert(local.to_owned(), rest);
+        } else if let Some(rest) = self.ctx.function_rests.get(imported).copied() {
+            self.function_rests.insert(local.to_owned(), rest);
         }
     }
 
@@ -2249,7 +2282,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let value_ty = Self::expr_ty(&body, expr);
             let kind = body
                 .exprs
-                .get(expr.0 as usize)
+                .get(usize::try_from(expr.0).ok().unwrap_or(usize::MAX))
                 .map(|expr| expr.kind.clone())
                 .ok_or_else(|| {
                     SmeltError::unsupported(
@@ -2310,8 +2343,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     span,
                 });
                 let entry_value = match &entry.value {
-                    ObjectConstValue::Literal(value) => body.push_expr(Expr {
-                        kind: ExprKind::Literal(value.clone()),
+                    ObjectConstValue::Literal(literal) => body.push_expr(Expr {
+                        kind: ExprKind::Literal(literal.clone()),
                         ty: entry.value_ty,
                         span,
                     }),

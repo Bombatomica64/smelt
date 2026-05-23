@@ -164,6 +164,10 @@ pub enum CallbackExprKind {
 pub struct ClosureExpr {
     /// Closure parameters in source order.
     pub params: Vec<Param>,
+    /// Index of the rest parameter, if this closure declares one.
+    pub rest: Option<usize>,
+    /// Number of leading parameters counted by JavaScript `Function.length`.
+    pub required_params: Option<usize>,
     /// Return type produced by the closure body.
     pub return_ty: TypeId,
     /// Captured locals made visible to the closure body.

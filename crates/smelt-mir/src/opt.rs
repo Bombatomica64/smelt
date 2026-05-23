@@ -213,6 +213,10 @@ fn rewrite_rvalue(
             rewrite_operand_except(callee, aliases, dest),
             |changed, arg| rewrite_operand_except(arg, aliases, dest) | changed,
         ),
+        Rvalue::ClosureCallSpread { callee, args } => {
+            rewrite_operand_except(callee, aliases, dest)
+                | rewrite_operand_except(args, aliases, dest)
+        }
         Rvalue::Binary { lhs, rhs, .. } => {
             rewrite_operand_except(lhs, aliases, dest) | rewrite_operand_except(rhs, aliases, dest)
         }
@@ -595,6 +599,9 @@ fn rewrite_rvalue(
             }
             changed
         }
+        Rvalue::DateFromValue { value: date_value } => {
+            rewrite_operand_except(date_value, aliases, dest)
+        }
         Rvalue::DateGetPart { timestamp_ms, .. } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)
         }
@@ -683,6 +690,9 @@ fn rewrite_terminator(terminator: &mut Terminator, aliases: &HashMap<LocalId, Lo
                 changed |= rewrite_operand_except(arg, aliases, Some(*dest));
             }
             changed
+        }
+        Terminator::Await { future, dest, .. } => {
+            rewrite_operand_except(future, aliases, Some(*dest))
         }
     }
 }

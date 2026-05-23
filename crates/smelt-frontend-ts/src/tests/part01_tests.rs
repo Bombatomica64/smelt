@@ -719,6 +719,78 @@ const dataLast = add(5)(10);
 }
 
 #[test]
+fn remeda_test_overload_fallback_rejects_impossible_argument_shapes() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+type Case<In, Out, When extends (x: In) => boolean = (x: In) => boolean> =
+  readonly [when: When, then: (x: In) => Out];
+type DefaultCase<In, Out> = (x: In) => Out;
+
+export function conditional<T, Fn0 extends (x: T) => boolean, Return0, Fallback = never>(
+  case0: Case<T, Return0, Fn0>,
+  fallback?: DefaultCase<T, Fallback>,
+): (data: T) => Return0 | Fallback;
+export function conditional<T, Fn0 extends (x: T) => boolean, Return0, Fallback = never>(
+  data: T,
+  case0: Case<T, Return0, Fn0>,
+  fallback?: DefaultCase<T, Fallback>,
+): Return0 | Fallback;
+export function conditional(...args: readonly unknown[]): unknown {
+  return args;
+}
+"#),
+        "src/conditional.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { conditional } from "./conditional";
+
+function constant<T>(value: T): () => T {
+  return () => value;
+}
+
+const dataFirst = conditional("Jokic", [constant(false), constant("hello")], constant(undefined));
+const dataLast = conditional([constant(false), constant("hello")], constant(undefined));
+"#),
+        "src/conditional.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let local_ty = |name: &str| {
+        body.locals
+            .iter()
+            .find(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name))
+            .map(|local| local.ty)
+            .ok_or_else(|| {
+                let names = body
+                    .locals
+                    .iter()
+                    .filter_map(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)))
+                    .collect::<Vec<_>>();
+                format!("missing `{name}` local; locals: {names:?}")
+            })
+    };
+    ensure!(
+        !matches!(
+            ctx.krate.types.get(local_ty("data_first")?),
+            Some(Type::Function(_))
+        ),
+        "expected data-first conditional call not to select the data-last closure overload"
+    );
+    ensure!(
+        matches!(
+            ctx.krate.types.get(local_ty("data_last")?),
+            Some(Type::Function(_))
+        ),
+        "expected data-last conditional call to select the closure overload"
+    );
+    Ok(())
+}
+
+#[test]
 fn remeda_pipe_overload_infers_curried_generic_callback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_path_ok(
@@ -1397,7 +1469,7 @@ export type Branded = typeof Brand;
     ensure!(
         body.exprs.iter().any(|expr| matches!(
             expr.kind,
-            ExprKind::Literal(Literal::String(ref value)) if value == "symbol"
+            ExprKind::Literal(Literal::Symbol(ref value)) if value.starts_with("Symbol(Brand)@")
         )),
         "expected Symbol(...) to lower to an opaque symbol literal",
     );

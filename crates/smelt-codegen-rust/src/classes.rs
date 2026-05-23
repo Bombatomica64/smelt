@@ -195,22 +195,22 @@ pub(crate) fn inherited_trait_methods(mir: &Mir, class: &MirClass) -> Vec<smelt_
 )]
 pub(crate) fn class_type_text(
     mir: &Mir,
-    name: smelt_hir::Symbol,
-    args: &[smelt_hir::TypeId],
+    class_name: smelt_hir::Symbol,
+    class_args: &[smelt_hir::TypeId],
 ) -> Result<String, EmitError> {
-    let name = RustIdent::new(
+    let name_text = RustIdent::new(
         mir.symbols
-            .get(name)
+            .get(class_name)
             .ok_or_else(|| EmitError::new("class type has unknown symbol"))?,
     )
     .into_string();
-    if args.is_empty() {
-        return Ok(name);
+    if class_args.is_empty() {
+        return Ok(name_text);
     }
-    let args = args
+    let args_text = class_args
         .iter()
         .map(|arg| FunctionEmitter::type_text_for(mir, *arg))
         .collect::<Result<Vec<_>, _>>()?
         .join(", ");
-    Ok(format!("{name}<{args}>"))
+    Ok(format!("{name_text}<{args_text}>"))
 }

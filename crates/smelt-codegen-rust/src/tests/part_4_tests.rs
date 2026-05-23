@@ -80,6 +80,41 @@ returned: int = adder(6)
 }
 
 #[test]
+fn emits_nested_loop_inside_loop_branch_as_structured_loop() {
+    let source = source_for(
+        r#"
+export function collect(values: number[], flags: boolean[]): number {
+  let total = 0;
+  let index = 0;
+
+  while (index < flags.length) {
+    if (flags[index]) {
+      index = index + 1;
+      continue;
+    }
+
+    for (const value of values) {
+      if (value > 2) {
+        break;
+      }
+      total = total + value;
+    }
+
+    index = index + 1;
+  }
+
+  return total;
+}
+"#,
+    );
+
+    assert!(
+        source.matches("loop {").count() >= 2,
+        "expected outer while and nested for-of to both emit structured loops:\n{source}"
+    );
+}
+
+#[test]
 fn emits_python_default_lambda_closure_values() {
     let source = source_for_py(
         r#"

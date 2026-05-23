@@ -589,10 +589,10 @@ impl ModuleBuilder<'_> {
                 };
                 if !matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _))) {
                     let unknown = self.ctx.krate.types.intern(Type::Unknown);
-                    let ty = self.ctx.krate.types.intern(Type::Dict(unknown, unknown));
+                    let dict_ty = self.ctx.krate.types.intern(Type::Dict(unknown, unknown));
                     return Ok(Some(body.push_expr(Expr {
                         kind: ExprKind::DictLit(Vec::new()),
-                        ty,
+                        ty: dict_ty,
                         span: self.span(new_expr.span.start, new_expr.span.end),
                     })));
                 }
@@ -864,12 +864,9 @@ impl ModuleBuilder<'_> {
         };
         let lhs = self.expression(&binary.left, body)?;
         let rhs = self.expression(&binary.right, body)?;
-        let ty = match op {
-            BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte => {
-                self.ctx.krate.types.intern(Type::Bool)
-            }
-            _ => Self::expr_ty(body, lhs),
-        };
+        let lhs_ty = Self::expr_ty(body, lhs);
+        let rhs_ty = Self::expr_ty(body, rhs);
+        let ty = self.binary_result_type(op, lhs_ty, rhs_ty);
         Ok(body.push_expr(Expr {
             kind: ExprKind::BinOp { op, lhs, rhs },
             ty,
@@ -889,6 +886,9 @@ impl ModuleBuilder<'_> {
         if logical.operator == LogicalOperator::Coalesce {
             return self.nullish_coalesce_expression(logical, body, None);
         }
+        if let Some(expr) = self.logical_and_numeric_value_expression(logical, body)? {
+            return Ok(expr);
+        }
         let op = if logical.operator == LogicalOperator::And {
             BinOp::And
         } else {
@@ -904,6 +904,45 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower JavaScript `left && numeric` expressions in numeric value contexts.
+    ///
+    /// JavaScript returns either the falsy left value or the right value. When
+    /// the right side is numeric, generated Rust needs a numeric result instead
+    /// of the boolean shape used for conditions, so falsy left values are
+    /// represented by numeric zero.
+    fn logical_and_numeric_value_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if logical.operator != LogicalOperator::And {
+            return Ok(None);
+        }
+        let rhs = self.expression(&logical.right, body)?;
+        let rhs_ty = Self::expr_ty(body, rhs);
+        if !self.is_numeric_like_type(rhs_ty) {
+            return Ok(None);
+        }
+        let cond = self.condition_expression(&logical.left, body)?;
+        let zero = body.push_expr(Expr {
+            kind: match self.ctx.krate.types.get(rhs_ty) {
+                Some(Type::Int) => ExprKind::Literal(Literal::Int(0)),
+                _ => ExprKind::Literal(Literal::Float(0.0)),
+            },
+            ty: rhs_ty,
+            span: self.span(logical.left.span().start, logical.left.span().end),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: rhs,
+                else_expr: zero,
+            },
+            ty: rhs_ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
     /// Lower JavaScript `left || right` fallback expressions for optional values.
     ///
     /// Date-fns uses this for locale-width defaults. For optional left operands
@@ -916,6 +955,23 @@ impl ModuleBuilder<'_> {
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         if logical.operator != LogicalOperator::Or {
             return Ok(None);
+        }
+        if let Expression::LogicalExpression(left_logical) =
+            Self::unparenthesized_expression(&logical.left)
+            && let Some(value) = self.logical_and_value_fallback_expression(logical, left_logical, body)?
+        {
+            return Ok(Some(value));
+        }
+        if let Expression::LogicalExpression(left_logical) =
+            Self::unparenthesized_expression(&logical.left)
+            && let Some(value) = self.logical_and_numeric_value_expression(left_logical, body)?
+        {
+            let value_ty = Self::expr_ty(body, value);
+            if let Some(expr) =
+                self.logical_or_numeric_fallback_expression(logical, body, value, value_ty)?
+            {
+                return Ok(Some(expr));
+            }
         }
         let optional = self.expression(&logical.left, body)?;
         let optional_ty = Self::expr_ty(body, optional);
@@ -958,6 +1014,70 @@ impl ModuleBuilder<'_> {
             ty,
             span: self.span(logical.span.start, logical.span.end),
         })))
+    }
+
+    /// Lower JavaScript `(guard && value) || fallback` as a value fallback.
+    ///
+    /// The normal logical lowering produces booleans because `&&`/`||` are also
+    /// used in conditions. In value positions, JavaScript preserves the selected
+    /// operand. This shape appears in option-bag and locale lookup code where a
+    /// guarded member access falls back to another member with the same value
+    /// type.
+    fn logical_and_value_fallback_expression(
+        &mut self,
+        outer: &oxc::ast::ast::LogicalExpression<'_>,
+        left: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if left.operator != LogicalOperator::And {
+            return Ok(None);
+        }
+        let value = self.expression(&left.right, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        if self.is_numeric_like_type(value_ty) {
+            return Ok(None);
+        }
+        let fallback = self.expression_with_hint(&outer.right, body, Some(value_ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        let Some(result_ty) = self.logical_fallback_result_type(value_ty, fallback_ty) else {
+            return Ok(None);
+        };
+        let cond = self.condition_expression(&outer.left, body)?;
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: value,
+                else_expr: fallback,
+            },
+            ty: result_ty,
+            span: self.span(outer.span.start, outer.span.end),
+        })))
+    }
+
+    /// Return the common value type for JavaScript logical fallback operands.
+    fn logical_fallback_result_type(
+        &mut self,
+        value_ty: smelt_hir::TypeId,
+        fallback_ty: smelt_hir::TypeId,
+    ) -> Option<smelt_hir::TypeId> {
+        if value_ty == fallback_ty {
+            return Some(value_ty);
+        }
+        if self.is_string_compatible_type(value_ty) && self.is_string_compatible_type(fallback_ty)
+        {
+            return Some(self.ctx.krate.types.intern(Type::String));
+        }
+        if self.type_contains_unknown(value_ty) || self.type_contains_unknown(fallback_ty) {
+            return Some(self.ctx.krate.types.intern(Type::Unknown));
+        }
+        match (
+            self.ctx.krate.types.get(value_ty),
+            self.ctx.krate.types.get(fallback_ty),
+        ) {
+            (Some(Type::Optional(value)), _) if *value == fallback_ty => Some(fallback_ty),
+            (_, Some(Type::Optional(fallback))) if value_ty == *fallback => Some(value_ty),
+            _ => None,
+        }
     }
 
     /// Lower numeric JavaScript `left || right` value fallback expressions.
@@ -1099,7 +1219,15 @@ impl ModuleBuilder<'_> {
             }
             return Ok(optional);
         };
-        let mut fallback = self.expression_with_hint(&logical.right, body, Some(ty))?;
+        let right_hint = match &logical.right {
+            Expression::LogicalExpression(right_logical)
+                if right_logical.operator == LogicalOperator::Coalesce =>
+            {
+                type_hint
+            }
+            _ => Some(ty),
+        };
+        let mut fallback = self.expression_with_hint(&logical.right, body, right_hint)?;
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty {
             ty
@@ -1110,20 +1238,24 @@ impl ModuleBuilder<'_> {
         } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
             && self.numeric_type_compatible(ty, fallback_inner)
         {
-            self.ctx.krate.types.intern(Type::Optional(ty))
+            smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
         } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
             && fallback_inner == ty
         {
-            self.ctx.krate.types.intern(Type::Optional(ty))
+            smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
+        } else if matches!(self.ctx.krate.types.get(optional_ty), Some(Type::Optional(inner)) if *inner == ty)
+            && self.erased_or_union_surface(fallback_ty)
+        {
+            smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
         } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
             && self.nullish_fallback_types_are_structurally_compatible(ty, fallback_inner)
         {
             fallback = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: fallback },
-                ty: self.ctx.krate.types.intern(Type::Optional(ty)),
+                ty: smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty),
                 span: self.span(logical.right.span().start, logical.right.span().end),
             });
-            self.ctx.krate.types.intern(Type::Optional(ty))
+            smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
         } else if matches!(self.ctx.krate.types.get(ty), Some(Type::TypeParam { .. }))
             && matches!(
                 self.ctx.krate.types.get(fallback_ty),
@@ -1225,32 +1357,7 @@ impl ModuleBuilder<'_> {
 
     /// Return the type left after removing TypeScript nullish values.
     fn non_nullish_type(&mut self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
-        match self.ctx.krate.types.get(ty).cloned() {
-            Some(Type::Optional(inner)) => Some(inner),
-            Some(Type::Union(items)) => {
-                let none_ty = self.ctx.krate.types.intern(Type::None);
-                let mut remaining = Vec::new();
-                for item in items {
-                    if item == none_ty {
-                        continue;
-                    }
-                    let normalized = match self.ctx.krate.types.get(item).cloned() {
-                        Some(Type::Optional(inner)) => inner,
-                        _ => item,
-                    };
-                    if !remaining.contains(&normalized) {
-                        remaining.push(normalized);
-                    }
-                }
-                match remaining.as_slice() {
-                    [single] => Some(*single),
-                    [] => None,
-                    _ => Some(self.ctx.krate.types.intern(Type::Union(remaining))),
-                }
-            }
-            Some(Type::None) => None,
-            _ => Some(ty),
-        }
+        smelt_hir::type_normalize::non_nullish_type(&mut self.ctx.krate.types, ty)
     }
 
     /// Lower a TypeScript non-null assertion while preserving the narrowed type.
@@ -1303,12 +1410,13 @@ impl ModuleBuilder<'_> {
         if let Expression::Identifier(receiver_ident) = &binary.right
             && let Some(object_const) = self.const_objects.get(receiver_ident.name.as_str()).cloned()
         {
-            let key = self.expression(&binary.left, body)?;
+            let mut key = self.expression(&binary.left, body)?;
             if Self::expr_ty(body, key) != string_ty {
-                return Err(SmeltError::unsupported(
-                    self.span(binary.left.span().start, binary.left.span().end),
-                    "static-object `in` checks require a string key",
-                ));
+                key = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: key },
+                    ty: string_ty,
+                    span: self.span(binary.left.span().start, binary.left.span().end),
+                });
             }
             let mut condition = None;
             for entry in object_const.entries {
@@ -1350,7 +1458,7 @@ impl ModuleBuilder<'_> {
         let receiver = self.expression(&binary.right, body)?;
         let receiver_ty = Self::expr_ty(body, receiver);
         let mut key = self.expression(&binary.left, body)?;
-        let Some(Type::Dict(key_ty, _)) = self.ctx.krate.types.get(receiver_ty) else {
+        let Some(Type::Dict(receiver_key_ty, _)) = self.ctx.krate.types.get(receiver_ty) else {
             if self.ctx.krate.types.get(receiver_ty) == Some(&Type::Unknown)
                 || self.erased_or_union_surface(receiver_ty)
                 || matches!(
@@ -1390,7 +1498,7 @@ impl ModuleBuilder<'_> {
                 "`in` checks require a static object, record, map, or unknown receiver",
             ));
         };
-        let key_ty = *key_ty;
+        let key_ty = *receiver_key_ty;
         if Self::expr_ty(body, key) != key_ty && self.is_string_compatible_type(Self::expr_ty(body, key)) {
             key = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: key },
@@ -1819,6 +1927,41 @@ impl ModuleBuilder<'_> {
                     "object spread properties are not lowered yet",
                 ));
             };
+            if object_property.kind == PropertyKind::Get {
+                if Self::is_computed_symbol_key(object_property) {
+                    continue;
+                }
+                let key = self.object_property_key_expr(object_property, body)?;
+                let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let getter = if let Expression::FunctionExpression(function) = &object_property.value
+                {
+                    let getter_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                        params: Vec::new(),
+                        rest: None,
+                        required_params: None,
+                        return_ty: unknown_ty,
+                        is_async: false,
+                        may_throw: false,
+                    }));
+                    self.function_expression_value(function, Some(getter_ty), object_property.span, body)?
+                } else {
+                    self.object_property_value_expr(object_property, body, Some(unknown_ty))?
+                };
+                let marker_key_ty = self.ctx.krate.types.intern(Type::String);
+                let marker_key = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String("__smelt_get".to_owned())),
+                    ty: marker_key_ty,
+                    span: self.span(object_property.key.span().start, object_property.key.span().end),
+                });
+                let marker_ty = self.ctx.krate.types.intern(Type::Dict(marker_key_ty, unknown_ty));
+                let value = body.push_expr(Expr {
+                    kind: ExprKind::DictLit(vec![(marker_key, getter)]),
+                    ty: marker_ty,
+                    span: self.span(object_property.span.start, object_property.span.end),
+                });
+                entries.push((key, value));
+                continue;
+            }
             if object_property.method {
                 if self.object_method_erases_to_iterable_marker(object_property) {
                     continue;
@@ -2152,6 +2295,7 @@ impl ModuleBuilder<'_> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         self.current_async = function.r#async;
         self.current_return_ty = Some(return_ty);
         let mut body = Body::new(
@@ -2261,6 +2405,7 @@ impl ModuleBuilder<'_> {
         self.locals = saved_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.narrowed_locals = saved_narrowed_locals;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
         }
@@ -2270,7 +2415,9 @@ impl ModuleBuilder<'_> {
             || {
                 self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: params.iter().map(|param| param.ty).collect(),
-                    return_ty,
+            rest: None,
+                    required_params: None,
+return_ty,
                     is_async: function.r#async,
                             may_throw: false,
                 }))
@@ -2280,7 +2427,9 @@ impl ModuleBuilder<'_> {
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
-                return_ty,
+            rest: None,
+                required_params: None,
+return_ty,
                 captures,
                 body: body_id,
                 callback_body: None,

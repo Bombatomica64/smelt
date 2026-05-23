@@ -2,12 +2,13 @@
 #![allow(dead_code, non_snake_case, unused_imports, unused_variables)]
 
 fn main() {
+    let mut _smelt_tmp_6: bool;
     let ready: bool = true;
     let blocked: bool = false;
     let _smelt_tmp_3: f64 = -3.0;
     let value: f64 = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: bool = !blocked.clone();
+    let _smelt_tmp_4: bool = !(blocked.clone());
     let _smelt_tmp_5: bool = _smelt_tmp_4.clone() && ready.clone();
-    let _smelt_tmp_6: bool = _smelt_tmp_5.clone() || false;
+    let _smelt_tmp_6: bool = if _smelt_tmp_5.clone() { ready.clone() } else { false };
     let _smelt_tmp_7: () = { println!("{} {}", _smelt_tmp_6.clone(), value.clone()); };
 }

@@ -16,7 +16,7 @@ fn main() {
 
 impl Counter {
     fn new(value: f64) -> Self {
-    let mut this: Counter = Counter { value: 0.0 };
+    let mut this: Self = Counter { value: 0.0 };
     this.value = value.clone();
     return this;
     }

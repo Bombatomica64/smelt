@@ -15,8 +15,15 @@ fn main (FuncId(0)) -> None
     %2 = copy %3
     %4 = !copy %1
     %5 = copy %4 && copy %0
-    %6 = copy %5 || false
-    %7 = call @console_log(copy %6, copy %2) -> bb1
+    switch copy %5 ? bb1 : bb2
   bb1:
+    %6 = copy %0
+    goto bb3
+  bb2:
+    %6 = false
+    goto bb3
+  bb3:
+    %7 = call @console_log(copy %6, copy %2) -> bb4
+  bb4:
     return none
 

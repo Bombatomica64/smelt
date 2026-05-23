@@ -1,4 +1,7 @@
 impl ModuleBuilder<'_> {
+    /// Runtime key used for JavaScript's well-known `Symbol.iterator` value.
+    const SYMBOL_ITERATOR_KEY: &'static str = "__smelt_symbol_iterator";
+
     /// Lower supported namespace member calls into the matching HIR operation.
     fn namespace_member_call(
         &mut self,
@@ -35,9 +38,11 @@ impl ModuleBuilder<'_> {
                 format!("namespace import has no exported member `{member_name}`"),
             ));
         };
-        let (params, return_ty, is_async) = if let Item::Function(function) = self.item_ref(item) {
+        let (params, rest, return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
+        {
             (
                 function.params.iter().map(|param| param.ty).collect(),
+                function.rest,
                 function.return_ty,
                 function.is_async,
             )
@@ -78,6 +83,8 @@ impl ModuleBuilder<'_> {
                 .types
                 .intern(Type::Function(FunctionType {
                     params,
+                    rest,
+                    required_params: None,
                     return_ty,
                     is_async,
                     may_throw: false,
@@ -119,9 +126,11 @@ impl ModuleBuilder<'_> {
                     .types
                     .intern(Type::Function(FunctionType {
                         params: function.params.iter().map(|param| param.ty).collect(),
+                        rest: function.rest,
+                        required_params: function.required_params,
                         return_ty: function.return_ty,
                         is_async: function.is_async,
-                            may_throw: false,
+                        may_throw: false,
                     })))
             }
             Item::Class(class) => Ok(self.ctx.krate.types.intern(Type::Class {
@@ -164,6 +173,9 @@ impl ModuleBuilder<'_> {
         member: &oxc::ast::ast::StaticMemberExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Some(expr) = self.symbol_static_member(member, body) {
+            return Ok(expr);
+        }
         if let Some(expr) = self.math_member_expression(member, body) {
             return Ok(expr);
         }
@@ -253,6 +265,28 @@ impl ModuleBuilder<'_> {
         }))
     }
 
+    /// Lower supported well-known `Symbol.<name>` member reads.
+    fn symbol_static_member(
+        &mut self,
+        member: &oxc::ast::ast::StaticMemberExpression<'_>,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let Expression::Identifier(object) = &member.object else {
+            return None;
+        };
+        if object.name != "Symbol" || member.property.name != "iterator" {
+            return None;
+        }
+        let ty = self.ctx.krate.types.intern(Type::String);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(
+                Self::SYMBOL_ITERATOR_KEY.to_owned(),
+            )),
+            ty,
+            span: self.span(member.span.start, member.span.end),
+        }))
+    }
+
     /// Lower supported `Object.<fn>` member references to first-class callables.
     ///
     /// Remeda commonly passes static object helpers into `purry`, e.g.
@@ -320,14 +354,18 @@ impl ModuleBuilder<'_> {
         let body = self.ctx.krate.push_body(closure_body);
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys,
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             is_async: false,
                             may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
-                return_ty,
+            rest: None,
+                required_params: None,
+return_ty,
                 captures: Vec::new(),
                 body,
                 callback_body: None,
@@ -509,7 +547,9 @@ impl ModuleBuilder<'_> {
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![number_ty],
-            return_ty: number_ty,
+            rest: None,
+            required_params: None,
+return_ty: number_ty,
             is_async: false,
                             may_throw: false,
         }));
@@ -521,7 +561,9 @@ impl ModuleBuilder<'_> {
                     ty: number_ty,
                     span,
                 }],
-                return_ty: number_ty,
+                rest: None,
+                required_params: None,
+return_ty: number_ty,
                 captures: Vec::new(),
                 body: body_id,
                 callback_body: None,
@@ -795,7 +837,9 @@ impl ModuleBuilder<'_> {
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![number_ty],
-            return_ty: number_ty,
+            rest: None,
+            required_params: None,
+return_ty: number_ty,
             is_async: false,
                             may_throw: false,
         }));
@@ -807,7 +851,9 @@ impl ModuleBuilder<'_> {
                     ty: number_ty,
                     span,
                 }],
-                return_ty: number_ty,
+                rest: None,
+                required_params: None,
+return_ty: number_ty,
                 captures: vec![ClosureCapture {
                     source_local,
                     body_local: Some(method_local),

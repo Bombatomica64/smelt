@@ -65,8 +65,43 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("async sleep requires a duration operand"));
                 };
                 Ok(format!(
-                    "Box::pin(async move {{ tokio::time::sleep(::std::time::Duration::from_millis({} as u64)).await; }})",
+                    "Box::pin(async move {{ smelt_sleep_ms({} as f64).await; }})",
                     self.operand_text(duration)?
+                ))
+            }
+            smelt_hir::AsyncOp::SetTimeout => {
+                let [callback, duration] = args else {
+                    return Err(EmitError::new(
+                        "setTimeout requires callback and duration operands",
+                    ));
+                };
+                let callback_text = self.operand_text(callback)?;
+                let callback_call = if let Some(Type::Function(function)) =
+                    self.mir.types.get(self.operand_ty(callback)?)
+                    && function.params.is_empty()
+                {
+                    if function.may_throw {
+                        "(&mut *smelt_timer_callback.borrow_mut())().map(|_| ())".to_owned()
+                    } else {
+                        "Ok::<(), Box<dyn std::error::Error>>({ (&mut *smelt_timer_callback.borrow_mut())(); () })".to_owned()
+                    }
+                } else {
+                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(mut smelt_object) => match smelt_object.remove(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (&mut *smelt_function.borrow_mut())(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
+                };
+                Ok(format!(
+                    "{{ let smelt_timer_callback = {callback_text}.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
+                    self.operand_as_type_text(duration, self.type_id(Type::Float)?)?
+                ))
+            }
+            smelt_hir::AsyncOp::ClearTimeout => {
+                let Some(timeout) = args.first() else {
+                    return Err(EmitError::new(
+                        "clearTimeout requires a timeout handle operand",
+                    ));
+                };
+                Ok(format!(
+                    "smelt_clear_timeout({})",
+                    self.operand_text(timeout)?
                 ))
             }
             smelt_hir::AsyncOp::CreateTask => {
@@ -194,12 +229,21 @@ impl FunctionEmitter<'_> {
                             return Err(EmitError::new("method receiver cannot be a constant"));
                         }
                     };
+                    let method_name = sanitize_ident(self.symbol_name(method)?);
+                    if method_name == "concat"
+                        && rest.len() == 1
+                        && matches!(
+                            self.mir.types.get(self.operand_ty(receiver)?),
+                            Some(Type::List(_))
+                        )
+                    {
+                        return self.list_concat_text(receiver, &rest[0]);
+                    }
                     let arg_values = rest
                         .iter()
                         .map(|arg| self.operand_text(arg))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    let method_name = sanitize_ident(self.symbol_name(method)?);
                     return if arg_values.is_empty() {
                         Ok(format!(
                             "{receiver_text}.{method_name}(){}",
@@ -221,10 +265,7 @@ impl FunctionEmitter<'_> {
                         .get(1)
                         .ok_or_else(|| EmitError::new("purry call is missing arguments array"))?;
                     let (callback_arity, callback_may_throw) =
-                        match self.mir.types.get(self.operand_ty(first_arg)?) {
-                            Some(Type::Function(function)) => (function.params.len(), true),
-                            _ => (1, false),
-                        };
+                        (self.operand_function_length(first_arg)?, true);
                     let (callback_text, callback_is_rc) = if let Some(adapter) =
                         self.rest_vector_unknown_adapter_text(first_arg)?
                     {
@@ -243,7 +284,7 @@ impl FunctionEmitter<'_> {
                         };
                         (text, false)
                     };
-                    let callback_text = callback_text
+                    let stripped_callback_text = callback_text
                         .strip_prefix("&mut ")
                         .unwrap_or(&callback_text)
                         .to_owned();
@@ -268,9 +309,11 @@ impl FunctionEmitter<'_> {
                         "Ok::<SmeltUnknown, Box<dyn std::error::Error>>((&mut *smelt_purry_fn.borrow_mut())(smelt_call_args))"
                     };
                     let smelt_purry_fn_init = if callback_is_rc {
-                        callback_text
+                        stripped_callback_text
                     } else {
-                        format!("::std::rc::Rc::new(::std::cell::RefCell::new({callback_text}))")
+                        format!(
+                            "::std::rc::Rc::new(::std::cell::RefCell::new({stripped_callback_text}))"
+                        )
                     };
                     return Ok(format!(
                         "{{ let smelt_purry_fn = {smelt_purry_fn_init}; let smelt_purry_args = {data_text}; let smelt_purry_diff = {callback_arity}i64 - smelt_purry_args.len() as i64; if smelt_purry_diff == 0 {{ {direct_call} }} else if smelt_purry_diff == 1 {{ let smelt_purry_args = smelt_purry_args.clone(); Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Function(::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_data_args: Vec<SmeltUnknown>| {{ let mut smelt_call_args = smelt_data_args; smelt_call_args.extend(smelt_purry_args.clone().into_iter().map(|value| value.into_smelt_unknown())); {partial_call} }})))) }} else {{ Err(std::io::Error::new(std::io::ErrorKind::Other, format!(\"{{}}\", \"Wrong number of arguments\".to_owned())).into()) }} }}{}",
@@ -280,16 +323,27 @@ impl FunctionEmitter<'_> {
                 let rust_function_name = self.function_rust_name(function)?;
                 let emitted_params = self.emitted_function_param_types(&rust_function_name)?;
                 if function.params.len() == 1 {
-                    let rest_param = function.params[0];
+                    let rest_param = function
+                        .params
+                        .first()
+                        .copied()
+                        .ok_or_else(|| EmitError::new("function is missing rest param"))?;
                     let rest_ty = self.function_local_decl(function, rest_param)?.ty;
+                    let single_unknown_list_arg = if args.len() == 1 {
+                        let Some(first_arg) = args.first() else {
+                            return Err(EmitError::new("call is missing first argument"));
+                        };
+                        matches!(
+                            self.mir.types.get(self.operand_ty(first_arg)?),
+                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                        )
+                    } else {
+                        false
+                    };
                     if matches!(
                         self.mir.types.get(rest_ty),
                         Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                    ) && !(args.len() == 1
-                        && matches!(
-                            self.mir.types.get(self.operand_ty(&args[0])?),
-                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                        ))
+                    ) && !single_unknown_list_arg
                     {
                         let items = args
                             .iter()
@@ -302,7 +356,7 @@ impl FunctionEmitter<'_> {
                         ));
                     }
                 }
-                if let Some(rest_index) = function
+                if let Some((rest_index, next_index)) = function
                     .params
                     .iter()
                     .enumerate()
@@ -312,15 +366,19 @@ impl FunctionEmitter<'_> {
                             self.mir.types.get(ty),
                             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
                         )
-                        .then_some(index)
+                        .then(|| index.checked_add(1).map(|next_index| (index, next_index)))?
                     })
-                    && rest_index + 1 == function.params.len()
+                    && next_index == function.params.len()
                     && args.len() >= rest_index
-                    && !(args.len() == rest_index + 1
-                        && matches!(
-                            self.mir.types.get(self.operand_ty(&args[rest_index])?),
-                            Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
-                        ))
+                    && !(args.len() == next_index && {
+                        let Some(arg) = args.get(rest_index) else {
+                            return Err(EmitError::new("call is missing rest argument"));
+                        };
+                            matches!(
+                                self.mir.types.get(self.operand_ty(arg)?),
+                                Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown)
+                            )
+                    })
                 {
                     let mut rendered_args = Vec::new();
                     for (index, arg) in args.iter().take(rest_index).enumerate() {
@@ -337,7 +395,7 @@ impl FunctionEmitter<'_> {
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     rendered_args.push(format!("vec![{rest_items}]"));
-                    for param in function.params.iter().skip(rest_index + 1) {
+                    for param in function.params.iter().skip(next_index) {
                         rendered_args.push(self.default_value(self.local_decl(*param)?.ty)?);
                     }
                     let arg_values = rendered_args.join(", ");
@@ -352,8 +410,8 @@ impl FunctionEmitter<'_> {
                     .map(|(index, arg)| {
                         let param = function.params.get(index).copied();
                         let local_ty = param
-                            .map(|param| {
-                                self.function_local_decl(function, param)
+                            .map(|target_param| {
+                                self.function_local_decl(function, target_param)
                                     .map(|local| local.ty)
                             })
                             .transpose()?;
@@ -365,13 +423,18 @@ impl FunctionEmitter<'_> {
                                 EmitError::new("call argument has no target parameter")
                             })?;
                         if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
-                            && param.is_some_and(|param| {
+                            && param.is_some_and(|target_param| {
                                 !self
-                                    .function_parameter_requires_owned_in(function, param)
+                                    .function_parameter_requires_owned_in(function, target_param)
                                     .unwrap_or(false)
                             })
                         {
                             return self.borrowed_function_argument_text(arg, target_ty);
+                        }
+                        if param.is_some_and(|target_param| {
+                            self.parameter_needs_mutable_reference_in(function, target_param)
+                        }) {
+                            return self.mutable_reference_argument_text(arg, target_ty);
                         }
                         if matches!(
                             self.mir.types.get(self.operand_ty(arg)?),
@@ -539,12 +602,13 @@ impl FunctionEmitter<'_> {
                     self.throwing_call_suffix(function)
                 ))
             }
-            Callee::Indirect(callee) => {
-                let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
+            Callee::Indirect(indirect_callee) => {
+                let Some(Type::Function(function)) =
+                    self.mir.types.get(self.operand_ty(indirect_callee)?)
                 else {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
-                let callee_text = self.operand_text(callee)?;
+                let callee_text = self.operand_text(indirect_callee)?;
                 let rendered_args = args
                     .iter()
                     .enumerate()
@@ -619,9 +683,15 @@ impl FunctionEmitter<'_> {
                     .functions
                     .get(id_index(func.0, "function index does not fit usize")?)
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
-                let rust_name = self.function_rust_name(function)?;
-                self.emitted_function_return_type(&rust_name)
-                    .unwrap_or(function.return_ty)
+                if matches!(function.origin, HirOrigin::ClassConstructor { .. }) {
+                    dest_ty
+                } else if function.is_async {
+                    self.type_id(Type::Future(function.return_ty))?
+                } else {
+                    let rust_name = self.function_rust_name(function)?;
+                    self.emitted_function_return_type(&rust_name)
+                        .unwrap_or(function.return_ty)
+                }
             }
             _ => self.call_source_ty(callee)?,
         };
@@ -657,8 +727,9 @@ impl FunctionEmitter<'_> {
                     .ok_or_else(|| EmitError::new("call references an unknown function"))?;
                 function.return_ty
             }
-            Callee::Indirect(callee) => {
-                let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
+            Callee::Indirect(indirect_callee) => {
+                let Some(Type::Function(function)) =
+                    self.mir.types.get(self.operand_ty(indirect_callee)?)
                 else {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
@@ -705,6 +776,28 @@ impl FunctionEmitter<'_> {
             _ => false,
         };
         Ok(result.to_string())
+    }
+
+    /// Return the JavaScript `Function.length` represented by a function operand.
+    fn operand_function_length(&self, operand: &Operand) -> Result<usize, EmitError> {
+        if let Some(local) = operand_local(operand)
+            && let Some(closure_id) = closure_definitions(self.function)?.get(&local).copied()
+            && let Some(closure) = self
+                .mir
+                .closures
+                .get(id_index(closure_id.0, "closure index does not fit usize")?)
+        {
+            return Ok(closure
+                .required_params
+                .unwrap_or_else(|| closure.rest.unwrap_or(closure.params.len())));
+        }
+
+        Ok(match self.mir.types.get(self.operand_ty(operand)?) {
+            Some(Type::Function(function)) => function
+                .required_params
+                .unwrap_or_else(|| function.rest.unwrap_or(function.params.len())),
+            _ => 1,
+        })
     }
 
     /// Return whether `source` is the same as or derives from `target`.

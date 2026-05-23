@@ -17,7 +17,7 @@ fn main() {
 
 impl Point {
     fn new(x: f64, y: f64) -> Self {
-    let mut this: Point = Point { x: 0.0, y: 0.0 };
+    let mut this: Self = Point { x: 0.0, y: 0.0 };
     this.x = x.clone();
     this.y = y.clone();
     return this;

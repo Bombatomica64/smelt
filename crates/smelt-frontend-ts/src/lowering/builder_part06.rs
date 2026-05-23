@@ -88,6 +88,24 @@ impl ModuleBuilder<'_> {
         if member.property.name == "toBeNull" {
             return self.expect_to_be_none_statement(call, member, body, "toBeNull");
         }
+        if member.property.name == "toHaveBeenCalledTimes" {
+            let (expect_call, _) = self.expect_call_from_matcher_object(&member.object)?;
+            let Expression::Identifier(expect_ident) = &expect_call.callee else {
+                return Ok(false);
+            };
+            if !self.test_builtins.contains(expect_ident.name.as_str())
+                || expect_ident.name.as_str() != "expect"
+            {
+                return Ok(false);
+            }
+            if let Some(actual_arg) = expect_call.arguments.first() {
+                let _actual = self.argument(actual_arg, body)?;
+            }
+            if let Some(expected_arg) = call.arguments.first() {
+                let _expected = self.argument(expected_arg, body)?;
+            }
+            return Ok(true);
+        }
         let Some(matcher) = TestMatcher::from_name(member.property.name.as_str()) else {
             return Ok(false);
         };
@@ -163,7 +181,16 @@ impl ModuleBuilder<'_> {
                 format!("expect(...).{matcher_name}() requires an actual value"),
             )
         })?;
-        let actual = self.argument(actual_arg, body)?;
+        let mut actual = self.argument(actual_arg, body)?;
+        let actual_ty = Self::expr_ty(body, actual);
+        if self.assertion_type_contains_unknown(actual_ty) {
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            actual = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: actual },
+                ty: unknown_ty,
+                span: self.span(actual_arg.span().start, actual_arg.span().end),
+            });
+        }
         let none_ty = self.ctx.krate.types.intern(Type::None);
         let expected = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
@@ -253,11 +280,16 @@ impl ModuleBuilder<'_> {
             ty: bool_ty,
             span,
         });
-        body.push_stmt(Stmt::Let {
+        let did_throw_stmt = Stmt::Let {
             pat: did_throw_pat,
             ty: bool_ty,
             value: Some(false_expr),
-        });
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, did_throw_stmt);
+        } else {
+            body.push_stmt(did_throw_stmt);
+        }
 
         let try_block = if let Argument::ArrowFunctionExpression(arrow) = actual_arg {
             let try_block = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
@@ -320,12 +352,17 @@ impl ModuleBuilder<'_> {
                 value: true_expr,
             },
         );
-        body.push_stmt(Stmt::TryCatch {
+        let try_stmt = Stmt::TryCatch {
             body: try_block,
             catch_binding: None,
             catch_body: Some(catch_block),
             finally_body: None,
-        });
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, try_stmt);
+        } else {
+            body.push_stmt(try_stmt);
+        }
 
         let did_throw_check = body.push_expr(Expr {
             kind: ExprKind::Local(did_throw),
@@ -382,11 +419,20 @@ impl ModuleBuilder<'_> {
                 let contains = self.dict_contains_key_expr(actual, expected, span, body)?;
                 Ok(self.unary_bool_expr(UnaryOp::Not, contains, span, body))
             }
+            TestMatcher::BeInstanceOf => {
+                let _ = expected;
+                let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(false)),
+                    ty: bool_ty,
+                    span: self.span(span.start, span.end),
+                }))
+            }
         }
     }
 
     /// Push a throwing failure block guarded by a boolean condition.
-    fn push_test_failure_if(
+    pub(super) fn push_test_failure_if(
         &mut self,
         cond: smelt_hir::ExprId,
         message: &str,
@@ -396,15 +442,20 @@ impl ModuleBuilder<'_> {
         let failure_block = body.push_block(self.span(span.start, span.end));
         let message = self.string_literal_expr(message, span, body);
         body.push_stmt_to_block(failure_block, Stmt::Throw(message));
-        body.push_stmt(Stmt::If {
+        let failure_stmt = Stmt::If {
             cond,
             then_block: failure_block,
             else_block: None,
-        });
+        };
+        if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, failure_stmt);
+        } else {
+            body.push_stmt(failure_stmt);
+        }
     }
 
     /// Create a boolean unary expression for synthesized test assertions.
-    fn unary_bool_expr(
+    pub(super) fn unary_bool_expr(
         &mut self,
         op: UnaryOp,
         operand: smelt_hir::ExprId,
@@ -430,7 +481,17 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::ExprId {
         let lhs_ty = Self::expr_ty(body, lhs);
         let rhs_ty = Self::expr_ty(body, rhs);
-        if lhs_ty != rhs_ty && self.assertion_type_contains_unknown(lhs_ty) {
+        let compares_optional_to_none = matches!(
+            (
+                self.ctx.krate.types.get(lhs_ty),
+                self.ctx.krate.types.get(rhs_ty)
+            ),
+            (Some(Type::Optional(_)), Some(Type::None))
+        );
+        if lhs_ty != rhs_ty
+            && self.assertion_type_contains_unknown(lhs_ty)
+            && !compares_optional_to_none
+        {
             rhs = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: rhs },
                 ty: lhs_ty,
@@ -512,7 +573,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Create a containment expression for synthesized test assertions.
-    fn contains_expr(
+    pub(super) fn contains_expr(
         &mut self,
         actual: smelt_hir::ExprId,
         expected: smelt_hir::ExprId,
@@ -1034,7 +1095,9 @@ impl ModuleBuilder<'_> {
                         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                         self.ctx.krate.types.intern(Type::Function(FunctionType {
                             params: vec![unknown_ty],
-                            return_ty: unknown_ty,
+            rest: None,
+                            required_params: None,
+return_ty: unknown_ty,
                             is_async: false,
                             may_throw: false,
                         }))
@@ -1113,7 +1176,9 @@ impl ModuleBuilder<'_> {
         let return_ty = self.substitute_type_params(signature.return_ty, &substitutions);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             is_async: signature.is_async,
                             may_throw: false,
         })))
@@ -1287,7 +1352,9 @@ impl ModuleBuilder<'_> {
                             .map_or(unknown, |function| function.return_ty);
                         self.ctx.krate.types.intern(Type::Function(FunctionType {
                             params: vec![unknown; arrow.params.items.len()],
-                            return_ty,
+            rest: None,
+                            required_params: None,
+return_ty,
                             is_async: arrow.r#async,
                             may_throw: false,
                         }))
@@ -1331,6 +1398,12 @@ impl ModuleBuilder<'_> {
                 for param in &function.params.items {
                     params.push(self.function_parameter_type(param)?);
                 }
+                        let required_params = function
+                            .params
+                            .items
+                            .iter()
+                            .position(Self::formal_parameter_has_default)
+                            .unwrap_or(function.params.items.len());
                 let return_ty = function
                     .return_type
                     .as_ref()
@@ -1346,6 +1419,8 @@ impl ModuleBuilder<'_> {
                     });
                 let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params,
+                    rest: None,
+                    required_params: Some(required_params),
                     return_ty,
                     is_async: function.r#async,
                             may_throw: false,
@@ -1483,6 +1558,12 @@ impl ModuleBuilder<'_> {
             };
             Some(RestParam { index, item_ty })
         });
+        let required_params = arrow
+            .params
+            .items
+            .iter()
+            .position(Self::formal_parameter_has_default)
+            .unwrap_or(arrow.params.items.len());
         let mut closure_defaults = defaults;
         if rest.is_some() {
             closure_defaults.push(None);
@@ -1520,6 +1601,8 @@ impl ModuleBuilder<'_> {
         let symbol = self.intern_source_name(name);
         let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: params.clone(),
+            rest: rest.map(|rest| rest.index),
+            required_params: Some(required_params),
             return_ty,
             is_async: arrow.r#async,
                             may_throw: false,
@@ -1553,6 +1636,8 @@ impl ModuleBuilder<'_> {
                     return_ty,
                     callback.clone(),
                     &params,
+                    rest.map(|rest| rest.index),
+                    Some(required_params),
                     self.span(arrow.span.start, arrow.span.end),
                     body,
                 );
@@ -1573,6 +1658,7 @@ impl ModuleBuilder<'_> {
                     params,
                     defaults: closure_defaults,
                     rest,
+                    required_params: Some(required_params),
                     return_ty,
                 },
             );
@@ -1704,7 +1790,9 @@ impl ModuleBuilder<'_> {
                 declared_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
             let provisional_fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
-                return_ty: provisional_return_ty,
+            rest: None,
+                required_params: None,
+return_ty: provisional_return_ty,
                 is_async: function.r#async,
                             may_throw: false,
             }));
@@ -1793,7 +1881,9 @@ impl ModuleBuilder<'_> {
             let body_id = self.ctx.krate.push_body(closure_body);
             let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys,
-                return_ty,
+                rest: None,
+                required_params: None,
+return_ty,
                 is_async: function.r#async,
                             may_throw: false,
             }));
@@ -1823,7 +1913,9 @@ impl ModuleBuilder<'_> {
             let value = outer_body.push_expr(Expr {
                 kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                     params: closure_params,
-                    return_ty,
+                    rest: None,
+                    required_params: None,
+return_ty,
                     captures,
                     body: body_id,
                     callback_body: None,
@@ -1876,7 +1968,9 @@ impl ModuleBuilder<'_> {
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
         Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             is_async: arrow.r#async,
                             may_throw: false,
         })))
@@ -2117,9 +2211,11 @@ impl ModuleBuilder<'_> {
                             source_item_ty,
                         )
                     } else {
+                        let optional_item_ty =
+                            self.ctx.krate.types.intern(Type::Optional(source_item_ty));
                         (
                             ExprKind::Index { receiver, index },
-                            source_item_ty,
+                            optional_item_ty,
                         )
                     };
                     let extracted = body.push_expr(Expr {
@@ -2219,14 +2315,78 @@ impl ModuleBuilder<'_> {
                 }
                 Ok(())
             }
-            BindingPattern::AssignmentPattern(assign) => self.binding_declaration(
-                &assign.left,
-                value,
-                annotated_ty,
-                mutable,
-                body,
-                block,
-            ),
+            BindingPattern::AssignmentPattern(assign) => {
+                let fallback_hint = annotated_ty
+                    .and_then(|ty| self.non_nullish_type(ty))
+                    .or(annotated_ty);
+                let fallback = self.expression_with_hint(&assign.right, body, fallback_hint)?;
+                let fallback_ty = Self::expr_ty(body, fallback);
+                let value = if let Some(value) = value {
+                    let value_ty = Self::expr_ty(body, value);
+                    if self.ctx.krate.types.get(value_ty) == Some(&Type::None) {
+                        fallback
+                    } else if self.ctx.krate.types.get(value_ty) == Some(&Type::Unknown) {
+                        body.push_expr(Expr {
+                            kind: ExprKind::OptionalCoalesce {
+                                optional: value,
+                                fallback,
+                            },
+                            ty: fallback_ty,
+                            span: self.span(assign.span.start, assign.span.end),
+                        })
+                    } else if let Some(non_null_ty) = self.non_nullish_type(value_ty) {
+                        if self.ctx.krate.types.get(non_null_ty) == Some(&Type::Unknown) {
+                            let optional = body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value },
+                                ty: smelt_hir::type_normalize::optional_of(
+                                    &mut self.ctx.krate.types,
+                                    fallback_ty,
+                                ),
+                                span: self.span(assign.left.span().start, assign.left.span().end),
+                            });
+                            let coalesced_value = body.push_expr(Expr {
+                                kind: ExprKind::OptionalCoalesce { optional, fallback },
+                                ty: fallback_ty,
+                                span: self.span(assign.span.start, assign.span.end),
+                            });
+                            let ty = Self::expr_ty(body, coalesced_value);
+                            return self.binding_declaration(
+                                &assign.left,
+                                Some(coalesced_value),
+                                Some(ty),
+                                mutable,
+                                body,
+                                block,
+                            );
+                        }
+                        let fallback = if fallback_ty == non_null_ty
+                            || self.numeric_type_compatible(non_null_ty, fallback_ty)
+                        {
+                            fallback
+                        } else {
+                            body.push_expr(Expr {
+                                kind: ExprKind::TypeAssert { value: fallback },
+                                ty: non_null_ty,
+                                span: self.span(assign.right.span().start, assign.right.span().end),
+                            })
+                        };
+                        body.push_expr(Expr {
+                            kind: ExprKind::OptionalCoalesce {
+                                optional: value,
+                                fallback,
+                            },
+                            ty: non_null_ty,
+                            span: self.span(assign.span.start, assign.span.end),
+                        })
+                    } else {
+                        value
+                    }
+                } else {
+                    fallback
+                };
+                let ty = Self::expr_ty(body, value);
+                self.binding_declaration(&assign.left, Some(value), Some(ty), mutable, body, block)
+            }
         }
     }
 

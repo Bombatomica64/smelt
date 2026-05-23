@@ -1,0 +1,6444 @@
+Crate {
+    modules: [
+        Module {
+            id: ModuleId(
+                0,
+            ),
+            name: "main",
+            source: SourceFile {
+                path: "third_party/remeda/packages/remeda/src/difference.test.ts",
+                language: TypeScript,
+            },
+            imports: [
+                Import {
+                    module: "vitest",
+                    name: Symbol(
+                        0,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 0,
+                        end: 42,
+                    },
+                },
+                Import {
+                    module: "vitest",
+                    name: Symbol(
+                        1,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 0,
+                        end: 42,
+                    },
+                },
+                Import {
+                    module: "vitest",
+                    name: Symbol(
+                        2,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 0,
+                        end: 42,
+                    },
+                },
+                Import {
+                    module: "./difference",
+                    name: Symbol(
+                        3,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 43,
+                        end: 85,
+                    },
+                },
+                Import {
+                    module: "./identity",
+                    name: Symbol(
+                        4,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 86,
+                        end: 124,
+                    },
+                },
+                Import {
+                    module: "./map",
+                    name: Symbol(
+                        5,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 125,
+                        end: 153,
+                    },
+                },
+                Import {
+                    module: "./pipe",
+                    name: Symbol(
+                        6,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 154,
+                        end: 184,
+                    },
+                },
+                Import {
+                    module: "./take",
+                    name: Symbol(
+                        7,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 185,
+                        end: 215,
+                    },
+                },
+            ],
+            items: [
+                ItemId(
+                    0,
+                ),
+                ItemId(
+                    1,
+                ),
+                ItemId(
+                    2,
+                ),
+                ItemId(
+                    3,
+                ),
+                ItemId(
+                    4,
+                ),
+                ItemId(
+                    5,
+                ),
+                ItemId(
+                    6,
+                ),
+                ItemId(
+                    7,
+                ),
+                ItemId(
+                    8,
+                ),
+                ItemId(
+                    9,
+                ),
+                ItemId(
+                    10,
+                ),
+                ItemId(
+                    11,
+                ),
+                ItemId(
+                    12,
+                ),
+            ],
+            body: Some(
+                BodyId(
+                    13,
+                ),
+            ),
+        },
+    ],
+    items: [
+        Function(
+            Function {
+                name: Symbol(
+                    8,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 217,
+                    end: 325,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        0,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    9,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 328,
+                    end: 445,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        1,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    12,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 448,
+                    end: 658,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        2,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    13,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 661,
+                    end: 766,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        3,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    14,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 769,
+                    end: 891,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        4,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    15,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 894,
+                    end: 1032,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        5,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    16,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 1035,
+                    end: 1162,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        6,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    17,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 1165,
+                    end: 1300,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        7,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    18,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 1303,
+                    end: 1463,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        8,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    19,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 1466,
+                    end: 1575,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        9,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    21,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 1578,
+                    end: 1736,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        10,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    22,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 1739,
+                    end: 1892,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        11,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+        Function(
+            Function {
+                name: Symbol(
+                    24,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 1895,
+                    end: 2161,
+                },
+                params: [],
+                rest: None,
+                required_params: None,
+                return_ty: TypeId(
+                    7,
+                ),
+                is_async: false,
+                is_test: true,
+                body: Some(
+                    BodyId(
+                        12,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+    ],
+    bodies: [
+        Body {
+            id: BodyId(
+                0,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 277,
+                        end: 287,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 277,
+                        end: 287,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        3,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 288,
+                        end: 290,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 293,
+                        end: 294,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 296,
+                        end: 297,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 299,
+                        end: 300,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                4,
+                            ),
+                            ExprId(
+                                5,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 292,
+                        end: 301,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                2,
+                            ),
+                            ExprId(
+                                6,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 277,
+                        end: 302,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        3,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 318,
+                        end: 320,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            8,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 270,
+                        end: 321,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            7,
+                        ),
+                        rhs: ExprId(
+                            9,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 270,
+                        end: 321,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 270,
+                        end: 321,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        11,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        10,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 266,
+                        end: 324,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 270,
+                        end: 321,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                1,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 390,
+                        end: 400,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 390,
+                        end: 400,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 402,
+                        end: 403,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 405,
+                        end: 406,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 408,
+                        end: 409,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                4,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 401,
+                        end: 410,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        3,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 412,
+                        end: 414,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                5,
+                            ),
+                            ExprId(
+                                6,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 390,
+                        end: 415,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 432,
+                        end: 433,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 435,
+                        end: 436,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 438,
+                        end: 439,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                8,
+                            ),
+                            ExprId(
+                                9,
+                            ),
+                            ExprId(
+                                10,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 431,
+                        end: 440,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            11,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 383,
+                        end: 441,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            7,
+                        ),
+                        rhs: ExprId(
+                            12,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 383,
+                        end: 441,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 383,
+                        end: 441,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        14,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        13,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 379,
+                        end: 444,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 383,
+                        end: 441,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                2,
+            ),
+            owner: None,
+            locals: [
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            10,
+                        ),
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 520,
+                        end: 524,
+                    },
+                },
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            11,
+                        ),
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 546,
+                        end: 552,
+                    },
+                },
+            ],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 528,
+                        end: 529,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 531,
+                        end: 532,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 534,
+                        end: 535,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                0,
+                            ),
+                            ExprId(
+                                1,
+                            ),
+                            ExprId(
+                                2,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 527,
+                        end: 536,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 555,
+                        end: 565,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            4,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 555,
+                        end: 565,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 566,
+                        end: 570,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            4.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 573,
+                        end: 574,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            5.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 576,
+                        end: 577,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            6.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 579,
+                        end: 580,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                7,
+                            ),
+                            ExprId(
+                                8,
+                            ),
+                            ExprId(
+                                9,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 572,
+                        end: 581,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            5,
+                        ),
+                        args: [
+                            ExprId(
+                                6,
+                            ),
+                            ExprId(
+                                10,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 555,
+                        end: 582,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            1,
+                        ),
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 594,
+                        end: 600,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 616,
+                        end: 620,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            13,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 587,
+                        end: 621,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            12,
+                        ),
+                        rhs: ExprId(
+                            14,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 587,
+                        end: 621,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 587,
+                        end: 621,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            1,
+                        ),
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 632,
+                        end: 638,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 649,
+                        end: 653,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            18,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 625,
+                        end: 654,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            17,
+                        ),
+                        rhs: ExprId(
+                            19,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 625,
+                        end: 654,
+                    },
+                },
+                Expr {
+                    kind: UnaryOp {
+                        op: Not,
+                        operand: ExprId(
+                            20,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 625,
+                        end: 654,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toBe(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 625,
+                        end: 654,
+                    },
+                },
+            ],
+            stmts: [
+                Let {
+                    pat: PatternId(
+                        0,
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    value: Some(
+                        ExprId(
+                            3,
+                        ),
+                    ),
+                },
+                Let {
+                    pat: PatternId(
+                        1,
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    value: Some(
+                        ExprId(
+                            11,
+                        ),
+                    ),
+                },
+                Throw(
+                    ExprId(
+                        16,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        15,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+                Throw(
+                    ExprId(
+                        22,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        21,
+                    ),
+                    then_block: BlockId(
+                        2,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                        StmtId(
+                            1,
+                        ),
+                        StmtId(
+                            3,
+                        ),
+                        StmtId(
+                            5,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 510,
+                        end: 657,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            2,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 587,
+                        end: 621,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            4,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 625,
+                        end: 654,
+                    },
+                },
+            ],
+            patterns: [
+                Binding(
+                    LocalId(
+                        0,
+                    ),
+                ),
+                Binding(
+                    LocalId(
+                        1,
+                    ),
+                ),
+            ],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                3,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 723,
+                        end: 733,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 723,
+                        end: 733,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 735,
+                        end: 736,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 734,
+                        end: 737,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 740,
+                        end: 741,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                4,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 739,
+                        end: 742,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                5,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 723,
+                        end: 743,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        3,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 759,
+                        end: 761,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            7,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 716,
+                        end: 762,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            6,
+                        ),
+                        rhs: ExprId(
+                            8,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 716,
+                        end: 762,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 716,
+                        end: 762,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        10,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        9,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 712,
+                        end: 765,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 716,
+                        end: 762,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                4,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 847,
+                        end: 857,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 847,
+                        end: 857,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 859,
+                        end: 860,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 858,
+                        end: 861,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 864,
+                        end: 865,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                4,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 863,
+                        end: 866,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                5,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 847,
+                        end: 867,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 884,
+                        end: 885,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                7,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 883,
+                        end: 886,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            8,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 840,
+                        end: 887,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            6,
+                        ),
+                        rhs: ExprId(
+                            9,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 840,
+                        end: 887,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 840,
+                        end: 887,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        11,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        10,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 836,
+                        end: 890,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 840,
+                        end: 887,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                5,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 973,
+                        end: 983,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 973,
+                        end: 983,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 985,
+                        end: 986,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 988,
+                        end: 989,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 991,
+                        end: 992,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 994,
+                        end: 995,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                4,
+                            ),
+                            ExprId(
+                                5,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 984,
+                        end: 996,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 999,
+                        end: 1000,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                7,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 998,
+                        end: 1001,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                6,
+                            ),
+                            ExprId(
+                                8,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 973,
+                        end: 1002,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1019,
+                        end: 1020,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1022,
+                        end: 1023,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1025,
+                        end: 1026,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                10,
+                            ),
+                            ExprId(
+                                11,
+                            ),
+                            ExprId(
+                                12,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1018,
+                        end: 1027,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            13,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 966,
+                        end: 1028,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            9,
+                        ),
+                        rhs: ExprId(
+                            14,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 966,
+                        end: 1028,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 966,
+                        end: 1028,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        16,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        15,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 962,
+                        end: 1031,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 966,
+                        end: 1028,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                6,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1116,
+                        end: 1126,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1116,
+                        end: 1126,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1128,
+                        end: 1129,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1127,
+                        end: 1130,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1133,
+                        end: 1134,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1136,
+                        end: 1137,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                4,
+                            ),
+                            ExprId(
+                                5,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1132,
+                        end: 1138,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                6,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1116,
+                        end: 1139,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        3,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1155,
+                        end: 1157,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            8,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1109,
+                        end: 1158,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            7,
+                        ),
+                        rhs: ExprId(
+                            9,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1109,
+                        end: 1158,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1109,
+                        end: 1158,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        11,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        10,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1105,
+                        end: 1161,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1109,
+                        end: 1158,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                7,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1235,
+                        end: 1245,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1235,
+                        end: 1245,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1247,
+                        end: 1248,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1250,
+                        end: 1251,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1253,
+                        end: 1254,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1256,
+                        end: 1257,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            4.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1259,
+                        end: 1260,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                4,
+                            ),
+                            ExprId(
+                                5,
+                            ),
+                            ExprId(
+                                6,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1246,
+                        end: 1261,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1264,
+                        end: 1265,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                8,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1263,
+                        end: 1266,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                7,
+                            ),
+                            ExprId(
+                                9,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1235,
+                        end: 1267,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1284,
+                        end: 1285,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1287,
+                        end: 1288,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1290,
+                        end: 1291,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            4.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1293,
+                        end: 1294,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                11,
+                            ),
+                            ExprId(
+                                12,
+                            ),
+                            ExprId(
+                                13,
+                            ),
+                            ExprId(
+                                14,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1283,
+                        end: 1295,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            15,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1228,
+                        end: 1296,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            10,
+                        ),
+                        rhs: ExprId(
+                            16,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1228,
+                        end: 1296,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1228,
+                        end: 1296,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        18,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        17,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1224,
+                        end: 1299,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1228,
+                        end: 1296,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                8,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1365,
+                        end: 1375,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1365,
+                        end: 1375,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1377,
+                        end: 1378,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1380,
+                        end: 1381,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1383,
+                        end: 1384,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1386,
+                        end: 1387,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1389,
+                        end: 1390,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1392,
+                        end: 1393,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1395,
+                        end: 1396,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1398,
+                        end: 1399,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1401,
+                        end: 1402,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                4,
+                            ),
+                            ExprId(
+                                5,
+                            ),
+                            ExprId(
+                                6,
+                            ),
+                            ExprId(
+                                7,
+                            ),
+                            ExprId(
+                                8,
+                            ),
+                            ExprId(
+                                9,
+                            ),
+                            ExprId(
+                                10,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1376,
+                        end: 1403,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1406,
+                        end: 1407,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1409,
+                        end: 1410,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1412,
+                        end: 1413,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1415,
+                        end: 1416,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                12,
+                            ),
+                            ExprId(
+                                13,
+                            ),
+                            ExprId(
+                                14,
+                            ),
+                            ExprId(
+                                15,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1405,
+                        end: 1417,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                11,
+                            ),
+                            ExprId(
+                                16,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1365,
+                        end: 1418,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1440,
+                        end: 1441,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1443,
+                        end: 1444,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1446,
+                        end: 1447,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1449,
+                        end: 1450,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1452,
+                        end: 1453,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                18,
+                            ),
+                            ExprId(
+                                19,
+                            ),
+                            ExprId(
+                                20,
+                            ),
+                            ExprId(
+                                21,
+                            ),
+                            ExprId(
+                                22,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1434,
+                        end: 1458,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            23,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1358,
+                        end: 1459,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            17,
+                        ),
+                        rhs: ExprId(
+                            24,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1358,
+                        end: 1459,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1358,
+                        end: 1459,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        26,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        25,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1354,
+                        end: 1462,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1358,
+                        end: 1459,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                9,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1510,
+                        end: 1520,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1510,
+                        end: 1520,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "a",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1522,
+                        end: 1525,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "b",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1527,
+                        end: 1530,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "c",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1532,
+                        end: 1535,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                2,
+                            ),
+                            ExprId(
+                                3,
+                            ),
+                            ExprId(
+                                4,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        8,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1521,
+                        end: 1536,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "b",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1539,
+                        end: 1542,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                6,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        8,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1538,
+                        end: 1543,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                5,
+                            ),
+                            ExprId(
+                                7,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1510,
+                        end: 1544,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "a",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1561,
+                        end: 1564,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "c",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1566,
+                        end: 1569,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                9,
+                            ),
+                            ExprId(
+                                10,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        8,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1560,
+                        end: 1570,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            11,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1503,
+                        end: 1571,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            8,
+                        ),
+                        rhs: ExprId(
+                            12,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1503,
+                        end: 1571,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1503,
+                        end: 1571,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        14,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        13,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1499,
+                        end: 1574,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1503,
+                        end: 1571,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                10,
+            ),
+            owner: None,
+            locals: [
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            20,
+                        ),
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1621,
+                        end: 1625,
+                    },
+                },
+            ],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: Literal(
+                        String(
+                            "a",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1630,
+                        end: 1631,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1633,
+                        end: 1634,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    0,
+                                ),
+                                ExprId(
+                                    1,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1628,
+                        end: 1636,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1648,
+                        end: 1658,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            3,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1648,
+                        end: 1658,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1660,
+                        end: 1664,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "b",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1668,
+                        end: 1669,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1671,
+                        end: 1672,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    6,
+                                ),
+                                ExprId(
+                                    7,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1666,
+                        end: 1674,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1676,
+                        end: 1680,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                5,
+                            ),
+                            ExprId(
+                                8,
+                            ),
+                            ExprId(
+                                9,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        10,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1659,
+                        end: 1681,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1684,
+                        end: 1688,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1690,
+                        end: 1694,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                11,
+                            ),
+                            ExprId(
+                                12,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        10,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1683,
+                        end: 1695,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            4,
+                        ),
+                        args: [
+                            ExprId(
+                                10,
+                            ),
+                            ExprId(
+                                13,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1648,
+                        end: 1696,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "b",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1720,
+                        end: 1721,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1723,
+                        end: 1724,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    15,
+                                ),
+                                ExprId(
+                                    16,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1718,
+                        end: 1726,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                17,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        10,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1712,
+                        end: 1731,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            18,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1641,
+                        end: 1732,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            14,
+                        ),
+                        rhs: ExprId(
+                            19,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1641,
+                        end: 1732,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1641,
+                        end: 1732,
+                    },
+                },
+            ],
+            stmts: [
+                Let {
+                    pat: PatternId(
+                        0,
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    value: Some(
+                        ExprId(
+                            2,
+                        ),
+                    ),
+                },
+                Throw(
+                    ExprId(
+                        21,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        20,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                        StmtId(
+                            2,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1611,
+                        end: 1735,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1641,
+                        end: 1732,
+                    },
+                },
+            ],
+            patterns: [
+                Binding(
+                    LocalId(
+                        0,
+                    ),
+                ),
+            ],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                11,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1794,
+                        end: 1804,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1794,
+                        end: 1804,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "a",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1808,
+                        end: 1809,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1811,
+                        end: 1812,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    2,
+                                ),
+                                ExprId(
+                                    3,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1806,
+                        end: 1814,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "b",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1818,
+                        end: 1819,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1821,
+                        end: 1822,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    5,
+                                ),
+                                ExprId(
+                                    6,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1816,
+                        end: 1824,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                4,
+                            ),
+                            ExprId(
+                                7,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        10,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1805,
+                        end: 1825,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "a",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1830,
+                        end: 1831,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1833,
+                        end: 1834,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    9,
+                                ),
+                                ExprId(
+                                    10,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1828,
+                        end: 1836,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                11,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        10,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1827,
+                        end: 1837,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                8,
+                            ),
+                            ExprId(
+                                12,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1794,
+                        end: 1838,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "a",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1862,
+                        end: 1863,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1865,
+                        end: 1866,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    14,
+                                ),
+                                ExprId(
+                                    15,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1860,
+                        end: 1868,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "b",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1876,
+                        end: 1877,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1879,
+                        end: 1880,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [
+                            (
+                                ExprId(
+                                    17,
+                                ),
+                                ExprId(
+                                    18,
+                                ),
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        9,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1874,
+                        end: 1882,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                16,
+                            ),
+                            ExprId(
+                                19,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        10,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1854,
+                        end: 1887,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            20,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1787,
+                        end: 1888,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            13,
+                        ),
+                        rhs: ExprId(
+                            21,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1787,
+                        end: 1888,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1787,
+                        end: 1888,
+                    },
+                },
+            ],
+            stmts: [
+                Throw(
+                    ExprId(
+                        23,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        22,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            1,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1783,
+                        end: 1891,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1787,
+                        end: 1888,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                12,
+            ),
+            owner: None,
+            locals: [
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            23,
+                        ),
+                    ),
+                    ty: TypeId(
+                        11,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1924,
+                        end: 1928,
+                    },
+                },
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            11,
+                        ),
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1981,
+                        end: 1987,
+                    },
+                },
+            ],
+            params: [],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1960,
+                        end: 1968,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1960,
+                        end: 1968,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1960,
+                        end: 1970,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            2,
+                        ),
+                    },
+                    ty: TypeId(
+                        11,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1960,
+                        end: 1970,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1990,
+                        end: 1994,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            4,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1990,
+                        end: 1994,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2001,
+                        end: 2002,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2004,
+                        end: 2005,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2007,
+                        end: 2008,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            4.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2010,
+                        end: 2011,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            5.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2013,
+                        end: 2014,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            6.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2016,
+                        end: 2017,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                6,
+                            ),
+                            ExprId(
+                                7,
+                            ),
+                            ExprId(
+                                8,
+                            ),
+                            ExprId(
+                                9,
+                            ),
+                            ExprId(
+                                10,
+                            ),
+                            ExprId(
+                                11,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2000,
+                        end: 2018,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2024,
+                        end: 2027,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            13,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2024,
+                        end: 2027,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        11,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2028,
+                        end: 2032,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            14,
+                        ),
+                        args: [
+                            ExprId(
+                                15,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2024,
+                        end: 2033,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2039,
+                        end: 2049,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            17,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2039,
+                        end: 2049,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2051,
+                        end: 2052,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            3.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2054,
+                        end: 2055,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                19,
+                            ),
+                            ExprId(
+                                20,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2050,
+                        end: 2056,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            18,
+                        ),
+                        args: [
+                            ExprId(
+                                21,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2039,
+                        end: 2057,
+                    },
+                },
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        2,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2063,
+                        end: 2067,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            23,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2063,
+                        end: 2067,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            2.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2068,
+                        end: 2069,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            24,
+                        ),
+                        args: [
+                            ExprId(
+                                25,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2063,
+                        end: 2070,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            5,
+                        ),
+                        args: [
+                            ExprId(
+                                12,
+                            ),
+                            ExprId(
+                                16,
+                            ),
+                            ExprId(
+                                22,
+                            ),
+                            ExprId(
+                                26,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1990,
+                        end: 2075,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        11,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2087,
+                        end: 2091,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            4.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2115,
+                        end: 2116,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            1,
+                        ),
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2128,
+                        end: 2134,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            1.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2151,
+                        end: 2152,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        Float(
+                            4.0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        4,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2154,
+                        end: 2155,
+                    },
+                },
+                Expr {
+                    kind: ListLit(
+                        [
+                            ExprId(
+                                31,
+                            ),
+                            ExprId(
+                                32,
+                            ),
+                        ],
+                    ),
+                    ty: TypeId(
+                        5,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2150,
+                        end: 2156,
+                    },
+                },
+                Expr {
+                    kind: TypeAssert {
+                        value: ExprId(
+                            33,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2121,
+                        end: 2157,
+                    },
+                },
+                Expr {
+                    kind: BinOp {
+                        op: NotEq,
+                        lhs: ExprId(
+                            30,
+                        ),
+                        rhs: ExprId(
+                            34,
+                        ),
+                    },
+                    ty: TypeId(
+                        6,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2121,
+                        end: 2157,
+                    },
+                },
+                Expr {
+                    kind: Literal(
+                        String(
+                            "expect(...).toStrictEqual(...) failed",
+                        ),
+                    ),
+                    ty: TypeId(
+                        1,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2121,
+                        end: 2157,
+                    },
+                },
+            ],
+            stmts: [
+                Let {
+                    pat: PatternId(
+                        0,
+                    ),
+                    ty: TypeId(
+                        11,
+                    ),
+                    value: Some(
+                        ExprId(
+                            3,
+                        ),
+                    ),
+                },
+                Let {
+                    pat: PatternId(
+                        1,
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    value: Some(
+                        ExprId(
+                            27,
+                        ),
+                    ),
+                },
+                Throw(
+                    ExprId(
+                        36,
+                    ),
+                ),
+                If {
+                    cond: ExprId(
+                        35,
+                    ),
+                    then_block: BlockId(
+                        1,
+                    ),
+                    else_block: None,
+                },
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                        StmtId(
+                            1,
+                        ),
+                        StmtId(
+                            3,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 1914,
+                        end: 2160,
+                    },
+                },
+                Block {
+                    stmts: [
+                        StmtId(
+                            2,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 2121,
+                        end: 2157,
+                    },
+                },
+            ],
+            patterns: [
+                Binding(
+                    LocalId(
+                        0,
+                    ),
+                ),
+                Binding(
+                    LocalId(
+                        1,
+                    ),
+                ),
+            ],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                13,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [],
+            stmts: [],
+            blocks: [
+                Block {
+                    stmts: [],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 0,
+                        end: 2163,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+    ],
+    types: TypeInterner {
+        types: [
+            Unknown,
+            String,
+            Dict(
+                TypeId(
+                    1,
+                ),
+                TypeId(
+                    0,
+                ),
+            ),
+            List(
+                TypeId(
+                    0,
+                ),
+            ),
+            Float,
+            List(
+                TypeId(
+                    4,
+                ),
+            ),
+            Bool,
+            None,
+            List(
+                TypeId(
+                    1,
+                ),
+            ),
+            Dict(
+                TypeId(
+                    1,
+                ),
+                TypeId(
+                    4,
+                ),
+            ),
+            List(
+                TypeId(
+                    9,
+                ),
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            4,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    return_ty: TypeId(
+                        4,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+        ],
+    },
+    symbols: SymbolInterner {
+        symbols: [
+            "expect",
+            "test",
+            "vi",
+            "difference",
+            "identity",
+            "map",
+            "pipe",
+            "take",
+            "test_returns_empty_array_on_empty_input",
+            "test_removes_nothing_on_empty_other_array",
+            "data",
+            "result",
+            "test_returns_a_shallow_clone_when_nothing_is_removed",
+            "test_removes_an_item_that_is_in_the_input",
+            "test_doesn_t_remove_items_that_are_not_in_the_other_array",
+            "test_maintains_multi_set_semantics_removes_only_one_copy",
+            "test_works_if_the_other_array_has_more_copies_than_the_input",
+            "test_preserves_the_original_order_in_source_array",
+            "test_accounts_and_removes_multiple_copies",
+            "test_works_with_strings",
+            "item",
+            "test_works_with_objects",
+            "test_compares_objects_by_reference",
+            "mock",
+            "test_lazy",
+        ],
+    },
+    names: OriginalNameTable {
+        names: [
+            Some(
+                "expect",
+            ),
+            Some(
+                "test",
+            ),
+            Some(
+                "vi",
+            ),
+            Some(
+                "difference",
+            ),
+            Some(
+                "identity",
+            ),
+            Some(
+                "map",
+            ),
+            Some(
+                "pipe",
+            ),
+            Some(
+                "take",
+            ),
+            Some(
+                "test_returns_empty_array_on_empty_input",
+            ),
+            Some(
+                "test_removes_nothing_on_empty_other_array",
+            ),
+            Some(
+                "data",
+            ),
+            Some(
+                "result",
+            ),
+            Some(
+                "test_returns_a_shallow_clone_when_nothing_is_removed",
+            ),
+            Some(
+                "test_removes_an_item_that_is_in_the_input",
+            ),
+            Some(
+                "test_doesn_t_remove_items_that_are_not_in_the_other_array",
+            ),
+            Some(
+                "test_maintains_multi_set_semantics_removes_only_one_copy",
+            ),
+            Some(
+                "test_works_if_the_other_array_has_more_copies_than_the_input",
+            ),
+            Some(
+                "test_preserves_the_original_order_in_source_array",
+            ),
+            Some(
+                "test_accounts_and_removes_multiple_copies",
+            ),
+            Some(
+                "test_works_with_strings",
+            ),
+            Some(
+                "item",
+            ),
+            Some(
+                "test_works_with_objects",
+            ),
+            Some(
+                "test_compares_objects_by_reference",
+            ),
+            Some(
+                "mock",
+            ),
+            Some(
+                "test_lazy",
+            ),
+        ],
+    },
+}

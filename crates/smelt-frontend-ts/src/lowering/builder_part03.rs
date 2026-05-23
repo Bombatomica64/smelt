@@ -193,6 +193,12 @@ impl ModuleBuilder<'_> {
         } else {
             None
         };
+        let required_params = function
+            .params
+            .items
+            .iter()
+            .position(Self::formal_parameter_has_default)
+            .unwrap_or(function.params.items.len());
 
         let mut errors = Vec::new();
         for (pattern, local, ty) in destructured_params {
@@ -254,6 +260,8 @@ impl ModuleBuilder<'_> {
             name,
             span: self.span(function.span.start, function.span.end),
             params,
+            rest: rest.map(|rest| rest.index),
+            required_params: Some(required_params),
             return_ty,
             is_async: function.r#async,
             is_test: false,
@@ -272,6 +280,7 @@ impl ModuleBuilder<'_> {
         self.items.insert(name_text.to_owned(), item);
         if let Some(rest) = rest {
             self.function_rests.insert(name_text.to_owned(), rest);
+            self.ctx.function_rests.insert(name_text.to_owned(), rest);
         }
         if let Some((parameter_name, target)) = assertion_return
             && let Some(param_index) = function.params.items.iter().position(|param| {
@@ -308,6 +317,12 @@ impl ModuleBuilder<'_> {
             );
         }
         Ok(item)
+    }
+
+    /// Return whether a TypeScript formal parameter has a default value.
+    fn formal_parameter_has_default(param: &oxc::ast::ast::FormalParameter<'_>) -> bool {
+        param.initializer.is_some()
+            || matches!(param.pattern, BindingPattern::AssignmentPattern(_))
     }
 
     /// Resolve the HIR type for a function declaration parameter.
@@ -497,7 +512,9 @@ impl ModuleBuilder<'_> {
             name,
             span: self.span(function.span.start, function.span.end),
             params,
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             is_async: function.r#async,
             is_test: false,
             body: Some(body_id),
@@ -637,6 +654,43 @@ impl ModuleBuilder<'_> {
                 _ => {}
             }
         }
+        for element in &class.body.body {
+            let ClassElement::MethodDefinition(method) = element else {
+                continue;
+            };
+            if method.kind != MethodDefinitionKind::Constructor {
+                continue;
+            }
+            for param in &method.value.params.items {
+                if param.accessibility.is_none() {
+                    continue;
+                }
+                let BindingPattern::BindingIdentifier(binding) = &param.pattern else {
+                    return Err(SmeltError::unsupported(
+                        self.span(param.span.start, param.span.end),
+                        "destructured constructor parameter properties are not lowered yet",
+                    ));
+                };
+                let name = self.intern_source_name(binding.name.as_str());
+                let ty = if let Some(annotation) = &param.type_annotation {
+                    self.ts_type_to_hir(&annotation.type_annotation)?
+                } else if let Some(default) = &param.initializer {
+                    let mut initializer_body =
+                        Body::new(None, self.span(default.span().start, default.span().end));
+                    let value = self.expression(default, &mut initializer_body)?;
+                    Self::expr_ty(&initializer_body, value)
+                } else {
+                    self.ctx.krate.types.intern(Type::Unknown)
+                };
+                fields.push(Field {
+                    name,
+                    ty,
+                    visibility: visibility(param.accessibility),
+                    optional: false,
+                    span: self.span(param.span.start, param.span.end),
+                });
+            }
+        }
         self.class_fields
             .insert(class_text.to_owned(), fields.clone());
         let method_sigs = self.class_method_signatures(&class.body.body)?;
@@ -747,6 +801,7 @@ impl ModuleBuilder<'_> {
                 class_text,
                 class_name,
                 class_ty,
+                base.is_some(),
                 &field_initializers,
                 self.span(class.span.start, class.span.end),
             )?);
@@ -803,12 +858,19 @@ impl ModuleBuilder<'_> {
         Ok(methods)
     }
 
-    /// Synthesize the implicit zero-argument constructor for a TypeScript class.
+    /// Synthesize the implicit constructor for a TypeScript class.
+    ///
+    /// Base classes without an explicit constructor behave like `constructor() {}`.
+    /// Derived classes behave like `constructor(...args) { super(...args) }`, so
+    /// Smelt accepts one optional erased argument to keep Date-like subclass
+    /// construction call-compatible while the base constructor side effect remains
+    /// represented by the generated class storage.
     fn synthesize_default_class_constructor(
         &mut self,
         class_text: &str,
         class_name: smelt_hir::Symbol,
         class_ty: smelt_hir::TypeId,
+        has_base: bool,
         field_initializers: &[(
             smelt_hir::Symbol,
             &Expression<'_>,
@@ -828,6 +890,26 @@ impl ModuleBuilder<'_> {
             span,
         });
         self.locals.insert("this".to_owned(), this_local);
+        let params = if has_base {
+            let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+            let arg_ty = self.ctx.krate.types.intern(Type::Optional(unknown_ty));
+            let arg_symbol = self.ctx.krate.symbols.intern("_smelt_super_arg");
+            let arg_local = body.push_local(LocalDecl {
+                name: Some(arg_symbol),
+                ty: arg_ty,
+                mutable: false,
+                span,
+            });
+            body.params.push(arg_local);
+            vec![Param {
+                name: arg_symbol,
+                local: arg_local,
+                ty: arg_ty,
+                span,
+            }]
+        } else {
+            Vec::new()
+        };
         self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
         self.locals = saved_locals;
         self.current_class = saved_class;
@@ -836,8 +918,10 @@ impl ModuleBuilder<'_> {
         Ok(self.ctx.krate.push_item(Item::Function(Function {
             name,
             span,
-            params: Vec::new(),
-            return_ty: class_ty,
+            params,
+            rest: None,
+            required_params: has_base.then_some(0),
+return_ty: class_ty,
             is_async: false,
             is_test: false,
             body: Some(body_id),
@@ -883,6 +967,42 @@ impl ModuleBuilder<'_> {
         Ok(())
     }
 
+    /// Emit constructor parameter-property assignments to `this`.
+    ///
+    /// TypeScript parameter properties such as `constructor(private value: T)`
+    /// both declare an instance field and assign the constructor argument into
+    /// that field. Class lowering already records the field itself; this helper
+    /// emits the constructor-side assignment so later `this.value` reads have a
+    /// concrete field in HIR/MIR and generated Rust.
+    fn emit_parameter_property_initializers(
+        this_local: smelt_hir::LocalId,
+        class_ty: smelt_hir::TypeId,
+        parameter_properties: &[(smelt_hir::Symbol, smelt_hir::LocalId, smelt_hir::TypeId, Span)],
+        body: &mut Body,
+    ) {
+        for (field, local, ty, span) in parameter_properties {
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(this_local),
+                ty: class_ty,
+                span: *span,
+            });
+            let target = body.push_expr(Expr {
+                kind: ExprKind::Field {
+                    receiver,
+                    field: *field,
+                },
+                ty: *ty,
+                span: *span,
+            });
+            let value = body.push_expr(Expr {
+                kind: ExprKind::Local(*local),
+                ty: *ty,
+                span: *span,
+            });
+            body.push_stmt(Stmt::Assign { target, value });
+        }
+    }
+
     /// Lower the single supported TypeScript `extends` shape for class declarations.
     fn class_extends_clause(
         &mut self,
@@ -893,17 +1013,21 @@ impl ModuleBuilder<'_> {
         };
         let name = match super_class {
             Expression::Identifier(identifier) => identifier.name.to_string(),
-            Expression::StaticMemberExpression(member)
-                if matches!(
-                    &member.object,
-                    Expression::Identifier(object)
-                        if self.value_imports.contains(object.name.as_str())
-                            || self.namespace_imports.contains(object.name.as_str())
-                ) =>
-            {
+            Expression::StaticMemberExpression(member) => {
                 let Expression::Identifier(object) = &member.object else {
-                    unreachable!("guarded by matches");
+                    return Err(SmeltError::unsupported(
+                        self.span(super_class.span().start, super_class.span().end),
+                        "class extends currently requires a direct base class identifier or imported namespace member",
+                    ));
                 };
+                if !self.value_imports.contains(object.name.as_str())
+                    && !self.namespace_imports.contains(object.name.as_str())
+                {
+                    return Err(SmeltError::unsupported(
+                        self.span(super_class.span().start, super_class.span().end),
+                        "class extends currently requires a direct base class identifier or imported namespace member",
+                    ));
+                }
                 format!("{}.{}", object.name, member.property.name)
             }
             _ => {
@@ -1016,7 +1140,9 @@ impl ModuleBuilder<'_> {
         let sig = MethodSig {
             name: self.property_key_symbol(&method.key)?,
             params,
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             visibility: visibility(method.accessibility),
             is_async: matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))),
             span: self.span(method.span.start, method.span.end),
@@ -1116,6 +1242,7 @@ impl ModuleBuilder<'_> {
         }
 
         let mut destructured_params = Vec::new();
+        let mut parameter_property_initializers = Vec::new();
         for (index, param) in method.value.params.items.iter().enumerate() {
             let ty = if let Some(annotation) = &param.type_annotation {
                 self.ts_type_to_hir(&annotation.type_annotation)?
@@ -1173,10 +1300,17 @@ impl ModuleBuilder<'_> {
                     .entry(class_text.to_owned())
                     .or_default()
                     .push(field);
+                parameter_property_initializers.push((param_name, local, ty, span));
             }
         }
         if is_constructor {
             self.emit_class_field_initializers(this_local, class_ty, field_initializers, &mut body)?;
+            Self::emit_parameter_property_initializers(
+                this_local,
+                class_ty,
+                &parameter_property_initializers,
+                &mut body,
+            );
         }
 
         let mut errors = Vec::new();
@@ -1225,7 +1359,9 @@ impl ModuleBuilder<'_> {
             name: method_name,
             span: self.span(method.span.start, method.span.end),
             params,
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             is_async: method.value.r#async,
             is_test: false,
             body: Some(body_id),

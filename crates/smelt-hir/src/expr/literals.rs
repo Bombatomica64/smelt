@@ -13,6 +13,8 @@ pub enum Literal {
     Float(f64),
     /// A string literal.
     String(String),
+    /// A JavaScript symbol literal lowered as an opaque runtime value.
+    Symbol(String),
     /// The None/null literal.
     None,
 }

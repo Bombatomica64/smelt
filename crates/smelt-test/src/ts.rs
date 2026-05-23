@@ -4,9 +4,9 @@
 //! idiomatic way, so codegen maps those public source APIs to snake-case helper
 //! methods with matching assertion semantics.
 
-use std::{fmt, panic::UnwindSafe};
+use std::fmt;
 
-use crate::{SameValue, catches_panic, fail, panic_message};
+use crate::{SameValue, fail};
 
 /// Starts a Vitest/Jest-style value expectation.
 #[must_use]
@@ -19,10 +19,7 @@ pub const fn expect<T>(actual: T) -> Expect<T> {
 
 /// Starts an expectation for a callable used with `toThrow`.
 #[must_use]
-pub const fn expect_fn<F>(function: F) -> ThrowExpectation<F>
-where
-    F: FnOnce() + UnwindSafe,
-{
+pub const fn expect_fn<F>(function: F) -> ThrowExpectation<F> {
     ThrowExpectation {
         function,
         inverted: false,
@@ -360,20 +357,14 @@ where
 
 /// Assertion builder for `expect(fn)` calls.
 #[derive(Debug)]
-pub struct ThrowExpectation<F>
-where
-    F: FnOnce() + UnwindSafe,
-{
+pub struct ThrowExpectation<F> {
     /// The callable expected to throw.
     function: F,
     /// Whether the assertion is negated through `.not`.
     inverted: bool,
 }
 
-impl<F> ThrowExpectation<F>
-where
-    F: FnOnce() + UnwindSafe,
-{
+impl<F> ThrowExpectation<F> {
     /// Returns a negated throw assertion builder.
     #[must_use]
     #[expect(
@@ -387,13 +378,17 @@ where
         }
     }
 
-    /// Asserts `toThrow` by checking whether the callable panics.
+    /// Asserts `toThrow` by checking whether the callable returns an error.
     ///
     /// # Panics
     ///
     /// Panics when the expectation is not satisfied.
-    pub fn to_throw(self) {
-        let matched = catches_panic(self.function);
+    pub fn to_throw<T, E>(self)
+    where
+        F: FnOnce() -> Result<T, E>,
+        E: fmt::Display,
+    {
+        let matched = (self.function)().is_err();
         if self.inverted {
             if matched {
                 fail("expected function not to throw");
@@ -403,15 +398,19 @@ where
         }
     }
 
-    /// Asserts `toThrow(message)` by checking a panic message substring.
+    /// Asserts `toThrow(message)` by checking an exception message substring.
     ///
     /// # Panics
     ///
-    /// Panics when the callable does not panic, or when the panic message does
-    /// not contain `expected`.
-    pub fn to_throw_with_message(self, expected: &str) {
-        let panic_text = panic_message(self.function);
-        let matched = panic_text
+    /// Panics when the callable does not return an error, or when the error
+    /// message does not contain `expected`.
+    pub fn to_throw_with_message<T, E>(self, expected: &str)
+    where
+        F: FnOnce() -> Result<T, E>,
+        E: fmt::Display,
+    {
+        let error_text = (self.function)().err().map(|error| error.to_string());
+        let matched = error_text
             .as_deref()
             .is_some_and(|text| text.contains(expected));
         if self.inverted {
@@ -420,7 +419,7 @@ where
                     "expected function not to throw message containing {expected:?}"
                 ));
             }
-        } else if let Some(text) = panic_text {
+        } else if let Some(text) = error_text {
             if !matched {
                 fail(format_args!(
                     "expected thrown message to contain {expected:?}, got {text:?}"
@@ -536,29 +535,31 @@ mod tests {
     }
 
     #[test]
-    fn to_throw_matches_panics() {
-        expect_fn(|| panic!("expected test panic")).to_throw();
+    fn to_throw_matches_errors() {
+        expect_fn(|| Err::<(), _>("expected test error")).to_throw();
     }
 
     #[test]
-    fn to_throw_fails_without_panic() {
+    fn to_throw_fails_without_error() {
         assert!(
-            catches_panic(|| expect_fn(|| {}).to_throw()),
-            "non-panicking function should fail toThrow"
+            catches_panic(|| expect_fn(|| Ok::<_, &str>(())).to_throw()),
+            "non-error function should fail toThrow"
         );
     }
 
     #[test]
-    fn to_throw_with_message_checks_panic_text() {
-        expect_fn(|| panic!("bad value")).to_throw_with_message("value");
+    fn to_throw_with_message_checks_error_text() {
+        expect_fn(|| Err::<(), _>("bad value")).to_throw_with_message("value");
         assert!(
-            catches_panic(|| expect_fn(|| panic!("bad value")).to_throw_with_message("missing")),
-            "different panic message should fail toThrow message matching"
+            catches_panic(
+                || expect_fn(|| Err::<(), _>("bad value")).to_throw_with_message("missing")
+            ),
+            "different error message should fail toThrow message matching"
         );
     }
 
     #[test]
-    fn negated_to_throw_matches_non_panics() {
-        expect_fn(|| {}).not().to_throw();
+    fn negated_to_throw_matches_ok() {
+        expect_fn(|| Ok::<_, &str>(())).not().to_throw();
     }
 }

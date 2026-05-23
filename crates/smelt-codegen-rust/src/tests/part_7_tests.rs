@@ -63,10 +63,168 @@ const isoFromFormatter = formatter.format(value);
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN)"),
+        source.contains(
+            "SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value)"
+        ),
         "{source}"
     );
     assert!(source.contains("chrono::DateTime::<chrono::Utc>::from_timestamp_millis"));
+}
+
+#[test]
+fn emits_to_iso_string_on_erased_callback_items() {
+    let source = source_for(
+        r#"
+declare const values: unknown[];
+const isoValues = values.map((value) => value.toISOString());
+"#,
+    );
+
+    assert!(
+        source.contains("pub fn to_iso_string(&self) -> String"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::String(item.to_iso_string())"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_total_unknown_primitive_and_object_extraction() {
+    let source = source_for(
+        r#"
+declare const value: unknown;
+const text: string = value as string;
+const count: number = value as number;
+const flag: boolean = value as boolean;
+const bag: Record<string, unknown> = value as Record<string, unknown>;
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Null => String::new()"),
+        "{source}"
+    );
+    assert!(source.contains("SmeltUnknown::Null => false"), "{source}");
+    assert!(
+        source.contains("value.parse::<f64>().unwrap_or(f64::NAN)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("_ => ::std::collections::HashMap::new()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn keeps_vitest_assertions_inside_catch_blocks() {
+    let source = source_for(
+        r#"
+import { expect, test } from "vitest";
+
+function fail(): never {
+  throw new RangeError("bad");
+}
+
+test("catch assertion", () => {
+  try {
+    fail();
+  } catch (e) {
+    expect(e instanceof RangeError).toBe(true);
+  }
+});
+"#,
+    );
+
+    let err_arm = source
+        .find("Err(__smelt_error)")
+        .expect("generated try/catch should have an Err arm");
+    let assertion = source
+        .find("expect(...).toBe(...) failed")
+        .expect("catch assertion should lower to a test failure branch");
+    assert!(
+        assertion > err_arm,
+        "catch assertion escaped before the catch binding:\n{source}"
+    );
+}
+
+#[test]
+fn emits_default_derived_class_constructor_with_optional_forwarded_arg() {
+    let source = source_for(
+        r#"
+class Base {}
+class Child extends Base {}
+const withArg = new Child("value");
+const withoutArg = new Child();
+const ctor = withArg.constructor;
+"#,
+    );
+
+    assert!(
+        source.contains("fn new(_smelt_super_arg: Option<SmeltUnknown>) -> Self"),
+        "{source}"
+    );
+    assert!(
+        source.contains("Child::new(Some(SmeltUnknown::String(\"value\".to_owned())))"),
+        "{source}"
+    );
+    assert!(
+        source.contains("Child::new(None::<SmeltUnknown>)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("ctor = SmeltUnknown::Null.clone()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn adapts_throwing_callback_to_non_throwing_function_field() {
+    let source = source_for(
+        r#"
+import { expect } from "vitest";
+
+type Locale = {
+  formatDistance: (token: string) => string;
+};
+
+const localizeDistance = (token: string) => {
+  expect(token).toBe("x");
+  return "ok";
+};
+
+const locale: Locale = { formatDistance: localizeDistance };
+"#,
+    );
+
+    assert!(
+        source.contains("unwrap_or_else(|error| panic!(\"{}\", error))"),
+        "{source}"
+    );
+    assert!(
+        source.contains("formatDistance") || source.contains("format_distance"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_js_numeric_conversion_for_erased_unary_plus() {
+    let source = source_for(
+        r#"
+declare const value: unknown;
+const number = +value;
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Number(value) => value"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -89,6 +247,259 @@ const date = new UTCDate();
 }
 
 #[test]
+fn emits_object_literal_as_destination_interface_record() {
+    let source = source_for(
+        r#"
+interface Options {
+  width?: string;
+}
+
+function format(options: Options): string {
+  return options.width ?? "full";
+}
+
+export function run(): string {
+  return format({ width: "short" });
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"
+        ),
+        "{source}"
+    );
+    assert!(
+        !source.contains("format(::std::collections::HashMap::from"),
+        "{source}"
+    );
+}
+
+#[test]
+fn adapts_object_literal_for_interface_callback_field_argument() {
+    let source = source_for(
+        r#"
+interface Options {
+  width?: string;
+}
+
+interface FormatLong {
+  date: (options: Options) => string;
+}
+
+export function run(formatLong: FormatLong): string {
+  return formatLong.date({ width: "short" });
+}
+"#,
+    );
+
+    assert!(
+        source.contains("date.borrow_mut())({ let smelt_record_map ="),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            "Options { width: smelt_record_map.get(\"width\").cloned().map(|value| value) }"
+        ),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_empty_object_literal_as_optional_interface_record_defaults() {
+    let source = source_for(
+        r#"
+interface Duration {
+  years?: number;
+  months?: number;
+}
+
+export function make(): Duration {
+  return {};
+}
+"#,
+    );
+
+    assert!(
+        source.contains("Duration { years: smelt_record_map.get(\"years\").cloned().map(|value|"),
+        "{source}"
+    );
+    assert!(
+        source.contains("months: smelt_record_map.get(\"months\").cloned().map(|value|"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_optional_string_match_with_some_patterns() {
+    let source = source_for(
+        r#"
+export function label(value?: string): string {
+  switch (value) {
+    case "a":
+      return "A";
+    default:
+      return "other";
+  }
+}
+"#,
+    );
+
+    assert!(
+        source.contains("match value.clone().as_deref()"),
+        "{source}"
+    );
+    assert!(source.contains("Some(\"a\") =>"), "{source}");
+}
+
+#[test]
+fn coerces_function_typed_dict_literal_values_to_trait_objects() {
+    let source = source_for(
+        r#"
+export function callbacks(): Record<string, (value: number) => string> {
+  const suffix = "!";
+  return {
+    a: (value: number) => value.toString(),
+    b: (value: number) => value.toString() + suffix,
+  };
+}
+"#,
+    );
+
+    assert!(
+        source
+            .matches("let smelt_fn: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(f64) -> String>>")
+            .count()
+            >= 2,
+        "{source}"
+    );
+}
+
+#[test]
+fn coerces_string_values_to_regexp_destinations() {
+    let source = source_for(
+        r#"
+const pattern: RegExp = "\\d+";
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRegExp::new(\"\\\\d+\".to_owned(), String::new())"),
+        "{source}"
+    );
+}
+
+#[test]
+fn keeps_python_constructor_call_result_as_class_value() {
+    let source = source_for_py(
+        r#"
+class Obj:
+    id: str
+
+    def __init__(self, id: str) -> None:
+        self.id = id
+
+obj: Obj = Obj("a")
+"#,
+    );
+
+    assert!(source.contains("Obj::new(\"a\".to_owned())"), "{source}");
+    assert!(
+        !source.contains("obj: Obj = Default::default()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_manual_default_for_function_field_interfaces() {
+    let source = source_for(
+        r#"
+interface Localize<T> {
+  ordinalNumber: (value: number) => string;
+  value?: T;
+}
+
+function read(localize: Localize<string>): string {
+  return localize.ordinalNumber(1);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("impl<T> Default for Localize<T>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("ordinal_number: { let smelt_default_callback:"),
+        "{source}"
+    );
+    assert!(
+        source.contains("_smelt_phantom: ::std::marker::PhantomData,"),
+        "{source}"
+    );
+    assert!(
+        source.contains("impl<T> ::std::fmt::Debug for Localize<T>"),
+        "{source}"
+    );
+}
+
+#[test]
+fn flattens_interface_extends_into_generated_storage() {
+    let source = source_for(
+        r#"
+interface WeekOptions {
+  weekStartsOn?: number;
+}
+
+interface FirstWeekContainsDateOptions {
+  firstWeekContainsDate?: number;
+}
+
+interface LocaleOptions extends WeekOptions, FirstWeekContainsDateOptions {}
+
+function read(options: LocaleOptions): number {
+  return options.weekStartsOn ?? options.firstWeekContainsDate ?? 0;
+}
+"#,
+    );
+
+    assert!(source.contains("struct LocaleOptions"), "{source}");
+    assert!(source.contains("week_starts_on: Option<f64>"), "{source}");
+    assert!(
+        source.contains("first_week_contains_date: Option<f64>"),
+        "{source}"
+    );
+}
+
+#[test]
+fn projects_fields_from_optional_interface_records() {
+    let source = source_for(
+        r#"
+interface Options {
+  comparison?: number;
+}
+
+function read(options?: Options): number {
+  return options?.comparison ?? 0;
+}
+
+function positive(options?: Options): boolean {
+  return options.comparison > 0;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "options.clone().as_ref().and_then(|_smelt_value| _smelt_value.comparison.clone())"
+        ),
+        "{source}"
+    );
+    assert!(source.contains(".unwrap_or(0.0) > 0.0"), "{source}");
+}
+
+#[test]
 fn emits_regex_replace_callbacks_as_closures() {
     let source = source_for(
         r#"
@@ -103,6 +514,131 @@ export function localize(enNumber: number): string {
     assert!(source.contains("|arg0: String|"), "{source}");
     assert!(
         !source.contains("|caps: &regex::Captures<'_>| (_smelt_tmp_"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_escaping_closure_spread_calls_with_owned_callback_state() {
+    let source = source_for(
+        r#"
+export function purryOn(
+  isArg: (x: unknown) => boolean,
+  implementation: (data: unknown, first: unknown, ...rest: Array<unknown>) => unknown,
+  args: Array<unknown>,
+): unknown {
+  return isArg(args[0])
+    ? (data: unknown) => implementation(data, ...args)
+    : implementation(args[0], args[1], args.slice(2));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("implementation: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut"),
+        "{source}"
+    );
+    assert!(source.contains("implementation.borrow_mut()"), "{source}");
+    assert!(source.contains("args.clone().get(0).cloned()"), "{source}");
+    assert!(
+        source.contains("args.clone().into_iter().skip(1).collect::<Vec<_>>()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Array(args.clone()).get"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Array(args.clone()).clone().into_iter()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn adapts_rest_callback_shape_to_trailing_list_parameter() {
+    let source = source_for(
+        r#"
+function purryOn(
+  isArg: (x: unknown) => boolean,
+  implementation: (data: unknown, first: unknown, rest: Array<unknown>) => unknown,
+  args: Array<unknown>,
+): unknown {
+  return isArg(args[0])
+    ? (data: unknown) => implementation(data, ...args)
+    : implementation(args[0], args[1], args.slice(2));
+}
+
+function implementation(data: unknown, ...cases: Array<unknown>): unknown {
+  return cases;
+}
+
+export function conditional(args: Array<unknown>): unknown {
+  return purryOn((x) => true, implementation, args);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_forwarded_args.push(arg1"),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_forwarded_args.extend(arg2.into_iter()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("if let SmeltUnknown::Array(values) = arg1.clone()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn spreads_trailing_rest_vectors_across_erased_function_boundaries() {
+    let source = source_for(
+        r#"
+function callConcrete(
+  callback: (data: unknown, ...rest: Array<unknown>) => unknown,
+  args: Array<unknown>,
+): unknown {
+  return callback(args[0], ...args.slice(1));
+}
+
+export function useConcrete(): unknown {
+  return callConcrete((data, ...rest) => rest, [1, 2, 3]);
+}
+
+export function wrapConcrete(): unknown {
+  const callback: unknown = (data: unknown, ...rest: Array<unknown>) => rest;
+  return callback;
+}
+
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_args.iter().skip(1).cloned().collect::<Vec<_>>()"),
+        "{source}"
+    );
+    assert!(!source.contains("SmeltUnknown::Array(arg1)"), "{source}");
+}
+
+#[test]
+fn does_not_spread_array_parameters_across_erased_function_boundaries() {
+    let source = source_for(
+        r#"
+export function wrapArrayParam(): unknown {
+  const callback: unknown = (data: unknown, values: Array<unknown>) => values;
+  return callback;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_args.get(1).cloned().unwrap_or(SmeltUnknown::Null)"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("smelt_args.iter().skip(1).cloned().collect::<Vec<_>>()"),
         "{source}"
     );
 }
@@ -244,7 +780,10 @@ date.setFullYear(value);
     );
 
     assert!(source.contains("date.year() as f64"), "{source}");
-    assert!(source.contains("date.with_year("), "{source}");
+    assert!(
+        source.contains("chrono::NaiveDate::from_ymd_opt"),
+        "{source}"
+    );
     assert!(
         source.contains("SmeltUnknown::Number(value) => value"),
         "{source}"
@@ -271,7 +810,7 @@ function apply(isTwoDigitYear: boolean, year: number, date: number): number {
         .or_else(|| source.find("normalized_two_digit_year: f64 ="))
         .unwrap_or_else(|| panic!("{source}"));
     let setter = source
-        .find("date.with_year(normalized_two_digit_year.clone()")
+        .find("let normalized_year = (normalized_two_digit_year.clone() as i32)")
         .unwrap_or_else(|| panic!("{source}"));
     assert!(normalized < setter, "{source}");
     assert!(source.contains(" as f64"), "{source}");
@@ -349,7 +888,7 @@ function isArray(value: unknown): boolean {
 
     assert!(source.contains("SmeltUnknown::String"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::String(_))"));
-    assert!(source.contains("if let SmeltUnknown::String("));
+    assert!(source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"));
     assert!(source.contains("matches!(value.clone(), SmeltUnknown::Array(_))"));
 }
 
@@ -420,7 +959,7 @@ function assign(out: Record<string, unknown>, key: unknown, value: unknown): Rec
     );
 
     assert!(
-        source.contains("if let SmeltUnknown::String(value) = key.clone()"),
+        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"),
         "{source}"
     );
     assert!(
@@ -543,7 +1082,7 @@ function label(values: string[]): string[] {
 }
 
 #[test]
-fn emits_strict_panic_for_erased_non_function_callback_cast() {
+fn emits_default_callback_for_erased_non_function_callback_cast() {
     let source = source_for(
         r#"
 function invoke(callback: (value: number) => number, fallback?: (value: number) => number): number {
@@ -553,10 +1092,7 @@ function invoke(callback: (value: number) => number, fallback?: (value: number) 
 "#,
     );
 
-    assert!(
-        source.contains("panic!(\"unknown is not function\")"),
-        "{source}"
-    );
+    assert!(source.contains("smelt_default_callback"), "{source}");
 }
 
 #[test]
@@ -657,6 +1193,22 @@ function truncateDifference(left: bigint, right: number): bigint {
 }
 
 #[test]
+fn emits_numeric_not_as_parenthesized_truthiness() {
+    let source = source_for(
+        r#"
+function isZero(amount: number): boolean {
+  return !amount;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("!({ let smelt_number = amount.clone(); smelt_number != 0.0 && !smelt_number.is_nan() })"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_optional_erased_value_coerced_to_concrete_destination() {
     let source = source_for(
         r#"
@@ -667,8 +1219,9 @@ function read(output: Record<string, unknown[]>, key: unknown | undefined): unkn
     );
 
     assert!(
-        source
-            .contains(".map_or(String::new(), |value| if let SmeltUnknown::String(value) = value"),
+        source.contains(
+            ".map_or(String::new(), |value| match value.clone() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"
+        ),
         "{source}"
     );
 }
@@ -701,9 +1254,30 @@ function fallback(value: unknown): boolean {
     );
 
     assert!(
-        source.contains("if let SmeltUnknown::Bool(value) = match value.clone()"),
+        source.contains("SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value"),
         "{source}"
     );
+}
+
+#[test]
+fn emits_optional_nullish_coalescing_with_erased_fallback_without_panicking() {
+    let source = source_for(
+        r#"
+declare const defaults: Record<string, unknown>;
+interface Options {
+  weekStartsOn?: number;
+}
+function read(options?: Options): number {
+  return options?.weekStartsOn ?? defaults.weekStartsOn ?? 0;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Null => None, value => Some("),
+        "{source}"
+    );
+    assert!(source.contains(".or(match"), "{source}");
 }
 
 #[test]
@@ -720,6 +1294,20 @@ function truthy(value: unknown): boolean {
     assert!(source.contains(
         "SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true"
     ));
+}
+
+#[test]
+fn emits_nan_truthiness_without_invalid_nan_comparison() {
+    let source = source_for(
+        r#"
+function truthy(): boolean {
+  return Boolean(NaN);
+}
+"#,
+    );
+
+    assert!(source.contains("!smelt_number.is_nan()"), "{source}");
+    assert!(!source.contains("f64::NAN != 0.0"), "{source}");
 }
 
 #[test]
@@ -823,7 +1411,10 @@ function run(options?: Options): unknown {
 "#,
     );
 
-    assert!(source.contains(".as_ref().map(|_smelt_value|"), "{source}");
+    assert!(
+        source.contains(".as_ref().and_then(|_smelt_value|"),
+        "{source}"
+    );
     assert!(
         !source.contains("= options.clone().as_ref().map(|_smelt_value| SmeltUnknown::Null);"),
         "{source}"
@@ -1079,7 +1670,7 @@ function matchUnknown(value: unknown): string[] | undefined {
     );
 
     assert!(
-        source.contains("SmeltUnknown::String(value) => value"),
+        source.contains("SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value"),
         "{source}"
     );
     assert!(source.contains(".find(&match "), "{source}");
@@ -1139,4 +1730,94 @@ function expose(callback: (value: unknown) => unknown): unknown {
         "{source}"
     );
     assert!(source.contains("SmeltUnknown::Function"), "{source}");
+}
+
+#[test]
+fn emits_rejects_to_throw_as_awaited_result_match() {
+    let source = source_for(
+        r#"
+import { expect, test } from "vitest";
+
+async function fail(): Promise<void> {
+  throw "boom";
+}
+
+test("rejects", async () => {
+  await expect(fail()).rejects.toThrow("boom");
+});
+"#,
+    );
+
+    assert!(source.contains("match _smelt_tmp_"), "{source}");
+    assert!(source.contains(".await {"), "{source}");
+    assert!(source.contains("Err(__smelt_error)"), "{source}");
+    assert!(
+        source.contains("contains(&\"boom\".to_owned())"),
+        "{source}"
+    );
+}
+
+#[test]
+fn flattens_optional_chain_over_optional_callback_field() {
+    let source = source_for(
+        r#"
+interface Options {
+  cb?: (value: number) => number;
+}
+
+export function read(options?: Options): ((value: number) => number) | undefined {
+  return options?.cb;
+}
+"#,
+    );
+
+    assert!(source.contains(".as_ref().and_then("), "{source}");
+    assert!(!source.contains("Option<Option<::std::rc::Rc"), "{source}");
+}
+
+#[test]
+fn flattens_python_nested_optional_annotations() {
+    let source = source_for_py(
+        r#"
+from typing import Optional
+
+def read(value: Optional[Optional[int]]) -> Optional[int]:
+    return value
+"#,
+    );
+
+    assert!(source.contains("value: Option<i64>"), "{source}");
+    assert!(!source.contains("Option<Option<i64>>"), "{source}");
+}
+
+#[test]
+fn flattens_python_dict_get_optional_value_type() {
+    let source = source_for_py(
+        r#"
+from typing import Optional
+
+def read(values: dict[str, Optional[int]]) -> Optional[int]:
+    return values.get("x")
+"#,
+    );
+
+    assert!(
+        source.contains("values: ::std::collections::HashMap<String, Option<i64>>"),
+        "{source}"
+    );
+    assert!(!source.contains("Option<Option<i64>>"), "{source}");
+}
+
+#[test]
+fn flattens_optional_list_index_over_optional_items() {
+    let source = source_for(
+        r#"
+function read(values: Array<number | undefined>, index: number): number | undefined {
+  return values?.[index];
+}
+"#,
+    );
+
+    assert!(source.contains(".cloned().flatten()"), "{source}");
+    assert!(!source.contains("Option<Option<f64>>"), "{source}");
 }

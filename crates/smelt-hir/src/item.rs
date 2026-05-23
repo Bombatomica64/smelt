@@ -61,6 +61,10 @@ pub struct Function {
     pub span: Span,
     /// Parameters of the function.
     pub params: Vec<Param>,
+    /// Index of the rest parameter, if this function declares one.
+    pub rest: Option<usize>,
+    /// Number of leading parameters counted by JavaScript `Function.length`.
+    pub required_params: Option<usize>,
     /// Return type of the function.
     pub return_ty: TypeId,
     /// Whether this function is async.
@@ -142,10 +146,21 @@ pub struct Interface {
     pub span: Span,
     /// Generic type parameters declared by the interface.
     pub type_params: Vec<TypeParamDef>,
+    /// Interfaces extended by this interface.
+    pub extends: Vec<InterfaceHeritage>,
     /// Fields of the interface.
     pub fields: Vec<Field>,
     /// Method signatures of the interface.
     pub methods: Vec<MethodSig>,
+}
+
+/// A lowered `extends Parent<Args...>` edge on an interface.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InterfaceHeritage {
+    /// Parent interface symbol.
+    pub parent: Symbol,
+    /// Type arguments supplied to the parent interface.
+    pub args: Vec<TypeId>,
 }
 
 /// A generic type parameter declaration.
@@ -183,6 +198,10 @@ pub struct MethodSig {
     pub name: Symbol,
     /// Parameters of the method.
     pub params: Vec<ParamSig>,
+    /// Index of the rest parameter, if this method declares one.
+    pub rest: Option<usize>,
+    /// Number of leading parameters counted by JavaScript `Function.length`.
+    pub required_params: Option<usize>,
     /// Return type of the method.
     pub return_ty: TypeId,
     /// The visibility of the method.

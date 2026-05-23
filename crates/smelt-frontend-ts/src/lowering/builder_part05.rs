@@ -14,15 +14,9 @@ impl ModuleBuilder<'_> {
             )
         })?;
         let group_name = self.test_title(name_arg)?;
-        let body_arg = call.arguments.get(1).ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "describe calls require a callback",
-            )
-        })?;
-        let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
+        let statements = self.test_suite_callback_statements(call, "describe callbacks")?;
         self.describe_body_declarations(
-            &arrow.body.statements,
+            statements,
             &group_name,
             inherited_setup.to_vec(),
             inherited_before_each.to_vec(),
@@ -217,15 +211,9 @@ impl ModuleBuilder<'_> {
         inherited_after_each: &[&'a oxc::ast::ast::ArrowFunctionExpression<'a>],
         table_bindings: &[(&'a str, TableBindingValue<'a>)],
     ) -> Result<Vec<smelt_hir::ItemId>, SmeltError> {
-        let body_arg = call.arguments.get(1).ok_or_else(|| {
-            SmeltError::unsupported(
-                self.span(call.span.start, call.span.end),
-                "describe calls require a callback",
-            )
-        })?;
-        let arrow = self.test_arrow_callback(body_arg, "describe callbacks")?;
+        let statements = self.test_suite_callback_statements(call, "describe callbacks")?;
         self.describe_body_declarations(
-            &arrow.body.statements,
+            statements,
             group_name,
             inherited_setup.to_vec(),
             inherited_before_each.to_vec(),
@@ -360,7 +348,9 @@ impl ModuleBuilder<'_> {
             name,
             span,
             params: Vec::new(),
-            return_ty: none,
+            rest: None,
+            required_params: None,
+return_ty: none,
             is_async: arrow.r#async,
             is_test: true,
             body: Some(body_id),
@@ -447,7 +437,9 @@ impl ModuleBuilder<'_> {
             name,
             span,
             params: Vec::new(),
-            return_ty: none,
+            rest: None,
+            required_params: None,
+return_ty: none,
             is_async: function.r#async,
             is_test: true,
             body: Some(body_id),
@@ -763,6 +755,52 @@ impl ModuleBuilder<'_> {
         context: &str,
     ) -> Result<&'a oxc::ast::ast::ArrowFunctionExpression<'a>, SmeltError> {
         self.test_arrow_callback_with_params(argument, context, false)
+    }
+
+    /// Extract a suite callback body from `describe(...)`.
+    ///
+    /// Vitest accepts options between the title and callback, as in
+    /// `describe("name", { concurrent: false }, () => {})`. Suite lowering
+    /// only needs the callback statements, so this scans arguments after the
+    /// title and returns the final function-like callback.
+    fn test_suite_callback_statements<'a>(
+        &self,
+        call: &'a oxc::ast::ast::CallExpression<'a>,
+        context: &str,
+    ) -> Result<&'a oxc::allocator::Vec<'a, Statement<'a>>, SmeltError> {
+        for argument in call.arguments.iter().skip(1).rev() {
+            match argument {
+                Argument::ArrowFunctionExpression(arrow) => {
+                    if !arrow.params.items.is_empty() {
+                        return Err(SmeltError::unsupported(
+                            self.span(arrow.params.span.start, arrow.params.span.end),
+                            format!("{context} with parameters are not lowered yet"),
+                        ));
+                    }
+                    return Ok(&arrow.body.statements);
+                }
+                Argument::FunctionExpression(function) => {
+                    if !function.params.items.is_empty() || function.params.rest.is_some() {
+                        return Err(SmeltError::unsupported(
+                            self.span(function.params.span.start, function.params.span.end),
+                            format!("{context} with parameters are not lowered yet"),
+                        ));
+                    }
+                    let Some(function_body) = &function.body else {
+                        return Err(SmeltError::unsupported(
+                            self.span(function.span.start, function.span.end),
+                            format!("{context} must have a body"),
+                        ));
+                    };
+                    return Ok(&function_body.statements);
+                }
+                _ => {}
+            }
+        }
+        Err(SmeltError::unsupported(
+            self.span(call.span.start, call.span.end),
+            "describe calls require a callback",
+        ))
     }
 
     /// Extract and validate an arrow callback, optionally allowing table-test parameters.

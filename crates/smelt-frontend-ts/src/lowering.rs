@@ -16,9 +16,9 @@ use oxc::ast::ast::{
     Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, ChainElement, ClassElement,
     Declaration, Expression, ForStatementInit, ForStatementLeft, ImportDeclarationSpecifier,
     ImportOrExportKind, MethodDefinitionKind, MethodDefinitionType, ModuleExportName,
-    ObjectPropertyKind, Program, PropertyKey, SimpleAssignmentTarget, Statement, TSAccessibility,
-    TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature, TSTupleElement, TSType,
-    TSTypeName, TSTypeQueryExprName,
+    ObjectPropertyKind, Program, PropertyKey, PropertyKind, SimpleAssignmentTarget, Statement,
+    TSAccessibility, TSModuleDeclarationBody, TSModuleDeclarationName, TSSignature, TSTupleElement,
+    TSType, TSTypeName, TSTypeQueryExprName,
 };
 use oxc::parser::{ParseOptions, Parser};
 use oxc::span::{GetSpan, SourceType};
@@ -52,6 +52,8 @@ enum TestMatcher {
     HaveLength,
     /// `expect(actual).toHaveProperty(key)`.
     HaveProperty,
+    /// `expect(actual).toBeInstanceOf(Ctor)`.
+    BeInstanceOf,
 }
 
 /// Constant expression exported from another TypeScript module.
@@ -126,6 +128,8 @@ struct LocalCallback {
     defaults: Vec<Option<LocalCallbackDefault>>,
     /// Rest parameter metadata when the source closure uses `...args`.
     rest: Option<RestParam>,
+    /// Number of leading parameters counted by JavaScript `Function.length`.
+    required_params: Option<usize>,
     /// Return type produced by the callback.
     return_ty: smelt_hir::TypeId,
 }
@@ -148,7 +152,7 @@ enum LocalCallbackDefault {
 
 /// A JavaScript/TypeScript rest parameter represented as one list argument.
 #[derive(Debug, Clone, Copy)]
-struct RestParam {
+pub struct RestParam {
     /// Parameter index of the packed rest list in the lowered closure.
     index: usize,
     /// Element type accepted by each extra source-language argument.
@@ -183,6 +187,7 @@ impl TestMatcher {
             "toContain" => Some(Self::Contain),
             "toHaveLength" => Some(Self::HaveLength),
             "toHaveProperty" => Some(Self::HaveProperty),
+            "toBeInstanceOf" => Some(Self::BeInstanceOf),
             _ => None,
         }
     }
@@ -196,6 +201,7 @@ impl TestMatcher {
             Self::Contain => "toContain",
             Self::HaveLength => "toHaveLength",
             Self::HaveProperty => "toHaveProperty",
+            Self::BeInstanceOf => "toBeInstanceOf",
         }
     }
 }
@@ -335,6 +341,8 @@ struct ModuleBuilder<'ctx> {
     interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<FunctionType>>,
     /// Fields attached to callable intersection types.
     callable_fields: HashMap<smelt_hir::TypeId, Vec<Field>>,
+    /// Type aliases whose source surface is a callable object intersection.
+    callable_object_aliases: HashSet<smelt_hir::Symbol>,
     /// Namespace path currently qualifying type-only declarations.
     type_namespace_prefix: Vec<String>,
     /// Currently processing class name, if any.

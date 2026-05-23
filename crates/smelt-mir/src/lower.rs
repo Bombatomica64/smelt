@@ -41,6 +41,16 @@ fn usize_from_u32(value: u32, context: &str) -> Result<usize, LowerError> {
     })
 }
 
+/// Converts a local ID into an optional slice index.
+fn local_index(local: LocalId) -> Option<usize> {
+    usize::try_from(local.0).ok()
+}
+
+/// Converts a closure ID into an optional slice index.
+fn closure_id_index(closure: ClosureId) -> Option<usize> {
+    usize::try_from(closure.0).ok()
+}
+
 /// Finds the HIR function item that owns `body_id`, if any.
 fn function_item_for_body(
     krate: &smelt_hir::Crate,
@@ -80,7 +90,11 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
             .collect());
     }
 
-    let mut mir = Mir::new(krate.types.clone(), krate.symbols.clone());
+    let mut mir = Mir::new(
+        krate.types.clone(),
+        krate.symbols.clone(),
+        krate.names.clone(),
+    );
     let none = mir.types.intern(Type::None);
     let loop_index_ty = mir.types.intern(Type::Float);
     let loop_bool_ty = mir.types.intern(Type::Bool);
@@ -140,11 +154,18 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
                 });
             }
             smelt_hir::Item::Interface(interface) => {
+                let fields = lower_effective_interface_fields(
+                    krate,
+                    &mut mir,
+                    interface,
+                    &HashMap::new(),
+                    &mut HashSet::new(),
+                );
                 mir.interfaces.push(crate::MirInterface {
                     name: interface.name,
                     type_params: interface.type_params.clone(),
-                    fields: interface
-                        .fields
+                    extends: interface.extends.clone(),
+                    fields: fields
                         .iter()
                         .map(|field| crate::MirField {
                             name: field.name,
@@ -277,9 +298,156 @@ pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
         synchronize_throwing_closure_types(&mut mir);
         propagate_throwing_functions(&mut mir);
         synchronize_throwing_closure_types(&mut mir);
+        crate::normalize_operational_types(&mut mir);
         Ok(mir)
     } else {
         Err(errors)
+    }
+}
+
+/// Return interface fields with inherited parent fields substituted and flattened.
+///
+/// TypeScript interface inheritance is erased at runtime, but generated Rust
+/// storage needs a concrete field layout. MIR expands parent fields while
+/// lowering HIR so codegen can treat interfaces as regular records without
+/// retaining frontend-only heritage lookup tables.
+fn lower_effective_interface_fields(
+    krate: &smelt_hir::Crate,
+    mir: &mut Mir,
+    interface: &smelt_hir::Interface,
+    substitutions: &HashMap<Symbol, TypeId>,
+    seen: &mut HashSet<Symbol>,
+) -> Vec<smelt_hir::Field> {
+    if !seen.insert(interface.name) {
+        return Vec::new();
+    }
+    let mut fields = Vec::new();
+    for heritage in &interface.extends {
+        let Some(parent) = find_hir_interface(krate, heritage.parent) else {
+            continue;
+        };
+        let parent_args = heritage
+            .args
+            .iter()
+            .copied()
+            .map(|arg| substitute_type_id(mir, arg, substitutions))
+            .collect::<Vec<_>>();
+        let parent_substitutions = parent
+            .type_params
+            .iter()
+            .zip(parent_args.iter().copied())
+            .map(|(param, arg)| (param.name, arg))
+            .collect::<HashMap<_, _>>();
+        fields.extend(lower_effective_interface_fields(
+            krate,
+            mir,
+            parent,
+            &parent_substitutions,
+            seen,
+        ));
+    }
+    for source_field in &interface.fields {
+        let mut lowered_field = source_field.clone();
+        lowered_field.ty = substitute_type_id(mir, lowered_field.ty, substitutions);
+        if let Some(existing) = fields
+            .iter_mut()
+            .find(|candidate: &&mut smelt_hir::Field| candidate.name == lowered_field.name)
+        {
+            *existing = lowered_field;
+        } else {
+            fields.push(lowered_field);
+        }
+    }
+    seen.remove(&interface.name);
+    fields
+}
+
+/// Find a HIR interface item by symbol.
+fn find_hir_interface(krate: &smelt_hir::Crate, name: Symbol) -> Option<&smelt_hir::Interface> {
+    krate.items.iter().find_map(|item| {
+        if let smelt_hir::Item::Interface(interface) = item
+            && interface.name == name
+        {
+            Some(interface)
+        } else {
+            None
+        }
+    })
+}
+
+/// Apply interface generic substitutions to a type, interning rebuilt shapes.
+fn substitute_type_id(
+    mir: &mut Mir,
+    ty: TypeId,
+    substitutions: &HashMap<Symbol, TypeId>,
+) -> TypeId {
+    match mir.types.get(ty).cloned() {
+        Some(Type::TypeParam { name }) => substitutions.get(&name).copied().unwrap_or(ty),
+        Some(Type::List(item)) => {
+            let substituted_item = substitute_type_id(mir, item, substitutions);
+            mir.types.intern(Type::List(substituted_item))
+        }
+        Some(Type::Set(item)) => {
+            let substituted_item = substitute_type_id(mir, item, substitutions);
+            mir.types.intern(Type::Set(substituted_item))
+        }
+        Some(Type::Dict(key, value)) => {
+            let substituted_key = substitute_type_id(mir, key, substitutions);
+            let substituted_value = substitute_type_id(mir, value, substitutions);
+            mir.types
+                .intern(Type::Dict(substituted_key, substituted_value))
+        }
+        Some(Type::Tuple(items)) => {
+            let substituted_items = items
+                .into_iter()
+                .map(|item| substitute_type_id(mir, item, substitutions))
+                .collect();
+            mir.types.intern(Type::Tuple(substituted_items))
+        }
+        Some(Type::Optional(item)) => {
+            let substituted_item = substitute_type_id(mir, item, substitutions);
+            mir.types.intern(Type::Optional(substituted_item))
+        }
+        Some(Type::Union(items)) => {
+            let substituted_items = items
+                .into_iter()
+                .map(|item| substitute_type_id(mir, item, substitutions))
+                .collect();
+            mir.types.intern(Type::Union(substituted_items))
+        }
+        Some(Type::Class { name, args }) => {
+            let substituted_args = args
+                .into_iter()
+                .map(|arg| substitute_type_id(mir, arg, substitutions))
+                .collect();
+            mir.types.intern(Type::Class {
+                name,
+                args: substituted_args,
+            })
+        }
+        Some(Type::Function(mut function)) => {
+            function.params = function
+                .params
+                .into_iter()
+                .map(|param| substitute_type_id(mir, param, substitutions))
+                .collect();
+            function.return_ty = substitute_type_id(mir, function.return_ty, substitutions);
+            mir.types.intern(Type::Function(function))
+        }
+        Some(Type::Future(item)) => {
+            let substituted_item = substitute_type_id(mir, item, substitutions);
+            mir.types.intern(Type::Future(substituted_item))
+        }
+        Some(
+            Type::Bool
+            | Type::Int
+            | Type::Float
+            | Type::String
+            | Type::Unknown
+            | Type::Never
+            | Type::None,
+        )
+        | None => ty,
     }
 }
 
@@ -296,7 +464,9 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
         while changed {
             changed = false;
             let assignments = {
-                let function = &mir.functions[function_index];
+                let Some(function) = mir.functions.get(function_index) else {
+                    continue;
+                };
                 function
                     .blocks
                     .iter()
@@ -315,9 +485,12 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
                     .collect::<Vec<_>>()
             };
             for (dest, source) in assignments {
+                let Some(function) = mir.functions.get_mut(function_index) else {
+                    continue;
+                };
                 if widen_function_local_from_source(
                     &mut mir.types,
-                    &mut mir.functions[function_index].locals,
+                    &mut function.locals,
                     dest,
                     source,
                 ) {
@@ -326,7 +499,9 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
             }
         }
         let updates = {
-            let function = &mir.functions[function_index];
+            let Some(function) = mir.functions.get(function_index) else {
+                continue;
+            };
             let mut updates = Vec::new();
             for block in &function.blocks {
                 for statement in &block.statements {
@@ -337,9 +512,8 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
                     else {
                         continue;
                     };
-                    let Some(closure) = mir
-                        .closures
-                        .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                    let Some(closure) =
+                        closure_id_index(*id).and_then(|index| mir.closures.get(index))
                     else {
                         continue;
                     };
@@ -352,9 +526,12 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
             updates
         };
         for (local, return_ty) in updates {
-            let Some(local_decl) = mir.functions[function_index]
-                .locals
-                .get(local.0 as usize)
+            let Some(local_decl) = local_index(local)
+                .and_then(|index| {
+                    mir.functions
+                        .get(function_index)
+                        .and_then(|function| function.locals.get(index))
+                })
                 .cloned()
             else {
                 continue;
@@ -369,23 +546,25 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
             function_ty.may_throw = true;
             function_ty.return_ty = return_ty;
             let widened = mir.types.intern(Type::Function(function_ty));
-            if let Some(local_decl) = mir.functions[function_index]
-                .locals
-                .get_mut(local.0 as usize)
-            {
+            if let Some(local_decl) = local_index(local).and_then(|index| {
+                mir.functions
+                    .get_mut(function_index)
+                    .and_then(|function| function.locals.get_mut(index))
+            }) {
                 local_decl.ty = widened;
             }
         }
-        let assignments = local_alias_assignments(&mir.functions[function_index].blocks);
-        propagate_throwing_function_aliases(
-            &mut mir.types,
-            &mut mir.functions[function_index].locals,
-            &assignments,
-        );
+        let Some(function) = mir.functions.get_mut(function_index) else {
+            continue;
+        };
+        let assignments = local_alias_assignments(&function.blocks);
+        propagate_throwing_function_aliases(&mut mir.types, &mut function.locals, &assignments);
+        let owner_locals = function.locals.clone();
+        let closure_ids = closure_ids_in_blocks(&function.blocks);
         synchronize_closure_capture_types_from_locals(
             &mut mir.closures,
-            &mir.functions[function_index].locals,
-            closure_ids_in_blocks(&mir.functions[function_index].blocks),
+            &owner_locals,
+            closure_ids,
         );
     }
     for closure_index in 0..mir.closures.len() {
@@ -393,7 +572,9 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
         while changed {
             changed = false;
             let assignments = {
-                let closure = &mir.closures[closure_index];
+                let Some(closure) = mir.closures.get(closure_index) else {
+                    continue;
+                };
                 closure
                     .blocks
                     .iter()
@@ -412,9 +593,12 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
                     .collect::<Vec<_>>()
             };
             for (dest, source) in assignments {
+                let Some(closure) = mir.closures.get_mut(closure_index) else {
+                    continue;
+                };
                 if widen_function_local_from_source(
                     &mut mir.types,
-                    &mut mir.closures[closure_index].locals,
+                    &mut closure.locals,
                     dest,
                     source,
                 ) {
@@ -423,7 +607,9 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
             }
         }
         let updates = {
-            let closure = &mir.closures[closure_index];
+            let Some(closure) = mir.closures.get(closure_index) else {
+                continue;
+            };
             let mut updates = Vec::new();
             for block in &closure.blocks {
                 for statement in &block.statements {
@@ -434,9 +620,8 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
                     else {
                         continue;
                     };
-                    let Some(nested) = mir
-                        .closures
-                        .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                    let Some(nested) =
+                        closure_id_index(*id).and_then(|index| mir.closures.get(index))
                     else {
                         continue;
                     };
@@ -448,9 +633,12 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
             updates
         };
         for (local, return_ty) in updates {
-            let Some(local_decl) = mir.closures[closure_index]
-                .locals
-                .get(local.0 as usize)
+            let Some(local_decl) = local_index(local)
+                .and_then(|index| {
+                    mir.closures
+                        .get(closure_index)
+                        .and_then(|closure| closure.locals.get(index))
+                })
                 .cloned()
             else {
                 continue;
@@ -465,18 +653,21 @@ fn synchronize_throwing_closure_types(mir: &mut Mir) {
             function_ty.may_throw = true;
             function_ty.return_ty = return_ty;
             let widened = mir.types.intern(Type::Function(function_ty));
-            if let Some(local_decl) = mir.closures[closure_index].locals.get_mut(local.0 as usize) {
+            if let Some(local_decl) = local_index(local).and_then(|index| {
+                mir.closures
+                    .get_mut(closure_index)
+                    .and_then(|closure| closure.locals.get_mut(index))
+            }) {
                 local_decl.ty = widened;
             }
         }
-        let assignments = local_alias_assignments(&mir.closures[closure_index].blocks);
-        propagate_throwing_function_aliases(
-            &mut mir.types,
-            &mut mir.closures[closure_index].locals,
-            &assignments,
-        );
-        let owner_locals = mir.closures[closure_index].locals.clone();
-        let closure_ids = closure_ids_in_blocks(&mir.closures[closure_index].blocks);
+        let Some(closure) = mir.closures.get_mut(closure_index) else {
+            continue;
+        };
+        let assignments = local_alias_assignments(&closure.blocks);
+        propagate_throwing_function_aliases(&mut mir.types, &mut closure.locals, &assignments);
+        let owner_locals = closure.locals.clone();
+        let closure_ids = closure_ids_in_blocks(&closure.blocks);
         synchronize_closure_capture_types_from_locals(
             &mut mir.closures,
             &owner_locals,
@@ -510,19 +701,21 @@ fn synchronize_closure_capture_types_from_locals(
     closure_ids: Vec<ClosureId>,
 ) {
     for closure_id in closure_ids {
-        let Some(closure) = closures.get_mut(closure_id.0 as usize) else {
+        let Some(closure) = closure_id_index(closure_id).and_then(|index| closures.get_mut(index))
+        else {
             continue;
         };
         for capture in &mut closure.captures {
-            let Some(source_ty) = owner_locals
-                .get(capture.source_local.0 as usize)
+            let Some(source_ty) = local_index(capture.source_local)
+                .and_then(|index| owner_locals.get(index))
                 .map(|decl| decl.ty)
             else {
                 continue;
             };
             capture.ty = source_ty;
             if let Some(target_local) = capture.target_local
-                && let Some(local) = closure.locals.get_mut(target_local.0 as usize)
+                && let Some(local) =
+                    local_index(target_local).and_then(|index| closure.locals.get_mut(index))
             {
                 local.ty = source_ty;
             }
@@ -573,7 +766,10 @@ fn widen_function_local_from_source(
     dest: LocalId,
     source: LocalId,
 ) -> bool {
-    let Some(source_ty) = locals.get(source.0 as usize).map(|decl| decl.ty) else {
+    let Some(source_ty) = local_index(source)
+        .and_then(|index| locals.get(index))
+        .map(|decl| decl.ty)
+    else {
         return false;
     };
     let Some(Type::Function(source_fn)) = types.get(source_ty).cloned() else {
@@ -582,7 +778,10 @@ fn widen_function_local_from_source(
     if !source_fn.may_throw {
         return false;
     }
-    let Some(dest_ty) = locals.get(dest.0 as usize).map(|decl| decl.ty) else {
+    let Some(dest_ty) = local_index(dest)
+        .and_then(|index| locals.get(index))
+        .map(|decl| decl.ty)
+    else {
         return false;
     };
     let Some(Type::Function(mut dest_fn)) = types.get(dest_ty).cloned() else {
@@ -594,7 +793,7 @@ fn widen_function_local_from_source(
     dest_fn.may_throw = true;
     dest_fn.return_ty = source_fn.return_ty;
     let widened = types.intern(Type::Function(dest_fn));
-    if let Some(local) = locals.get_mut(dest.0 as usize) {
+    if let Some(local) = local_index(dest).and_then(|index| locals.get_mut(index)) {
         local.ty = widened;
         true
     } else {
@@ -615,16 +814,63 @@ fn mark_escaping_closures(mir: &mut Mir) {
         .iter()
         .map(closure_definitions)
         .collect::<Vec<_>>();
+    let local_rvalues_by_function = mir.functions.iter().map(local_rvalues).collect::<Vec<_>>();
     let mut escaping = HashSet::new();
-    for (function, definitions) in mir.functions.iter().zip(&closure_defs_by_function) {
+    for ((function, definitions), local_rvalues) in mir
+        .functions
+        .iter()
+        .zip(&closure_defs_by_function)
+        .zip(&local_rvalues_by_function)
+    {
         for block in &function.blocks {
             let Some(Terminator::Return(operand)) = &block.terminator else {
                 continue;
             };
-            if let Some(local) = operand_local(operand)
-                && let Some(id) = resolve_closure_local(local, definitions)
-            {
-                escaping.insert(id);
+            mark_operand_escaping_closures(
+                operand,
+                definitions,
+                local_rvalues,
+                &mut HashSet::new(),
+                &mut escaping,
+            );
+        }
+    }
+    let closure_function_index = closure_defs_by_function
+        .iter()
+        .enumerate()
+        .flat_map(|(function_index, definitions)| {
+            definitions
+                .values()
+                .filter_map(move |definition| match definition {
+                    ClosureLocalDef::Closure(id) => Some((*id, function_index)),
+                    ClosureLocalDef::Alias(_) => None,
+                })
+        })
+        .collect::<HashMap<_, _>>();
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let escaping_ids = escaping.iter().copied().collect::<Vec<_>>();
+        for id in escaping_ids {
+            let Some(closure) = mir
+                .closures
+                .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+            else {
+                continue;
+            };
+            let Some(function_index) = closure_function_index.get(&id).copied() else {
+                continue;
+            };
+            for capture in &closure.captures {
+                let before = escaping.len();
+                mark_local_escaping_closures(
+                    capture.source_local,
+                    &closure_defs_by_function[function_index],
+                    &local_rvalues_by_function[function_index],
+                    &mut HashSet::new(),
+                    &mut escaping,
+                );
+                changed |= escaping.len() != before;
             }
         }
     }
@@ -638,6 +884,93 @@ fn mark_escaping_closures(mir: &mut Mir) {
                 capture.mode = smelt_hir::CaptureMode::ByValue;
             }
         }
+    }
+}
+
+/// Return local assignments in a function for escape analysis.
+fn local_rvalues(function: &MirFunction) -> HashMap<LocalId, Rvalue> {
+    let mut rvalues = HashMap::new();
+    for block in &function.blocks {
+        for statement in &block.statements {
+            if let Statement::Assign { dest, value } = statement {
+                rvalues.insert(*dest, value.clone());
+            }
+        }
+    }
+    rvalues
+}
+
+/// Mark closures reachable from a returned operand as escaping.
+fn mark_operand_escaping_closures(
+    operand: &Operand,
+    definitions: &HashMap<LocalId, ClosureLocalDef>,
+    local_rvalues: &HashMap<LocalId, Rvalue>,
+    seen_locals: &mut HashSet<LocalId>,
+    escaping: &mut HashSet<ClosureId>,
+) {
+    let Some(local) = operand_local(operand) else {
+        return;
+    };
+    mark_local_escaping_closures(local, definitions, local_rvalues, seen_locals, escaping);
+}
+
+/// Mark closures reachable from a local as escaping.
+fn mark_local_escaping_closures(
+    local: LocalId,
+    definitions: &HashMap<LocalId, ClosureLocalDef>,
+    local_rvalues: &HashMap<LocalId, Rvalue>,
+    seen_locals: &mut HashSet<LocalId>,
+    escaping: &mut HashSet<ClosureId>,
+) {
+    if !seen_locals.insert(local) {
+        return;
+    }
+    if let Some(id) = resolve_closure_local(local, definitions) {
+        escaping.insert(id);
+    }
+    let Some(value) = local_rvalues.get(&local) else {
+        return;
+    };
+    match value {
+        Rvalue::Use(source) => {
+            mark_operand_escaping_closures(
+                source,
+                definitions,
+                local_rvalues,
+                seen_locals,
+                escaping,
+            );
+        }
+        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
+            for item in items {
+                mark_operand_escaping_closures(
+                    item,
+                    definitions,
+                    local_rvalues,
+                    seen_locals,
+                    escaping,
+                );
+            }
+        }
+        Rvalue::Dict(entries) => {
+            for (key, value) in entries {
+                mark_operand_escaping_closures(
+                    key,
+                    definitions,
+                    local_rvalues,
+                    seen_locals,
+                    escaping,
+                );
+                mark_operand_escaping_closures(
+                    value,
+                    definitions,
+                    local_rvalues,
+                    seen_locals,
+                    escaping,
+                );
+            }
+        }
+        _ => {}
     }
 }
 
@@ -819,6 +1152,7 @@ impl<'hir> LoweringCtx<'hir> {
         function.is_async = is_async;
         if let Some(hir_function) = function_item_for_body(krate, body_id) {
             function.is_test = hir_function.is_test;
+            function.rest = hir_function.rest;
         }
         let mut locals = HashMap::new();
 
@@ -1637,10 +1971,21 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::Index { receiver, index } => {
                 let receiver_operand = self.lower_expr(*receiver)?;
+                let index_operand = self.lower_expr(*index)?;
+                if matches!(self.krate.types.get(expr.ty), Some(Type::Optional(_))) {
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    self.block_mut()?.statements.push(Statement::Assign {
+                        dest,
+                        value: Rvalue::OptionalIndex {
+                            receiver: receiver_operand,
+                            index: index_operand,
+                        },
+                    });
+                    return Ok(Operand::Copy(Place::Local(dest)));
+                }
                 let receiver_ty = self.hir_expr(*receiver)?.ty;
                 let base =
                     self.materialize_operand_local(receiver_operand, receiver_ty, expr.span)?;
-                let index_operand = self.lower_expr(*index)?;
                 Operand::Copy(Place::Index {
                     base,
                     index: Box::new(index_operand),
@@ -3117,6 +3462,17 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DateFromValue { value } => {
+                let value_operand = self.lower_expr(*value)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateFromValue {
+                        value: value_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DateGetPart { part, timestamp_ms } => {
                 let timestamp_operand = self.lower_expr(*timestamp_ms)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -3247,10 +3603,21 @@ impl<'hir> LoweringCtx<'hir> {
             ExprKind::Await(future) => {
                 let lowered_future = self.lower_expr(*future)?;
                 let dest = self.push_temp(expr.ty, expr.span);
-                self.block_mut()?.statements.push(Statement::Assign {
-                    dest,
-                    value: Rvalue::Await(lowered_future),
-                });
+                if self.current_exception_handler().is_some() {
+                    let target = self.function.push_block(expr.span);
+                    self.set_terminator(Terminator::Await {
+                        future: lowered_future,
+                        dest,
+                        target,
+                        unwind: self.current_exception_handler(),
+                    })?;
+                    self.current_block = target;
+                } else {
+                    self.block_mut()?.statements.push(Statement::Assign {
+                        dest,
+                        value: Rvalue::Await(lowered_future),
+                    });
+                }
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::AsyncOp { op, args } => {
@@ -3337,6 +3704,8 @@ impl<'hir> LoweringCtx<'hir> {
                     self.closures.push(MirClosure {
                         id: closure_id,
                         params,
+                        rest: closure.rest,
+                        required_params: closure.required_params,
                         locals,
                         captures: mir_captures,
                         return_ty: closure.return_ty,
@@ -3383,6 +3752,8 @@ impl<'hir> LoweringCtx<'hir> {
                     self.closures.push(MirClosure {
                         id: closure_id,
                         params: function.params,
+                        rest: closure.rest,
+                        required_params: closure.required_params,
                         locals: function.locals,
                         captures: mir_captures,
                         return_ty: closure.return_ty,
@@ -3432,6 +3803,19 @@ impl<'hir> LoweringCtx<'hir> {
                     value: Rvalue::ClosureCall {
                         callee: callee_operand,
                         args: lowered_args,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::ClosureCallSpread { callee, args } => {
+                let callee_operand = self.lower_expr(*callee)?;
+                let args_operand = self.lower_expr(*args)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ClosureCallSpread {
+                        callee: callee_operand,
+                        args: args_operand,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -3606,6 +3990,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::Item(_)
             | ExprKind::Call { .. }
             | ExprKind::ClosureCall { .. }
+            | ExprKind::ClosureCallSpread { .. }
             | ExprKind::Method { .. }
             | ExprKind::OptionalField { .. }
             | ExprKind::OptionalIndex { .. }
@@ -3718,6 +4103,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::DateNow
             | ExprKind::DateToIsoString { .. }
             | ExprKind::DateFromParts { .. }
+            | ExprKind::DateFromValue { .. }
             | ExprKind::DateGetPart { .. }
             | ExprKind::DateSetPart { .. }
             | ExprKind::UrlField { .. }
@@ -3881,14 +4267,19 @@ impl<'hir> LoweringCtx<'hir> {
     }
 
     /// Creates a lowering error with optional span information.
-    fn error(&self, message: impl Into<String>, span: Option<Span>) -> LowerError {
-        let mut message = message.into();
-        if let Some(span) = span
-            && let Some(module) = self.krate.modules.get(span.file.0 as usize)
+    fn error(&self, message: impl Into<String>, error_span: Option<Span>) -> LowerError {
+        let mut message_text = message.into();
+        if let Some(span_value) = error_span
+            && let Some(module) = usize::try_from(span_value.file.0)
+                .ok()
+                .and_then(|index| self.krate.modules.get(index))
         {
-            message = format!("{message} at {}", module.source.path);
+            message_text = format!("{message_text} at {}", module.source.path);
         }
-        LowerError { message, span }
+        LowerError {
+            message: message_text,
+            span: error_span,
+        }
     }
 }
 
@@ -3899,6 +4290,7 @@ fn lower_literal(literal: &HirLiteral) -> Constant {
         HirLiteral::Int(value) => Constant::Int(*value),
         HirLiteral::Float(value) => Constant::Float(*value),
         HirLiteral::String(value) => Constant::String(value.clone()),
+        HirLiteral::Symbol(value) => Constant::Symbol(value.clone()),
         HirLiteral::None => Constant::None,
     }
 }
@@ -3984,8 +4376,8 @@ fn statement_can_throw(
     let Some(local) = operand_local(callee) else {
         return true;
     };
-    locals
-        .get(local.0 as usize)
+    local_index(local)
+        .and_then(|index| locals.get(index))
         .and_then(|decl| types.get(decl.ty))
         .is_some_and(|ty| matches!(ty, Type::Function(function) if function.may_throw))
 }
@@ -4007,8 +4399,10 @@ fn terminator_can_throw(terminator: &Terminator, throwing: &[bool]) -> bool {
             unwind: None,
             ..
         } => true,
+        Terminator::Await { unwind: None, .. } => true,
         Terminator::Goto(_)
         | Terminator::Call { .. }
+        | Terminator::Await { .. }
         | Terminator::Switch { .. }
         | Terminator::Match { .. }
         | Terminator::Return(_)
@@ -4064,6 +4458,9 @@ fn callback_expr_can_throw(expr: &smelt_hir::CallbackExpr) -> bool {
         CallbackExprKind::Sequence { effects, result } => {
             effects.iter().any(callback_expr_can_throw) || callback_expr_can_throw(result)
         }
-        _ => false,
+        CallbackExprKind::Literal(_)
+        | CallbackExprKind::Param(_)
+        | CallbackExprKind::Capture(_)
+        | CallbackExprKind::Function(_) => false,
     }
 }

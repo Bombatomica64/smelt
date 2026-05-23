@@ -18,8 +18,13 @@ impl ModuleBuilder<'_> {
         let type_params = self.push_type_parameter_scope(alias.type_parameters.as_deref())?;
         let result = self.ts_type_to_hir(&alias.type_annotation);
         let fields = self.type_fields_from_ts(&alias.type_annotation).ok();
+        let is_callable_object = Self::ts_type_is_callable_object_surface(&alias.type_annotation);
         self.pop_type_parameter_scope();
         let ty = result?;
+        if is_callable_object {
+            self.callable_object_aliases.insert(name);
+            self.ctx.callable_object_aliases.insert(name);
+        }
         if let Some(fields) = fields
             && !fields.is_empty()
         {
@@ -158,7 +163,7 @@ impl ModuleBuilder<'_> {
                                             "interface method parameters require explicit types",
                                         )
                                     })?;
-                                let (name, span) =
+                                let (param_name, param_span) =
                                     if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                                         (
                                             self.intern_source_name(binding.name.as_str()),
@@ -171,9 +176,9 @@ impl ModuleBuilder<'_> {
                                         )
                                     };
                                 params.push(ParamSig {
-                                    name,
+                                    name: param_name,
                                     ty,
-                                    span,
+                                    span: param_span,
                                 });
                             }
                             Ok((return_ty, params))
@@ -184,7 +189,9 @@ impl ModuleBuilder<'_> {
                             let function_ty = self.ctx.krate.types.intern(Type::Function(
                                 FunctionType {
                                     params: params.iter().map(|param| param.ty).collect(),
-                                    return_ty,
+            rest: None,
+                                    required_params: None,
+return_ty,
                                     is_async: matches!(
                                         self.ctx.krate.types.get(return_ty),
                                         Some(Type::Future(_))
@@ -204,7 +211,9 @@ impl ModuleBuilder<'_> {
                         methods.push(MethodSig {
                             name: self.property_key_symbol(&method.key)?,
                             params,
-                            return_ty,
+            rest: None,
+                            required_params: None,
+return_ty,
                             visibility: Visibility::Public,
                             is_async: matches!(
                                 self.ctx.krate.types.get(return_ty),
@@ -232,7 +241,9 @@ impl ModuleBuilder<'_> {
                         }
                         call_signatures.push(FunctionType {
                             params,
-                            return_ty,
+            rest: None,
+                            required_params: None,
+return_ty,
                             is_async: matches!(
                                 self.ctx.krate.types.get(return_ty),
                                 Some(Type::Future(_))
@@ -255,6 +266,13 @@ impl ModuleBuilder<'_> {
             name,
             span: self.span(interface.span.start, interface.span.end),
             type_params,
+            extends: heritage_refs
+                .iter()
+                .map(|heritage| smelt_hir::InterfaceHeritage {
+                    parent: heritage.parent,
+                    args: heritage.args.clone(),
+                })
+                .collect(),
             fields,
             methods,
         }));

@@ -268,12 +268,12 @@ impl DependencyCollector {
         else {
             return Ok(Vec::new());
         };
-        let import = ManifestImport {
+        let workspace_import = ManifestImport {
             module: entry.display().to_string(),
             names: import.names.clone(),
             python_relative_level: None,
         };
-        self.resolve_barrel_import_targets(&entry, &import)
+        self.resolve_barrel_import_targets(&entry, &workspace_import)
             .or_else(|| Some(vec![entry.canonicalize().ok()?]))
             .ok_or_else(|| "failed to canonicalize workspace package import candidate".into())
     }

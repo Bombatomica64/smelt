@@ -37,10 +37,6 @@
     reason = "existing option pipelines are being preserved until the lowering refactor"
 )]
 #![expect(
-    clippy::unused_self,
-    reason = "lowering helpers remain methods to keep the API shape stable during refactors"
-)]
-#![expect(
     clippy::semicolon_if_nothing_returned,
     reason = "validator match arms keep expression style for consistency"
 )]
@@ -67,6 +63,8 @@ mod format;
 mod lower;
 /// MIR optimization passes.
 pub mod opt;
+/// MIR operational type normalization.
+mod type_normalize;
 /// MIR core data types.
 mod types;
 /// MIR validation and diagnostics.
@@ -74,6 +72,7 @@ mod validate;
 
 pub use format::format_compact;
 pub use lower::{LowerError, lower_hir};
+pub use type_normalize::normalize_operational_types;
 pub use types::*;
 pub use validate::{ValidationError, validate};
 
@@ -274,7 +273,7 @@ async function run(): Promise<number> {
         let bool_ty = types.intern(smelt_hir::Type::Bool);
         let none_ty = types.intern(smelt_hir::Type::None);
         let name = symbols.intern("main");
-        let mut mir = Mir::new(types, symbols);
+        let mut mir = Mir::new(types, symbols, smelt_hir::OriginalNameTable::default());
         let mut function = MirFunction::new(
             FuncId(0),
             name,

@@ -36,6 +36,10 @@ pub enum ExprKind {
         callee: ExprId,
         args: Vec<ExprId>,
     },
+    ClosureCallSpread {
+        callee: ExprId,
+        args: ExprId,
+    },
     Method {
         receiver: ExprId,
         method: Symbol,
@@ -474,6 +478,9 @@ pub enum ExprKind {
     },
     DateFromParts {
         parts: Vec<ExprId>,
+    },
+    DateFromValue {
+        value: ExprId,
     },
     DateGetPart {
         part: DatePart,

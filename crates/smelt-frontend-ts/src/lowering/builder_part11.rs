@@ -413,7 +413,9 @@ impl ModuleBuilder<'_> {
         let return_ty = self.ctx.krate.types.intern(Type::Bool);
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![param_ty],
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             is_async: false,
                             may_throw: false,
         }));
@@ -495,7 +497,9 @@ impl ModuleBuilder<'_> {
         let return_ty = self.ctx.krate.types.intern(Type::Unknown);
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![param_ty],
-            return_ty,
+            rest: None,
+            required_params: None,
+return_ty,
             is_async: false,
                             may_throw: false,
         }));

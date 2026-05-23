@@ -19,13 +19,16 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_serde_json) {
         deps.push(BackendDependency::SerdeJson);
     }
-    if any_rvalue_needs(mir, rvalue_needs_regex) || any_callback_needs_regex(mir) {
+    if any_rvalue_needs(mir, rvalue_needs_regex)
+        || any_callback_needs_regex(mir)
+        || needs_unknown_type(mir)
+    {
         deps.push(BackendDependency::Regex);
     }
     if any_rvalue_needs(mir, rvalue_needs_rand) {
         deps.push(BackendDependency::Rand);
     }
-    if any_rvalue_needs(mir, rvalue_needs_chrono) {
+    if any_rvalue_needs(mir, rvalue_needs_chrono) || needs_unknown_type(mir) {
         deps.push(BackendDependency::Chrono);
     }
     if any_rvalue_needs(mir, rvalue_needs_url) {
@@ -175,6 +178,7 @@ fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
         Rvalue::DateNow
             | Rvalue::DateToIsoString { .. }
             | Rvalue::DateFromParts { .. }
+            | Rvalue::DateFromValue { .. }
             | Rvalue::DateGetPart { .. }
             | Rvalue::DateSetPart { .. }
     )
@@ -243,10 +247,11 @@ pub(crate) fn needs_unknown_type(mir: &Mir) -> bool {
 pub(crate) fn needs_tokio(mir: &Mir) -> bool {
     mir.functions.iter().any(|function| {
         (function.is_async
-            && mir
-                .symbols
-                .get(function.name)
-                .is_some_and(|name| name == "main"))
+            && (function.is_test
+                || mir
+                    .symbols
+                    .get(function.name)
+                    .is_some_and(|name| name == "main")))
             || function.blocks.iter().any(|block| {
                 block.statements.iter().any(|statement| {
                     matches!(

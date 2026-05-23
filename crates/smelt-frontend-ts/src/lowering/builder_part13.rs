@@ -225,12 +225,9 @@ impl ModuleBuilder<'_> {
         let mut ty = Self::expr_ty(body, left);
         let item_ty = match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(list_item_ty)) => list_item_ty,
-            Some(Type::Optional(inner))
-                if matches!(self.ctx.krate.types.get(inner), Some(Type::List(_))) =>
-            {
-                let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned()
-                else {
-                    unreachable!("guarded by matches");
+            Some(Type::Optional(inner)) => {
+                let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned() else {
+                    return Ok(None);
                 };
                 ty = inner;
                 left = body.push_expr(Expr {
@@ -403,7 +400,9 @@ impl ModuleBuilder<'_> {
             )?;
             let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![list_ty],
-                return_ty,
+            rest: None,
+                required_params: None,
+return_ty,
                 is_async: false,
                             may_throw: false,
             }));
@@ -940,7 +939,15 @@ impl ModuleBuilder<'_> {
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
-        self.callback_expr_to_closure_with_return_ty(callback.ty, callback, params, span, body)
+        self.callback_expr_to_closure_with_return_ty(
+            callback.ty,
+            callback,
+            params,
+            None,
+            None,
+            span,
+            body,
+        )
     }
 
     /// Store a lowered callback expression as a closure with an explicit return type.
@@ -949,6 +956,8 @@ impl ModuleBuilder<'_> {
         return_ty: smelt_hir::TypeId,
         callback: CallbackExpr,
         params: &[smelt_hir::TypeId],
+        rest: Option<usize>,
+        required_params: Option<usize>,
         span: Span,
         body: &mut Body,
     ) -> smelt_hir::ExprId {
@@ -982,6 +991,8 @@ impl ModuleBuilder<'_> {
         let may_throw = Self::callback_expr_contains_throw(&callback);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: params.to_vec(),
+            rest,
+            required_params,
             return_ty,
             is_async: false,
             may_throw,
@@ -989,6 +1000,8 @@ impl ModuleBuilder<'_> {
         body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
+                rest,
+                required_params,
                 return_ty,
                 captures,
                 body: body_id,
@@ -1677,7 +1690,9 @@ impl ModuleBuilder<'_> {
         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
         let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: expected_param_tys.to_vec(),
-            return_ty: unknown_ty,
+            rest: None,
+            required_params: None,
+return_ty: unknown_ty,
             is_async: false,
                             may_throw: false,
         }));
@@ -2463,6 +2478,11 @@ impl ModuleBuilder<'_> {
                 .or_else(|| {
                     contextual_function.map(|function| {
                         let rest_index = arrow.params.items.len();
+                        if function.rest == Some(rest_index)
+                            && let Some(rest_ty) = function.params.get(rest_index)
+                        {
+                            return *rest_ty;
+                        }
                         let mut item_tys = Vec::new();
                         for param_ty in function.params.iter().skip(rest_index).copied() {
                             if !item_tys.contains(&param_ty) {
@@ -2761,6 +2781,7 @@ impl ModuleBuilder<'_> {
 
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
+        let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         self.current_async = arrow.r#async;
         self.current_return_ty = Some(return_ty);
         let lowering_result = if arrow.expression {
@@ -2787,6 +2808,7 @@ impl ModuleBuilder<'_> {
         }
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.narrowed_locals = saved_narrowed_locals;
         for (name, prior) in saved_locals.into_iter().rev() {
             if let Some(local) = prior {
                 self.locals.insert(name, local);
@@ -2799,14 +2821,18 @@ impl ModuleBuilder<'_> {
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys.to_vec(),
-            return_ty,
+            rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
+            required_params: None,
+return_ty,
             is_async: arrow.r#async,
             may_throw,
         }));
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
-                return_ty,
+                rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
+                required_params: None,
+return_ty,
                 captures,
                 body: body_id,
                 callback_body: None,
@@ -2894,11 +2920,17 @@ impl ModuleBuilder<'_> {
 
     /// Returns whether a HIR block contains a throw not protected by catch.
     fn block_contains_uncaught_throw(body: &Body, block: smelt_hir::BlockId) -> bool {
-        let Some(block_data) = body.blocks.get(block.0 as usize) else {
+        let Some(block_data) = usize::try_from(block.0)
+            .ok()
+            .and_then(|index| body.blocks.get(index))
+        else {
             return false;
         };
         block_data.stmts.iter().any(|stmt_id| {
-            let Some(stmt) = body.stmts.get(stmt_id.0 as usize) else {
+            let Some(stmt) = usize::try_from(stmt_id.0)
+                .ok()
+                .and_then(|index| body.stmts.get(index))
+            else {
                 return false;
             };
             Self::stmt_contains_uncaught_throw(body, stmt)
@@ -3000,7 +3032,23 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let span = self.span(arrow.span.start, arrow.span.end);
-            return Ok(self.callback_expr_to_closure(callback, &params, span, body));
+            let rest = arrow
+                .params
+                .rest
+                .as_ref()
+                .map(|_| arrow.params.items.len())
+                .or_else(|| contextual_function.as_ref().and_then(|function| function.rest));
+            return Ok(self.callback_expr_to_closure_with_return_ty(
+                return_ty,
+                callback,
+                &params,
+                rest,
+                contextual_function
+                    .as_ref()
+                    .and_then(|function| function.required_params),
+                span,
+                body,
+            ));
         }
         let mut return_ty = explicit_return_ty
             .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
@@ -3114,8 +3162,12 @@ impl ModuleBuilder<'_> {
                 self.collect_expression_capture_names(&conditional.alternate, param_names, captures);
             }
             Expression::TemplateLiteral(template) => {
-                for expression in &template.expressions {
-                    self.collect_expression_capture_names(expression, param_names, captures);
+                for template_expression in &template.expressions {
+                    self.collect_expression_capture_names(
+                        template_expression,
+                        param_names,
+                        captures,
+                    );
                 }
             }
             Expression::StaticMemberExpression(member) => {
@@ -3413,7 +3465,9 @@ impl ModuleBuilder<'_> {
                 };
                 let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: vec![param_ty],
-                    return_ty,
+            rest: None,
+                    required_params: None,
+return_ty,
                     is_async: false,
                             may_throw: false,
                 }));
@@ -3454,6 +3508,8 @@ impl ModuleBuilder<'_> {
                 callback.return_ty,
                 callback.callback,
                 &callback.params,
+                callback.rest.map(|rest| rest.index),
+                callback.required_params,
                 self.span(identifier.span.start, identifier.span.end),
                 body,
             );
@@ -3504,6 +3560,8 @@ impl ModuleBuilder<'_> {
                     bool_ty,
                     callback,
                     expected_param_tys,
+                    None,
+                    None,
                     span,
                     body,
                 );
@@ -3696,6 +3754,32 @@ impl ModuleBuilder<'_> {
                         ty: value.ty,
                     });
                 }
+                if let Some(collection) = self.const_collections.get(identifier.name.as_str()) {
+                    let items = collection
+                        .items
+                        .iter()
+                        .map(|item| match &item.value {
+                            ConstCollectionValue::Expr(ExprKind::Literal(literal)) => {
+                                CallbackExpr {
+                                    kind: CallbackExprKind::Literal(literal.clone()),
+                                    ty: item.ty,
+                                }
+                            }
+                            ConstCollectionValue::UnknownNull => CallbackExpr {
+                                kind: CallbackExprKind::Literal(Literal::None),
+                                ty: self.ctx.krate.types.intern(Type::None),
+                            },
+                            _ => CallbackExpr {
+                                kind: CallbackExprKind::Literal(Literal::None),
+                                ty: item.ty,
+                            },
+                        })
+                        .collect();
+                    return Ok(CallbackExpr {
+                        kind: CallbackExprKind::ListLit(items),
+                        ty: collection.ty,
+                    });
+                }
                 if let Some(item) = self.items.get(identifier.name.as_str()).copied() {
                     let span = self.span(identifier.span.start, identifier.span.end);
                     let ty = self.item_expr_type(item, span)?;
@@ -3871,19 +3955,7 @@ impl ModuleBuilder<'_> {
                             )?;
                             let lhs = self.callback_expression(&binary.left, params, body)?;
                             let rhs = self.callback_expression(&binary.right, params, body)?;
-                            let ty = if matches!(
-                                op,
-                                BinOp::Eq
-                                    | BinOp::NotEq
-                                    | BinOp::Lt
-                                    | BinOp::Lte
-                                    | BinOp::Gt
-                                    | BinOp::Gte
-                            ) {
-                                self.ctx.krate.types.intern(Type::Bool)
-                            } else {
-                                lhs.ty
-                            };
+                            let ty = self.binary_result_type(op, lhs.ty, rhs.ty);
                             CallbackExpr {
                                 kind: CallbackExprKind::Binary {
                                     op,
@@ -4642,6 +4714,9 @@ impl ModuleBuilder<'_> {
                 })
             }
             Expression::BinaryExpression(binary) => {
+                if let Some(expr) = self.callback_nullish_binary(binary, params, body)? {
+                    return Ok(expr);
+                }
                 if let Some(expr) = self.callback_typeof_binary(binary, params, body)? {
                     return Ok(expr);
                 }
@@ -4696,12 +4771,6 @@ impl ModuleBuilder<'_> {
                     {
                         let case_keys = namespace.keys().cloned().collect::<Vec<_>>();
                         let key = self.callback_expression(&binary.left, params, body)?;
-                        if self.ctx.krate.types.get(key.ty) != Some(&Type::String) {
-                            return Err(SmeltError::unsupported(
-                                self.span(binary.left.span().start, binary.left.span().end),
-                                "callback namespace `in` checks require a string key",
-                            ));
-                        }
                         return self.callback_function_table_has_key(
                             &key,
                             &case_keys,
@@ -4718,12 +4787,6 @@ impl ModuleBuilder<'_> {
                             .map(|entry| entry.key.clone())
                             .collect::<Vec<_>>();
                         let key = self.callback_expression(&binary.left, params, body)?;
-                        if self.ctx.krate.types.get(key.ty) != Some(&Type::String) {
-                            return Err(SmeltError::unsupported(
-                                self.span(binary.left.span().start, binary.left.span().end),
-                                "callback static-object `in` checks require a string key",
-                            ));
-                        }
                         return self.callback_function_table_has_key(
                             &key,
                             &case_keys,
@@ -4770,14 +4833,7 @@ impl ModuleBuilder<'_> {
                     self.callback_binary_op(binary.operator, binary.span.start, binary.span.end)?;
                 let lhs = self.callback_expression(&binary.left, params, body)?;
                 let rhs = self.callback_expression(&binary.right, params, body)?;
-                let ty = if matches!(
-                    op,
-                    BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
-                ) {
-                    self.ctx.krate.types.intern(Type::Bool)
-                } else {
-                    lhs.ty
-                };
+                let ty = self.binary_result_type(op, lhs.ty, rhs.ty);
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::Binary {
                         op,
@@ -4818,6 +4874,59 @@ impl ModuleBuilder<'_> {
                         },
                         ty,
                     });
+                }
+                if logical.operator == LogicalOperator::And {
+                    let rhs = self.callback_expression(&logical.right, params, body)?;
+                    if self.is_numeric_like_type(rhs.ty) {
+                        let cond = self.callback_truthy_expression(&logical.left, params, body)?;
+                        let zero = CallbackExpr {
+                            kind: match self.ctx.krate.types.get(rhs.ty) {
+                                Some(Type::Int) => CallbackExprKind::Literal(Literal::Int(0)),
+                                _ => CallbackExprKind::Literal(Literal::Float(0.0)),
+                            },
+                            ty: rhs.ty,
+                        };
+                        return Ok(CallbackExpr {
+                            kind: CallbackExprKind::Conditional {
+                                cond: Box::new(cond),
+                                then_expr: Box::new(rhs.clone()),
+                                else_expr: Box::new(zero),
+                            },
+                            ty: rhs.ty,
+                        });
+                    }
+                }
+                if logical.operator == LogicalOperator::Or {
+                    let lhs = self.callback_expression(&logical.left, params, body)?;
+                    let lhs_ty = lhs.ty;
+                    if self.is_numeric_like_type(lhs_ty) {
+                        let rhs = self.callback_expression(&logical.right, params, body)?;
+                        if self.numeric_type_compatible(lhs_ty, rhs.ty) {
+                            let zero = CallbackExpr {
+                                kind: match self.ctx.krate.types.get(lhs_ty) {
+                                    Some(Type::Int) => CallbackExprKind::Literal(Literal::Int(0)),
+                                    _ => CallbackExprKind::Literal(Literal::Float(0.0)),
+                                },
+                                ty: lhs_ty,
+                            };
+                            let cond = CallbackExpr {
+                                kind: CallbackExprKind::Binary {
+                                    op: BinOp::NotEq,
+                                    lhs: Box::new(lhs.clone()),
+                                    rhs: Box::new(zero),
+                                },
+                                ty: self.ctx.krate.types.intern(Type::Bool),
+                            };
+                            return Ok(CallbackExpr {
+                                kind: CallbackExprKind::Conditional {
+                                    cond: Box::new(cond),
+                                    then_expr: Box::new(lhs),
+                                    else_expr: Box::new(rhs),
+                                },
+                                ty: lhs_ty,
+                            });
+                        }
+                    }
                 }
                 let op = match logical.operator {
                     LogicalOperator::And => BinOp::And,
@@ -5114,6 +5223,69 @@ impl ModuleBuilder<'_> {
             self.span(start, end),
             "callback conditional expression branches must have compatible lowered types",
         ))
+    }
+
+    /// Lower `value === undefined/null` checks inside callback expressions.
+    fn callback_nullish_binary(
+        &mut self,
+        binary: &oxc::ast::ast::BinaryExpression<'_>,
+        params: &HashMap<&str, CallbackExpr>,
+        body: &Body,
+    ) -> Result<Option<CallbackExpr>, SmeltError> {
+        if !matches!(
+            binary.operator,
+            BinaryOperator::StrictEquality
+                | BinaryOperator::Equality
+                | BinaryOperator::StrictInequality
+                | BinaryOperator::Inequality
+        ) {
+            return Ok(None);
+        }
+        let Some(value_expr) = Self::nullish_comparison_value(&binary.left, &binary.right) else {
+            return Ok(None);
+        };
+        let value = self.callback_expression(value_expr, params, body)?;
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        let is_inequality = matches!(
+            binary.operator,
+            BinaryOperator::StrictInequality | BinaryOperator::Inequality
+        );
+        if self.ctx.krate.types.get(value.ty) == Some(&Type::Unknown) {
+            let check = CallbackExpr {
+                kind: CallbackExprKind::UnknownIs {
+                    value: Box::new(value),
+                    kind: UnknownKind::Null,
+                },
+                ty: bool_ty,
+            };
+            if is_inequality {
+                return Ok(Some(CallbackExpr {
+                    kind: CallbackExprKind::Unary {
+                        op: UnaryOp::Not,
+                        operand: Box::new(check),
+                    },
+                    ty: bool_ty,
+                }));
+            }
+            return Ok(Some(check));
+        }
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let op = if is_inequality {
+            BinOp::NotEq
+        } else {
+            BinOp::Eq
+        };
+        Ok(Some(CallbackExpr {
+            kind: CallbackExprKind::Binary {
+                op,
+                lhs: Box::new(value),
+                rhs: Box::new(CallbackExpr {
+                    kind: CallbackExprKind::Literal(Literal::None),
+                    ty: none_ty,
+                }),
+            },
+            ty: bool_ty,
+        }))
     }
 
     /// Lower `typeof value === "kind"` checks inside callback expressions.

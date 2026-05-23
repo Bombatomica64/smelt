@@ -369,8 +369,9 @@ date.setDate(2);
     assert!(source.contains(".year() as f64"));
     assert!(source.contains(".month0() as f64"));
     assert!(source.contains(".day() as f64"));
-    assert!(source.contains(".with_year("));
-    assert!(source.contains(".with_month0("));
+    assert!(source.contains("normalized_year"));
+    assert!(source.contains("normalized_month0"));
+    assert!(source.contains("chrono::Duration::days"));
 }
 
 #[test]

@@ -54,7 +54,12 @@ impl ModuleBuilder<'_> {
                 let mut nullish = Vec::new();
                 let mut saw_never = false;
                 for member in &union.types {
-                    let member_ty = self.ts_type_to_hir(member)?;
+                    let mut member_ty = self.ts_type_to_hir(member)?;
+                    if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Function(_)))
+                        && self.ts_type_is_known_callable_object_surface(member)
+                    {
+                        member_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    }
                     if matches!(self.ctx.krate.types.get(member_ty), Some(Type::Never)) {
                         saw_never = true;
                     } else if matches!(self.ctx.krate.types.get(member_ty), Some(Type::None)) {
@@ -83,6 +88,11 @@ impl ModuleBuilder<'_> {
                 }
             }
             TSType::TSIntersectionType(intersection) => {
+                if Self::ts_type_is_callable_object_surface(ty)
+                    || Self::ts_type_is_opaque_object_intersection_surface(ty)
+                {
+                    return Ok(self.ctx.krate.types.intern(Type::Unknown));
+                }
                 let mut meaningful = Vec::new();
                 let mut fields = Vec::new();
                 for member in &intersection.types {
@@ -238,7 +248,9 @@ impl ModuleBuilder<'_> {
             let params = function.params.iter().map(|param| param.ty).collect();
             return self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params,
-                return_ty: function.return_ty,
+                rest: function.rest,
+                required_params: None,
+return_ty: function.return_ty,
                 is_async: function.is_async,
                             may_throw: false,
             }));
@@ -302,11 +314,89 @@ impl ModuleBuilder<'_> {
         &mut self,
         items: Vec<smelt_hir::TypeId>,
     ) -> smelt_hir::TypeId {
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        if items.contains(&unknown) {
+            return unknown;
+        }
         match items.as_slice() {
-            [] => self.ctx.krate.types.intern(Type::Unknown),
+            [] => unknown,
             [single] => *single,
             _ => self.ctx.krate.types.intern(Type::Union(items)),
         }
+    }
+
+    /// Return whether a source type is a callable value with object fields.
+    fn ts_type_is_known_callable_object_surface(&mut self, ty: &TSType<'_>) -> bool {
+        if Self::ts_type_is_callable_object_surface(ty) {
+            return true;
+        }
+        let TSType::TSTypeReference(reference) = ty else {
+            return false;
+        };
+        let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+            return false;
+        };
+        let symbol = self.intern_type_name(name.name.as_str());
+        self.callable_object_aliases.contains(&symbol)
+    }
+
+    /// Return whether a type's syntax is an intersection of callable and object surfaces.
+    fn ts_type_is_callable_object_surface(ty: &TSType<'_>) -> bool {
+        let TSType::TSIntersectionType(intersection) = ty else {
+            return false;
+        };
+        let mut has_callable = false;
+        let mut has_object = false;
+        for member in &intersection.types {
+            match member {
+                TSType::TSFunctionType(_) => has_callable = true,
+                TSType::TSTypeLiteral(literal) => {
+                    has_object |= !literal.members.is_empty();
+                }
+                TSType::TSTypeReference(_) => has_object = true,
+                TSType::TSParenthesizedType(parenthesized) => {
+                    if matches!(
+                        &parenthesized.type_annotation,
+                        TSType::TSFunctionType(_) | TSType::TSConstructorType(_)
+                    ) {
+                        has_callable = true;
+                    } else {
+                        has_object = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        has_callable && has_object
+    }
+
+    /// Return whether an intersection mixes an opaque reference with object fields.
+    ///
+    /// Smelt cannot currently preserve both halves of `Alias & { field: ... }`
+    /// unless the alias resolves locally to a concrete class or dict. Erasing the
+    /// surface to `unknown` keeps runtime field access and callable-object values
+    /// intact instead of collapsing the value to only the object-literal fields.
+    fn ts_type_is_opaque_object_intersection_surface(ty: &TSType<'_>) -> bool {
+        let TSType::TSIntersectionType(intersection) = ty else {
+            return false;
+        };
+        let mut has_reference = false;
+        let mut has_object_literal_fields = false;
+        for member in &intersection.types {
+            match member {
+                TSType::TSTypeReference(_) => has_reference = true,
+                TSType::TSTypeLiteral(literal) => {
+                    has_object_literal_fields |= !literal.members.is_empty();
+                }
+                TSType::TSParenthesizedType(parenthesized) => {
+                    if matches!(&parenthesized.type_annotation, TSType::TSTypeReference(_)) {
+                        has_reference = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        has_reference && has_object_literal_fields
     }
 
     /// Convert an inline TypeScript object type into Smelt's record-like dict type.
@@ -898,6 +988,7 @@ impl ModuleBuilder<'_> {
                 };
                 params.push(param_ty);
             }
+            let mut rest_index = None;
             if let Some(rest) = &function.params.rest {
                 let rest_ty = rest
                     .type_annotation
@@ -910,12 +1001,15 @@ impl ModuleBuilder<'_> {
                             "rest function type parameters require explicit array types",
                         )
                     })?;
+                rest_index = Some(params.len());
                 params.push(rest_ty);
             }
             let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
             Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params,
-                return_ty,
+                rest: rest_index,
+                required_params: None,
+return_ty,
                 is_async: false,
                             may_throw: false,
             })))
@@ -1491,7 +1585,9 @@ impl ModuleBuilder<'_> {
                     let params = method.params.iter().map(|param| param.ty).collect();
                     Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
                         params,
-                        return_ty: method.return_ty,
+            rest: None,
+                        required_params: None,
+return_ty: method.return_ty,
                         is_async: method.is_async,
                             may_throw: false,
                     })))
@@ -1528,7 +1624,9 @@ impl ModuleBuilder<'_> {
                     let return_ty = self.substitute_type_params(method.return_ty, &substitutions);
                     Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
                         params,
-                        return_ty,
+            rest: None,
+                        required_params: None,
+return_ty,
                         is_async: method.is_async,
                             may_throw: false,
                     })))
@@ -1667,7 +1765,9 @@ impl ModuleBuilder<'_> {
         let params = method.params.iter().map(|param| param.ty).collect();
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
-            return_ty: method.return_ty,
+            rest: None,
+            required_params: None,
+return_ty: method.return_ty,
             is_async: method.is_async,
                             may_throw: false,
         })))
@@ -1831,11 +1931,7 @@ impl ModuleBuilder<'_> {
 
     /// Wrap a result type in `Optional`, avoiding nested optionals from optional fields.
     fn optional_chain_result_type(&mut self, ty: smelt_hir::TypeId) -> smelt_hir::TypeId {
-        if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
-            ty
-        } else {
-            self.ctx.krate.types.intern(Type::Optional(ty))
-        }
+        smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, ty)
     }
 
     /// Look up a class by its symbol.
@@ -1958,7 +2054,7 @@ impl ModuleBuilder<'_> {
             .krate
             .symbols
             .get(method)
-            .is_some_and(|name| matches!(name, "call" | "apply" | "bind" | "flush"))
+            .is_some_and(|method_text| matches!(method_text, "call" | "apply" | "bind" | "flush"))
         {
             let ty = self.ctx.krate.types.intern(Type::Unknown);
             return Ok((ty, smelt_hir::ItemId(u32::MAX)));
@@ -2071,6 +2167,71 @@ impl ModuleBuilder<'_> {
                 .iter()
                 .copied()
                 .any(|item| self.is_string_compatible_type(item)),
+            _ => false,
+        }
+    }
+
+    /// Infer the HIR result type for a lowered JavaScript binary operation.
+    fn binary_result_type(
+        &mut self,
+        op: BinOp,
+        lhs_ty: smelt_hir::TypeId,
+        rhs_ty: smelt_hir::TypeId,
+    ) -> smelt_hir::TypeId {
+        if matches!(
+            op,
+            BinOp::Eq | BinOp::NotEq | BinOp::Lt | BinOp::Lte | BinOp::Gt | BinOp::Gte
+        ) {
+            return self.ctx.krate.types.intern(Type::Bool);
+        }
+        if op == BinOp::Add && (self.has_static_string_type(lhs_ty) || self.has_static_string_type(rhs_ty)) {
+            return self.ctx.krate.types.intern(Type::String);
+        }
+        if matches!(
+            op,
+            BinOp::Add
+                | BinOp::Sub
+                | BinOp::Mul
+                | BinOp::Div
+                | BinOp::Rem
+                | BinOp::Shl
+                | BinOp::Shr
+                | BinOp::UShr
+        ) && (self.is_erased_numeric_operand(lhs_ty)
+            || self.is_erased_numeric_operand(rhs_ty)
+            || self.is_optional_numeric_operand(lhs_ty)
+            || self.is_optional_numeric_operand(rhs_ty))
+        {
+            return self.ctx.krate.types.intern(Type::Float);
+        }
+        lhs_ty
+    }
+
+    /// Return whether arithmetic should coerce an optional numeric operand to a number.
+    fn is_optional_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::Optional(inner)) => self.is_numeric_like_type(*inner),
+            _ => false,
+        }
+    }
+
+    /// Return whether an operand should use erased numeric arithmetic.
+    fn is_erased_numeric_operand(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        )
+    }
+
+    /// Return whether a type is known to contain a string operand for `+`.
+    fn has_static_string_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::String) => true,
+            Some(Type::Optional(item)) => self.has_static_string_type(*item),
+            Some(Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.has_static_string_type(item)),
             _ => false,
         }
     }
@@ -2244,7 +2405,7 @@ impl ModuleBuilder<'_> {
     }
 
     /// Return the inner item type for a `Promise<T>` / `Future<T>` value.
-    fn future_inner_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
+    pub(super) fn future_inner_type(&self, ty: smelt_hir::TypeId) -> Option<smelt_hir::TypeId> {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Future(inner)) => Some(*inner),
             _ => None,
@@ -2329,19 +2490,13 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
-        if name == "lazyImplementation" {
-            let ty = self.ctx.krate.types.intern(Type::Unknown);
-            return Ok(body.push_expr(Expr {
-                kind: ExprKind::DictLit(Vec::new()),
-                ty,
-                span: self.span(start, end),
-            }));
-        }
         if let Some(callback) = self.local_callbacks.get(name).cloned() {
             return Ok(self.callback_expr_to_closure_with_return_ty(
                 callback.return_ty,
                 callback.callback,
                 &callback.params,
+                callback.rest.map(|rest| rest.index),
+                callback.required_params,
                 self.span(start, end),
                 body,
             ));
@@ -2499,7 +2654,9 @@ impl ModuleBuilder<'_> {
         let body = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: vec![value_ty],
-            return_ty: string_ty,
+            rest: None,
+            required_params: None,
+return_ty: string_ty,
             is_async: false,
                             may_throw: false,
         }));
@@ -2511,7 +2668,9 @@ impl ModuleBuilder<'_> {
                     ty: value_ty,
                     span,
                 }],
-                return_ty: string_ty,
+                rest: None,
+                required_params: None,
+return_ty: string_ty,
                 captures: Vec::new(),
                 body,
                 callback_body: None,
@@ -2577,13 +2736,17 @@ impl ModuleBuilder<'_> {
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: function.params.iter().map(|param| param.ty).collect(),
+            rest: function.rest,
+            required_params: function.required_params,
             return_ty: function.return_ty,
             is_async: function.is_async,
-                            may_throw: false,
+            may_throw: false,
         }));
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
+                rest: function.rest,
+                required_params: function.required_params,
                 return_ty: function.return_ty,
                 captures: Vec::new(),
                 body: body_id,
@@ -2733,13 +2896,17 @@ impl ModuleBuilder<'_> {
                 let param_ty = self.ctx.krate.types.intern(Type::List(item.ty));
                 let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: vec![param_ty],
-                    return_ty: item.ty,
+            rest: None,
+                    required_params: None,
+return_ty: item.ty,
                     is_async: false,
                             may_throw: false,
                 }));
                 let function = FunctionType {
                     params: vec![param_ty],
-                    return_ty: item.ty,
+            rest: None,
+                    required_params: None,
+return_ty: item.ty,
                     is_async: false,
                             may_throw: false,
                 };
@@ -2807,7 +2974,9 @@ impl ModuleBuilder<'_> {
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
-                return_ty: function.return_ty,
+            rest: None,
+                required_params: None,
+return_ty: function.return_ty,
                 captures: Vec::new(),
                 body: body_id,
                 callback_body: None,
@@ -2889,7 +3058,9 @@ impl ModuleBuilder<'_> {
             name,
             span,
             params: Vec::new(),
-            return_ty: none,
+            rest: None,
+            required_params: None,
+return_ty: none,
             is_async: false,
             is_test: false,
             body: None,

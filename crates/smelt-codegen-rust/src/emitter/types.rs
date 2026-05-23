@@ -32,17 +32,24 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Int) => {
                 Ok(format!("{operand_text} != 0"))
             }
-            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Float) => {
-                Ok(format!("{operand_text} != 0.0"))
-            }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Float) => Ok(format!(
+                "{{ let smelt_number = {operand_text}; smelt_number != 0.0 && !smelt_number.is_nan() }}"
+            )),
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::String) => {
                 Ok(format!("!{operand_text}.is_empty()"))
             }
-            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Unknown) => Ok(format!(
-                "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
+            (
+                smelt_hir::PrimitiveCastOp::ToBool,
+                Type::Bool,
+                Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
+            ) => Ok(format!(
+                "match {operand_text} {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
             )),
-            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(_)) => {
-                Ok(format!("{operand_text}.is_some()"))
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Class { .. }) => {
+                Ok("true".to_owned())
+            }
+            (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Optional(inner)) => {
+                self.optional_truthy_text(&operand_text, *inner)
             }
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Function(_)) => {
                 Ok("true".to_owned())
@@ -75,9 +82,20 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::String) => Ok(format!(
                 "{operand_text}.parse::<f64>().expect(\"float() parse failed\")"
             )),
-            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Unknown) => Ok(format!(
-                "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(0.0), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => 0.0 }}"
+            (
+                smelt_hir::PrimitiveCastOp::ToFloat,
+                Type::Float,
+                Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
+            ) => Ok(format!(
+                "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
             )),
+            (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Class { .. })
+                if self.is_erased_class_type(operand_ty) =>
+            {
+                Ok(format!(
+                    "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                ))
+            }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
                 "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
             )),
@@ -101,6 +119,46 @@ impl FunctionEmitter<'_> {
             (_, Type::String, _) => Ok("String::new()".to_owned()),
             (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.unknown_wrap_text(operand),
             _ => self.default_value(dest_ty),
+        }
+    }
+
+    /// Converts an optional value to JavaScript truthiness for its contained type.
+    pub(super) fn optional_truthy_text(
+        &self,
+        operand_text: &str,
+        inner_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        match self.mir.types.get(inner_ty) {
+            Some(Type::Bool) => Ok(format!("{operand_text}.clone().unwrap_or(false)")),
+            Some(Type::Int) => Ok(format!(
+                "{operand_text}.clone().is_some_and(|value| value != 0)"
+            )),
+            Some(Type::Float) => Ok(format!(
+                "{operand_text}.clone().is_some_and(|value| value != 0.0 && !value.is_nan())"
+            )),
+            Some(Type::String) => Ok(format!(
+                "{operand_text}.clone().is_some_and(|value| !value.is_empty())"
+            )),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never) => {
+                Ok(format!(
+                    "match {operand_text}.clone() {{ None => false, Some(SmeltUnknown::Null) => false, Some(SmeltUnknown::Bool(value)) => value, Some(SmeltUnknown::Number(value)) => value != 0.0 && !value.is_nan(), Some(SmeltUnknown::String(value)) => !value.is_empty(), Some(SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_)) => true }}"
+                ))
+            }
+            Some(Type::Optional(inner)) => {
+                let nested = self.optional_truthy_text("value", *inner)?;
+                Ok(format!(
+                    "match {operand_text}.clone() {{ Some(value) => {nested}, None => false }}"
+                ))
+            }
+            Some(Type::None) => Ok("false".to_owned()),
+            Some(Type::Class { .. })
+            | Some(Type::Function(_))
+            | Some(Type::List(_))
+            | Some(Type::Tuple(_))
+            | Some(Type::Dict(_, _))
+            | Some(Type::Set(_))
+            | Some(Type::Future(_)) => Ok(format!("{operand_text}.is_some()")),
+            None => Err(EmitError::new("optional truthiness inner type is unknown")),
         }
     }
 
@@ -156,15 +214,50 @@ impl FunctionEmitter<'_> {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(_, value)) => Ok(*value),
-                    Some(Type::Class { name, .. }) => {
-                        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name)
-                        else {
+                    Some(Type::Optional(inner)) => {
+                        if let Some(Type::Dict(_, value)) = self.mir.types.get(*inner) {
+                            return self.type_id(Type::Optional(*value));
+                        }
+                        let Some(fields) = self.structural_record_fields(*inner) else {
                             return self.type_id(Type::Unknown);
                         };
-                        let field_ty = crate::classes::effective_class_fields(self.mir, class)
+                        fields
                             .into_iter()
-                            .find(|class_field| class_field.name == *field)
-                            .map(|class_field| class_field.ty);
+                            .find(|record_field| record_field.name == *field)
+                            .map(|record_field| {
+                                if matches!(
+                                    self.mir.types.get(record_field.ty),
+                                    Some(Type::Optional(_))
+                                ) {
+                                    record_field.ty
+                                } else {
+                                    self.type_id(Type::Optional(record_field.ty))
+                                        .unwrap_or(record_field.ty)
+                                }
+                            })
+                            .ok_or_else(|| EmitError::new("optional record field is unknown"))
+                    }
+                    Some(Type::Class { name, .. }) => {
+                        let field_ty = if let Some(class) =
+                            self.mir.classes.iter().find(|class| class.name == *name)
+                        {
+                            crate::classes::effective_class_fields(self.mir, class)
+                                .into_iter()
+                                .find(|class_field| class_field.name == *field)
+                                .map(|class_field| class_field.ty)
+                        } else if let Some(interface) = self
+                            .mir
+                            .interfaces
+                            .iter()
+                            .find(|interface| interface.name == *name)
+                        {
+                            crate::classes::effective_interface_fields(self.mir, interface)
+                                .into_iter()
+                                .find(|interface_field| interface_field.name == *field)
+                                .map(|interface_field| interface_field.ty)
+                        } else {
+                            None
+                        };
                         match field_ty {
                             Some(ty) => Ok(ty),
                             None => self.type_id(Type::Unknown),
@@ -210,6 +303,14 @@ impl FunctionEmitter<'_> {
         self.type_text_with_impl_trait(ty, true)
     }
 
+    /// Return the innermost non-optional type for defensive Rust `Option<T>` emission.
+    pub(super) fn flatten_optional_inner(&self, mut ty: TypeId) -> TypeId {
+        while let Some(Type::Optional(inner)) = self.mir.types.get(ty) {
+            ty = *inner;
+        }
+        ty
+    }
+
     /// Convert a function parameter type to Rust.
     ///
     /// Callback parameters are borrowed mutably so callers can forward the same
@@ -233,6 +334,12 @@ impl FunctionEmitter<'_> {
     /// Convert a concrete function parameter declaration to Rust.
     pub(super) fn parameter_decl_type_text(&self, local: LocalId) -> Result<String, EmitError> {
         let ty = self.local_decl(local)?.ty;
+        if self.parameter_needs_mutable_reference(local) {
+            return Ok(format!(
+                "&mut {}",
+                self.type_text_with_impl_trait(ty, false)?
+            ));
+        }
         if matches!(self.mir.types.get(ty), Some(Type::Function(_))) {
             if !self.function_parameter_requires_owned(local)? {
                 return self.param_type_text(ty);
@@ -274,16 +381,16 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok("SmeltUnknown".to_owned());
                 }
-                let name = sanitize_ident(self.symbol_name(*name)?);
+                let type_name = sanitize_ident(self.symbol_name(*name)?);
                 if args.is_empty() {
-                    Ok(name)
+                    Ok(type_name)
                 } else {
-                    let args = args
+                    let arg_text = args
                         .iter()
                         .map(|arg| self.type_text_with_impl_trait(*arg, false))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    Ok(format!("{name}<{args}>"))
+                    Ok(format!("{type_name}<{arg_text}>"))
                 }
             }
             Type::None => Ok("()".to_owned()),
@@ -318,7 +425,7 @@ impl FunctionEmitter<'_> {
             }
             Type::Optional(item) => Ok(format!(
                 "Option<{}>",
-                self.type_text_with_impl_trait(*item, false)?
+                self.type_text_with_impl_trait(self.flatten_optional_inner(*item), false)?
             )),
             Type::Union(_) => Ok("SmeltUnknown".to_owned()),
             Type::Function(function) => {
@@ -392,7 +499,7 @@ impl FunctionEmitter<'_> {
             Type::Dict(_, _) => Ok("::std::collections::HashMap::new()".to_owned()),
             Type::Optional(inner) => Ok(format!(
                 "None::<{}>",
-                self.type_text_with_impl_trait(*inner, false)?
+                self.type_text_with_impl_trait(self.flatten_optional_inner(*inner), false)?
             )),
             Type::Tuple(items) => {
                 let items_text = items

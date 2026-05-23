@@ -240,11 +240,7 @@ impl ModuleBuilder<'_> {
                     .collect::<Option<Vec<_>>>()?
                     .into_iter();
                 let first = matches.next()?;
-                if matches.all(|item| item == first) {
-                    Some(first)
-                } else {
-                    None
-                }
+                matches.all(|item| item == first).then_some(first)
             }
             Some(_) => Some(self.type_matches_typeof(resolved_ty, expected)),
             None => None,
@@ -753,12 +749,15 @@ impl ModuleBuilder<'_> {
                         )
                     })
             }
-            AsyncOp::Sleep | AsyncOp::CreateTask | AsyncOp::WaitFor | AsyncOp::HttpGetText => {
-                Err(SmeltError::unsupported(
-                    self.span(span.start, span.end),
-                    format!("Promise.{op:?} is not lowered yet"),
-                ))
-            }
+            AsyncOp::Sleep
+            | AsyncOp::CreateTask
+            | AsyncOp::WaitFor
+            | AsyncOp::HttpGetText
+            | AsyncOp::SetTimeout
+            | AsyncOp::ClearTimeout => Err(SmeltError::unsupported(
+                self.span(span.start, span.end),
+                format!("Promise.{op:?} is not lowered yet"),
+            )),
         }
     }
 
@@ -927,11 +926,14 @@ impl ModuleBuilder<'_> {
                 let Some(duration) = call.arguments.get(1) else {
                     return Ok(None);
                 };
-                let _callback = self.argument(callback, body)?;
-                let _duration = self.argument(duration, body)?;
+                let callback = self.argument(callback, body)?;
+                let duration = self.argument(duration, body)?;
                 let ty = self.ctx.krate.types.intern(Type::Unknown);
                 Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::SetTimeout,
+                        args: vec![callback, duration],
+                    },
                     ty,
                     span: self.span(call.span.start, call.span.end),
                 })))
@@ -940,10 +942,13 @@ impl ModuleBuilder<'_> {
                 let Some(timeout) = call.arguments.first() else {
                     return Ok(None);
                 };
-                let _timeout = self.argument(timeout, body)?;
+                let timeout = self.argument(timeout, body)?;
                 let ty = self.ctx.krate.types.intern(Type::None);
                 Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
+                    kind: ExprKind::AsyncOp {
+                        op: AsyncOp::ClearTimeout,
+                        args: vec![timeout],
+                    },
                     ty,
                     span: self.span(call.span.start, call.span.end),
                 })))
@@ -1256,9 +1261,8 @@ impl ModuleBuilder<'_> {
         if self.is_date_constructor_arg_type(timestamp_ty) {
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::PrimitiveCast {
-                    op: PrimitiveCastOp::ToFloat,
-                    operand: timestamp_ms,
+                kind: ExprKind::DateFromValue {
+                    value: timestamp_ms,
                 },
                 ty,
                 span: self.span(new_expr.span.start, new_expr.span.end),
@@ -1325,6 +1329,62 @@ impl ModuleBuilder<'_> {
                 ));
             }
             return Ok(Some(self.expression(&member.object, body)?));
+        }
+        if method == "setTime" {
+            if call.arguments.len() != 1 {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Date.setTime() requires exactly one numeric argument",
+                ));
+            }
+            let receiver = self.expression(&member.object, body)?;
+            let receiver_ty = Self::expr_ty(body, receiver);
+            if !self.is_date_constructor_arg_type(receiver_ty) {
+                return Err(SmeltError::unsupported(
+                    self.span(member.object.span().start, member.object.span().end),
+                    "Date.setTime() receiver must be a timestamp or Date-like value",
+                ));
+            }
+            let Some(argument) = call.arguments.first() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "Date.setTime() requires exactly one numeric argument",
+                ));
+            };
+            let value = self.argument(argument, body)?;
+            let value_ty = Self::expr_ty(body, value);
+            let value = if self.is_date_constructor_arg_type(value_ty) {
+                value
+            } else if self
+                .non_nullish_type(value_ty)
+                .is_some_and(|ty| self.is_numeric_like_type(ty))
+            {
+                self.non_null_assertion_value(
+                    value,
+                    self.span(argument.span().start, argument.span().end),
+                    body,
+                )
+            } else {
+                return Err(SmeltError::unsupported(
+                    self.span(argument.span().start, argument.span().end),
+                    "Date.setTime() argument must be numeric",
+                ));
+            };
+            if let Expression::Identifier(identifier) = &member.object
+                && let Some(local) = self.locals.get(identifier.name.as_str()).copied()
+            {
+                let target = body.push_expr(Expr {
+                    kind: ExprKind::Local(local),
+                    ty: receiver_ty,
+                    span: self.span(identifier.span.start, identifier.span.end),
+                });
+                if let Some(block) = self.current_statement_block {
+                    body.push_stmt_to_block(block, Stmt::Assign { target, value });
+                } else {
+                    body.push_stmt(Stmt::Assign { target, value });
+                }
+            }
+            return Ok(Some(value));
         }
         if method == "getTimezoneOffset" {
             if !call.arguments.is_empty() {

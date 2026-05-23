@@ -419,9 +419,11 @@ impl ModuleBuilder<'_> {
         let name = self.intern_name(name_text);
         let ty = self.intern_type(Type::Function(FunctionType {
             params: params.clone(),
+            rest: None,
+            required_params: None,
             return_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         let local = body.push_local(LocalDecl {
             name: Some(name),

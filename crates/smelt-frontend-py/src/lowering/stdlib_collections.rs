@@ -236,7 +236,7 @@ impl ModuleBuilder<'_> {
             }
             value_ty
         } else {
-            self.intern_type(Type::Optional(value_ty))
+            smelt_hir::type_normalize::optional_of(&mut self.ctx.krate.types, value_ty)
         };
         Ok(Some(body.push_expr(HirExpr {
             kind: ExprKind::DictGet { dict, key, default },

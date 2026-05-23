@@ -159,9 +159,11 @@ impl ModuleBuilder<'_> {
                 let return_ty = self.substitute_type_params(function.return_ty, substitutions);
                 self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params,
+                    rest: function.rest,
+                    required_params: function.required_params,
                     return_ty,
                     is_async: function.is_async,
-                            may_throw: false,
+                    may_throw: false,
                 }))
             }
             Type::Future(item) => {

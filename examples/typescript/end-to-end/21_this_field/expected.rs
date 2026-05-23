@@ -17,7 +17,7 @@ fn main() {
 
 impl User {
     fn new(first: String, last: String) -> Self {
-    let mut this: User = User { first: String::new(), last: String::new() };
+    let mut this: Self = User { first: String::new(), last: String::new() };
     this.first = first.clone();
     this.last = last.clone();
     return this;

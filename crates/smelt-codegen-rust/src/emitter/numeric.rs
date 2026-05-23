@@ -263,7 +263,7 @@ impl FunctionEmitter<'_> {
         }
         let base_text = self.float_operand_text(base)?;
         let exponent_text = self.float_operand_text(exponent)?;
-        Ok(format!("{base_text}.powf({exponent_text})"))
+        Ok(format!("({base_text} as f64).powf({exponent_text} as f64)"))
     }
 
     /// Converts a two-argument arctangent operation to Rust text.

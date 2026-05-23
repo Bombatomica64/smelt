@@ -54,6 +54,17 @@ pub enum Type {
 pub struct FunctionType {
     /// Parameter types in order.
     pub params: Vec<TypeId>,
+    /// Index of the TypeScript rest parameter, when this signature has one.
+    ///
+    /// The rest parameter's type still appears in `params`; this flag records
+    /// source call semantics so array parameters are not confused with `...args`.
+    pub rest: Option<usize>,
+    /// Number of leading parameters counted by JavaScript `Function.length`.
+    ///
+    /// This differs from `params.len()` when later parameters have defaults or
+    /// when a rest parameter is present. `None` means the frontend does not know
+    /// the source-level arity and consumers should fall back to `params.len()`.
+    pub required_params: Option<usize>,
     /// Return type.
     pub return_ty: TypeId,
     /// Whether the function is async.

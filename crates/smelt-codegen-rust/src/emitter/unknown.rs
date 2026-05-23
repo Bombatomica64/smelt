@@ -1,6 +1,7 @@
 //! Unknown emission helpers.
 
 use super::*;
+use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
@@ -150,25 +151,19 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Function(function)) => {
-                let args = function
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(index, param_ty)| {
-                        let missing = if index + 1 == function.params.len()
-                            && matches!(self.mir.types.get(*param_ty), Some(Type::List(_)))
-                        {
-                            "SmeltUnknown::Array(Vec::new())"
-                        } else {
-                            "SmeltUnknown::Null"
-                        };
-                        let item = format!("smelt_args.get({index}).cloned().unwrap_or({missing})");
-                        self.unknown_cast_value_text(&item, *param_ty)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let args = self.function_args_from_smelt_args_text(function)?;
                 let call_text = format!("(&mut *smelt_function_value.borrow_mut())({args})");
-                let return_text = if self.class_has_no_known_fields(function.return_ty) {
+                let return_text = if self.mir.types.get(function.return_ty) == Some(&Type::None) {
+                    if function.may_throw {
+                        format!(
+                            "{{ {call_text}?; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}"
+                        )
+                    } else {
+                        format!(
+                            "{{ {call_text}; Ok::<SmeltUnknown, Box<dyn std::error::Error>>(SmeltUnknown::Null) }}"
+                        )
+                    }
+                } else if self.class_has_no_known_fields(function.return_ty) {
                     if function.may_throw {
                         call_text
                     } else {
@@ -222,12 +217,8 @@ impl FunctionEmitter<'_> {
         let entries = fields
             .iter()
             .map(|field| {
-                let source_name = self
-                    .mir
-                    .symbols
-                    .get(field.name)
-                    .ok_or_else(|| EmitError::new("class field has unknown symbol"))?;
-                let field_name = sanitize_ident(source_name);
+                let source_name = self.symbol_source_name(field.name)?;
+                let field_name = sanitize_ident(self.symbol_name(field.name)?);
                 let field_value = self.unknown_wrap_value_text(
                     &format!("smelt_object_value.{field_name}"),
                     field.ty,
@@ -285,8 +276,13 @@ impl FunctionEmitter<'_> {
         Ok(format!("matches!({text}, {pattern})"))
     }
 
-    /// Emits checked extraction from `SmeltUnknown` into a concrete Rust type.
-    /// Emits checked extraction from `SmeltUnknown` into a concrete Rust type.
+    /// Emits extraction from `SmeltUnknown` into a concrete Rust type.
+    ///
+    /// JavaScript and Python code often narrows dynamic values through guards
+    /// the frontend cannot fully preserve after generic or regex surfaces erase
+    /// the shape. Keep primitive extraction total where the source language has
+    /// a defined coercion/default instead of turning those paths into generated
+    /// Rust panics.
     pub(super) fn unknown_cast_text(
         &self,
         value: &Operand,
@@ -317,20 +313,21 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
+            Some(Type::List(_)) if text.contains(".concat(") => Ok(text.to_owned()),
             Some(Type::None) => Ok(format!(
                 "if matches!({text}.clone(), SmeltUnknown::Null) {{ () }} else {{ panic!(\"unknown is not null\") }}"
             )),
             Some(Type::Bool) => Ok(format!(
-                "if let SmeltUnknown::Bool(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not boolean\") }}"
+                "match {text}.clone() {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "if let SmeltUnknown::Number(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not number\") }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "if let SmeltUnknown::Number(value) = {text}.clone() {{ value as i64 }} else {{ panic!(\"unknown is not number\") }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => 0_i64 }}"
             )),
             Some(Type::String) => Ok(format!(
-                "if let SmeltUnknown::String(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not string\") }}"
+                "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
             )),
             Some(Type::List(item)) if self.mir.types.get(*item) == Some(&Type::Unknown) => {
                 Ok(format!(
@@ -353,15 +350,14 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "if let SmeltUnknown::Object(value) = {text}.clone() {{ value }} else {{ panic!(\"unknown is not object\") }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => value, SmeltUnknown::Function(value) => ::std::collections::HashMap::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => ::std::collections::HashMap::new() }}"
                 ))
             }
-            Some(Type::Dict(key, item))
-                if self.mir.types.get(*key) == Some(&Type::String) && text == "value" =>
+            Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) =>
             {
                 let item_text = self.unknown_cast_value_text("value", *item)?;
                 Ok(format!(
-                    "if let SmeltUnknown::Object(values) = value.clone() {{ values.into_iter().map(|(key, value)| (key, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ panic!(\"unknown is not object\") }}"
+                    "if let SmeltUnknown::Object(values) = ({text}).into_smelt_unknown() {{ values.into_iter().map(|(key, value)| (key, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
@@ -369,7 +365,7 @@ impl FunctionEmitter<'_> {
                     self.rendered_value_as_type_text("key", self.type_id(Type::String)?, *key)?;
                 let item_text = self.unknown_cast_value_text("value", *item)?;
                 Ok(format!(
-                    "if let SmeltUnknown::Object(values) = {text}.clone() {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ panic!(\"unknown is not object\") }}"
+                    "if let SmeltUnknown::Object(values) = {text}.clone() {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
                 ))
             }
             Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
@@ -401,6 +397,9 @@ impl FunctionEmitter<'_> {
                     "if let SmeltUnknown::Array(smelt_tuple_values) = {text}.clone() {{ {tuple_text} }} else {{ panic!(\"unknown is not tuple\") }}"
                 ))
             }
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "PropertyKey" => {
+                Ok(text.to_owned())
+            }
             Some(Type::Set(_) | Type::Dict(_, _) | Type::Class { .. }) => {
                 Ok("Default::default()".to_owned())
             }
@@ -419,34 +418,27 @@ impl FunctionEmitter<'_> {
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
                     .join(", ");
-                let args = function
-                    .params
-                    .iter()
-                    .enumerate()
-                    .map(|(index, param)| {
-                        self.unknown_wrap_value_text(&format!("arg{index}"), *param)
-                    })
-                    .collect::<Result<Vec<_>, EmitError>>()?
-                    .join(", ");
+                let args = self.unknown_function_call_args_text(function)?;
                 let call_text = if function.may_throw {
-                    format!("(&mut *smelt_function.borrow_mut())(vec![{args}])?")
+                    format!("(&mut *smelt_function.borrow_mut())({args})?")
                 } else {
                     format!(
-                        "(&mut *smelt_function.borrow_mut())(vec![{args}]).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                        "(&mut *smelt_function.borrow_mut())({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
                     )
                 };
-                let return_text = if return_ty == "SmeltUnknown" {
+                let converted_return_text = if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
                 } else {
                     self.unknown_cast_value_text("smelt_result", function.return_ty)?
                 };
                 let return_text = if function.may_throw {
-                    format!("Ok::<_, Box<dyn std::error::Error>>({return_text})")
+                    format!("Ok::<_, Box<dyn std::error::Error>>({converted_return_text})")
                 } else {
-                    return_text
+                    converted_return_text
                 };
+                let default_callback = self.default_value(target)?;
                 Ok(format!(
-                    "if let SmeltUnknown::Function(smelt_function) = {text}.clone() {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }})); smelt_callback }} else {{ panic!(\"unknown is not function\") }}"
+                    "{{ let smelt_function = match {text}.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(mut smelt_object) => match smelt_object.remove(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_callback: {target_text} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ let smelt_result = {call_text}; {return_text} }})); smelt_callback }} else {{ {default_callback} }} }}"
                 ))
             }
             Some(Type::Future(_)) => Ok("Default::default()".to_owned()),
@@ -454,6 +446,41 @@ impl FunctionEmitter<'_> {
                 "checked extraction from unknown to this type is not implemented yet",
             )),
         }
+    }
+
+    /// Render the erased argument vector used when a `SmeltUnknown::Function`
+    /// is called through a concrete function type.
+    ///
+    /// Explicit rest metadata controls whether a packed list parameter is spread.
+    fn unknown_function_call_args_text(
+        &self,
+        function: &FunctionType,
+    ) -> Result<String, EmitError> {
+        let mut statements = Vec::new();
+        for (index, param_ty) in function.params.iter().enumerate() {
+            if function.rest == Some(index)
+                && let Some(Type::List(item_ty)) = self.mir.types.get(*param_ty)
+            {
+                let item_text = if matches!(
+                    self.mir.types.get(*item_ty),
+                    Some(Type::Unknown | Type::Never | Type::None | Type::TypeParam { .. })
+                ) {
+                    "value".to_owned()
+                } else {
+                    self.unknown_wrap_value_text("value", *item_ty)?
+                };
+                statements.push(format!(
+                    "smelt_call_args.extend(arg{index}.clone().into_iter().map(|value| {item_text}));"
+                ));
+            } else {
+                let item_text = self.unknown_wrap_value_text(&format!("arg{index}"), *param_ty)?;
+                statements.push(format!("smelt_call_args.push({item_text});"));
+            }
+        }
+        Ok(format!(
+            "{{ let mut smelt_call_args = Vec::new(); {} smelt_call_args }}",
+            statements.join(" ")
+        ))
     }
 
     // Converts an awaited future operand without cloning it.

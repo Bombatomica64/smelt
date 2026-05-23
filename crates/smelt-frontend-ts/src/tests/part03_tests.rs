@@ -106,6 +106,39 @@ export function overlap(intervalLeft: Interval, intervalRight: Interval, millise
 }
 
 #[test]
+fn lowers_optional_number_arithmetic_as_number() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function read(values: Array<number | undefined>): number {
+  const left = values[0];
+  const right = values[1];
+  return (right - left) / 10;
+}
+"#),
+        &mut ctx,
+    )?;
+    let float_ty = ctx.krate.types.intern(Type::Float);
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::BinOp {
+                        op: BinOp::Div,
+                        ..
+                    } if expr.ty == float_ty
+                )
+            })),
+        "expected arithmetic with optional numeric operands to lower as a concrete number"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn narrows_unannotated_local_after_numeric_assignment() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

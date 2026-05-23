@@ -17,6 +17,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::Item(item) => item_ref(krate, *item),
         ExprKind::Call { .. }
         | ExprKind::ClosureCall { .. }
+        | ExprKind::ClosureCallSpread { .. }
         | ExprKind::Method { .. }
         | ExprKind::New { .. } => call_like_expr_text(krate, expr),
         ExprKind::Field { receiver, field } => {
@@ -680,6 +681,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        ExprKind::DateFromValue { value } => {
+            format!("date_from_value {}", expr_ref(*value))
+        }
         ExprKind::DateGetPart { part, timestamp_ms } => {
             format!("date_get_{part:?} {}", expr_ref(*timestamp_ms))
         }
@@ -764,6 +768,8 @@ fn async_op_text(op: AsyncOp, args: &[ExprId]) -> String {
         AsyncOp::Race => "async_race",
         AsyncOp::AllSettled => "async_all_settled",
         AsyncOp::Sleep => "async_sleep",
+        AsyncOp::SetTimeout => "async_set_timeout",
+        AsyncOp::ClearTimeout => "async_clear_timeout",
         AsyncOp::CreateTask => "async_create_task",
         AsyncOp::WaitFor => "async_wait_for",
         AsyncOp::HttpGetText => "async_http_get_text",
@@ -790,6 +796,9 @@ fn call_like_expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::ClosureCall { callee, args } => {
             let arg_text = expr_list_text(args);
             format!("closure_call {}({arg_text})", expr_ref(*callee))
+        }
+        ExprKind::ClosureCallSpread { callee, args } => {
+            format!("closure_call {}(...{})", expr_ref(*callee), expr_ref(*args))
         }
         ExprKind::Method {
             receiver,

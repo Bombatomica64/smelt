@@ -21,7 +21,7 @@ impl FunctionEmitter<'_> {
                     _ => return Ok("false".to_owned()),
                 };
                 return Ok(format!(
-                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
+                    "{{ let smelt_key = {key_value}; match {dict_text}.clone() {{ SmeltUnknown::Object(values) => values.contains_key(&smelt_key), SmeltUnknown::Array(values) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < values.len()), SmeltUnknown::String(value) => smelt_key == \"length\" || smelt_key == \"__smelt_symbol_iterator\" || smelt_key.parse::<usize>().ok().is_some_and(|index| index < value.chars().count()), _ => false }} }}"
                 ));
             }
             return Ok("false".to_owned());
@@ -49,15 +49,10 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
             return Err(EmitError::new("dict get receiver must be a dict"));
         };
-        if self.operand_ty(key)? != *key_ty
-            && !matches!(
-                self.mir.types.get(self.operand_ty(key)?),
-                Some(Type::Unknown | Type::TypeParam { .. })
-            )
-        {
+        if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok("Default::default()".to_owned());
         }
-        let key_text = self.operand_as_type_text(key, *key_ty)?;
+        let key_text = self.dict_key_operand_text(key, *key_ty)?;
         if let Some(default_operand) = default {
             if self.operand_ty(default_operand)? != *value_ty {
                 return Err(EmitError::new(
@@ -76,17 +71,25 @@ impl FunctionEmitter<'_> {
                 self.operand_text(default_operand)?
             ));
         }
-        if !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == *value_ty)
-        {
-            return Err(EmitError::new(
+        match (self.mir.types.get(*value_ty), self.mir.types.get(dest_ty)) {
+            (Some(Type::Optional(value_inner)), Some(Type::Optional(dest_inner)))
+                if value_inner == dest_inner =>
+            {
+                Ok(format!(
+                    "{}.get(&{}).cloned().flatten()",
+                    self.operand_text(dict)?,
+                    key_text
+                ))
+            }
+            (_, Some(Type::Optional(dest_inner))) if dest_inner == value_ty => Ok(format!(
+                "{}.get(&{}).cloned()",
+                self.operand_text(dict)?,
+                key_text
+            )),
+            _ => Err(EmitError::new(
                 "dict get destination without default must be optional value",
-            ));
+            )),
         }
-        Ok(format!(
-            "{}.get(&{}).cloned()",
-            self.operand_text(dict)?,
-            key_text
-        ))
     }
 
     /// Converts a dictionary setdefault operation to Rust text.
@@ -151,7 +154,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Dict(key_ty, value_ty)) = self.mir.types.get(dict_ty) else {
             return Ok("Default::default()".to_owned());
         };
-        if self.operand_ty(key)? != *key_ty {
+        if !self.dict_key_operand_is_compatible(key, *key_ty)? {
             return Ok(self.operand_text(dict)?);
         }
         if self.operand_ty(value)? != *value_ty {
@@ -168,11 +171,39 @@ impl FunctionEmitter<'_> {
             ));
         };
         let dict_text = self.local_name(*local)?;
-        let key_text = self.operand_as_type_text(key, *key_ty)?;
+        let key_text = self.dict_key_operand_text(key, *key_ty)?;
         let value_text = self.operand_as_type_text(value, *value_ty)?;
         Ok(format!(
             "{{ {dict_text}.insert({key_text}, {value_text}); {dict_text}.clone() }}"
         ))
+    }
+
+    /// Return whether a key operand can be used for a dictionary operation.
+    fn dict_key_operand_is_compatible(
+        &self,
+        key: &Operand,
+        key_ty: TypeId,
+    ) -> Result<bool, EmitError> {
+        let operand_ty = self.operand_ty(key)?;
+        if operand_ty == key_ty {
+            return Ok(true);
+        }
+        Ok(matches!(
+            self.mir.types.get(operand_ty),
+            Some(Type::Unknown | Type::TypeParam { .. })
+        ) || matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty))
+    }
+
+    /// Render a dictionary key, unwrapping optional keys after frontend narrowing.
+    fn dict_key_operand_text(&self, key: &Operand, key_ty: TypeId) -> Result<String, EmitError> {
+        let operand_ty = self.operand_ty(key)?;
+        if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(inner)) if *inner == key_ty)
+        {
+            let key_text = self.operand_text(key)?;
+            let default = self.default_value(key_ty)?;
+            return Ok(format!("{key_text}.clone().unwrap_or({default})"));
+        }
+        self.operand_as_type_text(key, key_ty)
     }
 
     /// Converts a dictionary key removal operation to Rust text.

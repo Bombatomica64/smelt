@@ -792,6 +792,111 @@ const { count } = data;
 }
 
 #[test]
+fn lowers_defaulted_object_destructuring_as_non_optional_binding() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Duration {
+  years?: number;
+  months?: number;
+}
+
+export function monthsInDuration(duration: Duration): number {
+  const { years = 0, months = 0 } = duration;
+  return months + years * 12;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function)
+                if ctx.krate.symbols.get(function.name) == Some("months_in_duration") =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing lowered function".to_owned())?;
+    let body = function
+        .body
+        .and_then(|body| ctx.krate.bodies.get(body.0 as usize))
+        .ok_or_else(|| "missing lowered function body".to_owned())?;
+    let float_ty = ctx.krate.types.intern(Type::Float);
+    let years = body
+        .locals
+        .iter()
+        .find(|local| local.name.and_then(|name| ctx.krate.symbols.get(name)) == Some("years"))
+        .ok_or_else(|| "missing years binding".to_owned())?;
+    let months = body
+        .locals
+        .iter()
+        .find(|local| local.name.and_then(|name| ctx.krate.symbols.get(name)) == Some("months"))
+        .ok_or_else(|| "missing months binding".to_owned())?;
+    ensure_eq!(years.ty, float_ty);
+    ensure_eq!(months.ty, float_ty);
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
+        "expected defaulted destructuring to lower through optional coalescing"
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_defaulted_unknown_object_destructuring_to_fallback_type() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+interface Duration {
+  years?: unknown;
+  months?: unknown;
+}
+
+export function monthsInDuration(duration: Duration): number {
+  const { years = 0, months = 0 } = duration;
+  return months + years * 12;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = module
+        .items
+        .iter()
+        .find_map(|item| match ctx.krate.items.get(item.0 as usize)? {
+            Item::Function(function)
+                if ctx.krate.symbols.get(function.name) == Some("months_in_duration") =>
+            {
+                Some(function)
+            }
+            _ => None,
+        })
+        .ok_or_else(|| "missing lowered function".to_owned())?;
+    let body = function
+        .body
+        .and_then(|body| ctx.krate.bodies.get(body.0 as usize))
+        .ok_or_else(|| "missing lowered function body".to_owned())?;
+    for name in ["years", "months"] {
+        let local = body
+            .locals
+            .iter()
+            .find(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name))
+            .ok_or_else(|| format!("missing {name} binding"))?;
+        ensure!(
+            matches!(ctx.krate.types.get(local.ty), Some(Type::Float)),
+            "expected {name} to lower as float, got {:?}",
+            ctx.krate.types.get(local.ty)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn infers_object_literal_record_type_without_annotation() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -892,6 +997,7 @@ const minutes = date.getMinutes();
 const seconds = date.getSeconds();
 const milliseconds = date.getMilliseconds();
 const utc = Date.UTC(year, month);
+date.setTime(timestamp + 1);
 date.setFullYear(year, month, day + 1);
 date.setMonth(0, 1);
 date.setDate(2);
@@ -1109,13 +1215,11 @@ const result = new Date(value);
     )?;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
-    ensure!(body.exprs.iter().any(|expr| matches!(
-        expr.kind,
-        ExprKind::PrimitiveCast {
-            op: PrimitiveCastOp::ToFloat,
-            ..
-        }
-    )));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateFromValue { .. }))
+    );
     Ok(())
 }
 

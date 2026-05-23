@@ -44,7 +44,9 @@ impl ModuleBuilder<'_> {
             let string_ty = self.ctx.krate.types.intern(Type::String);
             let callback_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![string_ty],
-                return_ty: string_ty,
+            rest: None,
+                required_params: None,
+return_ty: string_ty,
                 is_async: false,
                             may_throw: false,
             }));
@@ -356,7 +358,10 @@ impl ModuleBuilder<'_> {
         let mut operand = self.argument(argument, body)?;
         let mut operand_ty = Self::expr_ty(body, operand);
         if !self.is_numeric_like_type(operand_ty) {
-            if self.type_contains_unknown(operand_ty) {
+            if self.type_contains_unknown(operand_ty)
+                || matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Bool))
+                || self.is_date_constructor_arg_type(operand_ty)
+            {
                 let target = self.ctx.krate.types.intern(Type::Float);
                 operand = body.push_expr(Expr {
                     kind: ExprKind::UnknownCast {

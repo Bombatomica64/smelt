@@ -281,6 +281,48 @@ fn callback_param_escapes_locally(
                 .iter()
                 .any(|capture| capture.source_local == local)
         });
+    let closure_defs = closure_definitions(function)?;
+    let captured_by_erased_closure_value = function.blocks.iter().any(|block| {
+        block.statements.iter().any(|statement| {
+            let Statement::Assign { dest, value } = statement else {
+                return false;
+            };
+            let Some(dest_ty) = id_index(dest.0, "local index does not fit usize")
+                .ok()
+                .and_then(|index| function.locals.get(index))
+                .map(|decl| decl.ty)
+            else {
+                return false;
+            };
+            if !type_erases_values(mir, dest_ty) {
+                return false;
+            }
+            let maybe_source_local = match value {
+                Rvalue::Use(
+                    Operand::Copy(Place::Local(source) | Place::Field { base: source, .. })
+                    | Operand::Move(Place::Local(source) | Place::Field { base: source, .. }),
+                ) => Some(*source),
+                _ => None,
+            };
+            let Some(source_local) = maybe_source_local else {
+                return false;
+            };
+            let Some(closure_id) = closure_defs.get(&source_local) else {
+                return false;
+            };
+            mir.closures
+                .get(
+                    id_index(closure_id.0, "closure index does not fit usize")
+                        .unwrap_or(usize::MAX),
+                )
+                .is_some_and(|closure| {
+                    closure
+                        .captures
+                        .iter()
+                        .any(|capture| capture.source_local == local)
+                })
+        })
+    });
     let erased_or_dynamic_escape = function.blocks.iter().any(|block| {
         block
             .statements
@@ -289,6 +331,7 @@ fn callback_param_escapes_locally(
     });
     Ok(directly_returned
         || erased_or_dynamic_escape
+        || captured_by_erased_closure_value
         || type_contains_function(mir, function.return_ty)
         || (matches!(mir.types.get(function.return_ty), Some(Type::Function(_)))
             && captured_by_any_closure)

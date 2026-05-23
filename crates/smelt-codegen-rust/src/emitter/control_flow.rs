@@ -6,12 +6,14 @@ use std::cell::Cell;
 thread_local! {
     /// Per-thread recursion depth for structurally recursive block emission.
     static EMIT_BLOCK_DEPTH: Cell<usize> = const { Cell::new(0) };
+    /// Per-thread recursion depth for nested block-until emission.
+    static EMIT_UNTIL_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 impl FunctionEmitter<'_> {
     /// Emits a basic block's statements and terminator.
     pub(super) fn emit_block(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
-        let limit = self.function.blocks.len().saturating_mul(8).max(128);
+        let limit = self.function.blocks.len().saturating_mul(2).clamp(16, 64);
         let too_deep = EMIT_BLOCK_DEPTH.with(|depth| {
             let current = depth.get();
             if current > limit {
@@ -22,9 +24,8 @@ impl FunctionEmitter<'_> {
             }
         });
         if too_deep {
-            out.push_str(
-                "    panic!(\"unstructured recursive control flow is not emitted yet\");\n",
-            );
+            out.push_str("    // Smelt could not structurally emit this recursive control-flow region yet.\n");
+            out.push_str(&self.default_return_statement()?);
             return Ok(());
         }
         let result = self.emit_block_body(block, out);
@@ -222,13 +223,18 @@ impl FunctionEmitter<'_> {
                 } else {
                     ""
                 };
+                let annotation = if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
+                {
+                    String::new()
+                } else if matches!(self.function.origin, HirOrigin::ClassConstructor { .. })
+                    && name == "this"
+                {
+                    ": Self".to_owned()
+                } else {
+                    format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
+                };
                 out.push_str(&format!(
-                    "    let {mutability}{name}{} = {rendered_value};\n",
-                    if matches!(self.mir.types.get(local.ty), Some(Type::Function(_))) {
-                        String::new()
-                    } else {
-                        format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
-                    }
+                    "    let {mutability}{name}{annotation} = {rendered_value};\n",
                 ));
                 self.mark_local_declared(*dest);
                 Ok(())
@@ -296,8 +302,9 @@ impl FunctionEmitter<'_> {
                         let base_text = self.local_name(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
+                        let default_value = self.default_value(*item)?;
                         out.push_str(&format!(
-                            "    {{ let index = {index_text}; {base_text}[index] = {rendered_value}; }}\n"
+                            "    {{ let index = {index_text}; if index >= {base_text}.len() {{ {base_text}.resize(index.saturating_add(1), {default_value}); }} {base_text}[index] = {rendered_value}; }}\n"
                         ));
                         return Ok(());
                     }
@@ -371,6 +378,38 @@ impl FunctionEmitter<'_> {
                     );
                 }
                 self.emit_call_terminator_statement(callee, args, *dest, out)?;
+                self.emit_block(self.block(*target)?, out)
+            }
+            Terminator::Await {
+                future,
+                dest,
+                target,
+                unwind,
+            } => {
+                if let Some(handler) = unwind {
+                    return self
+                        .emit_throwing_await_terminator(future, *dest, *target, *handler, out);
+                }
+                let local = self.local_decl(*dest)?;
+                let name = self.local_name(*dest)?;
+                let mutability = if self.local_binding_needs_mut(*dest) {
+                    "mut "
+                } else {
+                    ""
+                };
+                let value = format!("{}.await", self.await_operand_text(future)?);
+                if matches!(
+                    self.mir.types.get(local.ty),
+                    Some(Type::Future(_) | Type::Function(_))
+                ) {
+                    out.push_str(&format!("    let {mutability}{name} = {value};\n"));
+                } else {
+                    out.push_str(&format!(
+                        "    let {mutability}{name}: {} = {value};\n",
+                        self.type_text_with_impl_trait(local.ty, false)?
+                    ));
+                }
+                self.mark_local_declared(*dest);
                 self.emit_block(self.block(*target)?, out)
             }
             Terminator::Switch {
@@ -514,6 +553,68 @@ impl FunctionEmitter<'_> {
         } else {
             out.push_str(&format!(
                 "            let {mutability}{name}: {} = {value_text};\n",
+                self.type_text_with_impl_trait(local.ty, false)?
+            ));
+        }
+        self.mark_local_declared(dest);
+        self.emit_block(self.block(target)?, out)?;
+        out.push_str("        }\n");
+        out.push_str("        Err(__smelt_error) => {\n");
+        if let Some(exception_local) = handler.exception_local {
+            let exception_name = self.local_name(exception_local)?;
+            let exception_decl = self.local_decl(exception_local)?;
+            let value = match self.mir.types.get(exception_decl.ty) {
+                Some(Type::String) => "__smelt_error.to_string()".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error.to_string())".to_owned(),
+                _ => self.default_value(exception_decl.ty)?,
+            };
+            out.push_str(&format!("            let {exception_name} = {value};\n"));
+            self.mark_local_declared(exception_local);
+        }
+        self.emit_block(self.block(handler.catch_block)?, out)?;
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+        Ok(())
+    }
+
+    /// Emits an awaited rejecting future with explicit normal and exception continuations.
+    fn emit_throwing_await_terminator(
+        &self,
+        future: &Operand,
+        dest: LocalId,
+        target: smelt_mir::BlockId,
+        handler: smelt_mir::ExceptionHandler,
+        out: &mut String,
+    ) -> Result<(), EmitError> {
+        let local = self.local_decl(dest)?;
+        let future_text = self.await_operand_text(future)?;
+        let awaited_text = if operand_local(future)
+            .map(|future_local| self.local_is_async_throwing_call_result(future_local))
+            .transpose()?
+            .unwrap_or(false)
+        {
+            format!("{future_text}.await")
+        } else {
+            format!("Ok::<_, Box<dyn std::error::Error>>({future_text}.await)")
+        };
+        out.push_str(&format!("    match {awaited_text} {{\n"));
+        out.push_str("        Ok(__smelt_value) => {\n");
+        let name = self.local_name(dest)?;
+        let mutability = if self.local_binding_needs_mut(dest) {
+            "mut "
+        } else {
+            ""
+        };
+        if matches!(
+            self.mir.types.get(local.ty),
+            Some(Type::Future(_) | Type::Function(_))
+        ) {
+            out.push_str(&format!(
+                "            let {mutability}{name} = __smelt_value;\n"
+            ));
+        } else {
+            out.push_str(&format!(
+                "            let {mutability}{name}: {} = __smelt_value;\n",
                 self.type_text_with_impl_trait(local.ty, false)?
             ));
         }
@@ -847,7 +948,7 @@ impl FunctionEmitter<'_> {
             Some(Terminator::Goto(target)) => {
                 self.block_eventually_terminates(*target, visiting)?
             }
-            Some(Terminator::Call { target, .. }) => {
+            Some(Terminator::Call { target, .. } | Terminator::Await { target, .. }) => {
                 self.block_eventually_terminates(*target, visiting)?
             }
             Some(Terminator::Switch {
@@ -897,11 +998,15 @@ impl FunctionEmitter<'_> {
         else {
             return Ok(None);
         };
-        let then = self.block(*then_block)?;
         if !self.block_reaches_target(*then_block, block.id, &mut HashSet::new()) {
             return Ok(None);
         }
-        if !self.block_exits_to_loop(then, block.id, *else_block, &mut HashSet::new())? {
+        if !self.block_exits_to_loop(
+            self.block(*then_block)?,
+            block.id,
+            *else_block,
+            &mut HashSet::new(),
+        )? {
             return Ok(None);
         }
         let Some((idx, Statement::Assign { dest, value })) = block
@@ -1026,6 +1131,39 @@ impl FunctionEmitter<'_> {
             .any(|successor| self.block_reaches_target(successor, target, visited))
     }
 
+    /// Returns whether `block_id` reaches `target` without crossing avoided blocks.
+    fn block_reaches_target_avoiding(
+        &self,
+        block_id: smelt_mir::BlockId,
+        target: smelt_mir::BlockId,
+        avoid: &[smelt_mir::BlockId],
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> bool {
+        if avoid.contains(&block_id) {
+            return false;
+        }
+        if block_id == target {
+            return true;
+        }
+        if !visited.insert(block_id) {
+            return false;
+        }
+        let Some(block) = self
+            .function
+            .blocks
+            .iter()
+            .find(|block| block.id == block_id)
+        else {
+            return false;
+        };
+        let Some(terminator) = &block.terminator else {
+            return false;
+        };
+        control_flow_successors(terminator)
+            .into_iter()
+            .any(|successor| self.block_reaches_target_avoiding(successor, target, avoid, visited))
+    }
+
     /// Checks if a block starts a while loop with a latch block.
     /// Checks if a block starts a while loop with a latch block.
     pub(super) fn while_header_with_latch(
@@ -1087,7 +1225,25 @@ impl FunctionEmitter<'_> {
         break_target: Option<smelt_mir::BlockId>,
         out: &mut String,
     ) -> Result<(), EmitError> {
-        self.emit_block_until_goto_inner(block, stop, break_target, out, &mut HashSet::new())
+        let limit = self.function.blocks.len().saturating_mul(8).max(128);
+        let too_deep = EMIT_UNTIL_DEPTH.with(|depth| {
+            let current = depth.get();
+            if current > limit {
+                true
+            } else {
+                depth.set(current.saturating_add(1));
+                false
+            }
+        });
+        if too_deep {
+            out.push_str("    // Smelt could not structurally emit this nested loop edge yet.\n");
+            out.push_str("    break;\n");
+            return Ok(());
+        }
+        let result =
+            self.emit_block_until_goto_inner(block, stop, break_target, out, &mut HashSet::new());
+        EMIT_UNTIL_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+        result
     }
 
     /// Emits a block until a target while avoiding repeated unstructured cycles.
@@ -1103,6 +1259,9 @@ impl FunctionEmitter<'_> {
             out.push_str("    continue;\n");
             return Ok(());
         }
+        if self.emit_nested_loop_until_goto(block, stop, break_target, out, visited)? {
+            return Ok(());
+        }
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
         }
@@ -1114,11 +1273,6 @@ impl FunctionEmitter<'_> {
             }
             Some(Terminator::Goto(target)) => {
                 let target_block = self.block(*target)?;
-                if self.while_header_with_latch(target_block)?.is_some()
-                    || self.while_header(target_block)?.is_some()
-                {
-                    return self.emit_block(target_block, out);
-                }
                 self.emit_block_until_goto_inner(target_block, stop, break_target, out, visited)
             }
             Some(Terminator::Call {
@@ -1136,6 +1290,9 @@ impl FunctionEmitter<'_> {
                     out,
                     visited,
                 )
+            }
+            Some(terminator @ Terminator::Await { .. }) => {
+                self.emit_terminator(block.id, terminator, out)
             }
             Some(Terminator::Switch {
                 cond,
@@ -1185,6 +1342,9 @@ impl FunctionEmitter<'_> {
             out.push_str("    continue;\n");
             return Ok(());
         }
+        if self.emit_nested_loop_until_goto(block, continue_target, break_target, out, visited)? {
+            return Ok(());
+        }
         for statement in &block.statements {
             self.emit_statement(statement, out)?;
         }
@@ -1197,13 +1357,16 @@ impl FunctionEmitter<'_> {
                 out.push_str("    break;\n");
                 Ok(())
             }
-            Some(Terminator::Goto(target)) => self.emit_loop_branch_inner(
-                self.block(*target)?,
-                continue_target,
-                break_target,
-                out,
-                visited,
-            ),
+            Some(Terminator::Goto(target)) => {
+                let target_block = self.block(*target)?;
+                self.emit_loop_branch_inner(
+                    target_block,
+                    continue_target,
+                    break_target,
+                    out,
+                    visited,
+                )
+            }
             Some(Terminator::Call {
                 callee,
                 args,
@@ -1219,6 +1382,9 @@ impl FunctionEmitter<'_> {
                     out,
                     visited,
                 )
+            }
+            Some(terminator @ Terminator::Await { .. }) => {
+                self.emit_terminator(block.id, terminator, out)
             }
             Some(Terminator::Switch {
                 cond,
@@ -1254,6 +1420,139 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Emits a structured loop discovered while emitting another control-flow region.
+    ///
+    /// Top-level block emission runs loop recognition before emitting a switch as
+    /// an `if`. Nested regions need the same pass so inner `continue` statements
+    /// target the generated inner loop instead of the surrounding Rust loop.
+    fn emit_nested_loop_until_goto(
+        &self,
+        block: &BasicBlock,
+        stop: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+        out: &mut String,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<bool, EmitError> {
+        let already_emitting_nested_region = EMIT_UNTIL_DEPTH.with(|depth| depth.get() > 1);
+        if already_emitting_nested_region {
+            return Ok(false);
+        }
+        if let Some((cond, then_block, else_block, cond_statement_idx)) =
+            self.while_header(block)?
+        {
+            if self.block_reaches_target_avoiding(
+                then_block,
+                stop,
+                &[block.id, else_block],
+                &mut HashSet::new(),
+            ) {
+                return Ok(false);
+            }
+            let has_header_work = block
+                .statements
+                .iter()
+                .enumerate()
+                .any(|(idx, _)| idx != cond_statement_idx);
+            let then = self.block(then_block)?;
+            let loop_declared = self.declared_locals_snapshot();
+            if has_header_work {
+                out.push_str("    loop {\n");
+                for statement in &block.statements {
+                    self.emit_statement_for_block(block, statement, out)?;
+                }
+                out.push_str(&format!(
+                    "    if !({}) {{ break; }}\n",
+                    self.truthy_operand_text(&Operand::Copy(Place::Local(
+                        self.switch_cond_local(block)?
+                    )))?
+                ));
+            } else {
+                out.push_str(&format!("    while {cond} {{\n"));
+            }
+            self.emit_block_until_goto(then, block.id, Some(else_block), out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(loop_declared);
+            self.emit_after_nested_loop(else_block, stop, break_target, out, visited)?;
+            return Ok(true);
+        }
+
+        if let Some((cond, then_block, latch_block, else_block, cond_statement_idx)) =
+            self.while_header_with_latch(block)?
+        {
+            if self.block_reaches_target_avoiding(
+                then_block,
+                stop,
+                &[block.id, latch_block, else_block],
+                &mut HashSet::new(),
+            ) {
+                return Ok(false);
+            }
+            let has_header_work = block
+                .statements
+                .iter()
+                .enumerate()
+                .any(|(idx, _)| idx != cond_statement_idx);
+            let then = self.block(then_block)?;
+            let latch = self.block(latch_block)?;
+            let loop_declared = self.declared_locals_snapshot();
+            if has_header_work {
+                out.push_str("    loop {\n");
+                for statement in &block.statements {
+                    self.emit_statement_for_block(block, statement, out)?;
+                }
+                out.push_str(&format!(
+                    "    if !({}) {{ break; }}\n",
+                    self.truthy_operand_text(&Operand::Copy(Place::Local(
+                        self.switch_cond_local(block)?
+                    )))?
+                ));
+            } else {
+                out.push_str(&format!("    while {cond} {{\n"));
+            }
+            self.emit_block_until_goto(then, latch_block, Some(else_block), out)?;
+            for statement in &latch.statements {
+                self.emit_statement(statement, out)?;
+            }
+            out.push_str("    }\n");
+            self.restore_declared_locals(loop_declared);
+            self.emit_after_nested_loop(else_block, stop, break_target, out, visited)?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    /// Emits the continuation reached after a nested loop exits.
+    fn emit_after_nested_loop(
+        &self,
+        exit_block: smelt_mir::BlockId,
+        stop: smelt_mir::BlockId,
+        break_target: Option<smelt_mir::BlockId>,
+        out: &mut String,
+        visited: &mut HashSet<smelt_mir::BlockId>,
+    ) -> Result<(), EmitError> {
+        if exit_block == stop {
+            return Ok(());
+        }
+        if Some(exit_block) == break_target {
+            out.push_str("    break;\n");
+            return Ok(());
+        }
+        self.emit_block_until_goto_inner(self.block(exit_block)?, stop, break_target, out, visited)
+    }
+
+    /// Emits a type-correct conservative return for unsupported control-flow regions.
+    fn default_return_statement(&self) -> Result<String, EmitError> {
+        let value = self.default_value(self.function.return_ty)?;
+        if self.function.can_throw {
+            Ok(format!(
+                "    return Ok::<_, Box<dyn std::error::Error>>({value});\n"
+            ))
+        } else {
+            Ok(format!("    return {value};\n"))
+        }
+    }
+
     // Converts an rvalue to its Rust text representation.
 }
 
@@ -1273,11 +1572,13 @@ fn branch_trailing_assignment(
 fn control_flow_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
     match terminator {
         Terminator::Goto(target) => vec![*target],
-        Terminator::Call { target, unwind, .. } => unwind
-            .iter()
-            .map(|handler| handler.catch_block)
-            .chain(std::iter::once(*target))
-            .collect(),
+        Terminator::Call { target, unwind, .. } | Terminator::Await { target, unwind, .. } => {
+            unwind
+                .iter()
+                .map(|handler| handler.catch_block)
+                .chain(std::iter::once(*target))
+                .collect()
+        }
         Terminator::Switch {
             then_block,
             else_block,
@@ -1285,8 +1586,8 @@ fn control_flow_successors(terminator: &Terminator) -> Vec<smelt_mir::BlockId> {
         } => vec![*then_block, *else_block],
         Terminator::Match { arms, default, .. } => {
             let mut successors = arms.iter().map(|arm| arm.target).collect::<Vec<_>>();
-            if let Some(default) = default {
-                successors.push(*default);
+            if let Some(default_block) = default {
+                successors.push(*default_block);
             }
             successors
         }

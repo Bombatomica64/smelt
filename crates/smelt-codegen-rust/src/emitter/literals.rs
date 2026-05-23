@@ -28,6 +28,12 @@ pub(super) fn constant_text(constant: &Constant) -> String {
             }
         }
         Constant::String(value) => RustExpr::string_literal(value).into_string(),
+        Constant::Symbol(value) => {
+            format!(
+                "SmeltUnknown::Symbol({}.to_owned())",
+                RustExpr::string_literal(value).into_string()
+            )
+        }
         Constant::None => "()".to_owned(),
     }
 }
@@ -55,6 +61,12 @@ pub(super) fn hir_literal_text(literal: &smelt_hir::Literal) -> String {
             }
         }
         smelt_hir::Literal::String(value) => RustExpr::string_literal(value).into_string(),
+        smelt_hir::Literal::Symbol(value) => {
+            format!(
+                "SmeltUnknown::Symbol({}.to_owned())",
+                RustExpr::string_literal(value).into_string()
+            )
+        }
         smelt_hir::Literal::None => "()".to_owned(),
     }
 }

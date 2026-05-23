@@ -46,12 +46,18 @@ pub struct Mir {
     pub types: smelt_hir::TypeInterner,
     /// Symbol interner for interned identifiers.
     pub symbols: smelt_hir::SymbolInterner,
+    /// Original source spellings for symbols that were normalized internally.
+    pub names: smelt_hir::OriginalNameTable,
 }
 
 impl Mir {
     /// Creates a new empty MIR crate with the given type and symbol interners.
     #[must_use]
-    pub fn new(types: smelt_hir::TypeInterner, symbols: smelt_hir::SymbolInterner) -> Self {
+    pub fn new(
+        types: smelt_hir::TypeInterner,
+        symbols: smelt_hir::SymbolInterner,
+        names: smelt_hir::OriginalNameTable,
+    ) -> Self {
         Self {
             functions: Vec::new(),
             classes: Vec::new(),
@@ -59,6 +65,7 @@ impl Mir {
             closures: Vec::new(),
             types,
             symbols,
+            names,
         }
     }
 
@@ -107,6 +114,10 @@ pub struct MirClosure {
     pub id: ClosureId,
     /// Parameter local IDs.
     pub params: Vec<LocalId>,
+    /// Index of the packed rest parameter, if this closure came from `...args`.
+    pub rest: Option<usize>,
+    /// Number of leading parameters counted by JavaScript `Function.length`.
+    pub required_params: Option<usize>,
     /// All local variables in the closure body.
     pub locals: Vec<LocalDecl>,
     /// Captured environment entries.
@@ -179,6 +190,8 @@ pub struct MirInterface {
     pub name: Symbol,
     /// Generic type parameters declared by the interface.
     pub type_params: Vec<smelt_hir::TypeParamDef>,
+    /// Interfaces extended by this interface.
+    pub extends: Vec<smelt_hir::InterfaceHeritage>,
     /// Fields defined in the interface.
     pub fields: Vec<MirField>,
     /// Method signatures in the interface.
@@ -213,6 +226,8 @@ pub struct MirFunction {
     pub can_throw: bool,
     /// Parameter local IDs.
     pub params: Vec<LocalId>,
+    /// Index of the packed rest parameter, if this function came from `...args`.
+    pub rest: Option<usize>,
     /// Return type of the function.
     pub return_ty: TypeId,
     /// All local variables in the function.
@@ -240,6 +255,7 @@ impl MirFunction {
             is_test: false,
             can_throw: false,
             params: Vec::new(),
+            rest: None,
             return_ty,
             locals: Vec::new(),
             blocks: vec![BasicBlock {
@@ -412,6 +428,8 @@ pub enum Constant {
     Float(f64),
     /// String constant.
     String(String),
+    /// JavaScript symbol constant.
+    Symbol(String),
     /// `None`.
     None,
 }
@@ -569,6 +587,13 @@ pub enum Rvalue {
         callee: Operand,
         /// Call arguments.
         args: Vec<Operand>,
+    },
+    /// Call a closure value with a runtime argument vector from spread syntax.
+    ClosureCallSpread {
+        /// Closure value to call.
+        callee: Operand,
+        /// Runtime argument list.
+        args: Operand,
     },
     /// Raise a floating-point base to a floating-point exponent.
     NumericPow {
@@ -1278,6 +1303,11 @@ pub enum Rvalue {
         /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.
         parts: Vec<Operand>,
     },
+    /// Construct a timestamp in milliseconds from one JavaScript Date constructor value.
+    DateFromValue {
+        /// Date constructor argument.
+        value: Operand,
+    },
     /// Read a local-time date component from a timestamp.
     DateGetPart {
         /// Component to read.
@@ -1364,6 +1394,17 @@ pub enum Terminator {
         /// Successor block after the call.
         target: BlockId,
         /// Exception handler used when a throwing callee returns an error.
+        unwind: Option<ExceptionHandler>,
+    },
+    /// Await a future and continue in the target block.
+    Await {
+        /// Future operand to await.
+        future: Operand,
+        /// Destination for the resolved value.
+        dest: LocalId,
+        /// Successor block after the await resolves.
+        target: BlockId,
+        /// Exception handler used when an awaited rejecting future returns an error.
         unwind: Option<ExceptionHandler>,
     },
     /// Branch on a boolean condition.

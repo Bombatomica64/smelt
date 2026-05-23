@@ -88,6 +88,8 @@ struct FrontendLoweringState {
     ts_const_collections: HashMap<String, smelt_frontend_ts::ConstCollection>,
     /// TypeScript overload signatures visible across manifest entries.
     ts_overloads: HashMap<String, Vec<smelt_frontend_ts::OverloadSignature>>,
+    /// TypeScript rest-parameter metadata visible across manifest entries.
+    ts_function_rests: HashMap<String, smelt_frontend_ts::RestParam>,
     /// TypeScript structural type-alias fields visible across manifest entries.
     ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
     /// TypeScript interface heritage edges visible across manifest entries.
@@ -98,6 +100,8 @@ struct FrontendLoweringState {
     ts_interface_call_signatures: HashMap<smelt_hir::Symbol, Vec<smelt_hir::FunctionType>>,
     /// TypeScript callable intersection fields visible across manifest entries.
     ts_callable_fields: HashMap<smelt_hir::TypeId, Vec<smelt_hir::Field>>,
+    /// TypeScript aliases whose source surface is a callable object intersection.
+    ts_callable_object_aliases: std::collections::HashSet<smelt_hir::Symbol>,
     /// Python module/package namespaces visible through `import package`.
     py_module_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Python `IntEnum` member values visible to later manifest entries.
@@ -382,11 +386,13 @@ fn lower_manifest_source(
                 object_value_collections: state.ts_object_value_collections,
                 const_collections: state.ts_const_collections,
                 overloads: state.ts_overloads,
+                function_rests: state.ts_function_rests,
                 type_alias_fields: state.ts_type_alias_fields,
                 interface_extends: state.ts_interface_extends,
                 interface_index_values: state.ts_interface_index_values,
                 interface_call_signatures: state.ts_interface_call_signatures,
                 callable_fields: state.ts_callable_fields,
+                callable_object_aliases: state.ts_callable_object_aliases,
             };
             let module = smelt_frontend_ts::to_hir_with_path(
                 &source.source,
@@ -411,11 +417,13 @@ fn lower_manifest_source(
                     ts_object_value_collections: ctx.object_value_collections,
                     ts_const_collections: ctx.const_collections,
                     ts_overloads: ctx.overloads,
+                    ts_function_rests: ctx.function_rests,
                     ts_type_alias_fields: ctx.type_alias_fields,
                     ts_interface_extends: ctx.interface_extends,
                     ts_interface_index_values: ctx.interface_index_values,
                     ts_interface_call_signatures: ctx.interface_call_signatures,
                     ts_callable_fields: ctx.callable_fields,
+                    ts_callable_object_aliases: ctx.callable_object_aliases,
                     py_module_namespaces: state.py_module_namespaces,
                     py_enum_members: state.py_enum_members,
                 },
@@ -450,11 +458,13 @@ fn lower_manifest_source(
                     ts_object_value_collections: state.ts_object_value_collections,
                     ts_const_collections: state.ts_const_collections,
                     ts_overloads: state.ts_overloads,
+                    ts_function_rests: state.ts_function_rests,
                     ts_type_alias_fields: state.ts_type_alias_fields,
                     ts_interface_extends: state.ts_interface_extends,
                     ts_interface_index_values: state.ts_interface_index_values,
                     ts_interface_call_signatures: state.ts_interface_call_signatures,
                     ts_callable_fields: state.ts_callable_fields,
+                    ts_callable_object_aliases: state.ts_callable_object_aliases,
                     py_module_namespaces: ctx.module_namespaces,
                     py_enum_members: ctx.enum_members,
                 },

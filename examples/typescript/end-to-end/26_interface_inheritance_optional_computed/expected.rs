@@ -26,7 +26,7 @@ fn main() {
 
 impl User {
     fn new(id: String) -> Self {
-    let mut this: User = User { id: String::new() };
+    let mut this: Self = User { id: String::new() };
     this.id = id.clone();
     return this;
     }

@@ -125,9 +125,15 @@ fn method_sig_text(krate: &Crate, method: &crate::item::MethodSig) -> String {
     let params = method
         .params
         .iter()
-        .map(|param| {
+        .enumerate()
+        .map(|(index, param)| {
+            let prefix = if method.rest == Some(index) {
+                "..."
+            } else {
+                ""
+            };
             format!(
-                "{}: {}",
+                "{prefix}{}: {}",
                 krate.symbols.get(param.name).unwrap_or("<unknown>"),
                 type_ref(krate, param.ty)
             )
@@ -201,7 +207,15 @@ pub(super) fn type_text(krate: &Crate, ty: &Type) -> String {
             let params = function
                 .params
                 .iter()
-                .map(|param| type_ref(krate, *param))
+                .enumerate()
+                .map(|(index, param)| {
+                    let text = type_ref(krate, *param);
+                    if function.rest == Some(index) {
+                        format!("...{text}")
+                    } else {
+                        text
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let async_prefix = if function.is_async { "async " } else { "" };

@@ -200,14 +200,14 @@ impl FunctionEmitter<'_> {
         } else {
             format!("{list_text}.clone()")
         };
-        let delete_count_text = format!("({delete_count_text} as f64)");
+        let delete_count_float_text = format!("({delete_count_text} as f64)");
         if mutate {
             Ok(format!(
-                "{{ let splice_len = {receiver_text}.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); {receiver_text}.splice(splice_start..splice_start + splice_delete, {replacement_text}).collect::<Vec<_>>() }}"
+                "{{ let splice_len = {receiver_text}.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_float_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); {receiver_text}.splice(splice_start..splice_start + splice_delete, {replacement_text}).collect::<Vec<_>>() }}"
             ))
         } else {
             Ok(format!(
-                "{{ let mut spliced = {receiver_text}; let splice_len = spliced.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); spliced.splice(splice_start..splice_start + splice_delete, {replacement_text}).for_each(drop); spliced }}"
+                "{{ let mut spliced = {receiver_text}; let splice_len = spliced.len(); let splice_start = if {start_text} < 0.0 {{ splice_len.saturating_sub((-{start_text}) as usize) }} else {{ ({start_text} as usize).min(splice_len) }}; let splice_delete = (({delete_count_float_text}).max(0.0) as usize).min(splice_len.saturating_sub(splice_start)); spliced.splice(splice_start..splice_start + splice_delete, {replacement_text}).for_each(drop); spliced }}"
             ))
         }
     }

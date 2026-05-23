@@ -149,6 +149,22 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
                         }
                     }
                 }
+                Terminator::Await {
+                    future,
+                    dest,
+                    target,
+                    unwind,
+                } => {
+                    validate_operand_exists(function, future, errors);
+                    validate_local_exists(function, *dest, errors);
+                    validate_block_exists(function, *target, errors);
+                    if let Some(handler) = unwind {
+                        validate_block_exists(function, handler.catch_block, errors);
+                        if let Some(local) = handler.exception_local {
+                            validate_local_exists(function, local, errors);
+                        }
+                    }
+                }
                 Terminator::Switch {
                     cond,
                     then_block,
@@ -225,6 +241,10 @@ fn validate_rvalue_exists(
             for arg in args {
                 validate_operand_exists(function, arg, errors);
             }
+        }
+        Rvalue::ClosureCallSpread { callee, args } => {
+            validate_operand_exists(function, callee, errors);
+            validate_operand_exists(function, args, errors);
         }
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand_exists(function, lhs, errors);
@@ -663,6 +683,9 @@ fn validate_rvalue_exists(
                 validate_operand_exists(function, part, errors);
             }
         }
+        Rvalue::DateFromValue { value: date_value } => {
+            validate_operand_exists(function, date_value, errors);
+        }
         Rvalue::DateGetPart { timestamp_ms, .. } => {
             validate_operand_exists(function, timestamp_ms, errors);
         }
@@ -865,7 +888,7 @@ fn validate_definite_assignment(
         if let Some(terminator) = &block.terminator {
             match terminator {
                 Terminator::Goto(_) | Terminator::Unreachable => {}
-                Terminator::Call { dest, .. } => {
+                Terminator::Call { dest, .. } | Terminator::Await { dest, .. } => {
                     definitions.insert(*dest);
                 }
                 Terminator::Switch { .. }
@@ -955,6 +978,20 @@ fn validate_definite_assignment(
                     }
                     definitions.insert(*dest);
                 }
+                Terminator::Await {
+                    future,
+                    dest,
+                    unwind,
+                    ..
+                } => {
+                    validate_operand(mir, function, &definitions, future, errors);
+                    if let Some(handler) = unwind
+                        && let Some(local) = handler.exception_local
+                    {
+                        validate_local_exists(function, local, errors);
+                    }
+                    definitions.insert(*dest);
+                }
                 Terminator::Switch { cond, .. } => {
                     validate_operand(mir, function, &definitions, cond, errors);
                 }
@@ -973,11 +1010,13 @@ fn validate_definite_assignment(
 fn successors(terminator: &Terminator) -> Vec<crate::BlockId> {
     match terminator {
         Terminator::Goto(target) => vec![*target],
-        Terminator::Call { target, unwind, .. } => unwind
-            .iter()
-            .map(|handler| handler.catch_block)
-            .chain(std::iter::once(*target))
-            .collect(),
+        Terminator::Call { target, unwind, .. } | Terminator::Await { target, unwind, .. } => {
+            unwind
+                .iter()
+                .map(|handler| handler.catch_block)
+                .chain(std::iter::once(*target))
+                .collect()
+        }
         Terminator::Switch {
             then_block,
             else_block,
@@ -1017,6 +1056,10 @@ fn validate_rvalue(
             for arg in args {
                 validate_operand(mir, function, definitions, arg, errors);
             }
+        }
+        Rvalue::ClosureCallSpread { callee, args } => {
+            validate_operand(mir, function, definitions, callee, errors);
+            validate_operand(mir, function, definitions, args, errors);
         }
         Rvalue::Binary { lhs, rhs, .. } => {
             validate_operand(mir, function, definitions, lhs, errors);
@@ -1451,6 +1494,9 @@ fn validate_rvalue(
             for part in parts {
                 validate_operand(mir, function, definitions, part, errors);
             }
+        }
+        Rvalue::DateFromValue { value: date_value } => {
+            validate_operand(mir, function, definitions, date_value, errors);
         }
         Rvalue::DateGetPart { timestamp_ms, .. } => {
             validate_operand(mir, function, definitions, timestamp_ms, errors);

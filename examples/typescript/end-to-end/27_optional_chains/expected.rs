@@ -6,6 +6,7 @@ pub enum SmeltUnknown {
     Bool(bool),
     Number(f64),
     String(String),
+    Symbol(String),
     Array(Vec<SmeltUnknown>),
     Object(::std::collections::HashMap<String, SmeltUnknown>),
     Function(::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>),
@@ -18,10 +19,21 @@ impl Clone for SmeltUnknown {
             Self::Bool(value) => Self::Bool(*value),
             Self::Number(value) => Self::Number(*value),
             Self::String(value) => Self::String(value.clone()),
+            Self::Symbol(value) => Self::Symbol(value.clone()),
             Self::Array(values) => Self::Array(values.clone()),
             Self::Object(values) => Self::Object(values.clone()),
             Self::Function(value) => Self::Function(value.clone()),
         }
+    }
+}
+
+fn smelt_get_object_field(map: &::std::collections::HashMap<String, SmeltUnknown>, field: &str) -> SmeltUnknown {
+    match map.get(field).cloned().unwrap_or(SmeltUnknown::Null) {
+        SmeltUnknown::Object(mut getter) if getter.contains_key("__smelt_get") => match getter.remove("__smelt_get") {
+            Some(SmeltUnknown::Function(smelt_getter)) => (&mut *smelt_getter.borrow_mut())(Vec::new()).unwrap_or_else(|error| panic!("{}", error)),
+            _ => SmeltUnknown::Null,
+        },
+        value => value,
     }
 }
 
@@ -32,6 +44,7 @@ impl ::std::fmt::Debug for SmeltUnknown {
             Self::Bool(value) => formatter.debug_tuple("Bool").field(value).finish(),
             Self::Number(value) => formatter.debug_tuple("Number").field(value).finish(),
             Self::String(value) => formatter.debug_tuple("String").field(value).finish(),
+            Self::Symbol(value) => formatter.debug_tuple("Symbol").field(value).finish(),
             Self::Array(values) => formatter.debug_tuple("Array").field(values).finish(),
             Self::Object(values) => formatter.debug_tuple("Object").field(values).finish(),
             Self::Function(_) => formatter.write_str("Function(<closure>)"),
@@ -46,6 +59,7 @@ impl PartialEq for SmeltUnknown {
             (Self::Bool(left), Self::Bool(right)) => left == right,
             (Self::Number(left), Self::Number(right)) => left == right,
             (Self::String(left), Self::String(right)) => left == right,
+            (Self::Symbol(left), Self::Symbol(right)) => left == right,
             (Self::Array(left), Self::Array(right)) => left == right,
             (Self::Object(left), Self::Object(right)) => left == right,
             (Self::Function(left), Self::Function(right)) => ::std::rc::Rc::ptr_eq(left, right),
@@ -67,7 +81,41 @@ impl SmeltUnknown {
             Self::String(value) => value.chars().count(),
             Self::Array(value) => value.len(),
             Self::Object(value) => value.len(),
-            Self::Null | Self::Bool(_) | Self::Number(_) | Self::Function(_) => 0,
+            Self::Null | Self::Bool(_) | Self::Number(_) | Self::Symbol(_) | Self::Function(_) => 0,
+        }
+    }
+    /// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
+    pub fn get_day(&self) -> f64 {
+        let Self::Number(timestamp_ms) = self else { return f64::NAN; };
+        let days_since_epoch = (*timestamp_ms / 86_400_000.0).floor() as i64;
+        ((days_since_epoch + 4).rem_euclid(7)) as f64
+    }
+    /// Return JavaScript Date.toISOString output for erased Date-compatible values.
+    pub fn to_iso_string(&self) -> String {
+        let timestamp_ms = match self {
+            Self::Number(value) => *value,
+            Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
+            Self::Bool(value) => if *value { 1.0 } else { 0.0 },
+            Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) => f64::NAN,
+        };
+        chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned())
+    }
+    /// Return JavaScript-like `includes` membership for erased strings and arrays.
+    pub fn includes<T: IntoSmeltUnknown>(&self, needle: T) -> bool {
+        let needle = needle.into_smelt_unknown();
+        match (self, needle) {
+            (Self::String(haystack), Self::String(needle)) => haystack.contains(&needle),
+            (Self::Array(values), needle) => values.iter().any(|value| value == &needle),
+            _ => false,
+        }
+    }
+    /// Return JavaScript-like RegExp.test behavior for erased regex-like values.
+    pub fn test<T: IntoSmeltUnknown>(&self, haystack: T) -> bool {
+        let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
+        match self {
+            Self::String(pattern) => regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(&haystack)),
+            Self::Object(map) => map.get("source").and_then(|value| match value { Self::String(pattern) => Some(pattern), _ => None }).is_some_and(|pattern| regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(&haystack))),
+            _ => false,
         }
     }
     /// No-op compatibility hook for erased callable objects with a `flush` method.
@@ -82,6 +130,7 @@ impl ::std::fmt::Display for SmeltUnknown {
             Self::Bool(value) => write!(formatter, "{value}"),
             Self::Number(value) => write!(formatter, "{value}"),
             Self::String(value) => formatter.write_str(value),
+            Self::Symbol(value) => formatter.write_str(value),
             Self::Array(_) | Self::Object(_) => formatter.write_str("[object Object]"),
             Self::Function(_) => formatter.write_str("function () { [native code] }"),
         }
@@ -97,9 +146,10 @@ impl ::std::hash::Hash for SmeltUnknown {
             Self::Bool(value) => { 1_u8.hash(state); value.hash(state); }
             Self::Number(value) => { 2_u8.hash(state); value.to_bits().hash(state); }
             Self::String(value) => { 3_u8.hash(state); value.hash(state); }
-            Self::Array(values) => { 4_u8.hash(state); values.hash(state); }
-            Self::Object(values) => { 5_u8.hash(state); let mut entries = values.iter().collect::<Vec<_>>(); entries.sort_by(|left, right| left.0.cmp(right.0)); for (key, value) in entries { key.hash(state); value.hash(state); } }
-            Self::Function(_) => 6_u8.hash(state),
+            Self::Symbol(value) => { 4_u8.hash(state); value.hash(state); }
+            Self::Array(values) => { 5_u8.hash(state); values.hash(state); }
+            Self::Object(values) => { 6_u8.hash(state); let mut entries = values.iter().collect::<Vec<_>>(); entries.sort_by(|left, right| left.0.cmp(right.0)); for (key, value) in entries { key.hash(state); value.hash(state); } }
+            Self::Function(_) => 7_u8.hash(state),
         }
     }
 }
@@ -116,19 +166,61 @@ impl PartialOrd for SmeltUnknown {
     }
 }
 
+impl PartialEq<f64> for SmeltUnknown {
+    fn eq(&self, other: &f64) -> bool {
+        matches!(self, Self::Number(value) if value == other)
+    }
+}
+
+impl PartialEq<SmeltUnknown> for f64 {
+    fn eq(&self, other: &SmeltUnknown) -> bool {
+        other == self
+    }
+}
+
+impl PartialOrd<f64> for SmeltUnknown {
+    fn partial_cmp(&self, other: &f64) -> Option<::std::cmp::Ordering> {
+        match self {
+            Self::Number(value) => value.partial_cmp(other),
+            Self::String(value) => value.parse::<f64>().ok().and_then(|number| number.partial_cmp(other)),
+            Self::Bool(value) => (if *value { 1.0 } else { 0.0 }).partial_cmp(other),
+            Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) => None,
+        }
+    }
+}
+
+impl PartialOrd<SmeltUnknown> for f64 {
+    fn partial_cmp(&self, other: &SmeltUnknown) -> Option<::std::cmp::Ordering> {
+        other.partial_cmp(self).map(::std::cmp::Ordering::reverse)
+    }
+}
+
+impl PartialEq<SmeltUnknown> for Option<SmeltUnknown> {
+    fn eq(&self, other: &SmeltUnknown) -> bool {
+        self.as_ref().is_some_and(|value| value == other)
+    }
+}
+
+impl PartialOrd<SmeltUnknown> for Option<SmeltUnknown> {
+    fn partial_cmp(&self, other: &SmeltUnknown) -> Option<::std::cmp::Ordering> {
+        self.as_ref().and_then(|value| value.partial_cmp(other))
+    }
+}
+
 fn smelt_unknown_rank(value: &SmeltUnknown) -> u8 {
     match value {
         SmeltUnknown::Null => 0,
         SmeltUnknown::Bool(_) => 1,
         SmeltUnknown::Number(_) => 2,
         SmeltUnknown::String(_) => 3,
-        SmeltUnknown::Array(_) => 4,
-        SmeltUnknown::Object(_) => 5,
-        SmeltUnknown::Function(_) => 6,
+        SmeltUnknown::Symbol(_) => 4,
+        SmeltUnknown::Array(_) => 5,
+        SmeltUnknown::Object(_) => 6,
+        SmeltUnknown::Function(_) => 7,
     }
 }
 
-trait IntoSmeltUnknown {
+pub trait IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown;
 }
 
@@ -199,6 +291,43 @@ impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T> {
     }
 }
 
+trait SmeltArrayExt<T> {
+    /// Return the first JavaScript-style index of a value, or -1 when absent.
+    fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq;
+}
+
+impl<T> SmeltArrayExt<T> for Vec<T> {
+    /// Implement `Array.prototype.indexOf` for generated Rust vectors.
+    fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq {
+        self.iter().position(|value| value == &needle).map_or(SmeltUnknown::Number(-1.0), |index| SmeltUnknown::Number(index as f64))
+    }
+}
+
+trait SmeltUnknownArrayExt {
+    /// Concatenate erased array values with JavaScript-style spreading.
+    fn concat(self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown>;
+}
+
+impl SmeltUnknownArrayExt for Vec<SmeltUnknown> {
+    /// Implement the generated rest-argument concat helper for erased arrays.
+    fn concat(mut self, other: Vec<SmeltUnknown>) -> Vec<SmeltUnknown> {
+        self.extend(other);
+        self
+    }
+}
+
+trait SmeltUnitExt {
+    /// Return false for generated calls against unreachable unit placeholders.
+    fn includes<T>(&self, _needle: T) -> bool;
+}
+
+impl SmeltUnitExt for () {
+    /// Keep unreachable JavaScript membership calls type-checkable.
+    fn includes<T>(&self, _needle: T) -> bool {
+        false
+    }
+}
+
 impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
     fn into_smelt_unknown(self) -> SmeltUnknown {
         SmeltUnknown::Array(vec![self.0.into_smelt_unknown(), self.1.into_smelt_unknown()])
@@ -207,7 +336,65 @@ impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
 
 impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect())
+        SmeltUnknown::Object(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SmeltRegExp {
+    source: String,
+    flags: String,
+    last_index: ::std::rc::Rc<::std::cell::RefCell<usize>>,
+}
+
+impl SmeltRegExp {
+    /// Construct a JavaScript-like RegExp value with shared lastIndex state.
+    pub fn new(source: String, flags: String) -> Self {
+        Self { source, flags, last_index: ::std::rc::Rc::new(::std::cell::RefCell::new(0)) }
+    }
+    /// Return true when this RegExp has a flag.
+    pub fn has_flag(&self, flag: char) -> bool {
+        self.flags.chars().any(|value| value == flag)
+    }
+    /// Compile the Rust regex equivalent for this JavaScript RegExp.
+    fn compiled(&self) -> regex::Regex {
+        let mut prefix = String::new();
+        if self.has_flag('i') { prefix.push('i'); }
+        if self.has_flag('m') { prefix.push('m'); }
+        if self.has_flag('s') { prefix.push('s'); }
+        let pattern = if prefix.is_empty() { self.source.clone() } else { format!("(?{prefix}){}", self.source) };
+        regex::Regex::new(&pattern).expect("regex compile failed")
+    }
+    /// Execute this RegExp and return a JavaScript-like match object.
+    pub fn exec(&self, haystack: &str) -> Option<SmeltUnknown> {
+        let regex = self.compiled();
+        let start = if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow() } else { 0 };
+        let suffix = haystack.get(start..).unwrap_or("");
+        let captures = regex.captures(suffix)?;
+        let matched = captures.get(0)?;
+        if self.has_flag('y') && matched.start() != 0 { *self.last_index.borrow_mut() = 0; return None; }
+        if self.has_flag('g') || self.has_flag('y') { *self.last_index.borrow_mut() = start + matched.end(); }
+        let mut object = ::std::collections::HashMap::new();
+        for index in 0..captures.len() { if let Some(value) = captures.get(index) { object.insert(index.to_string(), SmeltUnknown::String(value.as_str().to_owned())); } else { object.insert(index.to_string(), SmeltUnknown::Null); } }
+        let mut groups = ::std::collections::HashMap::new();
+        for name in regex.capture_names().flatten() { let value = captures.name(name).map_or(SmeltUnknown::Null, |value| SmeltUnknown::String(value.as_str().to_owned())); groups.insert(name.to_owned(), value.clone()); let mut snake = String::new(); for (index, ch) in name.chars().enumerate() { if ch.is_ascii_uppercase() { if index > 0 { snake.push('_'); } snake.push(ch.to_ascii_lowercase()); } else { snake.push(ch); } } groups.insert(snake, value); }
+        object.insert("groups".to_owned(), SmeltUnknown::Object(groups));
+        object.insert("index".to_owned(), SmeltUnknown::Number((start + matched.start()) as f64));
+        object.insert("input".to_owned(), SmeltUnknown::String(haystack.to_owned()));
+        Some(SmeltUnknown::Object(object))
+    }
+    /// Test this RegExp against a string with JavaScript lastIndex updates.
+    pub fn test(&self, haystack: &str) -> bool {
+        self.exec(haystack).is_some()
+    }
+}
+
+impl IntoSmeltUnknown for SmeltRegExp {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(::std::collections::HashMap::from([
+        ("source".to_owned(), SmeltUnknown::String(self.source)),
+        ("flags".to_owned(), SmeltUnknown::String(self.flags)),
+        ]))
     }
 }
 
@@ -216,20 +403,28 @@ struct User {
     name: String,
     scores: Vec<f64>,
 }
+impl IntoSmeltUnknown for User {
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        SmeltUnknown::Object(::std::collections::HashMap::from([
+        ("name".to_owned(), SmeltUnknown::String(self.name)),
+        ("scores".to_owned(), SmeltUnknown::Array(self.scores.into_iter().map(|value| SmeltUnknown::Number(value as f64)).collect())),
+        ]))
+    }
+}
 
 
 fn main() {
-    let mut present: Option<User>;
-    let mut missing: Option<User>;
-    let mut name: Option<String>;
-    let mut absent_name: Option<String>;
-    let mut score: Option<f64>;
-    let mut label: Option<String>;
-    let mut _smelt_tmp_8: Option<String>;
-    let mut _smelt_tmp_9: Option<String>;
-    let mut _smelt_tmp_10: Option<Vec<f64>>;
-    let mut _smelt_tmp_11: Option<f64>;
-    let mut _smelt_tmp_12: Option<String>;
+    let present: Option<User>;
+    let missing: Option<User>;
+    let name: Option<String>;
+    let absent_name: Option<String>;
+    let score: Option<f64>;
+    let label: Option<String>;
+    let _smelt_tmp_8: Option<String>;
+    let _smelt_tmp_9: Option<String>;
+    let _smelt_tmp_10: Option<Vec<f64>>;
+    let _smelt_tmp_11: Option<f64>;
+    let _smelt_tmp_12: Option<String>;
     let _smelt_tmp_6: Vec<f64> = vec![3.0];
     let mut _smelt_tmp_7: User = User::new("Ada".to_owned(), _smelt_tmp_6.clone());
     present = Some(_smelt_tmp_7.clone());
@@ -251,7 +446,7 @@ fn main() {
 
 impl User {
     fn new(name: String, scores: Vec<f64>) -> Self {
-    let mut this: User = User { name: String::new(), scores: Vec::new() };
+    let mut this: Self = User { name: String::new(), scores: Vec::new() };
     this.name = name.clone();
     this.scores = scores.clone();
     return this;

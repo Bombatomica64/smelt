@@ -59,8 +59,8 @@ impl ModuleBuilder<'_> {
             class.name == class_name
                 && class.fields.is_empty()
                 && class.base.is_none_or(|base| {
-                    !self.ctx.krate.items.iter().any(|item| {
-                        matches!(item, Item::Class(base_class) if base_class.name == base)
+                    !self.ctx.krate.items.iter().any(|candidate_item| {
+                        matches!(candidate_item, Item::Class(base_class) if base_class.name == base)
                     }) || self.class_has_no_fields(base)
                 })
         })
@@ -222,7 +222,9 @@ impl ModuleBuilder<'_> {
             name,
             span,
             params: Vec::new(),
-            return_ty: none_ty,
+            rest: None,
+            required_params: None,
+return_ty: none_ty,
             is_async: false,
             is_test: false,
             body: None,

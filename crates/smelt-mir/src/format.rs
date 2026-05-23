@@ -171,6 +171,13 @@ fn rvalue_text(value: &Rvalue) -> String {
             operand_text(callee),
             args.iter().map(operand_text).collect::<Vec<_>>().join(", ")
         ),
+        Rvalue::ClosureCallSpread { callee, args } => {
+            format!(
+                "closure_call {}(...{})",
+                operand_text(callee),
+                operand_text(args)
+            )
+        }
         Rvalue::Binary { op, lhs, rhs } => {
             format!(
                 "{} {} {}",
@@ -970,6 +977,9 @@ fn rvalue_text(value: &Rvalue) -> String {
                 .collect::<Vec<_>>()
                 .join(", ")
         ),
+        Rvalue::DateFromValue { value: date_value } => {
+            format!("date_from_value {}", operand_text(date_value))
+        }
         Rvalue::DateGetPart { part, timestamp_ms } => {
             format!("date_get_{part:?} {}", operand_text(timestamp_ms))
         }
@@ -1013,6 +1023,8 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::AsyncOp::Race => "async_race",
                 smelt_hir::AsyncOp::AllSettled => "async_all_settled",
                 smelt_hir::AsyncOp::Sleep => "async_sleep",
+                smelt_hir::AsyncOp::SetTimeout => "async_set_timeout",
+                smelt_hir::AsyncOp::ClearTimeout => "async_clear_timeout",
                 smelt_hir::AsyncOp::CreateTask => "async_create_task",
                 smelt_hir::AsyncOp::WaitFor => "async_wait_for",
                 smelt_hir::AsyncOp::HttpGetText => "async_http_get_text",
@@ -1043,6 +1055,23 @@ fn terminator_text(terminator: &Terminator) -> String {
                 local_ref(*dest),
                 callee_text(callee),
                 arg_list,
+                target.0,
+                unwind_text
+            )
+        }
+        Terminator::Await {
+            future,
+            dest,
+            target,
+            unwind,
+        } => {
+            let unwind_text = unwind.map_or_else(String::new, |handler| {
+                format!(" unwind bb{}", handler.catch_block.0)
+            });
+            format!(
+                "{} = await {} -> bb{}{}",
+                local_ref(*dest),
+                operand_text(future),
                 target.0,
                 unwind_text
             )
@@ -1134,6 +1163,7 @@ fn constant_text(constant: &Constant) -> String {
             }
         }
         Constant::String(value) => format!("\"{value}\""),
+        Constant::Symbol(value) => format!("symbol({value:?})"),
         Constant::None => "none".to_owned(),
     }
 }
@@ -1193,7 +1223,15 @@ fn type_ref(mir: &Mir, ty: TypeId) -> String {
             let params = function
                 .params
                 .iter()
-                .map(|param| type_ref(mir, *param))
+                .enumerate()
+                .map(|(index, param)| {
+                    let text = type_ref(mir, *param);
+                    if function.rest == Some(index) {
+                        format!("...{text}")
+                    } else {
+                        text
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let async_prefix = if function.is_async { "async " } else { "" };

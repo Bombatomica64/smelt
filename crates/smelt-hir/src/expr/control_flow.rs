@@ -13,6 +13,10 @@ pub enum AsyncOp {
     AllSettled,
     /// Sleep for a duration in milliseconds.
     Sleep,
+    /// Schedule a callback to run after a duration in milliseconds.
+    SetTimeout,
+    /// Cancel a scheduled timeout callback.
+    ClearTimeout,
     /// Create a task from a future.
     CreateTask,
     /// Wait for a future with a timeout.
