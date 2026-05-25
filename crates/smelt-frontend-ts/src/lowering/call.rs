@@ -35,6 +35,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.vitest_mock_handle_method_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.date_fns_timezone_context_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.sinon_fake_timers_call(call, body)? {
             return Ok(expr);
         }
@@ -369,8 +372,12 @@ impl ModuleBuilder<'_> {
             let receiver = self.expression(&member.object, body)?;
             let method = self.intern_source_name(member.property.name.as_str());
             let receiver_ty = Self::expr_ty(body, receiver);
-            let optional_access =
-                call.optional || member.optional || matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Optional(_)));
+            let optional_access = call.optional
+                || member.optional
+                || matches!(
+                    self.ctx.krate.types.get(receiver_ty),
+                    Some(Type::Optional(_))
+                );
             let access_receiver_ty = self.optional_receiver_inner_type(receiver_ty);
             let (return_ty, method_item) =
                 self.resolve_method(access_receiver_ty, method, member.span)?;
@@ -556,24 +563,23 @@ impl ModuleBuilder<'_> {
                     Some(Type::Optional(inner)) => *inner,
                     _ => callee_ty,
                 };
-                let Some(Type::Function(function)) =
-                    self.ctx.krate.types.get(callable_ty).cloned()
+                let Some(Type::Function(function)) = self.ctx.krate.types.get(callable_ty).cloned()
                 else {
                     if self.erased_or_union_surface(callee_ty) {
                         if self.call_has_spread_arguments_or_source_spread(call) {
                             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                             let args = self.packed_spread_call_arguments(unknown_ty, call, body)?;
-                            let callee =
-                                if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
-                                    callee
-                                } else {
-                                    body.push_expr(Expr {
-                                        kind: ExprKind::TypeAssert { value: callee },
-                                        ty: unknown_ty,
-                                        span: self
-                                            .span(callee_ident.span.start, callee_ident.span.end),
-                                    })
-                                };
+                            let callee = if self.ctx.krate.types.get(callee_ty)
+                                == Some(&Type::Unknown)
+                            {
+                                callee
+                            } else {
+                                body.push_expr(Expr {
+                                    kind: ExprKind::TypeAssert { value: callee },
+                                    ty: unknown_ty,
+                                    span: self.span(callee_ident.span.start, callee_ident.span.end),
+                                })
+                            };
                             return Ok(body.push_expr(Expr {
                                 kind: ExprKind::ClosureCallSpread { callee, args },
                                 ty: unknown_ty,
@@ -586,7 +592,8 @@ impl ModuleBuilder<'_> {
                             .map(|arg| self.argument(arg, body))
                             .collect::<Result<Vec<_>, _>>()?;
                         let ty = self.ctx.krate.types.intern(Type::Unknown);
-                        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown) {
+                        let callee = if self.ctx.krate.types.get(callee_ty) == Some(&Type::Unknown)
+                        {
                             callee
                         } else {
                             body.push_expr(Expr {
@@ -649,14 +656,16 @@ impl ModuleBuilder<'_> {
                 }));
             }
             let Some(item) = self.items.get(callee_ident.name.as_str()).copied() else {
-                if let Some(callee_ty) = self.module_globals.get(callee_ident.name.as_str()).copied()
+                if let Some(callee_ty) =
+                    self.module_globals.get(callee_ident.name.as_str()).copied()
                 {
                     let args = call
                         .arguments
                         .iter()
                         .map(|arg| self.argument(arg, body))
                         .collect::<Result<Vec<_>, _>>()?;
-                    if let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
+                    if let Some(Type::Function(function)) =
+                        self.ctx.krate.types.get(callee_ty).cloned()
                     {
                         let callee = self.identifier_expression(
                             callee_ident.name.as_str(),
@@ -704,65 +713,71 @@ impl ModuleBuilder<'_> {
                     format!("unresolved function `{}`", callee_ident.name),
                 ));
             };
-            let (params, item_rest, item_required_params, implementation_return_ty, is_async) = if let Item::Function(function) = self.item_ref(item)
-            {
-                (
-                    function
-                        .params
-                        .iter()
-                        .map(|param| param.ty)
-                        .collect::<Vec<_>>(),
-                    function.rest,
-                    function.required_params,
-                    function.return_ty,
-                    function.is_async,
-                )
-            } else if self.value_imports.contains(callee_ident.name.as_str()) {
-                for arg in &call.arguments {
-                    let _ = self.argument(arg, body)?;
-                }
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            } else {
-                let item_ty = self
-                    .item_expr_type(item, self.span(callee_ident.span.start, callee_ident.span.end))
-                    .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
-                if let Some(Type::Function(function)) = self.ctx.krate.types.get(item_ty).cloned() {
-                    let callee = body.push_expr(Expr {
-                        kind: ExprKind::Literal(Literal::None),
-                        ty: item_ty,
-                        span: self.span(callee_ident.span.start, callee_ident.span.end),
-                    });
-                    let args = call
-                        .arguments
-                        .iter()
-                        .map(|arg| self.argument(arg, body))
-                        .collect::<Result<Vec<_>, _>>()?;
+            let (params, item_rest, item_required_params, implementation_return_ty, is_async) =
+                if let Item::Function(function) = self.item_ref(item) {
+                    (
+                        function
+                            .params
+                            .iter()
+                            .map(|param| param.ty)
+                            .collect::<Vec<_>>(),
+                        function.rest,
+                        function.required_params,
+                        function.return_ty,
+                        function.is_async,
+                    )
+                } else if self.value_imports.contains(callee_ident.name.as_str()) {
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
                     return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ClosureCall { callee, args },
-                        ty: function.return_ty,
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
                         span: self.span(call.span.start, call.span.end),
                     }));
-                }
-                for arg in &call.arguments {
-                    let _ = self.argument(arg, body)?;
-                }
-                let ty = self.ctx.krate.types.intern(Type::Unknown);
-                return Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::None),
-                    ty,
-                    span: self.span(call.span.start, call.span.end),
-                }));
-            };
+                } else {
+                    let item_ty = self
+                        .item_expr_type(
+                            item,
+                            self.span(callee_ident.span.start, callee_ident.span.end),
+                        )
+                        .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+                    if let Some(Type::Function(function)) =
+                        self.ctx.krate.types.get(item_ty).cloned()
+                    {
+                        let callee = body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::None),
+                            ty: item_ty,
+                            span: self.span(callee_ident.span.start, callee_ident.span.end),
+                        });
+                        let args = call
+                            .arguments
+                            .iter()
+                            .map(|arg| self.argument(arg, body))
+                            .collect::<Result<Vec<_>, _>>()?;
+                        return Ok(body.push_expr(Expr {
+                            kind: ExprKind::ClosureCall { callee, args },
+                            ty: function.return_ty,
+                            span: self.span(call.span.start, call.span.end),
+                        }));
+                    }
+                    for arg in &call.arguments {
+                        let _ = self.argument(arg, body)?;
+                    }
+                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    }));
+                };
             let mut rest = self.function_rests.get(callee_ident.name.as_str()).copied();
             if rest.is_none()
                 && let Some(index) = item_rest
-                && let Some(Type::List(item_ty)) =
-                    params.get(index).and_then(|param| self.ctx.krate.types.get(*param))
+                && let Some(Type::List(item_ty)) = params
+                    .get(index)
+                    .and_then(|param| self.ctx.krate.types.get(*param))
             {
                 rest = Some(RestParam {
                     index,
@@ -778,8 +793,10 @@ impl ModuleBuilder<'_> {
             if rest.is_none()
                 && let Some(signature) = &selected_overload
                 && let Some(index) = signature.rest
-                && let Some(Type::List(item_ty)) =
-                    signature.params.get(index).and_then(|param| self.ctx.krate.types.get(*param))
+                && let Some(Type::List(item_ty)) = signature
+                    .params
+                    .get(index)
+                    .and_then(|param| self.ctx.krate.types.get(*param))
             {
                 rest = Some(RestParam {
                     index,
@@ -821,7 +838,9 @@ impl ModuleBuilder<'_> {
                     .iter()
                     .take(fixed_param_count)
                     .enumerate()
-                    .map(|(index, arg)| self.argument_with_hint(arg, body, params.get(index).copied()))
+                    .map(|(index, arg)| {
+                        self.argument_with_hint(arg, body, params.get(index).copied())
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
                 if let Some(rest) = rest {
                     let rest_args = call
@@ -916,7 +935,8 @@ impl ModuleBuilder<'_> {
         call: &oxc::ast::ast::CallExpression<'_>,
         body: &mut Body,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
-        if !matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "require") {
+        if !matches!(&call.callee, Expression::Identifier(identifier) if identifier.name == "require")
+        {
             return Ok(None);
         }
         let [argument] = call.arguments.as_slice() else {
@@ -985,32 +1005,36 @@ impl ModuleBuilder<'_> {
         for arg in &call.arguments {
             args.push(self.argument(arg, body)?);
         }
-        let (function_ty, function) = if let Some(function_ty) = self.function_member_type(callee_ty)
-        {
-            let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
-            else {
+        let (function_ty, function) =
+            if let Some(function_ty) = self.function_member_type(callee_ty) {
+                let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned()
+                else {
+                    return Ok(None);
+                };
+                (function_ty, function)
+            } else if self.is_nullishable_type(callee_ty) || self.type_contains_unknown(callee_ty) {
+                let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                let params = args
+                    .iter()
+                    .map(|arg| Self::expr_ty(body, *arg))
+                    .collect::<Vec<_>>();
+                let function = FunctionType {
+                    params,
+                    rest: None,
+                    required_params: None,
+                    return_ty: unknown,
+                    is_async: false,
+                    may_throw: false,
+                };
+                let function_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Function(function.clone()));
+                (function_ty, function)
+            } else {
                 return Ok(None);
             };
-            (function_ty, function)
-        } else if self.is_nullishable_type(callee_ty) || self.type_contains_unknown(callee_ty) {
-            let unknown = self.ctx.krate.types.intern(Type::Unknown);
-            let params = args
-                .iter()
-                .map(|arg| Self::expr_ty(body, *arg))
-                .collect::<Vec<_>>();
-            let function = FunctionType {
-                params,
-                rest: None,
-                required_params: None,
-return_ty: unknown,
-                is_async: false,
-                            may_throw: false,
-            };
-            let function_ty = self.ctx.krate.types.intern(Type::Function(function.clone()));
-            (function_ty, function)
-        } else {
-            return Ok(None);
-        };
         let callable = if callee_ty == function_ty {
             callee
         } else {
@@ -1213,16 +1237,16 @@ return_ty: unknown,
             params: remaining_params,
             rest: None,
             required_params: None,
-return_ty: function.return_ty,
+            return_ty: function.return_ty,
             is_async: function.is_async,
-                            may_throw: false,
+            may_throw: function.may_throw,
         }));
         Ok(Some(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params: closure_params,
-            rest: None,
+                rest: None,
                 required_params: None,
-return_ty: function.return_ty,
+                return_ty: function.return_ty,
                 captures,
                 body: body_id,
                 callback_body: None,
@@ -1331,7 +1355,10 @@ return_ty: function.return_ty,
             .transpose()?;
         let ty = self.ctx.krate.types.intern(Type::Unknown);
         if let Some(description) = description
-            && !matches!(self.ctx.krate.types.get(Self::expr_ty(body, description)), Some(Type::String))
+            && !matches!(
+                self.ctx.krate.types.get(Self::expr_ty(body, description)),
+                Some(Type::String)
+            )
         {
             return Err(SmeltError::unsupported(
                 self.span(call.span.start, call.span.end),
@@ -1382,11 +1409,8 @@ return_ty: function.return_ty,
         let mut selected: Option<(usize, usize, OverloadSignature, HashMap<_, _>)> = None;
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
-            if self.overload_signature_matches_args(
-                signature,
-                &lowered_arg_tys,
-                &mut substitutions,
-            ) {
+            if self.overload_signature_matches_args(signature, &lowered_arg_tys, &mut substitutions)
+            {
                 let score =
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
                 let candidate = (score, usize::MAX - order, signature.clone(), substitutions);
@@ -1470,9 +1494,13 @@ return_ty: function.return_ty,
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
         if signature.params.len() == arg_tys.len()
-            && signature.params.iter().zip(arg_tys).all(|(expected, actual)| {
-                self.loose_overload_type_matches(*expected, *actual, substitutions)
-            })
+            && signature
+                .params
+                .iter()
+                .zip(arg_tys)
+                .all(|(expected, actual)| {
+                    self.loose_overload_type_matches(*expected, *actual, substitutions)
+                })
         {
             return true;
         }
@@ -1489,9 +1517,13 @@ return_ty: function.return_ty,
         let Some(fixed_args) = arg_tys.get(..fixed_params.len()) else {
             return false;
         };
-        if !fixed_params.iter().zip(fixed_args).all(|(expected, actual)| {
-            self.loose_overload_type_matches(*expected, *actual, &mut rest_substitutions)
-        }) {
+        if !fixed_params
+            .iter()
+            .zip(fixed_args)
+            .all(|(expected, actual)| {
+                self.loose_overload_type_matches(*expected, *actual, &mut rest_substitutions)
+            })
+        {
             return false;
         }
         let Some(rest_args) = arg_tys.get(fixed_params.len()..) else {
@@ -1504,16 +1536,11 @@ return_ty: function.return_ty,
             .get(self.type_param_constraint_or_self(rest_ty))
             .cloned()
         {
-            Some(Type::Tuple(items)) if items.len() == rest_args.len() => items
-                .iter()
-                .zip(rest_args)
-                .all(|(expected, actual)| {
-                    self.loose_overload_type_matches(
-                        *expected,
-                        *actual,
-                        &mut rest_substitutions,
-                    )
-                }),
+            Some(Type::Tuple(items)) if items.len() == rest_args.len() => {
+                items.iter().zip(rest_args).all(|(expected, actual)| {
+                    self.loose_overload_type_matches(*expected, *actual, &mut rest_substitutions)
+                })
+            }
             Some(Type::List(item_ty)) => rest_args.iter().all(|actual| {
                 self.loose_overload_type_matches(item_ty, *actual, &mut rest_substitutions)
             }),
@@ -1537,7 +1564,11 @@ return_ty: function.return_ty,
             return true;
         }
         match (
-            self.ctx.krate.types.get(self.type_param_constraint_or_self(expected)).cloned(),
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(expected))
+                .cloned(),
             self.ctx.krate.types.get(actual).cloned(),
         ) {
             (Some(Type::TypeParam { name }), _) => {
@@ -1559,8 +1590,13 @@ return_ty: function.return_ty,
             (Some(Type::List(_)), Some(Type::List(_) | Type::Tuple(_))) => true,
             (Some(Type::Function(_)), Some(Type::Function(_))) => true,
             (
-                Some(Type::Class { name: expected_name, .. }),
-                Some(Type::Class { name: actual_name, .. }),
+                Some(Type::Class {
+                    name: expected_name,
+                    ..
+                }),
+                Some(Type::Class {
+                    name: actual_name, ..
+                }),
             ) => expected_name == actual_name,
             (Some(Type::Dict(_, _)), Some(Type::Dict(_, _))) => true,
             (Some(Type::Set(_)), Some(Type::Set(_))) => true,
@@ -1575,10 +1611,15 @@ return_ty: function.return_ty,
     }
 
     /// Return whether an overload has the same source-level argument count as a call.
-    fn overload_signature_arity_matches(signature: &OverloadSignature, argument_count: usize) -> bool {
-        signature.rest.map_or(signature.params.len() == argument_count, |rest| {
-            argument_count >= rest
-        })
+    fn overload_signature_arity_matches(
+        signature: &OverloadSignature,
+        argument_count: usize,
+    ) -> bool {
+        signature
+            .rest
+            .map_or(signature.params.len() == argument_count, |rest| {
+                argument_count >= rest
+            })
     }
 
     /// Score a matching overload by source-shape specificity.
@@ -1616,7 +1657,10 @@ return_ty: function.return_ty,
     /// information beyond accepting any value.
     fn overload_param_is_specific(&self, ty: smelt_hir::TypeId) -> bool {
         !matches!(
-            self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)),
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(ty)),
             Some(Type::Unknown | Type::TypeParam { .. })
         )
     }
@@ -1679,15 +1723,14 @@ return_ty: function.return_ty,
             .get(self.type_param_constraint_or_self(rest_ty))
             .cloned()
         {
-            Some(Type::Tuple(items)) if items.len() == rest_args.len() => items
-                .iter()
-                .zip(rest_args)
-                .all(|(expected, actual)| {
+            Some(Type::Tuple(items)) if items.len() == rest_args.len() => {
+                items.iter().zip(rest_args).all(|(expected, actual)| {
                     self.infer_overload_type(*expected, *actual, &mut rest_substitutions)
-                }),
-            Some(Type::List(item_ty)) => rest_args.iter().all(|actual| {
-                self.infer_overload_type(item_ty, *actual, &mut rest_substitutions)
-            }),
+                })
+            }
+            Some(Type::List(item_ty)) => rest_args
+                .iter()
+                .all(|actual| self.infer_overload_type(item_ty, *actual, &mut rest_substitutions)),
             _ => false,
         };
         if rest_matches {
@@ -1712,7 +1755,7 @@ return_ty: function.return_ty,
             params,
             rest: signature.rest,
             required_params: None,
-return_ty,
+            return_ty,
             is_async: signature.is_async,
         }
     }
@@ -1752,31 +1795,44 @@ return_ty,
             }
             (Some(Type::Optional(_)), Some(Type::None)) => true,
             (Some(Type::Optional(inner)), _) if inner == actual => true,
-            (Some(Type::Optional(inner)), _) => self.infer_overload_type(inner, actual, substitutions),
+            (Some(Type::Optional(inner)), _) => {
+                self.infer_overload_type(inner, actual, substitutions)
+            }
             (Some(Type::List(expected_item)), Some(Type::List(actual_item)))
             | (Some(Type::Set(expected_item)), Some(Type::Set(actual_item)))
             | (Some(Type::Future(expected_item)), Some(Type::Future(actual_item))) => {
                 self.infer_overload_type(expected_item, actual_item, substitutions)
             }
-            (Some(Type::Dict(expected_key, expected_value)), Some(Type::Dict(actual_key, actual_value))) => {
+            (
+                Some(Type::Dict(expected_key, expected_value)),
+                Some(Type::Dict(actual_key, actual_value)),
+            ) => {
                 self.infer_overload_type(expected_key, actual_key, substitutions)
                     && self.infer_overload_type(expected_value, actual_value, substitutions)
             }
             (Some(Type::Tuple(expected_items)), Some(Type::Tuple(actual_items))) => {
                 expected_items.len() == actual_items.len()
-                    && expected_items
-                        .into_iter()
-                        .zip(actual_items)
-                        .all(|(expected_item, actual_item)| {
+                    && expected_items.into_iter().zip(actual_items).all(
+                        |(expected_item, actual_item)| {
                             self.infer_overload_type(expected_item, actual_item, substitutions)
-                        })
+                        },
+                    )
             }
-            (Some(Type::Tuple(expected_items)), Some(Type::List(actual_item))) => expected_items
-                .into_iter()
-                .all(|expected_item| {
+            (Some(Type::Tuple(expected_items)), Some(Type::List(actual_item))) => {
+                expected_items.into_iter().all(|expected_item| {
                     self.infer_overload_type(expected_item, actual_item, substitutions)
+                })
+            }
+            (
+                Some(Type::Class {
+                    name: expected_name,
+                    args: expected_args,
                 }),
-            (Some(Type::Class { name: expected_name, args: expected_args }), Some(Type::Class { name: actual_name, args: actual_args })) => {
+                Some(Type::Class {
+                    name: actual_name,
+                    args: actual_args,
+                }),
+            ) => {
                 expected_name == actual_name
                     && expected_args.len() == actual_args.len()
                     && expected_args.into_iter().zip(actual_args).all(
@@ -1786,7 +1842,11 @@ return_ty,
                     )
             }
             (Some(Type::Function(expected_function)), Some(Type::Function(actual_function))) => {
-                self.infer_overload_function_type(&expected_function, &actual_function, substitutions)
+                self.infer_overload_function_type(
+                    &expected_function,
+                    &actual_function,
+                    substitutions,
+                )
             }
             (Some(Type::Union(expected_items)), _) => expected_items
                 .into_iter()
@@ -1846,9 +1906,7 @@ return_ty,
                 true
             }
             Some(Type::Unknown) => true,
-            _ => {
-                self.infer_overload_type(actual_param, required_input, actual_substitutions)
-            }
+            _ => self.infer_overload_type(actual_param, required_input, actual_substitutions),
         }
     }
 
@@ -1938,7 +1996,10 @@ return_ty,
             function.return_ty
         };
         let supplied_arg_count = call.arguments.len();
-        let callback_meta = self.local_callbacks.get(callee_ident.name.as_str()).cloned();
+        let callback_meta = self
+            .local_callbacks
+            .get(callee_ident.name.as_str())
+            .cloned();
         if callback_meta.is_none()
             && self.call_has_spread_arguments_or_source_spread(call)
             && (matches!(
@@ -1984,24 +2045,30 @@ return_ty,
                 span: self.span(call.span.start, call.span.end),
             })));
         }
-        let defaults = callback_meta
+        let defaults = callback_meta.as_ref().map_or_else(
+            || vec![None; function.params.len()],
+            |callback| callback.defaults.clone(),
+        );
+        let rest = callback_meta
             .as_ref()
-            .map_or_else(|| vec![None; function.params.len()], |callback| {
-                callback.defaults.clone()
+            .and_then(|callback| callback.rest)
+            .or_else(|| {
+                if self.call_has_spread_arguments_or_source_spread(call) {
+                    function.rest.and_then(|index| {
+                        let param =
+                            self.type_param_constraint_or_self(*function.params.get(index)?);
+                        match self.ctx.krate.types.get(param) {
+                            Some(Type::List(item_ty)) => Some(RestParam {
+                                index,
+                                item_ty: *item_ty,
+                            }),
+                            _ => None,
+                        }
+                    })
+                } else {
+                    None
+                }
             });
-        let rest = callback_meta.as_ref().and_then(|callback| callback.rest).or_else(|| {
-            if self.call_has_spread_arguments_or_source_spread(call) {
-                function.rest.and_then(|index| {
-                    let param = self.type_param_constraint_or_self(*function.params.get(index)?);
-                    match self.ctx.krate.types.get(param) {
-                        Some(Type::List(item_ty)) => Some(RestParam { index, item_ty: *item_ty }),
-                        _ => None,
-                    }
-                })
-            } else {
-                None
-            }
-        });
         let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
         if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {
             let args = self.spread_closure_call_arguments(&function, rest, call, body)?;
@@ -2080,10 +2147,10 @@ return_ty,
             }));
         }
         Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::ClosureCall { callee, args },
-                ty: call_return_ty,
-                span: self.span(call.span.start, call.span.end),
-            })))
+            kind: ExprKind::ClosureCall { callee, args },
+            ty: call_return_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Return whether a local's structural class type is an erased callable object.
@@ -2133,7 +2200,10 @@ return_ty,
                         .params
                         .get(fixed_index + offset)
                         .copied()
-                        .unwrap_or_else(|| self.index_type(Self::expr_ty(body, spread_list)).unwrap_or(rest.item_ty));
+                        .unwrap_or_else(|| {
+                            self.index_type(Self::expr_ty(body, spread_list))
+                                .unwrap_or(rest.item_ty)
+                        });
                     let kind = if matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
                         ExprKind::OptionalIndex {
                             receiver: spread_list,
@@ -2481,7 +2551,7 @@ return_ty,
                 required_params: callback.required_params,
                 return_ty: callback.return_ty,
                 is_async: false,
-                            may_throw: false,
+                may_throw: false,
             }));
         }
         let Some(Type::Function(function)) = function_ty else {
@@ -2570,7 +2640,9 @@ return_ty,
             return Some(call);
         }
         match &call.callee {
-            Expression::StaticMemberExpression(member) => self.type_test_root_expression(&member.object),
+            Expression::StaticMemberExpression(member) => {
+                self.type_test_root_expression(&member.object)
+            }
             Expression::ComputedMemberExpression(member) => {
                 self.type_test_root_expression(&member.object)
             }
@@ -2585,14 +2657,18 @@ return_ty,
     ) -> Option<&'a oxc::ast::ast::CallExpression<'a>> {
         match expression {
             Expression::CallExpression(call) => self.type_test_root_call(call),
-            Expression::StaticMemberExpression(member) => self.type_test_root_expression(&member.object),
+            Expression::StaticMemberExpression(member) => {
+                self.type_test_root_expression(&member.object)
+            }
             Expression::ComputedMemberExpression(member) => {
                 self.type_test_root_expression(&member.object)
             }
             Expression::ParenthesizedExpression(parenthesized) => {
                 self.type_test_root_expression(&parenthesized.expression)
             }
-            Expression::TSAsExpression(as_expr) => self.type_test_root_expression(&as_expr.expression),
+            Expression::TSAsExpression(as_expr) => {
+                self.type_test_root_expression(&as_expr.expression)
+            }
             Expression::TSSatisfiesExpression(satisfies) => {
                 self.type_test_root_expression(&satisfies.expression)
             }

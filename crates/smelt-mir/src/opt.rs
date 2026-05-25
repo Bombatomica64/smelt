@@ -589,6 +589,9 @@ fn rewrite_rvalue(
         }
         Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
         Rvalue::DateNow => false,
+        Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => false,
+        Rvalue::DateSetTimezoneOffset { offset } => rewrite_operand_except(offset, aliases, dest),
+        Rvalue::DateTimezoneContext { timezone } => rewrite_operand_except(timezone, aliases, dest),
         Rvalue::DateToIsoString { timestamp_ms } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)
         }

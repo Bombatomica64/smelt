@@ -31,6 +31,9 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_chrono) || needs_unknown_type(mir) {
         deps.push(BackendDependency::Chrono);
     }
+    if any_rvalue_needs(mir, rvalue_needs_chrono_tz) {
+        deps.push(BackendDependency::ChronoTz);
+    }
     if any_rvalue_needs(mir, rvalue_needs_url) {
         deps.push(BackendDependency::Url);
     }
@@ -181,7 +184,26 @@ fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
             | Rvalue::DateFromValue { .. }
             | Rvalue::DateGetPart { .. }
             | Rvalue::DateSetPart { .. }
+            | Rvalue::DateTimezoneContext { .. }
     )
+}
+
+/// Returns true when a MIR rvalue converts timestamps in an IANA time zone.
+fn rvalue_needs_chrono_tz(rvalue: &Rvalue) -> bool {
+    matches!(rvalue, Rvalue::DateTimezoneContext { .. })
+}
+
+/// Returns true when generated Rust needs mutable `Date.getTimezoneOffset()` state.
+#[must_use]
+pub(crate) fn needs_date_timezone_offset_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::DateTimezoneOffset
+                | Rvalue::DateSetTimezoneOffset { .. }
+                | Rvalue::DateResetTimezoneOffset
+        )
+    })
 }
 
 /// Returns true when a MIR rvalue uses Url APIs.

@@ -670,6 +670,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::JsonParse { text } => format!("json_parse {}", expr_ref(*text)),
         ExprKind::HttpGetText { url } => format!("http_get_text {}", expr_ref(*url)),
         ExprKind::DateNow => "date_now".to_owned(),
+        ExprKind::DateTimezoneOffset => "date_timezone_offset".to_owned(),
+        ExprKind::DateSetTimezoneOffset { offset } => {
+            format!("date_set_timezone_offset {}", expr_ref(*offset))
+        }
+        ExprKind::DateResetTimezoneOffset => "date_reset_timezone_offset".to_owned(),
+        ExprKind::DateTimezoneContext { timezone } => {
+            format!("date_timezone_context {}", expr_ref(*timezone))
+        }
         ExprKind::DateToIsoString { timestamp_ms } => {
             format!("date_to_iso {}", expr_ref(*timestamp_ms))
         }

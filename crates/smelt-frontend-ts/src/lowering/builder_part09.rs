@@ -97,7 +97,12 @@ impl ModuleBuilder<'_> {
 
     /// Return true when an `instanceof` left operand can participate in a lowered guard.
     fn instanceof_supported_left_operand(&self, ty: smelt_hir::TypeId) -> bool {
-        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(
                 Type::Class { .. }
                 | Type::Unknown
@@ -270,9 +275,7 @@ impl ModuleBuilder<'_> {
                 | Type::Future(_)
                 | Type::TypeParam { .. },
             )
-            | None => {
-                None
-            }
+            | None => None,
         }
     }
 
@@ -310,7 +313,13 @@ impl ModuleBuilder<'_> {
             } else {
                 BinOp::Eq
             };
-            return Ok(Some(self.comparison_expr(op, value, none, binary.span, body)));
+            return Ok(Some(self.comparison_expr(
+                op,
+                value,
+                none,
+                binary.span,
+                body,
+            )));
         }
         let check = body.push_expr(Expr {
             kind: ExprKind::UnknownIs {
@@ -533,7 +542,9 @@ impl ModuleBuilder<'_> {
                 self.span(non_null.span.start, non_null.span.end),
                 body,
             ),
-            Argument::NewExpression(new_expr) => self.new_expression_with_hint(new_expr, body, None),
+            Argument::NewExpression(new_expr) => {
+                self.new_expression_with_hint(new_expr, body, None)
+            }
             Argument::ComputedMemberExpression(member) => self.computed_member(member, body),
             Argument::StaticMemberExpression(member) => self.static_member(member, body),
             Argument::AwaitExpression(await_expr) => {
@@ -595,12 +606,9 @@ impl ModuleBuilder<'_> {
             Argument::ArrowFunctionExpression(arrow) => {
                 self.arrow_function_expression_with_hint(arrow, body, type_hint)
             }
-            Argument::FunctionExpression(function) => self.function_expression_value(
-                function,
-                type_hint,
-                function.span,
-                body,
-            ),
+            Argument::FunctionExpression(function) => {
+                self.function_expression_value(function, type_hint, function.span, body)
+            }
             Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
                 &as_expr.type_annotation,
@@ -826,7 +834,11 @@ impl ModuleBuilder<'_> {
         };
         let output_ty = type_hint
             .and_then(|hint| self.future_inner_type(hint))
-            .or_else(|| self.promise_constructor_output_type(new_expr).ok().flatten())
+            .or_else(|| {
+                self.promise_constructor_output_type(new_expr)
+                    .ok()
+                    .flatten()
+            })
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::None));
         let ty = self.ctx.krate.types.intern(Type::Future(output_ty));
         let duration = if let Some(timer_call) = Self::promise_executor_timer_call(executor) {
@@ -1255,7 +1267,10 @@ impl ModuleBuilder<'_> {
         };
         let timestamp_ms = self.argument(timestamp_arg, body)?;
         let timestamp_ty = Self::expr_ty(body, timestamp_ms);
-        if matches!(self.ctx.krate.types.get(timestamp_ty), Some(Type::Int | Type::Float)) {
+        if matches!(
+            self.ctx.krate.types.get(timestamp_ty),
+            Some(Type::Int | Type::Float)
+        ) {
             return Ok(timestamp_ms);
         }
         if self.is_date_constructor_arg_type(timestamp_ty) {
@@ -1286,13 +1301,10 @@ impl ModuleBuilder<'_> {
                 | Type::Class { .. },
             ) => true,
             Some(Type::Optional(item)) => self.is_date_constructor_arg_type(*item),
-            Some(Type::Union(items)) => items
-                .iter()
-                .copied()
-                .all(|item| {
-                    matches!(self.ctx.krate.types.get(item), Some(Type::None))
-                        || self.is_date_constructor_arg_type(item)
-                }),
+            Some(Type::Union(items)) => items.iter().copied().all(|item| {
+                matches!(self.ctx.krate.types.get(item), Some(Type::None))
+                    || self.is_date_constructor_arg_type(item)
+            }),
             _ => false,
         }
     }
@@ -1395,7 +1407,7 @@ impl ModuleBuilder<'_> {
             }
             let ty = self.ctx.krate.types.intern(Type::Float);
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Float(0.0)),
+                kind: ExprKind::DateTimezoneOffset,
                 ty,
                 span: self.span(call.span.start, call.span.end),
             })));
@@ -1509,7 +1521,10 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let receiver_ty = Self::expr_ty(body, receiver);
-        if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Int | Type::Float)) {
+        if matches!(
+            self.ctx.krate.types.get(receiver_ty),
+            Some(Type::Int | Type::Float)
+        ) {
             return Ok(receiver);
         }
         if self.is_date_constructor_arg_type(receiver_ty) {

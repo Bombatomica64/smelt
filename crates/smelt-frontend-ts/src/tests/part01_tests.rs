@@ -1424,6 +1424,53 @@ test("does not throw", () => {
 }
 
 #[test]
+fn vitest_to_throw_preserves_throwing_bound_function_type() -> Result<(), String> {
+    let source = ts!(r#"
+import { test, expect } from "vitest";
+
+function fail(value: string): never {
+  throw new RangeError(value);
+}
+
+test("throws", () => {
+  expect(fail.bind(null, "bad")).toThrow();
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/to-throw-bound-error.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body_id = function
+        .body
+        .ok_or_else(|| "missing test body id".to_owned())?;
+    let body = ctx
+        .krate
+        .bodies
+        .get(body_id.0 as usize)
+        .ok_or_else(|| "missing test body".to_owned())?;
+    ensure!(
+        body.stmts
+            .iter()
+            .any(|stmt| matches!(stmt, Stmt::TryCatch { .. })),
+        "expected throwing bound toThrow to lower through try/catch",
+    );
+    let throwing_assertion_callee = body
+        .exprs
+        .iter()
+        .find_map(|expr| matches!(expr.kind, ExprKind::TypeAssert { .. }).then_some(expr.ty))
+        .ok_or_else(|| "missing throwing assertion callable cast".to_owned())?;
+    ensure!(
+        matches!(
+            ctx.krate.types.get(throwing_assertion_callee),
+            Some(Type::Function(function)) if function.may_throw
+        ),
+        "toThrow call site must use a throwing callable ABI",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn vitest_expect_matchers_lower_inside_nested_test_blocks() -> Result<(), String> {
     let source = ts!(r#"
 import { test, expect } from "vitest";

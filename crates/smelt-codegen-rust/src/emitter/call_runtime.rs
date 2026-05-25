@@ -413,7 +413,7 @@ impl FunctionEmitter<'_> {
                     if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
                         Ok(format!("SmeltUnknown::Number(-({numeric_text}) as f64)"))
                     } else {
-                        Ok(format!("-({numeric_text})"))
+                        Ok(format!("-{numeric_text}"))
                     }
                 }
             },
@@ -942,6 +942,22 @@ impl FunctionEmitter<'_> {
                 let text = "chrono::Utc::now().timestamp_millis()";
                 self.date_timestamp_result_text(text, dest_ty)
             }
+            Rvalue::DateTimezoneOffset => {
+                Ok("SMELT_DATE_TIMEZONE_OFFSET.with(::std::cell::Cell::get)".to_owned())
+            }
+            Rvalue::DateSetTimezoneOffset { offset } => Ok(format!(
+                "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|value| value.set({})); {} }}",
+                self.operand_as_type_text(offset, self.type_id(Type::Float)?)?,
+                self.default_value(dest_ty)?
+            )),
+            Rvalue::DateResetTimezoneOffset => Ok(format!(
+                "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|value| value.set(0.0)); {} }}",
+                self.default_value(dest_ty)?
+            )),
+            Rvalue::DateTimezoneContext { timezone } => Ok(format!(
+                "{{ let smelt_timezone: chrono_tz::Tz = {}.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(::std::cell::RefCell::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}; SmeltUnknown::Number(chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64)) }})) }}",
+                self.operand_text(timezone)?
+            )),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
             Rvalue::DateFromParts { parts } => {
                 let text = self.date_from_parts_text(parts)?;
@@ -1897,6 +1913,19 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(optional_ty) {
             Some(Type::Optional(inner)) => {
+                if matches!(
+                    self.mir.types.get(dest_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(dest_ty)
+                {
+                    let optional_text = self.operand_text(optional)?;
+                    let present_text =
+                        self.rendered_value_as_type_text("value", *inner, dest_ty)?;
+                    let fallback_text = self.operand_as_type_text(fallback, dest_ty)?;
+                    return Ok(format!(
+                        "{optional_text}.map_or_else(|| {fallback_text}, |value| {present_text})"
+                    ));
+                }
                 let fallback_ty = self.operand_ty(fallback)?;
                 if matches!(
                     self.mir.types.get(fallback_ty),

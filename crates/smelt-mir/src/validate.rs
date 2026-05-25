@@ -675,6 +675,13 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, url, errors);
         }
         Rvalue::DateNow => {}
+        Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => {}
+        Rvalue::DateSetTimezoneOffset { offset } => {
+            validate_operand_exists(function, offset, errors);
+        }
+        Rvalue::DateTimezoneContext { timezone } => {
+            validate_operand_exists(function, timezone, errors);
+        }
         Rvalue::DateToIsoString { timestamp_ms } => {
             validate_operand_exists(function, timestamp_ms, errors);
         }
@@ -1487,6 +1494,13 @@ fn validate_rvalue(
             validate_operand(mir, function, definitions, url, errors);
         }
         Rvalue::DateNow => {}
+        Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => {}
+        Rvalue::DateSetTimezoneOffset { offset } => {
+            validate_operand(mir, function, definitions, offset, errors);
+        }
+        Rvalue::DateTimezoneContext { timezone } => {
+            validate_operand(mir, function, definitions, timezone, errors);
+        }
         Rvalue::DateToIsoString { timestamp_ms } => {
             validate_operand(mir, function, definitions, timestamp_ms, errors);
         }

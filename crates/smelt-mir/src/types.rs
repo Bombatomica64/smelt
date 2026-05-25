@@ -1293,6 +1293,20 @@ pub enum Rvalue {
     },
     /// Read the current timestamp in milliseconds.
     DateNow,
+    /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
+    DateTimezoneOffset,
+    /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.
+    DateSetTimezoneOffset {
+        /// Offset from UTC in minutes.
+        offset: Operand,
+    },
+    /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
+    DateResetTimezoneOffset,
+    /// Create a date-fns-compatible date context function for an IANA time zone.
+    DateTimezoneContext {
+        /// IANA time zone name.
+        timezone: Operand,
+    },
     /// Convert a timestamp in milliseconds to an ISO-8601 string.
     DateToIsoString {
         /// Timestamp in milliseconds.

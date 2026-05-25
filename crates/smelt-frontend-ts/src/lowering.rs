@@ -363,6 +363,8 @@ struct ModuleBuilder<'ctx> {
     type_only_imports: HashSet<String>,
     /// Local names imported as runtime values.
     value_imports: HashSet<String>,
+    /// Local names bound to `tz` from the `@date-fns/tz` package.
+    date_fns_timezone_factories: HashSet<String>,
     /// Object constants that act as namespace-like API surfaces.
     object_namespaces: HashMap<String, HashMap<String, smelt_hir::ItemId>>,
     /// Literal constant items visible from already-lowered modules.

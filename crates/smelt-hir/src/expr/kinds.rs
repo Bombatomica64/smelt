@@ -473,6 +473,18 @@ pub enum ExprKind {
         url: ExprId,
     },
     DateNow,
+    /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
+    DateTimezoneOffset,
+    /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.
+    DateSetTimezoneOffset {
+        offset: ExprId,
+    },
+    /// Restore the default `Date.prototype.getTimezoneOffset` implementation.
+    DateResetTimezoneOffset,
+    /// Create a date-fns-compatible date context function for an IANA time zone.
+    DateTimezoneContext {
+        timezone: ExprId,
+    },
     DateToIsoString {
         timestamp_ms: ExprId,
     },

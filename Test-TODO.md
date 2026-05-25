@@ -25,11 +25,17 @@ Deferred TS stress target:
 ## Current Baseline
 
 - Workspace health from the latest required check:
-  - `cargo test`: passed.
+  - `cargo test`: fails in `smelt-cli --test hir_cli_cross_language_tests` because
+    `27_optional_chains/expected.rs` predates the identity-preserving `SmeltObject`
+    runtime output.
   - `cargo check`: passed.
-  - `cargo clippy`: passed, with non-fatal shadowing warnings in `smelt-mir` for
-    `NumericToStringRadix` lowering.
-- External repo checks can be used as signal again.
+  - `cargo clippy`: fails on existing lint debt, including
+    `crates/smelt-codegen-rust/src/emitter/place.rs` (`needless_raw_string_hashes`),
+    `crates/smelt-codegen-rust/src/emitter/list_query.rs` (`default_numeric_fallback`),
+    and `crates/smelt-frontend-ts/src/lowering/builder_part14.rs`
+    (`if_same_then_else`).
+- External repo checks remain usable as targeted signal; the workspace gates must be
+  restored before treating full-suite success as authoritative.
 
 ### External Probe: 2026-05-16 Web Server Targets
 
@@ -52,6 +58,33 @@ Results:
 | `strapi/strapi` | `examples/kitchensink-ts/src/index.ts` | pass | Green for this narrow entry. |
 | `strapi/strapi` | `packages/core/core/src/index.ts` | fail | `packages/core/core/src/configuration/urls.ts`: `Map.get requires exactly one key argument`; `string prefix/suffix methods require string receiver and argument`. |
 | `nestjs/nest` | n/a | blocked | Local subtree at `third_party/nest` is currently incorrect (contains this `smelt` repo tree), so probe is invalid until subtree is fixed. |
+
+### External Probe: 2026-05-25 date-fns `format` Native Test Slice
+
+Manifest:
+`/tmp/smelt_date_fns_resume/format_probe/Smelt.toml`
+
+Target:
+`pkgs/core/src/format/test.ts` and its imported date-fns source graph, including
+the public `@date-fns/tz` context API.
+
+Result:
+
+| Test surface | `smelt build` | Generated `cargo test` | Diagnostics |
+|---|---:|---:|---|
+| `src/format/test.ts` | pass | pass, `108 / 108` tests | Builds with generated-code warnings; grouped report in `blocker-logs/date-fns-format-probe-warnings.md`. |
+
+Features validated by this native Rust test run:
+
+- Vitest `expect(...).toThrow(...)` on bound throwing callables.
+- Vitest `vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(...)` and restore.
+- Local export aliases such as `formatDate`.
+- Nested structural locale callback option bags.
+- Optional callable value fallback in `context || argument`.
+- Public `@date-fns/tz` `tz(...)` date context behavior for IANA time zones.
+
+This is a large green source test file, not yet proof that the complete date-fns repository test
+surface compiles and runs.
 
 ### External Probe: 2026-05-15 date-fns Full TS-Only Manifest
 

@@ -46,6 +46,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             namespace_imports: HashSet::new(),
             type_only_imports: HashSet::new(),
             value_imports: HashSet::new(),
+            date_fns_timezone_factories: HashSet::new(),
             object_namespaces,
             const_literals,
             const_regexps: HashMap::new(),
@@ -331,9 +332,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         Err(error) => errors.push(error),
                     }
                 }
-            } else if let Statement::ExportNamedDeclaration(export) = statement
-                && export.source.is_some()
-            {
+            } else if let Statement::ExportNamedDeclaration(export) = statement {
                 self.reexport_named_declaration(export, &mut module);
             } else if let Statement::ExportAllDeclaration(export) = statement {
                 self.reexport_all_declaration(export, &mut module);
@@ -383,7 +382,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
     ) {
         let mut exports = HashMap::new();
         for item_id in &module.items {
-            let Some(item) = self.ctx.krate.items.get(usize::try_from(item_id.0).unwrap_or(usize::MAX)) else {
+            let Some(item) = self
+                .ctx
+                .krate
+                .items
+                .get(usize::try_from(item_id.0).unwrap_or(usize::MAX))
+            else {
                 continue;
             };
             if let Some(name) = item_name(&self.ctx.krate, item) {
@@ -445,7 +449,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
     fn collect_module_globals(&mut self, program: &Program<'_>) {
         for statement in &program.body {
             match statement {
-                Statement::VariableDeclaration(variable) => self.collect_module_global_decl(variable),
+                Statement::VariableDeclaration(variable) => {
+                    self.collect_module_global_decl(variable);
+                }
                 Statement::ExportNamedDeclaration(export) => {
                     if let Some(Declaration::VariableDeclaration(variable)) = &export.declaration {
                         self.collect_module_global_decl(variable);
@@ -503,8 +509,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 decl.kind,
                 oxc::ast::ast::VariableDeclarationKind::Const
                     | oxc::ast::ast::VariableDeclarationKind::Let
-            )
-                && let Some(init) = &declarator.init
+            ) && let Some(init) = &declarator.init
                 && let Expression::RegExpLiteral(literal) = init
             {
                 let pattern = Self::regex_literal_pattern_text_without_flags(literal);
@@ -521,8 +526,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 decl.kind,
                 oxc::ast::ast::VariableDeclarationKind::Const
                     | oxc::ast::ast::VariableDeclarationKind::Let
-            )
-                && let Some(init) = &declarator.init
+            ) && let Some(init) = &declarator.init
                 && let Ok(value) = self.literal_const_expression(init)
             {
                 self.module_globals
@@ -545,9 +549,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     && (Self::is_module_global_array_initializer(init)
                         || Self::object_const_initializer(init).is_some())
                 {
-                    let ty = self.infer_module_global_initializer_type(init).unwrap_or_else(|_| {
-                        self.ctx.krate.types.intern(Type::Unknown)
-                    });
+                    let ty = self
+                        .infer_module_global_initializer_type(init)
+                        .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                     if let Some(collection) = self.const_collection_from_initializer(init, ty) {
@@ -562,9 +566,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     && let Some(init) = &declarator.init
                     && !matches!(init, Expression::ArrowFunctionExpression(_))
                 {
-                    let ty = self.infer_module_global_initializer_type(init).unwrap_or_else(|_| {
-                        self.ctx.krate.types.intern(Type::Unknown)
-                    });
+                    let ty = self
+                        .infer_module_global_initializer_type(init)
+                        .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
                     self.module_globals
                         .insert(binding.name.as_str().to_owned(), ty);
                 }
@@ -616,11 +620,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 }
             }
             BindingPattern::AssignmentPattern(assignment) => {
-                Self::collect_module_global_pattern_bindings(
-                    &assignment.left,
-                    ty,
-                    module_globals,
-                );
+                Self::collect_module_global_pattern_bindings(&assignment.left, ty, module_globals);
             }
         }
     }
@@ -635,12 +635,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
         }
         !decl.declarations.is_empty()
             && decl.declarations.iter().all(|declarator| {
-                matches!(declarator.init, Some(Expression::ArrowFunctionExpression(_)))
-                    && matches!(
-                        &declarator.id,
-                        BindingPattern::BindingIdentifier(binding)
-                            if self.items.contains_key(binding.name.as_str())
-                    )
+                matches!(
+                    declarator.init,
+                    Some(Expression::ArrowFunctionExpression(_))
+                ) && matches!(
+                    &declarator.id,
+                    BindingPattern::BindingIdentifier(binding)
+                        if self.items.contains_key(binding.name.as_str())
+                )
             })
     }
 
@@ -654,8 +656,9 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     if matches!(callee.name.as_str(), "Set" | "Map")
                         || Self::is_numeric_typed_array_constructor(callee.name.as_str())
             ),
-            Expression::CallExpression(call) => Self::object_values_identifier_argument(call)
-                .is_some(),
+            Expression::CallExpression(call) => {
+                Self::object_values_identifier_argument(call).is_some()
+            }
             Expression::TSAsExpression(as_expr) => {
                 Self::is_module_global_array_initializer(&as_expr.expression)
             }
@@ -798,7 +801,10 @@ impl<'ctx> ModuleBuilder<'ctx> {
     }
 
     /// Build an `Object.values` collection from a reusable static object const.
-    fn const_collection_from_object_const(&mut self, value: &ObjectConst) -> Option<ConstCollection> {
+    fn const_collection_from_object_const(
+        &mut self,
+        value: &ObjectConst,
+    ) -> Option<ConstCollection> {
         let Type::Dict(_, value_ty) = self.ctx.krate.types.get(value.ty)? else {
             return None;
         };
@@ -850,11 +856,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             items.push(self.const_unknown_value_item(&object_property.value, unknown_ty));
         }
-        let ty = self
-            .ctx
-            .krate
-            .types
-            .intern(Type::List(optional_unknown_ty));
+        let ty = self.ctx.krate.types.intern(Type::List(optional_unknown_ty));
         Some(ConstCollection {
             items,
             ty,
@@ -984,7 +986,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                             self.span(param.span.start, param.span.end),
                             "overload parameters must have explicit type annotations",
                         )
-                })?;
+                    })?;
                 params.push(ty);
             }
             if let Some(rest) = &function.params.rest {
@@ -1010,9 +1012,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 })?;
             Ok(OverloadSignature {
                 params,
-                rest: function.params.rest.as_ref().map(|_| function.params.items.len()),
+                rest: function
+                    .params
+                    .rest
+                    .as_ref()
+                    .map(|_| function.params.items.len()),
                 required_params: None,
-return_ty,
+                return_ty,
                 is_async: function.r#async,
             })
         })();
@@ -1112,7 +1118,7 @@ return_ty,
             params,
             rest: rest.map(|rest| rest.index),
             required_params: None,
-return_ty,
+            return_ty,
             is_async: function.r#async,
             may_throw: false,
         }));
@@ -1320,7 +1326,9 @@ return_ty,
             rest_index = Some(index);
             let rest_param = RestParam { index, item_ty };
             self.function_rests.insert(name_text.to_owned(), rest_param);
-            self.ctx.function_rests.insert(name_text.to_owned(), rest_param);
+            self.ctx
+                .function_rests
+                .insert(name_text.to_owned(), rest_param);
             params.push(Param {
                 name: self.intern_source_name(binding.name.as_str()),
                 local: smelt_hir::LocalId(u32::try_from(index).unwrap_or(u32::MAX)),
@@ -1358,6 +1366,14 @@ return_ty,
         module: &mut Module,
     ) {
         let Some(source) = &export.source else {
+            for specifier in &export.specifiers {
+                let local = module_export_name(&specifier.local);
+                let exported = module_export_name(&specifier.exported);
+                if let Some(item) = self.items.get(&local).copied() {
+                    self.items.insert(exported.clone(), item);
+                    self.ctx.export_aliases.insert(exported, item);
+                }
+            }
             return;
         };
         let source_text = source.value.as_str();
@@ -1378,7 +1394,9 @@ return_ty,
                 self.ctx.export_aliases.insert(exported.clone(), item);
             }
             if let Some(namespace) = self.object_namespaces.get(&exported).cloned() {
-                self.ctx.object_namespaces.insert(exported.clone(), namespace);
+                self.ctx
+                    .object_namespaces
+                    .insert(exported.clone(), namespace);
             }
             if let Some(value) = self.const_objects.get(&exported).cloned() {
                 self.ctx.object_consts.insert(exported.clone(), value);
@@ -1530,6 +1548,9 @@ return_ty,
                 self.type_only_imports.insert(local.clone());
             } else {
                 self.value_imports.insert(local.clone());
+                if source == "@date-fns/tz" && imported == "tz" {
+                    self.date_fns_timezone_factories.insert(local.clone());
+                }
             }
             let name = self.intern_source_name(&imported);
             let alias = (local != imported).then(|| self.intern_source_name(&local));
@@ -1680,20 +1701,22 @@ return_ty,
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
             if let Some(object) = Self::direct_object_initializer(init) {
-                if self.object_namespace_const_declaration(binding.name.as_str(), object, type_hint)?
-                {
+                if self.object_namespace_const_declaration(
+                    binding.name.as_str(),
+                    object,
+                    type_hint,
+                )? {
                     continue;
                 }
             }
             if let Some(object) = Self::object_const_initializer(init) {
-                let item = if let Ok(item) = self.object_const_declaration(
-                    binding.name.as_str(),
-                    object,
-                    type_hint,
-                ) {
+                let item = if let Ok(item) =
+                    self.object_const_declaration(binding.name.as_str(), object, type_hint)
+                {
                     item
                 } else {
-                    if let Some(collection) = self.const_unknown_value_collection_from_object(object)
+                    if let Some(collection) =
+                        self.const_unknown_value_collection_from_object(object)
                     {
                         self.const_object_value_collections
                             .insert(binding.name.as_str().to_owned(), collection.clone());
@@ -1769,8 +1792,10 @@ return_ty,
                 items.push(item);
                 continue;
             }
-            if matches!(init, Expression::CallExpression(_) | Expression::NewExpression(_))
-                && self.literal_const_expression(init).is_err()
+            if matches!(
+                init,
+                Expression::CallExpression(_) | Expression::NewExpression(_)
+            ) && self.literal_const_expression(init).is_err()
             {
                 let span = self.span(binding.span.start, binding.span.end);
                 let mut body = Body::new(None, span);
@@ -1894,7 +1919,10 @@ return_ty,
                     }
                     for declarator in &variable.declarations {
                         if let BindingPattern::BindingIdentifier(binding) = &declarator.id
-                            && matches!(declarator.init, Some(Expression::ArrowFunctionExpression(_)))
+                            && matches!(
+                                declarator.init,
+                                Some(Expression::ArrowFunctionExpression(_))
+                            )
                         {
                             arrow_consts
                                 .push((binding.name.as_str().to_owned(), binding.span.start));
@@ -1905,34 +1933,29 @@ return_ty,
                 Statement::FunctionDeclaration(function) => {
                     referrer_spans.push((function.span.start, function.span.end));
                 }
-                Statement::ExportNamedDeclaration(export) => {
-                    match &export.declaration {
-                        Some(Declaration::FunctionDeclaration(function)) => {
-                            referrer_spans.push((function.span.start, function.span.end));
-                        }
-                        Some(Declaration::VariableDeclaration(variable)) => {
-                            if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
-                                continue;
-                            }
-                            for declarator in &variable.declarations {
-                                if let BindingPattern::BindingIdentifier(binding) = &declarator.id
-                                    && matches!(
-                                        declarator.init,
-                                        Some(Expression::ArrowFunctionExpression(_))
-                                    )
-                                {
-                                    arrow_consts.push((
-                                        binding.name.as_str().to_owned(),
-                                        binding.span.start,
-                                    ));
-                                    referrer_spans
-                                        .push((declarator.span.start, declarator.span.end));
-                                }
-                            }
-                        }
-                        _ => {}
+                Statement::ExportNamedDeclaration(export) => match &export.declaration {
+                    Some(Declaration::FunctionDeclaration(function)) => {
+                        referrer_spans.push((function.span.start, function.span.end));
                     }
-                }
+                    Some(Declaration::VariableDeclaration(variable)) => {
+                        if variable.kind != oxc::ast::ast::VariableDeclarationKind::Const {
+                            continue;
+                        }
+                        for declarator in &variable.declarations {
+                            if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+                                && matches!(
+                                    declarator.init,
+                                    Some(Expression::ArrowFunctionExpression(_))
+                                )
+                            {
+                                arrow_consts
+                                    .push((binding.name.as_str().to_owned(), binding.span.start));
+                                referrer_spans.push((declarator.span.start, declarator.span.end));
+                            }
+                        }
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
@@ -1951,11 +1974,11 @@ return_ty,
                         .any(|(function_start, function_end)| {
                             self.source
                                 .get(
-                                usize::try_from(*function_start).unwrap_or(usize::MAX)
-                                    ..usize::try_from(*function_end).unwrap_or(usize::MAX),
-                            )
-                            .is_some_and(|text| text.contains(&name))
-                    });
+                                    usize::try_from(*function_start).unwrap_or(usize::MAX)
+                                        ..usize::try_from(*function_end).unwrap_or(usize::MAX),
+                                )
+                                .is_some_and(|text| text.contains(&name))
+                        });
                 referenced.then_some(name)
             })
             .collect()
@@ -1978,7 +2001,10 @@ return_ty,
             }
             for declarator in &variable.declarations {
                 if let BindingPattern::BindingIdentifier(binding) = &declarator.id
-                    && matches!(declarator.init, Some(Expression::ArrowFunctionExpression(_)))
+                    && matches!(
+                        declarator.init,
+                        Some(Expression::ArrowFunctionExpression(_))
+                    )
                 {
                     arrow_consts.insert(binding.name.as_str().to_owned());
                 }
@@ -2041,7 +2067,9 @@ return_ty,
             Expression::ParenthesizedExpression(parenthesized) => {
                 Self::object_const_initializer(&parenthesized.expression)
             }
-            Expression::TSAsExpression(as_expr) => Self::object_const_initializer(&as_expr.expression),
+            Expression::TSAsExpression(as_expr) => {
+                Self::object_const_initializer(&as_expr.expression)
+            }
             Expression::TSSatisfiesExpression(satisfies) => {
                 Self::object_const_initializer(&satisfies.expression)
             }
@@ -2091,8 +2119,12 @@ return_ty,
                 }
             };
             if object_property.method {
-                let item =
-                    self.object_namespace_method_item(name_text, &key_text, object_property, function_hint)?;
+                let item = self.object_namespace_method_item(
+                    name_text,
+                    &key_text,
+                    object_property,
+                    function_hint,
+                )?;
                 members.insert(key_text, item);
                 continue;
             }
@@ -2100,8 +2132,12 @@ return_ty,
                 object_property.value,
                 Expression::FunctionExpression(_) | Expression::ArrowFunctionExpression(_)
             ) {
-                let item =
-                    self.object_namespace_method_item(name_text, &key_text, object_property, function_hint)?;
+                let item = self.object_namespace_method_item(
+                    name_text,
+                    &key_text,
+                    object_property,
+                    function_hint,
+                )?;
                 members.insert(key_text, item);
                 continue;
             }
@@ -2172,7 +2208,8 @@ return_ty,
         let value = self.object_const_from_expression(object, type_hint)?;
         let span = self.span(object.span.start, object.span.end);
         let mut body = Body::new(None, span);
-        let expr = self.object_const_expression(&value, object.span.start, object.span.end, &mut body);
+        let expr =
+            self.object_const_expression(&value, object.span.start, object.span.end, &mut body);
         let body_id = self.ctx.krate.push_body(body);
         let name = self.intern_source_name(name_text);
         let item = self.ctx.krate.push_item(Item::Const(ConstItem {
@@ -2318,7 +2355,9 @@ return_ty,
         if let Expression::RegExpLiteral(literal) = expression {
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok((
-                ObjectConstValue::Literal(Literal::String(Self::regex_literal_pattern_text(literal))),
+                ObjectConstValue::Literal(Literal::String(Self::regex_literal_pattern_text(
+                    literal,
+                ))),
                 ty,
             ));
         }
@@ -2385,7 +2424,9 @@ return_ty,
                 ArrayExpressionElement::StringLiteral(literal) => {
                     let ty = self.ctx.krate.types.intern(Type::String);
                     items.push(ObjectConstEntryValue {
-                        value: ObjectConstValue::Literal(Literal::String(literal.value.to_string())),
+                        value: ObjectConstValue::Literal(Literal::String(
+                            literal.value.to_string(),
+                        )),
                         ty,
                     });
                     continue;
@@ -2480,9 +2521,8 @@ return_ty,
                     ty: key_ty,
                     span,
                 });
-                let entry_value = match &entry.value {
-                    value => self.object_const_value_expression(value, entry.value_ty, span, body),
-                };
+                let entry_value =
+                    self.object_const_value_expression(&entry.value, entry.value_ty, span, body);
                 (key, entry_value)
             })
             .collect();
@@ -2510,7 +2550,9 @@ return_ty,
             ObjectConstValue::List(items) => {
                 let values = items
                     .iter()
-                    .map(|item| self.object_const_value_expression(&item.value, item.ty, span, body))
+                    .map(|item| {
+                        self.object_const_value_expression(&item.value, item.ty, span, body)
+                    })
                     .collect();
                 body.push_expr(Expr {
                     kind: ExprKind::ListLit(values),
@@ -2518,7 +2560,9 @@ return_ty,
                     span,
                 })
             }
-            ObjectConstValue::Object(object) => self.object_const_expression(object, span.start, span.end, body),
+            ObjectConstValue::Object(object) => {
+                self.object_const_expression(object, span.start, span.end, body)
+            }
             ObjectConstValue::Expr(kind) => body.push_expr(Expr {
                 kind: kind.clone(),
                 ty,

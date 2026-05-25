@@ -1260,12 +1260,14 @@ impl<'mir> FunctionEmitter<'mir> {
                 } else {
                     "None".to_owned()
                 }
-            } else {
+            } else if self.can_render_dict_value_as(source_value, field.ty) {
                 let mapped = self.rendered_value_as_type_text("value", source_value, field.ty)?;
                 format!(
                     "{lookup_value}.map_or({}, |value| {mapped})",
                     self.default_value(field.ty)?
                 )
+            } else {
+                self.default_value(field.ty)?
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -1330,7 +1332,15 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether a dictionary value can be meaningfully assigned to a field.
     fn can_render_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
+        self.can_render_non_function_dict_value_as(source, target)
+            || self.can_adapt_rendered_function_value(source, target)
+    }
+
+    /// Returns whether a non-callback dictionary value can populate a field.
+    fn can_render_non_function_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
         source == target
+            || self.structural_record_adapter_available(source, target)
+            || self.string_dict_record_adapter_available(source, target)
             || matches!(
                 (self.mir.types.get(source), self.mir.types.get(target)),
                 (Some(Type::Int), Some(Type::Float))
@@ -1346,6 +1356,32 @@ impl<'mir> FunctionEmitter<'mir> {
             )
             || self.is_erased_class_type(source)
             || self.is_erased_class_type(target)
+    }
+
+    /// Returns whether a callback map value can be wrapped for a typed field.
+    ///
+    /// The wrapper may discard arguments, as TypeScript permits, but it cannot
+    /// invent a different return value or convert incompatible argument types.
+    fn can_adapt_rendered_function_value(&self, source: TypeId, target: TypeId) -> bool {
+        let (Some(Type::Function(source_function)), Some(Type::Function(target_function))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        else {
+            return false;
+        };
+        !source_function.is_async
+            && !target_function.is_async
+            && source_function.params.len() <= target_function.params.len()
+            && self.can_render_non_function_dict_value_as(
+                source_function.return_ty,
+                target_function.return_ty,
+            )
+            && source_function
+                .params
+                .iter()
+                .zip(target_function.params.iter())
+                .all(|(source_param, target_param)| {
+                    self.can_render_non_function_dict_value_as(*target_param, *source_param)
+                })
     }
 
     /// Return the emitted Rust name for a free MIR function.
@@ -1613,6 +1649,21 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         if matches!(operand, Operand::Const(Constant::None)) {
             return self.default_value(target);
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let value_text = self.operand_text(operand)?;
+            if self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner)) {
+                return Ok(format!("{value_text}.clone().flatten()"));
+            }
+            if source_inner == target_inner {
+                return Ok(value_text);
+            }
+            let mapped_value =
+                self.rendered_value_as_type_text("value", *source_inner, *target_inner)?;
+            return Ok(format!("{value_text}.map(|value| {mapped_value})"));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             let operand_ty = self.operand_ty(operand)?;
@@ -2364,6 +2415,11 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return self.default_value(target);
         }
+        if let Some(adapter) =
+            self.rendered_function_shape_adapter_text(value_text, source, target)?
+        {
+            return Ok(adapter);
+        }
         if let Some(adapter) = self.structural_record_adapter_text(value_text, source, target)? {
             return Ok(adapter);
         }
@@ -2434,6 +2490,22 @@ impl<'mir> FunctionEmitter<'mir> {
         {
             return Ok(format!("SmeltRegExp::new({value_text}, String::new())"));
         }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
+        {
+            return Ok(format!("{value_text}.clone().flatten()"));
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            if source_inner == target_inner {
+                return Ok(format!("{value_text}.clone()"));
+            }
+            let mapped_value =
+                self.rendered_value_as_type_text("value", *source_inner, *target_inner)?;
+            return Ok(format!("{value_text}.clone().map(|value| {mapped_value})"));
+        }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target)
             && matches!(
                 self.mir.types.get(source),
@@ -2458,12 +2530,6 @@ impl<'mir> FunctionEmitter<'mir> {
                 let mapped_value = self.rendered_value_as_type_text(value_text, source, *inner)?;
                 return Ok(format!("Some({mapped_value})"));
             }
-        }
-        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
-            (self.mir.types.get(source), self.mir.types.get(target))
-            && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
-        {
-            return Ok(format!("{value_text}.clone().flatten()"));
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(source)
             && *inner == target
@@ -2582,6 +2648,86 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(adapter);
         }
         Ok(value_text.to_owned())
+    }
+
+    /// Adapt an extracted callback value to a compatible callback field shape.
+    ///
+    /// Structural record construction emits map values from rendered Rust text,
+    /// rather than MIR operands. JavaScript permits object callback fields to
+    /// omit arguments supplied by their consumer, so map-extracted callbacks
+    /// require the same wrapper semantics as ordinary callback operands.
+    fn rendered_function_shape_adapter_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<Option<String>, EmitError> {
+        let (Some(Type::Function(source_function)), Some(Type::Function(target_function))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        else {
+            return Ok(None);
+        };
+        if source == target
+            || !self.can_adapt_rendered_function_value(source, target)
+            || matches!(
+                self.mir.types.get(source_function.return_ty),
+                Some(Type::Future(_))
+            )
+            || matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Future(_))
+            )
+        {
+            return Ok(None);
+        }
+
+        let arg_decls = target_function
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                Ok(format!(
+                    "arg{index}: {}",
+                    self.type_text_with_impl_trait(*param, false)?
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?;
+        let forwarded = source_function
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, source_param)| {
+                self.rendered_value_as_type_text(
+                    &format!("arg{index}"),
+                    target_function.params[index],
+                    *source_param,
+                )
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        let call = format!("(&mut *smelt_callback.borrow_mut())({forwarded})");
+        let call_value = if source_function.may_throw && target_function.may_throw {
+            format!("{call}?")
+        } else if source_function.may_throw {
+            format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
+        } else {
+            call
+        };
+        let converted = self.rendered_value_as_type_text(
+            &call_value,
+            source_function.return_ty,
+            target_function.return_ty,
+        )?;
+        let returned = if target_function.may_throw && !source_function.may_throw {
+            format!("Ok::<_, Box<dyn std::error::Error>>({converted})")
+        } else {
+            converted
+        };
+        let target_text = self.type_text_with_impl_trait(target, false)?;
+        Ok(Some(format!(
+            "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{}| {returned})); smelt_adapted }}",
+            arg_decls.join(", ")
+        )))
     }
 
     /// Render conversion from a JavaScript property-key value to an owned Rust string.

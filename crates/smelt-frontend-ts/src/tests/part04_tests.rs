@@ -1447,6 +1447,67 @@ function offset(date: Date): number {
 }
 
 #[test]
+fn lowers_vitest_date_timezone_offset_mock_lifecycle() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { vi } from "vitest";
+
+const spy = vi.spyOn(Date.prototype, "getTimezoneOffset");
+spy.mockReturnValue(480);
+const offset = new Date().getTimezoneOffset();
+spy.mockRestore();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let expressions = module_body(&ctx, module)?
+        .exprs
+        .iter()
+        .map(|expr| &expr.kind)
+        .collect::<Vec<_>>();
+    ensure!(
+        expressions
+            .iter()
+            .any(|expr| matches!(expr, ExprKind::DateSetTimezoneOffset { .. }))
+    );
+    ensure!(
+        expressions
+            .iter()
+            .any(|expr| matches!(expr, ExprKind::DateTimezoneOffset))
+    );
+    ensure!(
+        expressions
+            .iter()
+            .any(|expr| matches!(expr, ExprKind::DateResetTimezoneOffset))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_date_fns_timezone_context_factory() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { tz } from "@date-fns/tz";
+
+const inMidway = tz("Pacific/Midway");
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    ensure!(
+        module_body(&ctx, module)?
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateTimezoneContext { .. }))
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_qualified_external_type_reference_as_opaque_class() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

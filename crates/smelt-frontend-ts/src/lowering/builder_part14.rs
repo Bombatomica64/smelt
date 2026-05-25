@@ -406,7 +406,10 @@ impl ModuleBuilder<'_> {
                 }
                 _ => {
                     let value = self.array_element(element, body)?;
-                    if matches!(self.ctx.krate.types.get(Self::expr_ty(body, value)), Some(Type::Future(_))) {
+                    if matches!(
+                        self.ctx.krate.types.get(Self::expr_ty(body, value)),
+                        Some(Type::Future(_))
+                    ) {
                         return Ok(value);
                     }
                     let duration = body.push_expr(Expr {
@@ -414,7 +417,11 @@ impl ModuleBuilder<'_> {
                         ty: self.ctx.krate.types.intern(Type::Float),
                         span: self.span(element.span().start, element.span().start),
                     });
-                    let ty = self.ctx.krate.types.intern(Type::Future(Self::expr_ty(body, value)));
+                    let ty = self
+                        .ctx
+                        .krate
+                        .types
+                        .intern(Type::Future(Self::expr_ty(body, value)));
                     Ok(body.push_expr(Expr {
                         kind: ExprKind::AsyncOp {
                             op: AsyncOp::Sleep,
@@ -643,7 +650,10 @@ impl ModuleBuilder<'_> {
                     let _ = self.argument(argument, body)?;
                 }
                 let unknown = self.ctx.krate.types.intern(Type::Unknown);
-                (Vec::new(), self.ctx.krate.types.intern(Type::Dict(unknown, unknown)))
+                (
+                    Vec::new(),
+                    self.ctx.krate.types.intern(Type::Dict(unknown, unknown)),
+                )
             }
         };
         Ok(Some(body.push_expr(Expr {
@@ -765,10 +775,8 @@ impl ModuleBuilder<'_> {
                             body.push_expr(Expr {
                                 kind: ExprKind::Literal(Literal::None),
                                 ty,
-                                span: self.span(
-                                    nested_element.span().start,
-                                    nested_element.span().end,
-                                ),
+                                span: self
+                                    .span(nested_element.span().start, nested_element.span().end),
                             })
                         }
                         _ => self.array_element(nested_element, body)?,
@@ -958,7 +966,8 @@ impl ModuleBuilder<'_> {
         }
         if let Expression::LogicalExpression(left_logical) =
             Self::unparenthesized_expression(&logical.left)
-            && let Some(value) = self.logical_and_value_fallback_expression(logical, left_logical, body)?
+            && let Some(value) =
+                self.logical_and_value_fallback_expression(logical, left_logical, body)?
         {
             return Ok(Some(value));
         }
@@ -981,7 +990,8 @@ impl ModuleBuilder<'_> {
             let optional = self.optionalize_index_receiver(optional, body);
             let optional_ty = Self::expr_ty(body, optional);
             if self.is_nullishable_type(optional_ty) {
-                let fallback = self.expression_with_hint(&logical.right, body, Some(optional_ty))?;
+                let fallback =
+                    self.expression_with_hint(&logical.right, body, Some(optional_ty))?;
                 return Ok(Some(body.push_expr(Expr {
                     kind: ExprKind::OptionalCoalesce { optional, fallback },
                     ty: self.ctx.krate.types.intern(Type::Unknown),
@@ -1013,6 +1023,14 @@ impl ModuleBuilder<'_> {
             }
             return Ok(None);
         };
+        if matches!(self.ctx.krate.types.get(ty), Some(Type::Function(_))) {
+            let fallback = self.expression(&logical.right, body)?;
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::OptionalCoalesce { optional, fallback },
+                ty: self.ctx.krate.types.intern(Type::Unknown),
+                span: self.span(logical.span.start, logical.span.end),
+            })));
+        }
         let fallback = self.expression_with_hint(&logical.right, body, Some(ty))?;
         let fallback_ty = Self::expr_ty(body, fallback);
         let ty = if fallback_ty == ty {
@@ -1083,8 +1101,7 @@ impl ModuleBuilder<'_> {
         if value_ty == fallback_ty {
             return Some(value_ty);
         }
-        if self.is_string_compatible_type(value_ty) && self.is_string_compatible_type(fallback_ty)
-        {
+        if self.is_string_compatible_type(value_ty) && self.is_string_compatible_type(fallback_ty) {
             return Some(self.ctx.krate.types.intern(Type::String));
         }
         if self.type_contains_unknown(value_ty) || self.type_contains_unknown(fallback_ty) {
@@ -1218,7 +1235,9 @@ impl ModuleBuilder<'_> {
         match self.ctx.krate.types.get(value_ty).cloned() {
             Some(Type::List(item_ty)) => Some(item_ty),
             Some(Type::Optional(inner_ty)) => self.list_fallback_item_ty(inner_ty),
-            Some(Type::Union(items)) => items.into_iter().find_map(|item| self.list_fallback_item_ty(item)),
+            Some(Type::Union(items)) => items
+                .into_iter()
+                .find_map(|item| self.list_fallback_item_ty(item)),
             _ => None,
         }
     }
@@ -1282,7 +1301,12 @@ impl ModuleBuilder<'_> {
                 Some(Type::TypeParam { .. })
             )
         {
-            type_hint.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Union(vec![ty, fallback_ty])))
+            type_hint.unwrap_or_else(|| {
+                self.ctx
+                    .krate
+                    .types
+                    .intern(Type::Union(vec![ty, fallback_ty]))
+            })
         } else if matches!(
             self.ctx.krate.types.get(ty),
             Some(Type::Union(items)) if items.contains(&fallback_ty)
@@ -1307,9 +1331,7 @@ impl ModuleBuilder<'_> {
             || !self.concrete_type_requires_never_value(ty)
         {
             fallback = body.push_expr(Expr {
-                kind: ExprKind::TypeAssert {
-                    value: fallback,
-                },
+                kind: ExprKind::TypeAssert { value: fallback },
                 ty,
                 span: self.span(logical.right.span().start, logical.right.span().end),
             });
@@ -1353,9 +1375,7 @@ impl ModuleBuilder<'_> {
         optional_inner: smelt_hir::TypeId,
         fallback_ty: smelt_hir::TypeId,
     ) -> bool {
-        let fallback_ty = self
-            .non_nullish_type(fallback_ty)
-            .unwrap_or(fallback_ty);
+        let fallback_ty = self.non_nullish_type(fallback_ty).unwrap_or(fallback_ty);
         self.is_structural_object_surface(optional_inner)
             && self.is_structural_object_surface(fallback_ty)
     }
@@ -1363,9 +1383,9 @@ impl ModuleBuilder<'_> {
     /// Return whether a type behaves as a structural object surface.
     fn is_structural_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
-            Some(Type::Class { .. } | Type::Dict(_, _) | Type::TypeParam { .. } | Type::Unknown) => {
-                true
-            }
+            Some(
+                Type::Class { .. } | Type::Dict(_, _) | Type::TypeParam { .. } | Type::Unknown,
+            ) => true,
             Some(Type::Optional(item)) => self.is_structural_object_surface(*item),
             Some(Type::Union(items)) => items
                 .iter()
@@ -1428,7 +1448,10 @@ impl ModuleBuilder<'_> {
         let string_ty = self.ctx.krate.types.intern(Type::String);
 
         if let Expression::Identifier(receiver_ident) = &binary.right
-            && let Some(object_const) = self.const_objects.get(receiver_ident.name.as_str()).cloned()
+            && let Some(object_const) = self
+                .const_objects
+                .get(receiver_ident.name.as_str())
+                .cloned()
         {
             let mut key = self.expression(&binary.left, body)?;
             if Self::expr_ty(body, key) != string_ty {
@@ -1497,9 +1520,7 @@ impl ModuleBuilder<'_> {
                 } else {
                     let ty = self.ctx.krate.types.intern(Type::Unknown);
                     body.push_expr(Expr {
-                        kind: ExprKind::TypeAssert {
-                            value: receiver,
-                        },
+                        kind: ExprKind::TypeAssert { value: receiver },
                         ty,
                         span,
                     })
@@ -1519,7 +1540,9 @@ impl ModuleBuilder<'_> {
             ));
         };
         let key_ty = *receiver_key_ty;
-        if Self::expr_ty(body, key) != key_ty && self.is_string_compatible_type(Self::expr_ty(body, key)) {
+        if Self::expr_ty(body, key) != key_ty
+            && self.is_string_compatible_type(Self::expr_ty(body, key))
+        {
             key = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: key },
                 ty: key_ty,
@@ -1737,7 +1760,11 @@ impl ModuleBuilder<'_> {
                 .all(|item_ty| *item_ty == first_non_nullish)
             && item_tys.contains(&none_ty)
         {
-            return self.ctx.krate.types.intern(Type::Optional(first_non_nullish));
+            return self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Optional(first_non_nullish));
         }
         self.ctx.krate.types.intern(Type::Unknown)
     }
@@ -1782,9 +1809,7 @@ impl ModuleBuilder<'_> {
                     | Type::Optional(_)
                     | Type::Union(_),
                 )
-                | None => {
-                    self.ctx.krate.types.intern(Type::Unknown)
-                }
+                | None => self.ctx.krate.types.intern(Type::Unknown),
                 _ => {
                     return Err(SmeltError::unsupported(
                         self.span(spread.span.start, spread.span.end),
@@ -1910,13 +1935,12 @@ impl ModuleBuilder<'_> {
                 ty: list_ty,
                 span: self.span(span.start, span.end),
             })),
-            Some(Type::Class { .. } | Type::Optional(_) | Type::Union(_)) | None => {
-                Ok(body.push_expr(Expr {
+            Some(Type::Class { .. } | Type::Optional(_) | Type::Union(_)) | None => Ok(body
+                .push_expr(Expr {
                     kind: ExprKind::TypeAssert { value },
                     ty: list_ty,
                     span: self.span(span.start, span.end),
-                }))
-            }
+                })),
             _ => Err(SmeltError::unsupported(
                 self.span(span.start, span.end),
                 "array spread operands must be arrays or sets",
@@ -1953,27 +1977,39 @@ impl ModuleBuilder<'_> {
                 }
                 let key = self.object_property_key_expr(object_property, body)?;
                 let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
-                let getter = if let Expression::FunctionExpression(function) = &object_property.value
-                {
-                    let getter_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                        params: Vec::new(),
-                        rest: None,
-                        required_params: None,
-                        return_ty: unknown_ty,
-                        is_async: false,
-                        may_throw: false,
-                    }));
-                    self.function_expression_value(function, Some(getter_ty), object_property.span, body)?
-                } else {
-                    self.object_property_value_expr(object_property, body, Some(unknown_ty))?
-                };
+                let getter =
+                    if let Expression::FunctionExpression(function) = &object_property.value {
+                        let getter_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                            params: Vec::new(),
+                            rest: None,
+                            required_params: None,
+                            return_ty: unknown_ty,
+                            is_async: false,
+                            may_throw: false,
+                        }));
+                        self.function_expression_value(
+                            function,
+                            Some(getter_ty),
+                            object_property.span,
+                            body,
+                        )?
+                    } else {
+                        self.object_property_value_expr(object_property, body, Some(unknown_ty))?
+                    };
                 let marker_key_ty = self.ctx.krate.types.intern(Type::String);
                 let marker_key = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::String("__smelt_get".to_owned())),
                     ty: marker_key_ty,
-                    span: self.span(object_property.key.span().start, object_property.key.span().end),
+                    span: self.span(
+                        object_property.key.span().start,
+                        object_property.key.span().end,
+                    ),
                 });
-                let marker_ty = self.ctx.krate.types.intern(Type::Dict(marker_key_ty, unknown_ty));
+                let marker_ty = self
+                    .ctx
+                    .krate
+                    .types
+                    .intern(Type::Dict(marker_key_ty, unknown_ty));
                 let value = body.push_expr(Expr {
                     kind: ExprKind::DictLit(vec![(marker_key, getter)]),
                     ty: marker_ty,
@@ -2046,7 +2082,8 @@ impl ModuleBuilder<'_> {
                     }
                     let key = self.object_property_key_expr(object_property, body)?;
                     let value_hint = self.object_property_value_hint(object_property, record_ty);
-                    let value = self.object_property_value_expr(object_property, body, value_hint)?;
+                    let value =
+                        self.object_property_value_expr(object_property, body, value_hint)?;
                     pending_entries.push((key, value));
                 }
                 ObjectPropertyKind::SpreadProperty(spread) => {
@@ -2072,7 +2109,8 @@ impl ModuleBuilder<'_> {
                         sources.push(source);
                         continue;
                     }
-                    let mut source = self.expression_with_hint(&spread.argument, body, record_ty)?;
+                    let mut source =
+                        self.expression_with_hint(&spread.argument, body, record_ty)?;
                     let source_ty = Self::expr_ty(body, source);
                     if self.object_spread_source_erases_to_empty(source_ty) {
                         let ty = record_ty.unwrap_or_else(|| {
@@ -2123,8 +2161,12 @@ impl ModuleBuilder<'_> {
 
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let fallback_value_ty = self.ctx.krate.types.intern(Type::Unknown);
-        let record_ty = record_ty
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Dict(key_ty, fallback_value_ty)));
+        let record_ty = record_ty.unwrap_or_else(|| {
+            self.ctx
+                .krate
+                .types
+                .intern(Type::Dict(key_ty, fallback_value_ty))
+        });
         let target = body.push_expr(Expr {
             kind: ExprKind::DictLit(Vec::new()),
             ty: record_ty,
@@ -2435,11 +2477,11 @@ impl ModuleBuilder<'_> {
             || {
                 self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: params.iter().map(|param| param.ty).collect(),
-            rest: None,
+                    rest: None,
                     required_params: None,
-return_ty,
+                    return_ty,
                     is_async: function.r#async,
-                            may_throw: false,
+                    may_throw: false,
                 }))
             },
             |(ty, _)| ty,
@@ -2447,9 +2489,9 @@ return_ty,
         Ok(outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
-            rest: None,
+                rest: None,
                 required_params: None,
-return_ty,
+                return_ty,
                 captures,
                 body: body_id,
                 callback_body: None,
@@ -2588,7 +2630,8 @@ return_ty,
                 let Some(record_ty) = record_ty else {
                     return Ok(());
                 };
-                let Some(Type::Dict(record_key, record_value)) = self.ctx.krate.types.get(record_ty).cloned()
+                let Some(Type::Dict(record_key, record_value)) =
+                    self.ctx.krate.types.get(record_ty).cloned()
                 else {
                     return Ok(());
                 };
@@ -2627,7 +2670,10 @@ return_ty,
     }
 
     /// Extract a dictionary type from a contextual object-literal type hint.
-    fn dict_type_from_hint(&self, type_hint: Option<smelt_hir::TypeId>) -> Option<smelt_hir::TypeId> {
+    fn dict_type_from_hint(
+        &self,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Option<smelt_hir::TypeId> {
         let ty = type_hint?;
         match self.ctx.krate.types.get(ty) {
             Some(Type::Dict(_, _)) => Some(ty),
@@ -2652,7 +2698,9 @@ return_ty,
             return ty;
         }
         let key_ty = self.ctx.krate.types.intern(Type::String);
-        let first_value_ty = entries.first().map(|(_, value)| Self::expr_ty(body, *value));
+        let first_value_ty = entries
+            .first()
+            .map(|(_, value)| Self::expr_ty(body, *value));
         let value_ty = first_value_ty
             .filter(|first_ty| {
                 entries
@@ -2681,7 +2729,12 @@ return_ty,
             })));
         }
         if let Some(value) = self.const_objects.get(member_name).cloned() {
-            return Ok(Some(self.object_const_expression(&value, member.span.start, member.span.end, body)));
+            return Ok(Some(self.object_const_expression(
+                &value,
+                member.span.start,
+                member.span.end,
+                body,
+            )));
         }
         let item = self
             .object_namespaces

@@ -2121,6 +2121,41 @@ function width(args: Args): string {
 }
 
 #[test]
+fn lowers_optional_callable_logical_or_as_selected_runtime_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function select(
+  value: unknown,
+  context?: (value: unknown) => unknown,
+): unknown {
+  return context || value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
+        "expected optional callback fallback to preserve the selected runtime value"
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::BinOp { op: BinOp::Or, .. })),
+        "optional callback fallback must not collapse to a boolean expression"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_nullish_coalescing_with_structural_object_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

@@ -1006,6 +1006,14 @@ fn rvalue_text(value: &Rvalue) -> String {
         }
         Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
         Rvalue::DateNow => "date_now".to_owned(),
+        Rvalue::DateTimezoneOffset => "date_timezone_offset".to_owned(),
+        Rvalue::DateSetTimezoneOffset { offset } => {
+            format!("date_set_timezone_offset {}", operand_text(offset))
+        }
+        Rvalue::DateResetTimezoneOffset => "date_reset_timezone_offset".to_owned(),
+        Rvalue::DateTimezoneContext { timezone } => {
+            format!("date_timezone_context {}", operand_text(timezone))
+        }
         Rvalue::DateToIsoString { timestamp_ms } => {
             format!("date_to_iso_string {}", operand_text(timestamp_ms))
         }

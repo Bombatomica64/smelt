@@ -48,6 +48,49 @@ def read_write(path: str, text: str) -> str:
 }
 
 #[test]
+fn emits_vitest_date_timezone_offset_mock_state() {
+    let source = source_for(
+        r#"
+import { vi } from "vitest";
+
+const spy = vi.spyOn(Date.prototype, "getTimezoneOffset");
+spy.mockReturnValue(480);
+const offset = new Date().getTimezoneOffset();
+spy.mockRestore();
+"#,
+    );
+
+    assert!(source.contains("SMELT_DATE_TIMEZONE_OFFSET"), "{source}");
+    assert!(source.contains("value.set(480.0)"), "{source}");
+    assert!(source.contains("with(::std::cell::Cell::get)"), "{source}");
+    assert!(source.contains("value.set(0.0)"), "{source}");
+}
+
+#[test]
+fn emits_date_fns_timezone_context_with_iana_conversion() {
+    let source = source_for(
+        r#"
+import { tz } from "@date-fns/tz";
+const context = tz("Pacific/Midway");
+"#,
+    );
+    let manifest = deps::cargo_toml(
+        &EmitOptions::default().crate_name,
+        &[
+            GeneratedDep::Stdlib(BackendDependency::Chrono),
+            GeneratedDep::Stdlib(BackendDependency::ChronoTz),
+        ],
+    );
+
+    assert!(source.contains("chrono_tz::Tz"), "{source}");
+    assert!(
+        source.contains("with_timezone(&smelt_timezone)"),
+        "{source}"
+    );
+    assert!(manifest.contains("chrono-tz = \"0.10\""), "{manifest}");
+}
+
+#[test]
 fn emits_date_to_iso_string_for_erased_datearg_surfaces() {
     let source = source_for(
         r#"
@@ -146,6 +189,25 @@ test("catch assertion", () => {
     assert!(
         assertion > err_arm,
         "catch assertion escaped before the catch binding:\n{source}"
+    );
+}
+
+#[test]
+fn emits_calls_through_local_export_aliases_as_static_calls() {
+    let source = source_for(
+        r#"
+export function format(value: string): string {
+  return value;
+}
+export { format as formatDate };
+const result = formatDate("ok");
+"#,
+    );
+
+    assert!(source.contains("format(\"ok\".to_owned())"), "{source}");
+    assert!(
+        !source.contains("let smelt_function_value"),
+        "same-module function export aliases must not erase to dynamic calls:\n{source}"
     );
 }
 
@@ -1501,6 +1563,105 @@ function addBusinessDays<DateType>(date: DateType, options?: AddBusinessDaysOpti
 }
 
 #[test]
+fn adapts_nested_object_literal_option_fields_to_structural_records() {
+    let source = source_for(
+        r#"
+interface Locale {
+  code: string;
+}
+
+interface FormatOptions {
+  locale?: Locale;
+}
+
+function format(options?: FormatOptions): string {
+  return options?.locale?.code ?? "";
+}
+
+const customLocale = { code: "fr" };
+const result = format({ locale: customLocale });
+"#,
+    );
+
+    assert!(
+        source.contains("locale: smelt_record_map.get(\"locale\")"),
+        "{source}"
+    );
+    assert!(source.contains("Locale { code:"), "{source}");
+    assert!(!source.contains("FormatOptions { locale: None"), "{source}");
+}
+
+#[test]
+fn adapts_shorter_object_literal_callbacks_to_interface_field_signatures() {
+    let source = source_for(
+        r#"
+interface Locale {
+  localize: Localize;
+}
+
+interface Localize {
+  month: (value: number, options?: string) => string;
+}
+
+interface FormatOptions {
+  locale?: Locale;
+}
+
+function useLocale(options?: FormatOptions): string {
+  return options?.locale?.localize.month(0) ?? "";
+}
+
+const customLocale = { localize: { month: () => "works" } };
+const result = useLocale({ locale: customLocale });
+"#,
+    );
+
+    assert!(source.contains("let smelt_adapted:"), "{source}");
+    assert!(source.contains("move |arg0: f64"), "{source}");
+    assert!(source.contains("borrow_mut())()"), "{source}");
+}
+
+#[test]
+fn preserves_erased_date_values_when_retyping_unknown_callback_fields() {
+    let source = source_for(
+        r#"
+interface Localize {
+  month: (value: number) => string;
+  preprocessor?: (date: Date, parts: string[]) => string[];
+}
+
+interface Locale {
+  localize: Localize;
+}
+
+interface FormatOptions {
+  locale?: Locale;
+}
+
+function format(options?: FormatOptions): string {
+  return "";
+}
+
+const customLocale = {
+  localize: {
+    month: (value: number) => String(value),
+    preprocessor: (date: Date, parts: string[]) =>
+      date.getDate() === 1 ? parts : [],
+  },
+};
+const result = format({ locale: customLocale });
+"#,
+    );
+
+    assert!(source.contains("preprocessor:"), "{source}");
+    assert!(
+        !source.contains("borrow_mut())(Default::default(),"),
+        "{source}"
+    );
+    assert!(source.contains("smelt_call_args.push(arg0);"), "{source}");
+}
+
+#[test]
 fn emits_record_index_assignment_as_insert() {
     let source = source_for(
         "let user: Record<string, string> = { name: \"Ada\" };
@@ -1850,6 +2011,41 @@ export function read(options?: Options): ((value: number) => number) | undefined
 
     assert!(source.contains(".as_ref().and_then("), "{source}");
     assert!(!source.contains("Option<Option<::std::rc::Rc"), "{source}");
+}
+
+#[test]
+fn preserves_optional_callable_values_across_compatible_parameter_adaptation() {
+    let source = source_for(
+        r#"
+interface Options {
+  in?: (value: unknown) => unknown;
+}
+
+function consume(context?: (value: Date) => unknown): void {}
+
+export function run(options?: Options): void {
+  consume(options?.in);
+}
+"#,
+    );
+
+    assert!(source.contains(".clone().map(|value|"), "{source}");
+    assert!(!source.contains("map_or(None::<"), "{source}");
+}
+
+#[test]
+fn emits_optional_callable_logical_or_as_selected_unknown_value() {
+    let source = source_for(
+        r#"
+function select(value: unknown, context?: (value: unknown) => unknown): unknown {
+  return context || value;
+}
+"#,
+    );
+
+    assert!(source.contains(".map_or_else("), "{source}");
+    assert!(source.contains("SmeltUnknown::Function"), "{source}");
+    assert!(!source.contains(".is_some() ||"), "{source}");
 }
 
 #[test]

@@ -362,9 +362,11 @@ impl ModuleBuilder<'_> {
                 "vi.spyOn method name must be a string",
             ));
         }
+        let is_date_timezone_offset_spy = matches!(method, Argument::StringLiteral(method_name) if method_name.value == "getTimezoneOffset");
         Ok(Some(self.vitest_mock_handle_expr(
             self.span(call.span.start, call.span.end),
             body,
+            is_date_timezone_offset_spy,
         )))
     }
 
@@ -380,11 +382,42 @@ impl ModuleBuilder<'_> {
         let method = member.property.name.as_str();
         if !matches!(
             method,
-            "mockImplementation" | "mockRestore" | "mockClear" | "mockReset"
+            "mockImplementation" | "mockReturnValue" | "mockRestore" | "mockClear" | "mockReset"
         ) {
             return Ok(None);
         }
         let receiver = self.expression(&member.object, body)?;
+        let is_date_timezone_offset_spy =
+            self.is_vitest_date_timezone_offset_spy(Self::expr_ty(body, receiver));
+        if is_date_timezone_offset_spy && method == "mockReturnValue" {
+            let [offset] = call.arguments.as_slice() else {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    "mockReturnValue requires exactly one return value",
+                ));
+            };
+            let offset = self.argument(offset, body)?;
+            let ty = Self::expr_ty(body, receiver);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateSetTimezoneOffset { offset },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        if is_date_timezone_offset_spy && matches!(method, "mockRestore" | "mockReset") {
+            if !call.arguments.is_empty() {
+                return Err(SmeltError::unsupported(
+                    self.span(call.span.start, call.span.end),
+                    format!("{method} does not accept arguments"),
+                ));
+            }
+            let ty = Self::expr_ty(body, receiver);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateResetTimezoneOffset,
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if method == "mockImplementation" {
             let [implementation] = call.arguments.as_slice() else {
                 return Err(SmeltError::unsupported(
@@ -414,13 +447,80 @@ impl ModuleBuilder<'_> {
         &mut self,
         span: smelt_hir::Span,
         body: &mut Body,
+        date_timezone_offset_spy: bool,
     ) -> smelt_hir::ExprId {
-        let ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = if date_timezone_offset_spy {
+            let name = self.intern_source_name("__SmeltVitestDateTimezoneOffsetSpy");
+            self.ctx.krate.types.intern(Type::Class {
+                name,
+                args: Vec::new(),
+            })
+        } else {
+            self.ctx.krate.types.intern(Type::Unknown)
+        };
         body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
             ty,
             span,
         })
+    }
+
+    /// Return whether a mock handle controls `Date.prototype.getTimezoneOffset`.
+    fn is_vitest_date_timezone_offset_spy(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx.krate.types.get(ty),
+            Some(Type::Class { name, .. })
+                if self.ctx.krate.symbols.get(*name)
+                    == Some("__smelt_vitest_date_timezone_offset_spy")
+        )
+    }
+
+    /// Lower `tz(zone)` from `@date-fns/tz` to its date-context function value.
+    pub(super) fn date_fns_timezone_context_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(None);
+        };
+        if !self
+            .date_fns_timezone_factories
+            .contains(callee.name.as_str())
+        {
+            return Ok(None);
+        }
+        let [timezone] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "@date-fns/tz tz(...) requires exactly one time zone string",
+            ));
+        };
+        let timezone = self.argument(timezone, body)?;
+        if self.ctx.krate.types.get(Self::expr_ty(body, timezone)) != Some(&Type::String) {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "@date-fns/tz tz(...) requires a time zone string",
+            ));
+        }
+        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self
+            .ctx
+            .krate
+            .types
+            .intern(Type::Function(smelt_hir::FunctionType {
+                params: vec![unknown],
+                rest: None,
+                required_params: Some(1),
+                return_ty: unknown,
+                is_async: false,
+                may_throw: false,
+            }));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DateTimezoneContext { timezone },
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
     }
 
     /// Lower async Vitest matcher chains as `Promise<void>` test-side effects.

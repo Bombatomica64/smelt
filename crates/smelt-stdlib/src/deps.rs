@@ -14,6 +14,8 @@ pub enum BackendDependency {
     Rand,
     /// `chrono` for generated date and datetime values.
     Chrono,
+    /// `chrono-tz` for generated IANA time zone conversion.
+    ChronoTz,
     /// `url` for generated URL parsing and field access.
     Url,
     /// `unicode-normalization` for generated `String.prototype.normalize`.
@@ -34,6 +36,7 @@ impl BackendDependency {
             Self::Regex => "regex = \"1\"\nfancy-regex = \"0.14\"\n",
             Self::Rand => "rand = \"0.9\"\n",
             Self::Chrono => "chrono = \"0.4\"\n",
+            Self::ChronoTz => "chrono-tz = \"0.10\"\n",
             Self::Url => "url = \"2\"\n",
             Self::UnicodeNormalization => "unicode-normalization = \"0.1\"\n",
         }

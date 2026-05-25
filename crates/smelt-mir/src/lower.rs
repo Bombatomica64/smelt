@@ -3445,6 +3445,44 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DateTimezoneOffset => {
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateTimezoneOffset,
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateSetTimezoneOffset { offset } => {
+                let offset_operand = self.lower_expr(*offset)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateSetTimezoneOffset {
+                        offset: offset_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateResetTimezoneOffset => {
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateResetTimezoneOffset,
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateTimezoneContext { timezone } => {
+                let timezone_operand = self.lower_expr(*timezone)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateTimezoneContext {
+                        timezone: timezone_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DateToIsoString { timestamp_ms } => {
                 let timestamp_operand = self.lower_expr(*timestamp_ms)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -4109,6 +4147,10 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::JsonParse { .. }
             | ExprKind::HttpGetText { .. }
             | ExprKind::DateNow
+            | ExprKind::DateTimezoneOffset
+            | ExprKind::DateSetTimezoneOffset { .. }
+            | ExprKind::DateResetTimezoneOffset
+            | ExprKind::DateTimezoneContext { .. }
             | ExprKind::DateToIsoString { .. }
             | ExprKind::DateFromParts { .. }
             | ExprKind::DateFromValue { .. }

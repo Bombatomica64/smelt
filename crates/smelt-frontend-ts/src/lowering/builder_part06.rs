@@ -357,9 +357,13 @@ impl ModuleBuilder<'_> {
             }
             try_block
         } else {
-            let callee = self.argument(actual_arg, body)?;
-            let Some(Type::Function(mut function)) =
-                self.ctx.krate.types.get(Self::expr_ty(body, callee)).cloned()
+            let mut callee = self.argument(actual_arg, body)?;
+            let Some(Type::Function(mut function)) = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, callee))
+                .cloned()
             else {
                 return Err(SmeltError::unsupported(
                     self.span(actual_arg.span().start, actual_arg.span().end),
@@ -369,6 +373,20 @@ impl ModuleBuilder<'_> {
             if Self::is_bind_call_argument(actual_arg) {
                 function.params.clear();
             }
+            // `toThrow` observes the callable's error result. At this call site a
+            // thrown value must flow to the synthesized catch block even when the
+            // callable's source signature omitted a throwing annotation.
+            function.may_throw = true;
+            let throwing_function_ty = self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Function(function.clone()));
+            callee = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: callee },
+                ty: throwing_function_ty,
+                span: self.span(actual_arg.span().start, actual_arg.span().end),
+            });
             let try_block =
                 body.push_block(self.span(actual_arg.span().start, actual_arg.span().end));
             let mut args = Vec::new();
@@ -574,9 +592,9 @@ impl ModuleBuilder<'_> {
     fn assertion_type_contains_unknown(&self, ty: smelt_hir::TypeId) -> bool {
         match self.ctx.krate.types.get(ty) {
             Some(Type::Unknown | Type::TypeParam { .. }) => true,
-            Some(Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item)) => {
-                self.assertion_type_contains_unknown(*item)
-            }
+            Some(
+                Type::Optional(item) | Type::List(item) | Type::Set(item) | Type::Future(item),
+            ) => self.assertion_type_contains_unknown(*item),
             Some(Type::Dict(key, value)) => {
                 self.assertion_type_contains_unknown(*key)
                     || self.assertion_type_contains_unknown(*value)
@@ -598,7 +616,9 @@ impl ModuleBuilder<'_> {
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let operand_ty = Self::expr_ty(body, operand);
         match self.ctx.krate.types.get(operand_ty) {
-            Some(Type::String | Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Tuple(_)) => {
+            Some(
+                Type::String | Type::List(_) | Type::Set(_) | Type::Dict(_, _) | Type::Tuple(_),
+            ) => {
                 let int_ty = self.ctx.krate.types.intern(Type::Int);
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Len { operand },
@@ -886,7 +906,9 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         let local = self.locals.get(name).copied()?;
-        let local_ty = self.narrowed_type(name).unwrap_or_else(|| Self::local_ty(body, local));
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
         match self.ctx.krate.types.get(local_ty).cloned() {
             Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
             Some(Type::Union(items)) => {
@@ -985,9 +1007,10 @@ impl ModuleBuilder<'_> {
     ) -> bool {
         let left = self.type_param_constraint_or_self(left);
         let right = self.type_param_constraint_or_self(right);
-        let (Some(Type::Function(left_fn)), Some(Type::Function(right_fn))) =
-            (self.ctx.krate.types.get(left), self.ctx.krate.types.get(right))
-        else {
+        let (Some(Type::Function(left_fn)), Some(Type::Function(right_fn))) = (
+            self.ctx.krate.types.get(left),
+            self.ctx.krate.types.get(right),
+        ) else {
             return false;
         };
         left_fn.params.len() == right_fn.params.len() && left_fn.is_async == right_fn.is_async
@@ -1001,7 +1024,10 @@ impl ModuleBuilder<'_> {
     ) -> Option<smelt_hir::TypeId> {
         let left = self.type_param_constraint_or_self(left);
         let right = self.type_param_constraint_or_self(right);
-        match (self.ctx.krate.types.get(left), self.ctx.krate.types.get(right)) {
+        match (
+            self.ctx.krate.types.get(left),
+            self.ctx.krate.types.get(right),
+        ) {
             (Some(Type::Function(_)), Some(Type::Class { .. })) => Some(left),
             (Some(Type::Class { .. }), Some(Type::Function(_))) => Some(right),
             _ => None,
@@ -1035,7 +1061,9 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         let local = self.locals.get(name).copied()?;
-        let local_ty = self.narrowed_type(name).unwrap_or_else(|| Self::local_ty(body, local));
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
         match self.ctx.krate.types.get(local_ty).cloned() {
             Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
             Some(Type::Union(items)) => {
@@ -1064,14 +1092,15 @@ impl ModuleBuilder<'_> {
             | Statement::BreakStatement(_)
             | Statement::ContinueStatement(_)
             | Statement::ThrowStatement(_) => true,
-            Statement::BlockStatement(block) => block
-                .body
-                .last()
-                .is_some_and(Self::statement_must_exit),
-            Statement::IfStatement(if_stmt) => if_stmt.alternate.as_ref().is_some_and(|alternate| {
-                Self::statement_must_exit(&if_stmt.consequent)
-                    && Self::statement_must_exit(alternate)
-            }),
+            Statement::BlockStatement(block) => {
+                block.body.last().is_some_and(Self::statement_must_exit)
+            }
+            Statement::IfStatement(if_stmt) => {
+                if_stmt.alternate.as_ref().is_some_and(|alternate| {
+                    Self::statement_must_exit(&if_stmt.consequent)
+                        && Self::statement_must_exit(alternate)
+                })
+            }
             _ => false,
         }
     }
@@ -1141,22 +1170,19 @@ impl ModuleBuilder<'_> {
             "number" => self.ctx.krate.types.intern(Type::Float),
             "string" => self.ctx.krate.types.intern(Type::String),
             "function" => {
-                let local_ty = self
-                    .locals
-                    .get(name)
-                    .map(|local| {
-                        self.narrowed_type(name)
-                            .unwrap_or_else(|| Self::local_ty(body, *local))
-                    });
+                let local_ty = self.locals.get(name).map(|local| {
+                    self.narrowed_type(name)
+                        .unwrap_or_else(|| Self::local_ty(body, *local))
+                });
                 local_ty
                     .and_then(|ty| self.function_member_type(ty))
                     .unwrap_or_else(|| {
                         let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                         self.ctx.krate.types.intern(Type::Function(FunctionType {
                             params: vec![unknown_ty],
-            rest: None,
+                            rest: None,
                             required_params: None,
-return_ty: unknown_ty,
+                            return_ty: unknown_ty,
                             is_async: false,
                             may_throw: false,
                         }))
@@ -1219,7 +1245,9 @@ return_ty: unknown_ty,
     ) -> Option<smelt_hir::TypeId> {
         let signatures = self.interface_call_signatures.get(&name).cloned()?;
         let interface = self.find_interface(name).cloned();
-        let type_params = interface.map(|interface| interface.type_params).unwrap_or_default();
+        let type_params = interface
+            .map(|interface| interface.type_params)
+            .unwrap_or_default();
         let substitutions = self
             .type_argument_substitution(&type_params, args, self.span(0, 0))
             .ok()?;
@@ -1237,9 +1265,9 @@ return_ty: unknown_ty,
             params,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             is_async: signature.is_async,
-                            may_throw: false,
+            may_throw: false,
         })))
     }
 
@@ -1269,7 +1297,10 @@ return_ty,
     }
 
     /// Recognize a call to a user-defined `value is T` predicate function.
-    fn predicate_call_guard(&self, expression: &Expression<'_>) -> Option<(String, smelt_hir::TypeId)> {
+    fn predicate_call_guard(
+        &self,
+        expression: &Expression<'_>,
+    ) -> Option<(String, smelt_hir::TypeId)> {
         let Expression::CallExpression(call) = expression else {
             return None;
         };
@@ -1317,7 +1348,9 @@ return_ty,
         };
         let name = identifier.name.as_str();
         let local = self.locals.get(name).copied()?;
-        let local_ty = self.narrowed_type(name).unwrap_or_else(|| Self::local_ty(body, local));
+        let local_ty = self
+            .narrowed_type(name)
+            .unwrap_or_else(|| Self::local_ty(body, local));
         match self.ctx.krate.types.get(local_ty).cloned() {
             Some(Type::Optional(inner)) => Some((name.to_owned(), inner)),
             Some(Type::Union(items)) => {
@@ -1411,9 +1444,9 @@ return_ty,
                             .map_or(unknown, |function| function.return_ty);
                         self.ctx.krate.types.intern(Type::Function(FunctionType {
                             params: vec![unknown; arrow.params.items.len()],
-            rest: None,
+                            rest: None,
                             required_params: None,
-return_ty,
+                            return_ty,
                             is_async: arrow.r#async,
                             may_throw: false,
                         }))
@@ -1457,12 +1490,12 @@ return_ty,
                 for param in &function.params.items {
                     params.push(self.function_parameter_type(param)?);
                 }
-                        let required_params = function
-                            .params
-                            .items
-                            .iter()
-                            .position(Self::formal_parameter_has_default)
-                            .unwrap_or(function.params.items.len());
+                let required_params = function
+                    .params
+                    .items
+                    .iter()
+                    .position(Self::formal_parameter_has_default)
+                    .unwrap_or(function.params.items.len());
                 let return_ty = function
                     .return_type
                     .as_ref()
@@ -1482,7 +1515,7 @@ return_ty,
                     required_params: Some(required_params),
                     return_ty,
                     is_async: function.r#async,
-                            may_throw: false,
+                    may_throw: false,
                 }));
                 let symbol = self.intern_source_name(id.name.as_str());
                 let local = body.push_local(LocalDecl {
@@ -1532,7 +1565,8 @@ return_ty,
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
-            let predeclared_self = if let BindingPattern::BindingIdentifier(binding) = &declarator.id
+            let predeclared_self = if let BindingPattern::BindingIdentifier(binding) =
+                &declarator.id
                 && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
             {
                 let ty = annotated_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
@@ -1556,7 +1590,8 @@ return_ty,
                 && value.is_none()
                 && let Some(previous) = predeclared_self
             {
-                self.locals.insert(binding.name.as_str().to_owned(), previous);
+                self.locals
+                    .insert(binding.name.as_str().to_owned(), previous);
             }
             self.binding_declaration(
                 &declarator.id,
@@ -1584,158 +1619,172 @@ return_ty,
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let saved_outer_locals = self.locals.clone();
         let result = (|| {
-        let contextual_function = self.contextual_function_type(type_hint);
-        let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
-        let mut default_params = HashMap::new();
-        for (index, param) in arrow.params.items.iter().enumerate() {
-            let ty = params
-                .get(index)
-                .copied()
-                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-            Self::bind_local_callback_default_param(&param.pattern, index, ty, &mut default_params)?;
-        }
-        let defaults = arrow
-            .params
-            .items
-            .iter()
-            .map(|param| {
-                param.initializer
-                    .as_ref()
-                    .map(|default| {
-                        self.callback_expression(default, &default_params, body)
-                            .map(LocalCallbackDefault::Callback)
-                    })
-                    .transpose()
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let rest = arrow.params.rest.as_ref().and_then(|_rest| {
-            let index = params.len().checked_sub(1)?;
-            let param_ty = params.get(index).copied()?;
-            let item_ty = match self.ctx.krate.types.get(param_ty) {
-                Some(Type::List(item_ty)) => *item_ty,
-                _ => param_ty,
-            };
-            Some(RestParam { index, item_ty })
-        });
-        let required_params = arrow
-            .params
-            .items
-            .iter()
-            .position(Self::formal_parameter_has_default)
-            .unwrap_or(arrow.params.items.len());
-        let mut closure_defaults = defaults;
-        if rest.is_some() {
-            closure_defaults.push(None);
-        }
-        let return_ty = arrow
-            .return_type
-            .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-            .transpose()?;
-        let callback_result = if arrow.r#async {
-            Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "async callbacks need closure-body lowering",
-            ))
-        } else {
-            match self.arrow_return_expression(arrow) {
-            Ok(Expression::CallExpression(_)) => Err(SmeltError::unsupported(
-                self.span(arrow.span.start, arrow.span.end),
-                "call-bodied local arrows lower through closure bodies",
-            )),
-            _ => self.arrow_callback_from_params(arrow, &params, body),
+            let contextual_function = self.contextual_function_type(type_hint);
+            let params =
+                self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+            let mut default_params = HashMap::new();
+            for (index, param) in arrow.params.items.iter().enumerate() {
+                let ty = params
+                    .get(index)
+                    .copied()
+                    .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                Self::bind_local_callback_default_param(
+                    &param.pattern,
+                    index,
+                    ty,
+                    &mut default_params,
+                )?;
             }
-        };
-        let mut return_ty = return_ty
-            .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
-            .unwrap_or_else(|| {
-                callback_result.as_ref().map_or_else(
-                    |_| self.ctx.krate.types.intern(Type::Unknown),
-                    |callback| callback.ty,
-                )
+            let defaults = arrow
+                .params
+                .items
+                .iter()
+                .map(|param| {
+                    param
+                        .initializer
+                        .as_ref()
+                        .map(|default| {
+                            self.callback_expression(default, &default_params, body)
+                                .map(LocalCallbackDefault::Callback)
+                        })
+                        .transpose()
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let rest = arrow.params.rest.as_ref().and_then(|_rest| {
+                let index = params.len().checked_sub(1)?;
+                let param_ty = params.get(index).copied()?;
+                let item_ty = match self.ctx.krate.types.get(param_ty) {
+                    Some(Type::List(item_ty)) => *item_ty,
+                    _ => param_ty,
+                };
+                Some(RestParam { index, item_ty })
             });
-        if arrow.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))) {
-            return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
-        }
-        let symbol = self.intern_source_name(name);
-        let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-            params: params.clone(),
-            rest: rest.map(|rest| rest.index),
-            required_params: Some(required_params),
-            return_ty,
-            is_async: arrow.r#async,
-                            may_throw: false,
-        }));
-        let predeclared_local = self.local_arrow_existing_body_local(name, body);
-        if let Ok(callback) = callback_result {
-            let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
-                Some(Type::Future(inner)) if arrow.r#async => *inner,
-                _ => return_ty,
-            };
-            if !self.local_callback_return_type_compatible(callback.ty, expected_callback_ty) {
-                return Err(SmeltError::unsupported(
-                    self.span(arrow.span.start, arrow.span.end),
-                    format!(
-                        "local closure return type does not match its annotation: actual {:?}, expected {:?}",
-                        self.ctx.krate.types.get(callback.ty),
-                        self.ctx.krate.types.get(expected_callback_ty)
-                    ),
-                ));
+            let required_params = arrow
+                .params
+                .items
+                .iter()
+                .position(Self::formal_parameter_has_default)
+                .unwrap_or(arrow.params.items.len());
+            let mut closure_defaults = defaults;
+            if rest.is_some() {
+                closure_defaults.push(None);
             }
-            let local = self.local_arrow_binding_local(
-                name,
-                symbol,
-                fn_ty,
-                self.span(start, end),
-                body,
-            );
-            self.locals.insert(name.to_owned(), local);
-            if predeclared_local.is_some() {
-                let value = self.callback_expr_to_closure_with_return_ty(
-                    return_ty,
-                    callback.clone(),
-                    &params,
-                    rest.map(|rest| rest.index),
-                    Some(required_params),
+            let return_ty = arrow
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
+            let callback_result = if arrow.r#async {
+                Err(SmeltError::unsupported(
                     self.span(arrow.span.start, arrow.span.end),
+                    "async callbacks need closure-body lowering",
+                ))
+            } else {
+                match self.arrow_return_expression(arrow) {
+                    Ok(Expression::CallExpression(_)) => Err(SmeltError::unsupported(
+                        self.span(arrow.span.start, arrow.span.end),
+                        "call-bodied local arrows lower through closure bodies",
+                    )),
+                    _ => self.arrow_callback_from_params(arrow, &params, body),
+                }
+            };
+            let mut return_ty = return_ty
+                .or_else(|| {
+                    contextual_function
+                        .as_ref()
+                        .map(|function| function.return_ty)
+                })
+                .unwrap_or_else(|| {
+                    callback_result.as_ref().map_or_else(
+                        |_| self.ctx.krate.types.intern(Type::Unknown),
+                        |callback| callback.ty,
+                    )
+                });
+            if arrow.r#async
+                && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+            {
+                return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
+            }
+            let symbol = self.intern_source_name(name);
+            let fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
+                params: params.clone(),
+                rest: rest.map(|rest| rest.index),
+                required_params: Some(required_params),
+                return_ty,
+                is_async: arrow.r#async,
+                may_throw: false,
+            }));
+            let predeclared_local = self.local_arrow_existing_body_local(name, body);
+            if let Ok(callback) = callback_result {
+                let expected_callback_ty = match self.ctx.krate.types.get(return_ty) {
+                    Some(Type::Future(inner)) if arrow.r#async => *inner,
+                    _ => return_ty,
+                };
+                if !self.local_callback_return_type_compatible(callback.ty, expected_callback_ty) {
+                    return Err(SmeltError::unsupported(
+                        self.span(arrow.span.start, arrow.span.end),
+                        format!(
+                            "local closure return type does not match its annotation: actual {:?}, expected {:?}",
+                            self.ctx.krate.types.get(callback.ty),
+                            self.ctx.krate.types.get(expected_callback_ty)
+                        ),
+                    ));
+                }
+                let local = self.local_arrow_binding_local(
+                    name,
+                    symbol,
+                    fn_ty,
+                    self.span(start, end),
                     body,
                 );
-                let pat = body.push_pattern(Pattern::Binding(local));
-                body.push_stmt_to_block(
-                    block,
-                    Stmt::Let {
-                        pat,
-                        ty: fn_ty,
-                        value: Some(value),
+                self.locals.insert(name.to_owned(), local);
+                if predeclared_local.is_some() {
+                    let value = self.callback_expr_to_closure_with_return_ty(
+                        return_ty,
+                        callback.clone(),
+                        &params,
+                        rest.map(|rest| rest.index),
+                        Some(required_params),
+                        self.span(arrow.span.start, arrow.span.end),
+                        body,
+                    );
+                    let pat = body.push_pattern(Pattern::Binding(local));
+                    body.push_stmt_to_block(
+                        block,
+                        Stmt::Let {
+                            pat,
+                            ty: fn_ty,
+                            value: Some(value),
+                        },
+                    );
+                }
+                self.local_callbacks.insert(
+                    name.to_owned(),
+                    LocalCallback {
+                        callback,
+                        params,
+                        defaults: closure_defaults,
+                        rest,
+                        required_params: Some(required_params),
+                        return_ty,
                     },
                 );
+                return Ok(());
             }
-            self.local_callbacks.insert(
-                name.to_owned(),
-                LocalCallback {
-                    callback,
-                    params,
-                    defaults: closure_defaults,
-                    rest,
-                    required_params: Some(required_params),
-                    return_ty,
+            let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
+            let local =
+                self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
+            self.locals.insert(name.to_owned(), local);
+            let pat = body.push_pattern(Pattern::Binding(local));
+            body.push_stmt_to_block(
+                block,
+                Stmt::Let {
+                    pat,
+                    ty: fn_ty,
+                    value: Some(value),
                 },
             );
-            return Ok(());
-        }
-        let value = self.arrow_closure_body_expr(arrow, &params, return_ty, body)?;
-        let local = self.local_arrow_binding_local(name, symbol, fn_ty, self.span(start, end), body);
-        self.locals.insert(name.to_owned(), local);
-        let pat = body.push_pattern(Pattern::Binding(local));
-        body.push_stmt_to_block(
-            block,
-            Stmt::Let {
-                pat,
-                ty: fn_ty,
-                value: Some(value),
-            },
-        );
-        Ok(())
+            Ok(())
         })();
         self.pop_type_parameter_scope();
         let declared_local = result
@@ -1793,8 +1842,10 @@ return_ty,
         self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let result = (|| {
             let mut param_tys = Vec::new();
-            let mut closure_body =
-                Body::new(None, self.span(function_body.span.start, function_body.span.end));
+            let mut closure_body = Body::new(
+                None,
+                self.span(function_body.span.start, function_body.span.end),
+            );
             let mut closure_params = Vec::new();
             let mut param_names = HashSet::new();
             let mut saved_locals = Vec::new();
@@ -1829,7 +1880,8 @@ return_ty,
                 param_tys.push(ty);
                 if let Some(source_name) = source_name {
                     param_names.insert(source_name.clone());
-                    saved_locals.push((source_name.clone(), self.locals.insert(source_name, local)));
+                    saved_locals
+                        .push((source_name.clone(), self.locals.insert(source_name, local)));
                 }
             }
 
@@ -1849,11 +1901,11 @@ return_ty,
                 declared_return_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
             let provisional_fn_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: param_tys.clone(),
-            rest: None,
+                rest: None,
                 required_params: None,
-return_ty: provisional_return_ty,
+                return_ty: provisional_return_ty,
                 is_async: function.r#async,
-                            may_throw: false,
+                may_throw: false,
             }));
             let function_symbol = self.intern_source_name(id.name.as_str());
             let self_local = closure_body.push_local(LocalDecl {
@@ -1879,7 +1931,9 @@ return_ty: provisional_return_ty,
             for name in capture_names {
                 let Some(source_local) = saved_locals
                     .iter()
-                    .find_map(|(saved_name, prior)| (saved_name == &name).then_some(*prior).flatten())
+                    .find_map(|(saved_name, prior)| {
+                        (saved_name == &name).then_some(*prior).flatten()
+                    })
                     .or_else(|| self.locals.get(name.as_str()).copied())
                 else {
                     continue;
@@ -1942,9 +1996,9 @@ return_ty: provisional_return_ty,
                 params: param_tys,
                 rest: None,
                 required_params: None,
-return_ty,
+                return_ty,
                 is_async: function.r#async,
-                            may_throw: false,
+                may_throw: false,
             }));
             let local = if let Some(existing) = self.locals.get(id.name.as_str()).copied() {
                 if let Ok(index) = usize::try_from(existing.0)
@@ -1974,7 +2028,7 @@ return_ty,
                     params: closure_params,
                     rest: None,
                     required_params: None,
-return_ty,
+                    return_ty,
                     captures,
                     body: body_id,
                     callback_body: None,
@@ -1984,11 +2038,14 @@ return_ty,
                 span: self.span(function.span.start, function.span.end),
             });
             let pat = outer_body.push_pattern(Pattern::Binding(local));
-            outer_body.push_stmt_to_block(block, Stmt::Let {
-                pat,
-                ty: fn_ty,
-                value: Some(value),
-            });
+            outer_body.push_stmt_to_block(
+                block,
+                Stmt::Let {
+                    pat,
+                    ty: fn_ty,
+                    value: Some(value),
+                },
+            );
             Ok(())
         })();
         self.pop_type_parameter_scope();
@@ -2017,21 +2074,26 @@ return_ty,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         let contextual_function = self.contextual_function_type(type_hint);
-        let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+        let params =
+            self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
         let return_ty = arrow
             .return_type
             .as_ref()
             .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
             .transpose()?
-            .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
+            .or_else(|| {
+                contextual_function
+                    .as_ref()
+                    .map(|function| function.return_ty)
+            })
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
         Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             is_async: arrow.r#async,
-                            may_throw: false,
+            may_throw: false,
         })))
     }
 
@@ -2084,14 +2146,20 @@ return_ty,
     ) -> bool {
         actual == expected
             || matches!(self.ctx.krate.types.get(expected), Some(Type::Class { .. }))
-            || matches!(self.ctx.krate.types.get(expected), Some(Type::TypeParam { .. }))
+            || matches!(
+                self.ctx.krate.types.get(expected),
+                Some(Type::TypeParam { .. })
+            )
             || matches!(
                 self.ctx.krate.types.get(expected),
                 Some(Type::Optional(inner)) if *inner == actual
             )
             || matches!(self.ctx.krate.types.get(actual), Some(Type::Unknown))
             || matches!(
-                (self.ctx.krate.types.get(actual), self.ctx.krate.types.get(expected)),
+                (
+                    self.ctx.krate.types.get(actual),
+                    self.ctx.krate.types.get(expected)
+                ),
                 (Some(Type::Function(_)), Some(Type::Function(_)))
             )
     }
@@ -2272,10 +2340,7 @@ return_ty,
                     } else {
                         let optional_item_ty =
                             self.ctx.krate.types.intern(Type::Optional(source_item_ty));
-                        (
-                            ExprKind::Index { receiver, index },
-                            optional_item_ty,
-                        )
+                        (ExprKind::Index { receiver, index }, optional_item_ty)
                     };
                     let extracted = body.push_expr(Expr {
                         kind: extracted_kind,

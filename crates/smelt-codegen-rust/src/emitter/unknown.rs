@@ -397,6 +397,9 @@ impl FunctionEmitter<'_> {
         }
         match self.mir.types.get(target) {
             Some(Type::Unknown) => Ok(text.to_owned()),
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "Date" => {
+                Ok(text.to_owned())
+            }
             Some(Type::List(_)) if text.contains(".concat(") => Ok(text.to_owned()),
             Some(Type::None) => Ok(format!(
                 "if matches!({text}.clone(), SmeltUnknown::Null) {{ () }} else {{ panic!(\"unknown is not null\") }}"
