@@ -155,7 +155,7 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
         "{source}"
     );
     assert!(
-        source.contains("_ => ::std::collections::HashMap::new()"),
+        source.contains("_ => SmeltRecord::new()"),
         "{source}"
     );
 }
@@ -1494,7 +1494,7 @@ function assign(value: unknown): unknown {
         "{source}"
     );
     assert!(
-        source.contains("*other = SmeltUnknown::Object(map);"),
+        source.contains("*other = SmeltUnknown::Object(SmeltObject::new(map));"),
         "{source}"
     );
 }
@@ -1796,7 +1796,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("SmeltUnknown::Object((&mut *_smelt_adapted_callback.borrow_mut())(arg0))"),
+        source.contains("SmeltUnknown::Object(SmeltObject::from_unknown_record(((&mut *_smelt_adapted_callback.borrow_mut())(arg0)).clone()))"),
         "{source}"
     );
 }

@@ -24,18 +24,12 @@ Deferred TS stress target:
 
 ## Current Baseline
 
-- Workspace health from the latest required check:
-  - `cargo test`: fails in `smelt-cli --test hir_cli_cross_language_tests` because
-    `27_optional_chains/expected.rs` predates the identity-preserving `SmeltObject`
-    runtime output.
+- Workspace health from the latest required check on 2026-05-25:
+  - `cargo test`: passed after refreshing `27_optional_chains/expected.rs` and
+    codegen assertions for the identity-preserving `SmeltObject` representation.
   - `cargo check`: passed.
-  - `cargo clippy`: fails on existing lint debt, including
-    `crates/smelt-codegen-rust/src/emitter/place.rs` (`needless_raw_string_hashes`),
-    `crates/smelt-codegen-rust/src/emitter/list_query.rs` (`default_numeric_fallback`),
-    and `crates/smelt-frontend-ts/src/lowering/builder_part14.rs`
-    (`if_same_then_else`).
-- External repo checks remain usable as targeted signal; the workspace gates must be
-  restored before treating full-suite success as authoritative.
+  - `cargo clippy`: passed, with non-fatal configured warnings remaining.
+- External repo checks can now be treated as targeted signal against a green workspace baseline.
 
 ### External Probe: 2026-05-16 Web Server Targets
 

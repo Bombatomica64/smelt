@@ -380,9 +380,8 @@ const values = JSON.parse(text);
     );
 
     assert!(
-        ts_source.contains(
-            "serde_json::from_str::<::std::collections::HashMap<String, SmeltUnknown>>(&"
-        )
+        ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
+        "{ts_source}"
     );
     assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
 }
@@ -411,9 +410,8 @@ const bag = JSON.parse(text) as Record<string, unknown>;
             || ts_source.contains("serde_json::from_str::<SmeltUnknown>(&")
     );
     assert!(
-        ts_source.contains(
-            "serde_json::from_str::<::std::collections::HashMap<String, SmeltUnknown>>(&"
-        )
+        ts_source.contains("serde_json::from_str::<SmeltRecord<String, SmeltUnknown>>(&"),
+        "{ts_source}"
     );
     assert!(ts_source.contains("impl<'de> serde::Deserialize<'de> for SmeltUnknown"));
 }
@@ -469,7 +467,10 @@ const has = values.includes(2);
 "#,
     );
 
-    assert!(source.contains(".contains(&2.0);"));
+    assert!(
+        source.contains("item.is_nan() && smelt_needle.is_nan()"),
+        "{source}"
+    );
 }
 
 #[test]

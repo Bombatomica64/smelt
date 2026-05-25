@@ -105,7 +105,10 @@ test("common matchers", () => {
     );
 
     assert!(source.contains("expect(...).toEqual(...) failed"));
-    assert!(source.contains(".contains(&"));
+    assert!(
+        source.contains("item.is_nan() && smelt_needle.is_nan()"),
+        "{source}"
+    );
     assert!(source.contains("expect(...).toHaveLength(...) failed"));
     assert!(source.contains("expect(...).toStrictEqual(...) failed"));
     assert!(source.matches('!').count() >= 2);
@@ -303,8 +306,9 @@ const last = values.lastIndexOf(2);
 "#,
     );
 
-    assert!(source.contains(".iter().position(|item| item == &2.0).map_or(-1.0"));
-    assert!(source.contains(".iter().rposition(|item| item == &2.0).map_or(-1.0"));
+    assert!(source.contains(".iter().position(|item| *item == smelt_needle"), "{source}");
+    assert!(source.contains(".iter().rposition(|item| *item == smelt_needle"), "{source}");
+    assert!(source.contains("item.is_nan() && smelt_needle.is_nan()"), "{source}");
 }
 
 #[test]

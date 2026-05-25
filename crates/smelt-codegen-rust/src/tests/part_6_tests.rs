@@ -60,14 +60,18 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 "#,
     );
 
-    assert!(source.contains(".keys().cloned().collect::<Vec<_>>();"));
-    assert!(source.contains(".values().cloned().collect::<Vec<_>>();"));
+    assert!(source.contains(".keys().collect::<Vec<_>>();"), "{source}");
+    assert!(source.contains(".values().collect::<Vec<_>>();"), "{source}");
     assert!(
         source.contains(
-            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();"
-        )
+            ".iter().collect::<Vec<_>>();"
+        ),
+        "{source}"
     );
-    assert!(source.contains("HashMap::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"));
+    assert!(
+        source.contains("SmeltRecord::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"),
+        "{source}"
+    );
 }
 
 #[test]

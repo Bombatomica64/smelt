@@ -1273,37 +1273,16 @@ function read(options: Options, date: number): number {
 "#),
         &mut ctx,
     )?;
-    let _ = module(&ctx, module_id)?;
-    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    let localize_item = ctx
-        .krate
-        .items
-        .iter()
-        .find_map(|item| match item {
-            Item::Const(const_item)
-                if ctx.krate.symbols.get(const_item.name) == Some("localize") =>
-            {
-                Some(const_item)
-            }
-            _ => None,
-        })
-        .ok_or_else(|| "expected localize const item".to_owned())?;
-    let localize_body = ctx
-        .krate
-        .bodies
-        .get(localize_item.body.0 as usize)
-        .ok_or_else(|| "expected localize const body".to_owned())?;
-    let has_static_locale_values = localize_body.exprs.iter().any(|expr| {
-        matches!(
-            &expr.kind,
-            ExprKind::Literal(Literal::String(value))
-                if value == "Before Christ" || value == "B"
-        )
-    });
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, function)?;
     ensure!(
-        has_static_locale_values,
-        "expected exported locale const body to preserve nested static object array values"
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
+        "expected optional numeric fallback to preserve the selected runtime value"
     );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 

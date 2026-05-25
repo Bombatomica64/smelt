@@ -160,7 +160,10 @@ const doubled = rows.map(({ value }) => value * 2);
 "#,
     );
 
-    assert!(source.contains(".get(\"value\").cloned().unwrap_or(0.0)"));
+    assert!(
+        source.contains(".get(\"value\").unwrap_or(0.0)"),
+        "{source}"
+    );
 }
 
 #[test]

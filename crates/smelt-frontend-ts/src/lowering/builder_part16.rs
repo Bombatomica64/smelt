@@ -280,6 +280,10 @@ return_ty: function.return_ty,
         let ty = self.type_param_constraint_or_self(ty);
         match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(item_ty)) => Ok((ty, item_ty)),
+            Some(Type::Unknown | Type::TypeParam { .. }) => {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                Ok((self.ctx.krate.types.intern(Type::List(item_ty)), item_ty))
+            }
             Some(Type::Tuple(items)) => {
                 let item_ty = self.union_of_types_or_unknown(items);
                 Ok((self.ctx.krate.types.intern(Type::List(item_ty)), item_ty))
@@ -3096,7 +3100,7 @@ return_ty: function.return_ty,
 
     /// Inline an importable HIR const item into the current expression body.
     fn const_item_expression(
-        &mut self,
+        &self,
         const_item: &ConstItem,
         start: u32,
         end: u32,
@@ -3114,12 +3118,11 @@ return_ty: function.return_ty,
                     "const item body is not available for inlining",
                 )
             })?;
-        self.clone_const_body_expr(&source_body, const_item.value, body)
+        Self::clone_const_body_expr(&source_body, const_item.value, body)
     }
 
     /// Clone one expression from a const body, remapping nested expression IDs.
     fn clone_const_body_expr(
-        &mut self,
         source_body: &Body,
         expr_id: smelt_hir::ExprId,
         target_body: &mut Body,
@@ -3139,30 +3142,41 @@ return_ty: function.return_ty,
             ExprKind::Item(item) => ExprKind::Item(item),
             ExprKind::Closure(closure) => ExprKind::Closure(closure),
             ExprKind::Call { callee, args } => ExprKind::Call {
-                callee: self.clone_const_body_expr(source_body, callee, target_body)?,
+                callee: Self::clone_const_body_expr(source_body, callee, target_body)?,
                 args: args
                     .into_iter()
-                    .map(|arg| self.clone_const_body_expr(source_body, arg, target_body))
+                    .map(|arg| Self::clone_const_body_expr(source_body, arg, target_body))
                     .collect::<Result<Vec<_>, _>>()?,
             },
             ExprKind::Field { receiver, field } => ExprKind::Field {
-                receiver: self.clone_const_body_expr(source_body, receiver, target_body)?,
+                receiver: Self::clone_const_body_expr(source_body, receiver, target_body)?,
                 field,
             },
             ExprKind::OptionalField { receiver, field } => ExprKind::OptionalField {
-                receiver: self.clone_const_body_expr(source_body, receiver, target_body)?,
+                receiver: Self::clone_const_body_expr(source_body, receiver, target_body)?,
                 field,
             },
             ExprKind::TypeAssert { value } => ExprKind::TypeAssert {
-                value: self.clone_const_body_expr(source_body, value, target_body)?,
+                value: Self::clone_const_body_expr(source_body, value, target_body)?,
+            },
+            ExprKind::UnknownCast { value, target } => ExprKind::UnknownCast {
+                value: Self::clone_const_body_expr(source_body, value, target_body)?,
+                target,
+            },
+            ExprKind::AsyncOp { op, args } => ExprKind::AsyncOp {
+                op,
+                args: args
+                    .into_iter()
+                    .map(|arg| Self::clone_const_body_expr(source_body, arg, target_body))
+                    .collect::<Result<Vec<_>, _>>()?,
             },
             ExprKind::DictLit(entries) => ExprKind::DictLit(
                 entries
                     .into_iter()
                     .map(|(key, value)| {
                         Ok((
-                            self.clone_const_body_expr(source_body, key, target_body)?,
-                            self.clone_const_body_expr(source_body, value, target_body)?,
+                            Self::clone_const_body_expr(source_body, key, target_body)?,
+                            Self::clone_const_body_expr(source_body, value, target_body)?,
                         ))
                     })
                     .collect::<Result<Vec<_>, SmeltError>>()?,
@@ -3170,20 +3184,26 @@ return_ty: function.return_ty,
             ExprKind::ListLit(items) => ExprKind::ListLit(
                 items
                     .into_iter()
-                    .map(|item| self.clone_const_body_expr(source_body, item, target_body))
+                    .map(|item| Self::clone_const_body_expr(source_body, item, target_body))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            ExprKind::SetLit(items) => ExprKind::SetLit(
+                items
+                    .into_iter()
+                    .map(|item| Self::clone_const_body_expr(source_body, item, target_body))
                     .collect::<Result<Vec<_>, _>>()?,
             ),
             ExprKind::TupleLit(items) => ExprKind::TupleLit(
                 items
                     .into_iter()
-                    .map(|item| self.clone_const_body_expr(source_body, item, target_body))
+                    .map(|item| Self::clone_const_body_expr(source_body, item, target_body))
                     .collect::<Result<Vec<_>, _>>()?,
             ),
             ExprKind::New { class, args } => ExprKind::New {
                 class,
                 args: args
                     .into_iter()
-                    .map(|arg| self.clone_const_body_expr(source_body, arg, target_body))
+                    .map(|arg| Self::clone_const_body_expr(source_body, arg, target_body))
                     .collect::<Result<Vec<_>, _>>()?,
             },
             ExprKind::Conditional {
@@ -3191,18 +3211,18 @@ return_ty: function.return_ty,
                 then_expr,
                 else_expr,
             } => ExprKind::Conditional {
-                cond: self.clone_const_body_expr(source_body, cond, target_body)?,
-                then_expr: self.clone_const_body_expr(source_body, then_expr, target_body)?,
-                else_expr: self.clone_const_body_expr(source_body, else_expr, target_body)?,
+                cond: Self::clone_const_body_expr(source_body, cond, target_body)?,
+                then_expr: Self::clone_const_body_expr(source_body, then_expr, target_body)?,
+                else_expr: Self::clone_const_body_expr(source_body, else_expr, target_body)?,
             },
             ExprKind::BinOp { op, lhs, rhs } => ExprKind::BinOp {
                 op,
-                lhs: self.clone_const_body_expr(source_body, lhs, target_body)?,
-                rhs: self.clone_const_body_expr(source_body, rhs, target_body)?,
+                lhs: Self::clone_const_body_expr(source_body, lhs, target_body)?,
+                rhs: Self::clone_const_body_expr(source_body, rhs, target_body)?,
             },
             ExprKind::UnaryOp { op, operand } => ExprKind::UnaryOp {
                 op,
-                operand: self.clone_const_body_expr(source_body, operand, target_body)?,
+                operand: Self::clone_const_body_expr(source_body, operand, target_body)?,
             },
             _ => {
                 return Err(SmeltError::unsupported(

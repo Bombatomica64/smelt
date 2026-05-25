@@ -298,7 +298,7 @@ impl FunctionEmitter<'_> {
         };
 
         Ok(format!(
-            r#"match {base_text}.clone() {{
+            r"match {base_text}.clone() {{
                     SmeltUnknown::String(value) => {{
                         let len = value.chars().count() as i64;
                         let index = {numeric_index_text} as i64;
@@ -313,7 +313,7 @@ impl FunctionEmitter<'_> {
                     }}
                 SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
                 _ => SmeltUnknown::Null,
-            }}"#
+            }}"
         ))
     }
 

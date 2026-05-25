@@ -1268,11 +1268,10 @@ impl ModuleBuilder<'_> {
         };
         let mut fallback = self.expression_with_hint(&logical.right, body, right_hint)?;
         let fallback_ty = Self::expr_ty(body, fallback);
-        let ty = if fallback_ty == ty {
-            ty
-        } else if self.ctx.krate.types.get(ty) == Some(&Type::Unknown) {
-            ty
-        } else if self.numeric_type_compatible(ty, fallback_ty) {
+        let ty = if fallback_ty == ty
+            || self.ctx.krate.types.get(ty) == Some(&Type::Unknown)
+            || self.numeric_type_compatible(ty, fallback_ty)
+        {
             ty
         } else if let Some(fallback_inner) = self.non_nullish_type(fallback_ty)
             && self.numeric_type_compatible(ty, fallback_inner)

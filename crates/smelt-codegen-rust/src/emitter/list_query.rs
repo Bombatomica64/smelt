@@ -1511,7 +1511,7 @@ impl FunctionEmitter<'_> {
     /// Resolve a local to the closure local it aliases, following simple copy assignments.
     fn closure_source_local(&self, local: LocalId) -> LocalId {
         let mut current = local;
-        for _ in 0..8 {
+        for _ in 0_u8..8 {
             let mut next = None;
             for block in &self.function.blocks {
                 for statement in &block.statements {
