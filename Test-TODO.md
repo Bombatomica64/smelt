@@ -110,7 +110,7 @@ Current build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission. | After match closure body emission, release emission-only `smelt build` completes in about `3.0s`. |
-| Full manifest, `[output] build = true` | Generated Rust crate compile errors. | Empty external-call args, Date setter side-effect ordering, duplicate inherited class fields, generic class `PhantomData`, storage-position `impl Trait`, temp shadowing, callback bind capture, dummy `main`, callable-field derives, constant-false branch emission, and bool-result truthiness lowering are now cleared. Current first visible errors are type-shape mismatches around optional callable contexts and Date setter return casts. |
+| Full manifest, `[output] build = true` | Superseded historical probe. | The optional callable context and Date setter return-cast failures no longer reproduce in the fresh 2026-05-25 native-test probe below. |
 
 Probe commands:
 
@@ -622,6 +622,27 @@ First success means:
 
 Status: green as of the 2026-05-11 external rerun.
 
+#### date-fns Full Native Core Probe: 2026-05-25
+
+- Upstream checkout: `/tmp/smelt_date_fns_resume/date-fns`
+- Upstream revision: `424a783de1fd974bcdbe907c9c5eb5154e9db29f`
+- Manifest: `/tmp/smelt_date_fns_full_tests_20260525/Smelt.toml`
+- Scope: all `253` sorted `pkgs/core/src/**/test.ts` source test files
+- Diagnostics: `blocker-logs/date-fns-full-tests-current.md`
+
+| Measurement | Result | Notes |
+|---|---:|---|
+| `smelt build`, `[output] build = false` | pass | Fresh emission completed for the complete core test scope. |
+| Generated `cargo check` | pass | `0` errors and `663` non-fatal warnings in the grouped report. |
+| Generated native Rust tests | `2851` | Count reported when `cargo test -- --test-threads=1` entered execution. |
+| Generated `cargo test` | incomplete | Serial execution was stopped after it stalled for more than one minute in `eachHourOfInterval`: `returns an empty array if the start date is Invalid Date`. |
+
+The fresh full native probe replaces older full-manifest compile rows as the current signal.
+Optional callable context and Date setter return-cast compile blockers are obsolete for this
+scope. The next actual blocker is general invalid-Date preservation: Date setter/getter
+emission currently casts `f64::NAN` timestamps to `i64`, turning an invalid Date into a valid
+epoch value before interval termination checks.
+
 #### date-fns Compatibility Probe: 2026-05-11
 
 Probe roots:
@@ -654,7 +675,7 @@ Compatibility numbers:
 | Vitest-style `test.ts` files | `250` | Direct date-fns test files under `src`. |
 | Full `src/**/*.ts(x)` manifest `smelt check` | pass | Latest 2026-05-15 full manifest check passes at `/tmp/smelt_date_fns_full_check_BLgUAn/Smelt.toml`. |
 | Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = false` | pass | Latest release emission-only full manifest build completes after match closure body Rust emission was added. |
-| Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = true` | fail | Generated crate reaches `cargo build`; latest probe path is `/tmp/smelt_date_fns_build_true_J42g8B/Smelt.toml`. First visible generated Rust errors are now type-shape mismatches around optional callable contexts and Date setter return casts. |
+| Full `src/**/*.ts(x)` manifest `smelt build`, `[output] build = true` | superseded | Historical result replaced by the 2026-05-25 test-only full native probe, whose generated crate passes `cargo check`. |
 | Full manifest with shared type files forced first `smelt check` | fail | Superseded by the sorted full-manifest rerun above; the locale type-surface blockers are now cleared. |
 | Isolated non-test file lowering | `7 / 1237` | Pessimistic lower bound because imports are missing in single-file mode. |
 | Isolated test file lowering | `0 / 254` | Pessimistic lower bound because tested functions are unavailable. |
@@ -677,13 +698,10 @@ Latest rerun status: the full sorted manifest now passes `smelt check`. It gets 
 `src/locale/en-US/_lib/localize/index.ts`, and `for ... in` / `hasOwnProperty.call(...)` in
 `src/locale/_lib/buildMatchFn/index.ts`.
 
-Current full-build blocker: source emission completes for the full sorted manifest. With
-`[output] build = true`, generated crate compilation now gets past the invalid empty external-call
-tuple, Date setter side-effect ordering, duplicate inherited class fields, generic class
-`PhantomData`, storage-position `impl Trait`, temp shadowing, callback bind capture, dummy `main`,
-callable-field derives, constant-false branch emission, and bool-result truthiness lowering
-blockers. The current first visible generated Rust errors are type-shape mismatches around optional
-callable contexts and Date setter return casts. Release
+Historical full-build blocker: source emission completes for the full sorted manifest. Its
+remaining optional callable context and Date setter return-cast compile failures are superseded by
+the 2026-05-25 test-only full native probe, whose generated crate compiles and reaches runtime
+invalid-Date behavior. Release
 `target/release/smelt ... check` for the full date-fns manifest takes about `1.8s`; release
 emission-only `build` completes in about `3.0s`; build-enabled generated crate compilation fails
 after about `50s` in `rust.cargo_build`.
@@ -756,25 +774,23 @@ Shared type-file status:
 - [x] Full date-fns generated Rust no longer type-checks constant-false branch bodies.
 - [x] Full date-fns boolean-result `&&` / `||` lowering uses source truthiness for unknown,
   optional, and function operands.
-- [ ] Full date-fns generated crate still needs to compile before generated full-crate `cargo test`
-  can be attempted.
+- [x] Full date-fns core test-only generated crate compiles and reaches generated full-crate
+  `cargo test`; the current runtime blocker is invalid-Date interval iteration.
 
 Full manifest build status:
 
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full manifest, `[output] build = true` | Generated Rust crate compile errors | Latest build-enabled full build reaches generated crate compilation and first fails on optional callable context and Date setter return-cast type mismatches. |
+| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260525/Smelt.toml` includes all 253 `test.ts` files and compiles with `0` errors; native execution stalls in invalid-Date interval handling. |
 
 Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Optional callable context shape | Full manifest generated crate compile, e.g. `src/main.rs:394`, `395`, `406`, `407`, `421`, `422` in `/tmp/smelt_date_fns_build_true_J42g8B/dist/src/main.rs` | `options?.in` and `constructFrom.bind(...)` still produce incompatible nested `Option<Option<Box<dyn FnMut...>>>`, `Option<SmeltUnknown>`, and `Box<dyn FnMut...>` shapes. This needs a coherent representation for optional callable values flowing through erased option objects. |
-| 2 | Date setter return casts | Full manifest generated crate compile, repeated early errors such as `src/main.rs:516`, `542`, `558`, `561`, `566` in `/tmp/smelt_date_fns_build_true_J42g8B/dist/src/main.rs` | Date setter helper expressions return `i64` timestamps but are assigned to `f64` temps. Cast or destination typing must be consistent for generated Date mutation helpers. |
-| 3 | Full generated crate type errors | After blockers 1-2 | Build-enabled full manifest still reports thousands of follow-on Rust type errors, including unknown field access on `SmeltUnknown`, boolean/arithmetic operations on erased values, callback trait-object mismatches, and parser class method surface mismatches. |
-| 4 | Runtime invalid-date parity | Known from `isExists` sibling slice | One generated invalid-date test previously panicked at runtime. Recheck after full Date emission succeeds, because this may share the same Date representation surface. |
-| 5 | Broader test-slice coverage | Sibling test slices | Current pessimistic direct coverage remains `23 / 250` sibling slices with `src/types.ts` included. Full manifest build should replace this as the primary date-fns signal once source emission succeeds. |
+| 1 | Runtime invalid-date parity | Full test-only native manifest; execution stalls at `eachHourOfInterval` invalid-start-date test | Date helper emission casts `f64::NAN` to `i64`, losing invalidity and allowing interval iteration to continue from the epoch. |
+| 2 | Runtime context/date assertions | Full native execution before the stall | Context-result tests and multiple invalid-date result tests fail; rerun after invalidity is preserved to separate shared failures from independent behavior. |
+| 3 | Broad parser/Intl runtime parity | Full native execution before the stall | `parse` and `intlFormatDistance` groups fail at high frequency; inspect after non-terminating invalid-date behavior is removed. |
 
 Optional chaining surface in date-fns:
 
