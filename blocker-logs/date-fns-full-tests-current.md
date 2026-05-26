@@ -1,6 +1,6 @@
 # Rust Diagnostics
 
-- Cargo manifest: `/tmp/smelt_date_fns_full_tests_20260525/dist/Cargo.toml`
+- Cargo manifest: `/tmp/smelt_date_fns_full_tests_20260526/dist/Cargo.toml`
 - Cargo check: `passed`
 - Errors: `0`
 - Warnings: `663`
@@ -180,32 +180,6 @@
 ## Cargo Stderr
 
 ```text
-Updating crates.io index
-     Locking 50 packages to latest Rust 1.93.0 compatible versions
-      Adding fancy-regex v0.14.0 (available: v0.18.0)
-   Compiling proc-macro2 v1.0.106
-   Compiling autocfg v1.5.1
-   Compiling unicode-ident v1.0.24
-   Compiling quote v1.0.45
-    Checking memchr v2.8.0
-    Checking siphasher v1.0.3
-    Checking regex-syntax v0.8.10
-   Compiling chrono-tz v0.10.4
-    Checking iana-time-zone v0.1.65
-    Checking bit-vec v0.8.0
-    Checking phf_shared v0.12.1
-    Checking pin-project-lite v0.2.17
-    Checking phf v0.12.1
-    Checking bit-set v0.8.0
-   Compiling num-traits v0.2.19
-    Checking aho-corasick v1.1.4
-   Compiling syn v2.0.117
-    Checking chrono v0.4.44
-    Checking regex-automata v0.4.14
-   Compiling tokio-macros v2.7.0
-    Checking fancy-regex v0.14.0
-    Checking regex v1.12.3
-    Checking tokio v1.52.3
-    Checking date_fns_full_tests v0.1.0 (/tmp/smelt_date_fns_full_tests_20260525/dist)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 55.16s
+Checking date_fns_full_tests v0.1.0 (/tmp/smelt_date_fns_full_tests_20260526/dist)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.17s
 ```

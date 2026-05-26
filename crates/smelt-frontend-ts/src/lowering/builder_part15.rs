@@ -1157,15 +1157,24 @@ return_ty: number_ty,
     /// Lower prefix and postfix increment/decrement used as expression values.
     ///
     /// JavaScript returns the old value for postfix updates and the updated
-    /// value for prefix updates. The assignment is still emitted immediately so
-    /// surrounding expressions observe the same side effect ordering.
+    /// value for prefix updates. Variable initializers defer postfix assignments
+    /// until after their binding statement so the initializer observes the old
+    /// value; other expression contexts emit in their owning statement block.
     fn update_expression(
         &mut self,
         update: &oxc::ast::ast::UpdateExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let (target, value) = self.update_parts(update, body)?;
-        body.push_stmt(Stmt::Assign { target, value });
+        if !update.prefix
+            && let Some(deferred_updates) = self.deferred_postfix_updates.as_mut()
+        {
+            deferred_updates.push(Stmt::Assign { target, value });
+        } else if let Some(block) = self.current_statement_block {
+            body.push_stmt_to_block(block, Stmt::Assign { target, value });
+        } else {
+            body.push_stmt(Stmt::Assign { target, value });
+        }
         if update.prefix {
             Ok(value)
         } else {

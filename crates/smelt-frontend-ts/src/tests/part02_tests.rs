@@ -597,6 +597,56 @@ const value = values[index++];
 }
 
 #[test]
+fn keeps_postfix_update_expression_side_effect_inside_loop_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values = [10, 20];
+let index = 0;
+while (index < values.length) {
+  const value = values[index++];
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let Some(Stmt::While {
+        body: loop_body, ..
+    }) = body.stmts.iter().find(|stmt| matches!(stmt, Stmt::While { .. }))
+    else {
+        return Err("expected while statement".to_owned());
+    };
+    let loop_block = body
+        .blocks
+        .get(usize::try_from(loop_body.0).map_err(|err| err.to_string())?)
+        .ok_or_else(|| "expected loop body block".to_owned())?;
+
+    let value_position = loop_block
+        .stmts
+        .iter()
+        .position(|stmt| {
+            usize::try_from(stmt.0)
+                .is_ok_and(|index| matches!(body.stmts.get(index), Some(Stmt::Let { .. })))
+        })
+        .ok_or_else(|| "expected indexed value binding in loop body".to_owned())?;
+    let update_position = loop_block
+        .stmts
+        .iter()
+        .position(|stmt| {
+            usize::try_from(stmt.0)
+                .is_ok_and(|index| matches!(body.stmts.get(index), Some(Stmt::Assign { .. })))
+        })
+        .ok_or_else(|| "expected postfix update side effect in loop body".to_owned())?;
+    ensure!(
+        update_position > value_position,
+        "expected postfix side effect after initializer binding",
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_non_null_string_match_array_callbacks() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

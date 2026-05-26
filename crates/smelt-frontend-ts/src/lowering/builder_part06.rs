@@ -1581,11 +1581,15 @@ impl ModuleBuilder<'_> {
             } else {
                 None
             };
-            let value = declarator
+            let prior_deferred_updates = self.deferred_postfix_updates.replace(Vec::new());
+            let value_result = declarator
                 .init
                 .as_ref()
                 .map(|init| self.expression_with_hint(init, body, annotated_ty))
-                .transpose()?;
+                .transpose();
+            let deferred_updates = self.deferred_postfix_updates.take().unwrap_or_default();
+            self.deferred_postfix_updates = prior_deferred_updates;
+            let value = value_result?;
             if let BindingPattern::BindingIdentifier(binding) = &declarator.id
                 && value.is_none()
                 && let Some(previous) = predeclared_self
@@ -1601,6 +1605,9 @@ impl ModuleBuilder<'_> {
                 body,
                 block,
             )?;
+            for update in deferred_updates {
+                body.push_stmt_to_block(block, update);
+            }
         }
         Ok(())
     }

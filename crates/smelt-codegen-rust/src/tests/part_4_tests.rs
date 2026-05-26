@@ -115,6 +115,39 @@ export function collect(values: number[], flags: boolean[]): number {
 }
 
 #[test]
+fn emits_postfix_index_update_inside_while_loop_body() {
+    let source = source_for(
+        r#"
+export function read(values: number[]): number[] {
+  const result: number[] = [];
+  let index = 0;
+  while (index < values.length) {
+    const value = values[index++];
+    result.push(value);
+  }
+  return result;
+}
+"#,
+    );
+
+    let loop_start = source.find("loop {").expect("expected emitted loop");
+    let increment = source[loop_start..]
+        .find("index = ")
+        .map(|offset| loop_start + offset)
+        .expect("expected postfix increment in loop");
+    let value_binding = source[loop_start..]
+        .find("value = values.get")
+        .map(|offset| loop_start + offset)
+        .expect("expected indexed value binding in loop");
+    assert!(
+        !source[..loop_start].contains("index = ")
+            && increment > value_binding
+            && increment > loop_start,
+        "postfix update escaped the loop body:\n{source}"
+    );
+}
+
+#[test]
 fn emits_python_default_lambda_closure_values() {
     let source = source_for_py(
         r#"

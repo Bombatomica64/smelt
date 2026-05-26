@@ -622,11 +622,11 @@ First success means:
 
 Status: green as of the 2026-05-11 external rerun.
 
-#### date-fns Full Native Core Probe: 2026-05-25
+#### date-fns Full Native Core Probe: 2026-05-26
 
-- Upstream checkout: `/tmp/smelt_date_fns_resume/date-fns`
+- Upstream checkout: `/tmp/smelt_date_fns_resume_20260526/date-fns`
 - Upstream revision: `424a783de1fd974bcdbe907c9c5eb5154e9db29f`
-- Manifest: `/tmp/smelt_date_fns_full_tests_20260525/Smelt.toml`
+- Manifest: `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml`
 - Scope: all `253` sorted `pkgs/core/src/**/test.ts` source test files
 - Diagnostics: `blocker-logs/date-fns-full-tests-current.md`
 
@@ -635,13 +635,12 @@ Status: green as of the 2026-05-11 external rerun.
 | `smelt build`, `[output] build = false` | pass | Fresh emission completed for the complete core test scope. |
 | Generated `cargo check` | pass | `0` errors and `663` non-fatal warnings in the grouped report. |
 | Generated native Rust tests | `2851` | Count reported when `cargo test -- --test-threads=1` entered execution. |
-| Generated `cargo test` | incomplete | Serial execution was stopped after it stalled for more than one minute in `eachHourOfInterval`: `returns an empty array if the start date is Invalid Date`. |
+| Generated `cargo test` | fail, `1859 / 2851` pass | Serial execution completes; `992` assertion/runtime failures remain. |
 
 The fresh full native probe replaces older full-manifest compile rows as the current signal.
 Optional callable context and Date setter return-cast compile blockers are obsolete for this
-scope. The next actual blocker is general invalid-Date preservation: Date setter/getter
-emission currently casts `f64::NAN` timestamps to `i64`, turning an invalid Date into a valid
-epoch value before interval termination checks.
+scope. Optional callable context and Date setter return-cast compile blockers are obsolete for this
+scope.
 
 Follow-up on 2026-05-26:
 
@@ -655,6 +654,16 @@ Follow-up on 2026-05-26:
   `eachHourOfInterval` probe now completes, with all three invalid-Date empty-array tests
   passing. Its current result is `16 passed; 5 failed`, with the remaining failures limited to
   option-step, normalization, and timezone-context assertion mismatches.
+- Postfix update lowering now preserves `const date = dateInterval[index++]` inside loop blocks
+  and binds the old indexed value before applying the update. The focused
+  `eachWeekendOfInterval` probe at
+  `/tmp/smelt_date_fns_resume_20260526/each_weekend_probe/Smelt.toml` no longer hangs and
+  completes at `11 / 13` passing; grouped diagnostics are in
+  `blocker-logs/date-fns-each-weekend-current.md`.
+- The refreshed full native run now completes at `1859 / 2851` passing. Largest failure modules
+  are `parse/test.ts` (`247`), `intlFormatDistance/test.ts` (`88`),
+  `formatDistanceToNowStrict/test.ts` (`42`), `parseISO/test.ts` (`33`), and
+  `setDefaultOptions/test.ts` (`26`).
 - The recreated `format/test.ts` canary remains green at `108 / 108`.
 
 #### date-fns Compatibility Probe: 2026-05-11
@@ -796,15 +805,15 @@ Full manifest build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260525/Smelt.toml` includes all 253 `test.ts` files and compiles with `0` errors; native execution stalls in invalid-Date interval handling. |
+| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files and compiles with `0` errors; native execution completes with `1859 / 2851` passing. |
 
 Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Runtime option/context/date assertions | Focused `eachHourOfInterval` now completes with `16 / 21` passing | Invalid-date iteration no longer stalls; remaining failures cover option-step arrays, date normalization, and timezone context output. |
-| 2 | Full native runtime inventory after invalid-Date repair | Full test-only native manifest | Recreate the 253-file manifest and rerun serial native tests now that the prior non-termination is removed. |
-| 3 | Broad parser/Intl runtime parity | Full native execution before the stall | `parse` and `intlFormatDistance` groups fail at high frequency; inspect after non-terminating invalid-date behavior is removed. |
+| 1 | Date identity through timestamp-backed values | Invalid-date assertions across `add*`, `set*`, `startOf*`, `sub*`, and parser tests | Generated NaN propagation is present, but `result instanceof Date` currently lowers false for the numeric Date model. Fix requires a general Date identity rule. |
+| 2 | Broad parser/Intl runtime parity | Full native execution: `parse/test.ts` has `247` failures and `intlFormatDistance/test.ts` has `88` | Triage after Date identity failures are reduced because invalid-Date assertions contribute to these groups. |
+| 3 | Timezone normalization/context output | Focused `eachHourOfInterval` (`16 / 21`) and `eachWeekendOfInterval` (`11 / 13`) | Loop termination and invalid endpoints now pass; remaining failures are normalization/context output mismatches and interval step behavior. |
 
 Optional chaining surface in date-fns:
 
