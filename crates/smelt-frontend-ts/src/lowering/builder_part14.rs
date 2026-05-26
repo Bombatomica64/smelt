@@ -1044,6 +1044,10 @@ impl ModuleBuilder<'_> {
         } else if self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty)
         {
             self.ctx.krate.types.intern(Type::String)
+        } else if self.is_structural_object_surface(ty) {
+            // Object values are always truthy in JavaScript; keep the selected
+            // runtime value when their fallback widens the expression surface.
+            self.ctx.krate.types.intern(Type::Unknown)
         } else {
             return Ok(None);
         };
@@ -1616,6 +1620,16 @@ impl ModuleBuilder<'_> {
             }
         };
         let operand = self.expression(&unary.argument, body)?;
+        let operand = if matches!(op, UnaryOp::Not) {
+            self.optional_known_date_presence_condition(
+                operand,
+                self.span(unary.argument.span().start, unary.argument.span().end),
+                body,
+            )
+            .unwrap_or(operand)
+        } else {
+            operand
+        };
         let ty = match op {
             UnaryOp::Not => self.ctx.krate.types.intern(Type::Bool),
             UnaryOp::Neg => Self::expr_ty(body, operand),

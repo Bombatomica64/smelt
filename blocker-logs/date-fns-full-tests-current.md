@@ -3,18 +3,18 @@
 - Cargo manifest: `/tmp/smelt_date_fns_full_tests_20260526/dist/Cargo.toml`
 - Cargo check: `passed`
 - Errors: `0`
-- Warnings: `663`
+- Warnings: `662`
 
 ## Summary By Code
 
-1. **warning** `unused_mut` - 374 diagnostics
+1. **warning** `unused_mut` - 373 diagnostics
 2. **warning** `unused_parens` - 177 diagnostics
 3. **warning** `unused_assignments` - 111 diagnostics
 4. **warning** `unreachable_code` - 1 diagnostic
 
 ## Groups
 
-1. **warning** `unused_mut` - 374 occurrences
+1. **warning** `unused_mut` - 373 occurrences
    - Message: variable does not need to be mutable
    - Examples:
      - `src/addWithOptions_index.rs:7`
@@ -181,5 +181,5 @@
 
 ```text
 Checking date_fns_full_tests v0.1.0 (/tmp/smelt_date_fns_full_tests_20260526/dist)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.85s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 45.32s
 ```

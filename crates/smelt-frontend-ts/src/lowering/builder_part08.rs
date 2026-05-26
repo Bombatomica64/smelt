@@ -707,6 +707,16 @@ impl ModuleBuilder<'_> {
                     }
                 };
                 let operand = self.expression(&unary.argument, body)?;
+                let operand = if matches!(op, UnaryOp::Not) {
+                    self.optional_known_date_presence_condition(
+                        operand,
+                        self.expression_span(&unary.argument),
+                        body,
+                    )
+                    .unwrap_or(operand)
+                } else {
+                    operand
+                };
                 let ty = if matches!(op, UnaryOp::Not) {
                     self.ctx.krate.types.intern(Type::Bool)
                 } else {
@@ -1046,6 +1056,35 @@ impl ModuleBuilder<'_> {
                 span: self.expression_span(expression),
             }));
         }
+        if let Some(condition) = self.optional_known_date_presence_condition(
+            cond,
+            self.expression_span(expression),
+            body,
+        )
+        {
+            return Ok(condition);
+        }
+        if self
+            .non_nullish_type(cond_ty)
+            .is_some_and(|inner_ty| self.type_is_always_truthy_object_surface(inner_ty))
+        {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            let none = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: none_ty,
+                span: self.expression_span(expression),
+            });
+            let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    lhs: cond,
+                    rhs: none,
+                },
+                ty: bool_ty,
+                span: self.expression_span(expression),
+            }));
+        }
         if self.is_nullishable_type(cond_ty) || self.type_is_truthy_condition_surface(cond_ty) {
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
@@ -1064,6 +1103,59 @@ impl ModuleBuilder<'_> {
                 self.ctx.krate.types.get(cond_ty)
             ),
         ))
+    }
+
+    /// Lower truthiness for optional Date values as object presence.
+    ///
+    /// Date instances are represented by timestamps in Rust, but source
+    /// truthiness depends on the Date object existing, not on its timestamp.
+    fn optional_known_date_presence_condition(
+        &mut self,
+        value: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Option<smelt_hir::ExprId> {
+        let value_ty = Self::expr_ty(body, value);
+        if !self.is_nullishable_type(value_ty)
+            || !self.expression_is_known_date_value(value, body)
+        {
+            return None;
+        }
+        let none_ty = self.ctx.krate.types.intern(Type::None);
+        let none = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::None),
+            ty: none_ty,
+            span,
+        });
+        let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        Some(body.push_expr(Expr {
+            kind: ExprKind::BinOp {
+                op: BinOp::NotEq,
+                lhs: value,
+                rhs: none,
+            },
+            ty: bool_ty,
+            span,
+        }))
+    }
+
+    /// Return whether a present optional value is always truthy in JavaScript.
+    fn type_is_always_truthy_object_surface(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(ty)),
+            Some(
+                Type::Class { .. }
+                    | Type::Function(_)
+                    | Type::List(_)
+                    | Type::Set(_)
+                    | Type::Dict(_, _)
+                    | Type::Tuple(_)
+                    | Type::Future(_)
+            )
+        )
     }
 
     /// Return whether a non-boolean type can appear in a JavaScript truthiness guard.

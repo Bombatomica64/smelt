@@ -147,6 +147,39 @@ const context = tz("Asia/Singapore");
 }
 
 #[test]
+fn emits_optional_date_type_parameter_or_nan_as_selected_value() {
+    let source = source_for(
+        r#"
+function select<ResultDate extends Date>(
+  result: ResultDate | undefined,
+): unknown {
+  return result || NaN;
+}
+"#,
+    );
+
+    assert!(source.contains(".map_or_else("), "{source}");
+    assert!(source.contains("f64::NAN"), "{source}");
+    assert!(!source.contains("let _smelt_tmp_1: bool"), "{source}");
+}
+
+#[test]
+fn emits_negated_optional_date_type_parameter_as_presence_check() {
+    let source = source_for(
+        r#"
+function absent<ResultDate extends Date>(
+  result: ResultDate | undefined,
+): boolean {
+  return !result;
+}
+"#,
+    );
+
+    assert!(source.contains("result.clone().is_none()"), "{source}");
+    assert!(!source.contains("Some(SmeltUnknown::Number(value))"), "{source}");
+}
+
+#[test]
 fn emits_python_string_search_as_int() {
     let source = source_for_py(
         r#"

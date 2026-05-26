@@ -117,6 +117,9 @@ impl ModuleBuilder<'_> {
                 span,
             });
             body.params.push(local);
+            if self.type_is_known_date_value(ty) {
+                self.date_value_locals.insert(local);
+            }
             if let Some(source_name) = source_name {
                 self.locals.insert(source_name, local);
             } else {

@@ -111,14 +111,29 @@ impl ModuleBuilder<'_> {
     /// `instanceof Date`, and direct Date constructors retain that provenance
     /// until this predicate is lowered.
     fn type_is_known_date_value(&self, ty: smelt_hir::TypeId) -> bool {
-        matches!(
-            self.ctx
-                .krate
-                .types
-                .get(self.type_param_constraint_or_self(ty)),
-            Some(Type::Class { name, .. })
-                if self.ctx.krate.symbols.get(*name) == Some("Date")
-        )
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
+            Some(Type::Class { name, .. }) => {
+                self.ctx.krate.symbols.get(*name) == Some("Date")
+            }
+            Some(Type::Optional(inner)) => self.type_is_known_date_value(*inner),
+            Some(Type::Union(items)) => {
+                let values = items
+                    .iter()
+                    .copied()
+                    .filter(|item| self.ctx.krate.types.get(*item) != Some(&Type::None))
+                    .collect::<Vec<_>>();
+                !values.is_empty()
+                    && values
+                        .into_iter()
+                        .all(|item| self.type_is_known_date_value(item))
+            }
+            _ => false,
+        }
     }
 
     /// Return true when an expression carries JavaScript `Date` identity despite timestamp storage.

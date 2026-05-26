@@ -2272,6 +2272,67 @@ function select(
 }
 
 #[test]
+fn lowers_optional_date_type_parameter_logical_or_nan_as_selected_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function select<ResultDate extends Date>(
+  result: ResultDate | undefined,
+): unknown {
+  return result || NaN;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::OptionalCoalesce { .. })),
+        "expected an optional Date value or NaN fallback to preserve the selected runtime value"
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::BinOp { op: BinOp::Or, .. })),
+        "optional Date fallback must not collapse to a boolean expression"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_negated_optional_date_type_parameter_as_presence_check() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function absent<ResultDate extends Date>(
+  result: ResultDate | undefined,
+): boolean {
+  return !result;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::None))),
+        "expected optional Date truthiness to compare presence rather than inspect its timestamp"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_nullish_coalescing_with_structural_object_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
