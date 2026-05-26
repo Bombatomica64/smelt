@@ -633,9 +633,9 @@ Status: green as of the 2026-05-11 external rerun.
 | Measurement | Result | Notes |
 |---|---:|---|
 | `smelt build`, `[output] build = false` | pass | Fresh emission completed for the complete core test scope. |
-| Generated `cargo check` | pass | `0` errors and `662` non-fatal warnings in the grouped report. |
+| Generated `cargo check` | pass | `0` errors and `659` non-fatal warnings in the grouped report. |
 | Generated native Rust tests | `2851` | Count reported when `cargo test -- --test-threads=1` entered execution. |
-| Generated `cargo test` | fail, `2055 / 2851` pass | Serial execution completes; `796` assertion/runtime failures remain after NaN, timezone-context, and Date-truthiness fixes. |
+| Generated `cargo test` | fail, `2057 / 2851` pass | Serial execution completes; `794` assertion/runtime failures remain after NaN, timezone-context, Date-truthiness, and invalid-Date string fixes. This measurement also includes concurrently active overload-lowering changes. |
 
 The fresh full native probe replaces older full-manifest compile rows as the current signal.
 Optional callable context and Date setter return-cast compile blockers are obsolete for this
@@ -659,7 +659,7 @@ Follow-up on 2026-05-26:
   `/tmp/smelt_date_fns_resume_20260526/each_weekend_probe/Smelt.toml` no longer hangs and
   completes at `11 / 13` passing; grouped diagnostics are in
   `blocker-logs/date-fns-each-weekend-current.md`.
-- The refreshed full native run now completes at `2055 / 2851` passing. Largest remaining failure modules
+- The refreshed full native run now completes at `2057 / 2851` passing. Largest remaining failure modules
   are `parse/test.ts` (`247`), `intlFormatDistance/test.ts` (`88`),
   `formatDistanceToNowStrict/test.ts` (`42`), `parseISO/test.ts` (`33`), and
   `setDefaultOptions/test.ts` (`26`).
@@ -677,7 +677,10 @@ Follow-up on 2026-05-26:
 - Optional object-backed Date values now preserve value selection for `result || NaN` and
   truthiness for `!result`; all four invalid-Date tests in `max/test.ts` and `min/test.ts`
   now pass.
-- A broad generated `returns_invalid_date` run now passes `174 / 183`. Remaining failures are
+- Timestamp-backed Date values now preserve `Date.prototype.toString()` invalid-date output,
+  and `Date.getTime()` explicitly drops Date identity before numeric `.toString()` handling;
+  the invalid-Date assertion in `previousWednesday/test.ts` now passes.
+- A broad generated `returns_invalid_date` run now passes `175 / 183`. Remaining failures are
   separate semantic groups: `closestTo` rest/spread normalization, `previousWednesday`
   invalid Date string behavior, parse/parseISO indexing panics, and `add` invalid-date
   exception behavior.
@@ -821,13 +824,13 @@ Full manifest build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files and compiles with `0` errors; native execution completes with `2055 / 2851` passing. |
+| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files and compiles with `0` errors; native execution currently completes with `2057 / 2851` passing, including concurrent overload-lowering work in the worktree. |
 
 Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Remaining invalid-date semantics | `closestTo`, `previousWednesday`, `parse`/`parseISO`, and `add` invalid-date assertions | Numeric NaN predicates, timezone-context NaN preservation, and `max`/`min` Date truthiness/value fallback are fixed; remaining failures are separate rest/spread, stringification, indexing, and exception-behavior groups. |
+| 1 | Remaining invalid-date semantics | `closestTo`, `parse`/`parseISO`, and `add` invalid-date assertions | Numeric NaN predicates, timezone-context NaN preservation, `max`/`min` Date truthiness/value fallback, and `previousWednesday` invalid-Date string output are fixed; remaining failures are separate rest/spread, indexing, and exception-behavior groups. |
 | 2 | Broad parser/Intl runtime parity | Full native execution: `parse/test.ts` has `247` failures and `intlFormatDistance/test.ts` has `88` | Triage after Date identity failures are reduced because invalid-Date assertions contribute to these groups. |
 | 3 | Timezone normalization/context output | Focused `eachHourOfInterval` (`16 / 21`) and `eachWeekendOfInterval` (`11 / 13`) | Loop termination and invalid endpoints now pass; remaining failures are normalization/context output mismatches and interval step behavior. |
 

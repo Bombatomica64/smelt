@@ -42,6 +42,14 @@ impl FunctionEmitter<'_> {
         ))
     }
 
+    /// Converts a timestamp in milliseconds to JavaScript Date string output.
+    pub(super) fn date_to_string_text(&self, timestamp_ms: &Operand) -> Result<String, EmitError> {
+        let timestamp_text = self.date_timestamp_text(timestamp_ms)?;
+        Ok(format!(
+            "{{ let timestamp_ms = ({timestamp_text}) as f64; if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc2822()).unwrap_or_else(|| \"Invalid Date\".to_owned()) }} else {{ \"Invalid Date\".to_owned() }} }}"
+        ))
+    }
+
     /// Converts a DateArg-compatible operand to a numeric timestamp expression.
     ///
     /// Frontends model JavaScript `Date` values as timestamps where possible,

@@ -595,6 +595,9 @@ fn rewrite_rvalue(
         Rvalue::DateToIsoString { timestamp_ms } => {
             rewrite_operand_except(timestamp_ms, aliases, dest)
         }
+        Rvalue::DateToString { timestamp_ms } => {
+            rewrite_operand_except(timestamp_ms, aliases, dest)
+        }
         Rvalue::DateFromParts { parts } => {
             let mut changed = false;
             for part in parts {

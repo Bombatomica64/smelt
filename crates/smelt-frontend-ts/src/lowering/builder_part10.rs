@@ -708,6 +708,16 @@ return_ty: string_ty,
             return Ok(None);
         }
         let operand = self.expression(&member.object, body)?;
+        if call.arguments.is_empty() && self.expression_is_known_date_value(operand, body) {
+            let ty = self.ctx.krate.types.intern(Type::String);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DateToString {
+                    timestamp_ms: operand,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
         if !matches!(
             self.ctx.krate.types.get(Self::expr_ty(body, operand)),
             Some(

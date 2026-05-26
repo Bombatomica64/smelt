@@ -3494,6 +3494,17 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::DateToString { timestamp_ms } => {
+                let timestamp_operand = self.lower_expr(*timestamp_ms)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateToString {
+                        timestamp_ms: timestamp_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::DateFromParts { parts } => {
                 let part_operands = parts
                     .iter()
@@ -4152,6 +4163,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::DateResetTimezoneOffset
             | ExprKind::DateTimezoneContext { .. }
             | ExprKind::DateToIsoString { .. }
+            | ExprKind::DateToString { .. }
             | ExprKind::DateFromParts { .. }
             | ExprKind::DateFromValue { .. }
             | ExprKind::DateGetPart { .. }

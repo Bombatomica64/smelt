@@ -1405,7 +1405,16 @@ impl ModuleBuilder<'_> {
                     "Date.getTime() does not accept arguments",
                 ));
             }
-            return Ok(Some(self.expression(&member.object, body)?));
+            let receiver = self.expression(&member.object, body)?;
+            let ty = self.ctx.krate.types.intern(Type::Float);
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToFloat,
+                    operand: receiver,
+                },
+                ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
         }
         if method == "setTime" {
             if call.arguments.len() != 1 {

@@ -959,6 +959,7 @@ impl FunctionEmitter<'_> {
                 self.operand_text(timezone)?
             )),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
+            Rvalue::DateToString { timestamp_ms } => self.date_to_string_text(timestamp_ms),
             Rvalue::DateFromParts { parts } => {
                 let text = self.date_from_parts_text(parts)?;
                 self.date_timestamp_result_text(&text, dest_ty)

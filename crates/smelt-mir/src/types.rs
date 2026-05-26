@@ -1312,6 +1312,11 @@ pub enum Rvalue {
         /// Timestamp in milliseconds.
         timestamp_ms: Operand,
     },
+    /// Convert a timestamp in milliseconds to JavaScript Date string output.
+    DateToString {
+        /// Timestamp in milliseconds.
+        timestamp_ms: Operand,
+    },
     /// Construct a timestamp in milliseconds from local Date constructor parts.
     DateFromParts {
         /// Date constructor parts: year, month, date, hours, minutes, seconds, milliseconds.

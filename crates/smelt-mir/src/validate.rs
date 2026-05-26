@@ -685,6 +685,9 @@ fn validate_rvalue_exists(
         Rvalue::DateToIsoString { timestamp_ms } => {
             validate_operand_exists(function, timestamp_ms, errors);
         }
+        Rvalue::DateToString { timestamp_ms } => {
+            validate_operand_exists(function, timestamp_ms, errors);
+        }
         Rvalue::DateFromParts { parts } => {
             for part in parts {
                 validate_operand_exists(function, part, errors);
@@ -1502,6 +1505,9 @@ fn validate_rvalue(
             validate_operand(mir, function, definitions, timezone, errors);
         }
         Rvalue::DateToIsoString { timestamp_ms } => {
+            validate_operand(mir, function, definitions, timestamp_ms, errors);
+        }
+        Rvalue::DateToString { timestamp_ms } => {
             validate_operand(mir, function, definitions, timestamp_ms, errors);
         }
         Rvalue::DateFromParts { parts } => {

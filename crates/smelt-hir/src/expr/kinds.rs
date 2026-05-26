@@ -488,6 +488,10 @@ pub enum ExprKind {
     DateToIsoString {
         timestamp_ms: ExprId,
     },
+    /// Convert a Date timestamp to JavaScript `Date.prototype.toString()` output.
+    DateToString {
+        timestamp_ms: ExprId,
+    },
     DateFromParts {
         parts: Vec<ExprId>,
     },

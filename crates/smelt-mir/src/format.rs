@@ -1017,6 +1017,9 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::DateToIsoString { timestamp_ms } => {
             format!("date_to_iso_string {}", operand_text(timestamp_ms))
         }
+        Rvalue::DateToString { timestamp_ms } => {
+            format!("date_to_string {}", operand_text(timestamp_ms))
+        }
         Rvalue::DateFromParts { parts } => format!(
             "date_from_parts [{}]",
             parts

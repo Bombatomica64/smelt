@@ -681,6 +681,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DateToIsoString { timestamp_ms } => {
             format!("date_to_iso {}", expr_ref(*timestamp_ms))
         }
+        ExprKind::DateToString { timestamp_ms } => {
+            format!("date_to_string {}", expr_ref(*timestamp_ms))
+        }
         ExprKind::DateFromParts { parts } => format!(
             "date_from_parts [{}]",
             parts

@@ -15,6 +15,20 @@ const text = value.toString();
 }
 
 #[test]
+fn emits_invalid_date_to_string_as_invalid_date_text() {
+    let source = source_for(
+        r#"
+function stringify(result: Date): string {
+  return result.toString();
+}
+"#,
+    );
+
+    assert!(source.contains("\"Invalid Date\".to_owned()"), "{source}");
+    assert!(source.contains("timestamp_ms.is_finite()"), "{source}");
+}
+
+#[test]
 fn emits_typescript_number_parse_float() {
     let source = source_for(
         r#"

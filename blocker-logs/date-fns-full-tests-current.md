@@ -3,18 +3,18 @@
 - Cargo manifest: `/tmp/smelt_date_fns_full_tests_20260526/dist/Cargo.toml`
 - Cargo check: `passed`
 - Errors: `0`
-- Warnings: `662`
+- Warnings: `659`
 
 ## Summary By Code
 
-1. **warning** `unused_mut` - 373 diagnostics
+1. **warning** `unused_mut` - 370 diagnostics
 2. **warning** `unused_parens` - 177 diagnostics
 3. **warning** `unused_assignments` - 111 diagnostics
 4. **warning** `unreachable_code` - 1 diagnostic
 
 ## Groups
 
-1. **warning** `unused_mut` - 373 occurrences
+1. **warning** `unused_mut` - 370 occurrences
    - Message: variable does not need to be mutable
    - Examples:
      - `src/addWithOptions_index.rs:7`
@@ -57,7 +57,7 @@
 6. **warning** `unused_parens` - 18 occurrences
    - Message: unnecessary parentheses around block return value
    - Examples:
-     - `src/formatDistanceStrict_index_1.rs:198`
+     - `src/formatDistanceStrict_index_1.rs:200`
      - `src/formatDistance_index_2.rs:234`
      - `src/formatDuration_index_1.rs:131`
      - `src/formatRelative_index_2.rs:153`
@@ -65,7 +65,7 @@
 7. **warning** `unused_assignments` - 17 occurrences
    - Message: value assigned to `unit` is never read
    - Examples:
-     - `src/formatDistanceStrict_index_1.rs:304`
+     - `src/formatDistanceStrict_index_1.rs:308`
      - `src/intlFormatDistance_index_1.rs:49`
      - `src/intlFormatDistance_index_1.rs:215`
      - `src/intlFormatDistance_index_1.rs:207`
@@ -181,5 +181,5 @@
 
 ```text
 Checking date_fns_full_tests v0.1.0 (/tmp/smelt_date_fns_full_tests_20260526/dist)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 45.32s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 26.03s
 ```

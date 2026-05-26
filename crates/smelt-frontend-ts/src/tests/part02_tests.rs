@@ -1088,6 +1088,16 @@ if (values.hours != null) date.setHours(values.hours);
             .count(),
         10
     );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToFloat,
+                ..
+            }
+        )),
+        "expected getTime() to lower as numeric output without Date identity",
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -1515,14 +1525,10 @@ console.log(rendered);
     let body = module_body(&ctx, module)?;
 
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            expr.kind,
-            ExprKind::PrimitiveCast {
-                op: PrimitiveCastOp::ToString,
-                ..
-            }
-        )),
-        "expected Date .toString() to lower through a string primitive cast",
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateToString { .. })),
+        "expected Date .toString() to retain Date string semantics",
     );
     ensure!(
         body.stmts

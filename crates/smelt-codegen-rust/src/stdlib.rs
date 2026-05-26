@@ -180,6 +180,7 @@ fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
         rvalue,
         Rvalue::DateNow
             | Rvalue::DateToIsoString { .. }
+            | Rvalue::DateToString { .. }
             | Rvalue::DateFromParts { .. }
             | Rvalue::DateFromValue { .. }
             | Rvalue::DateGetPart { .. }
