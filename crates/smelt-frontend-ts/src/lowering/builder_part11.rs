@@ -25,7 +25,7 @@ impl ModuleBuilder<'_> {
         let ty = self.ctx.krate.types.intern(Type::Bool);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::BinOp {
-                op: BinOp::Eq,
+                op: BinOp::StrictEq,
                 lhs,
                 rhs,
             },

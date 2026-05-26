@@ -181,5 +181,5 @@
 
 ```text
 Checking date_fns_full_tests v0.1.0 (/tmp/smelt_date_fns_full_tests_20260526/dist)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 25.17s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 41.85s
 ```

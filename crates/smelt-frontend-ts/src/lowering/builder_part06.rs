@@ -171,13 +171,17 @@ impl ModuleBuilder<'_> {
         Ok(true)
     }
 
-    /// Return whether Vitest `toBe` needs JavaScript object/function identity.
+    /// Return whether Vitest `toBe` needs JavaScript `SameValue` semantics.
     fn test_to_be_needs_strict_identity(
         &self,
         actual: smelt_hir::ExprId,
         expected: smelt_hir::ExprId,
         body: &Body,
     ) -> bool {
+        if Self::test_to_be_nan_literal(actual, body) || Self::test_to_be_nan_literal(expected, body)
+        {
+            return true;
+        }
         let actual_ty = self.type_param_constraint_or_self(Self::expr_ty(body, actual));
         let expected_ty = self.type_param_constraint_or_self(Self::expr_ty(body, expected));
         let actual_ref = self.test_to_be_identity_type(actual_ty);
@@ -186,6 +190,19 @@ impl ModuleBuilder<'_> {
             return true;
         }
         self.test_to_be_erased_type(actual_ty) && self.test_to_be_erased_type(expected_ty)
+    }
+
+    /// Return whether an assertion operand is the JavaScript `NaN` literal.
+    fn test_to_be_nan_literal(value: smelt_hir::ExprId, body: &Body) -> bool {
+        matches!(
+            usize::try_from(value.0)
+                .ok()
+                .and_then(|index| body.exprs.get(index)),
+            Some(Expr {
+                kind: ExprKind::Literal(Literal::Float(number)),
+                ..
+            }) if number.is_nan()
+        )
     }
 
     /// Return whether a type has reference identity under JavaScript `toBe`.

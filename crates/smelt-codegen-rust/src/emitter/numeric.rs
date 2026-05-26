@@ -198,34 +198,31 @@ impl FunctionEmitter<'_> {
     }
 
     /// Converts a numeric predicate operation to Rust text.
-    /// Converts a numeric predicate operation to Rust text.
     pub(super) fn numeric_predicate_text(
         &self,
         op: smelt_hir::NumericPredicateOp,
         operand: &Operand,
     ) -> Result<String, EmitError> {
-        if !matches!(
-            self.mir.types.get(self.operand_ty(operand)?),
+        let operand_ty = self.operand_ty(operand)?;
+        let operand_text = if matches!(
+            self.mir.types.get(operand_ty),
             Some(Type::Int | Type::Float)
         ) {
+            self.float_operand_text(operand)?
+        } else if matches!(
+            self.mir.types.get(operand_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(operand_ty)
+        {
+            self.operand_as_type_text(operand, self.type_id(Type::Float)?)?
+        } else {
             return Ok("false".to_owned());
-        }
-        let method_name = match op {
-            smelt_hir::NumericPredicateOp::IsFinite => "is_finite",
-            smelt_hir::NumericPredicateOp::IsInteger => "fract() == 0.0",
-            smelt_hir::NumericPredicateOp::IsNaN => "is_nan",
         };
-        if matches!(op, smelt_hir::NumericPredicateOp::IsInteger) {
-            return Ok(format!(
-                "{}.fract() == 0.0",
-                self.float_operand_text(operand)?
-            ));
-        }
-        Ok(format!(
-            "{}.{}()",
-            self.float_operand_text(operand)?,
-            method_name
-        ))
+        Ok(match op {
+            smelt_hir::NumericPredicateOp::IsFinite => format!("{operand_text}.is_finite()"),
+            smelt_hir::NumericPredicateOp::IsInteger => format!("{operand_text}.fract() == 0.0"),
+            smelt_hir::NumericPredicateOp::IsNaN => format!("{operand_text}.is_nan()"),
+        })
     }
 
     /// Converts a direct unary numeric function to Rust text.

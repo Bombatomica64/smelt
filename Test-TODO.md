@@ -635,11 +635,10 @@ Status: green as of the 2026-05-11 external rerun.
 | `smelt build`, `[output] build = false` | pass | Fresh emission completed for the complete core test scope. |
 | Generated `cargo check` | pass | `0` errors and `663` non-fatal warnings in the grouped report. |
 | Generated native Rust tests | `2851` | Count reported when `cargo test -- --test-threads=1` entered execution. |
-| Generated `cargo test` | fail, `1859 / 2851` pass | Serial execution completes; `992` assertion/runtime failures remain. |
+| Generated `cargo test` | fail, `2041 / 2851` pass | Serial execution completes; `810` assertion/runtime failures remain after NaN and timezone-context invalid-value fixes. |
 
 The fresh full native probe replaces older full-manifest compile rows as the current signal.
 Optional callable context and Date setter return-cast compile blockers are obsolete for this
-scope. Optional callable context and Date setter return-cast compile blockers are obsolete for this
 scope.
 
 Follow-up on 2026-05-26:
@@ -660,7 +659,7 @@ Follow-up on 2026-05-26:
   `/tmp/smelt_date_fns_resume_20260526/each_weekend_probe/Smelt.toml` no longer hangs and
   completes at `11 / 13` passing; grouped diagnostics are in
   `blocker-logs/date-fns-each-weekend-current.md`.
-- The refreshed full native run now completes at `1859 / 2851` passing. Largest failure modules
+- The refreshed full native run now completes at `2041 / 2851` passing. Largest remaining failure modules
   are `parse/test.ts` (`247`), `intlFormatDistance/test.ts` (`88`),
   `formatDistanceToNowStrict/test.ts` (`42`), `parseISO/test.ts` (`33`), and
   `setDefaultOptions/test.ts` (`26`).
@@ -669,10 +668,16 @@ Follow-up on 2026-05-26:
   `instanceof Date` semantics through native-test lowering. In the regenerated
   `addMinutes/test.ts` invalid-date assertion, the generated conjunction now begins with
   `true && ...` rather than `false && ...`.
-- The focused generated `addMinutes` invalid-date test still fails after that change because
-  `isNaN(result.getTime())` currently lowers to `false`; generated test compilation also reports
-  semantic `invalid_nan_comparisons` warnings elsewhere. Numeric NaN predicate/comparison
-  lowering is the next invalid-Date blocker.
+- Numeric NaN semantics are now emitted generally: numeric predicates over erased Date-backed
+  values convert to `f64` and call `.is_nan()`, while `toBe(NaN)` and numeric `Object.is`
+  use SameValue behavior rather than raw Rust comparisons against `f64::NAN`.
+- The `tz(...)` date-context callback now preserves non-finite timestamp values instead of
+  casting `NaN` to epoch milliseconds. Focused invalid-value tests now pass for
+  `addMinutes` (`2 / 2`), `toDate` (`2 / 2`), and the `constructFrom` timezone-context edge case.
+- A broad generated `returns_invalid_date` run now passes `170 / 183`. Remaining failures are
+  separate semantic groups: `max`/`min` value-producing `result || NaN` lowering,
+  `closestTo` rest/spread normalization, `previousWednesday` invalid Date string behavior,
+  parse/parseISO indexing panics, and `add` invalid-date exception behavior.
 
 #### date-fns Compatibility Probe: 2026-05-11
 

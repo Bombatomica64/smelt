@@ -98,6 +98,55 @@ const nan = Number.isNaN(value);
 }
 
 #[test]
+fn emits_nan_predicate_for_erased_date_numeric_getter() {
+    let source = source_for(
+        r#"
+function invalid<ResultDate extends Date>(value: ResultDate): boolean {
+  return isNaN(value.getTime());
+}
+"#,
+    );
+
+    assert!(source.contains(".is_nan()"), "{source}");
+    assert!(!source.contains("return false;"), "{source}");
+}
+
+#[test]
+fn emits_vitest_to_be_nan_using_same_value_semantics() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("NaN equality", () => {
+  const value = NaN;
+  expect(value).toBe(NaN);
+  expect(Object.is(value, NaN)).toBe(true);
+});
+"#,
+    );
+
+    assert!(source.contains(".is_nan() &&"), "{source}");
+    assert!(!source.contains("!= f64::NAN"), "{source}");
+    assert!(!source.contains("== f64::NAN"), "{source}");
+}
+
+#[test]
+fn emits_timezone_context_that_preserves_nan_values() {
+    let source = source_for(
+        r#"
+import { tz } from "@date-fns/tz";
+const context = tz("Asia/Singapore");
+"#,
+    );
+
+    assert!(
+        source.contains("if timestamp_ms.is_finite()"),
+        "{source}"
+    );
+    assert!(source.contains("else { f64::NAN }"), "{source}");
+}
+
+#[test]
 fn emits_python_string_search_as_int() {
     let source = source_for_py(
         r#"

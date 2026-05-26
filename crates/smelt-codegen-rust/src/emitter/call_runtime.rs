@@ -955,7 +955,7 @@ impl FunctionEmitter<'_> {
                 self.default_value(dest_ty)?
             )),
             Rvalue::DateTimezoneContext { timezone } => Ok(format!(
-                "{{ let smelt_timezone: chrono_tz::Tz = {}.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(::std::cell::RefCell::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}; SmeltUnknown::Number(chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64)) }})) }}",
+                "{{ let smelt_timezone: chrono_tz::Tz = {}.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(::std::cell::RefCell::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}; SmeltUnknown::Number(if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}) }})) }}",
                 self.operand_text(timezone)?
             )),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
@@ -1321,7 +1321,7 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Emits JavaScript strict identity checks for concrete reference values.
+    /// Emits JavaScript SameValue checks for numeric and reference values.
     fn strict_identity_text(
         &self,
         op: smelt_hir::BinOp,
@@ -1337,6 +1337,13 @@ impl FunctionEmitter<'_> {
         let lhs_ty = self.operand_ty(lhs)?;
         let rhs_ty = self.operand_ty(rhs)?;
         let equal_text = match (self.mir.types.get(lhs_ty), self.mir.types.get(rhs_ty)) {
+            (Some(Type::Int | Type::Float), Some(Type::Int | Type::Float)) => {
+                let lhs_text = self.float_operand_text(lhs)?;
+                let rhs_text = self.float_operand_text(rhs)?;
+                format!(
+                    "{{ let lhs: f64 = {lhs_text}; let rhs: f64 = {rhs_text}; (lhs.is_nan() && rhs.is_nan()) || (lhs == rhs && (lhs != 0.0 || lhs.is_sign_negative() == rhs.is_sign_negative())) }}"
+                )
+            }
             (Some(Type::Dict(lhs_key, _)), Some(Type::Dict(rhs_key, _)))
                 if self.mir.types.get(*lhs_key) == Some(&Type::String)
                     && self.mir.types.get(*rhs_key) == Some(&Type::String) =>
