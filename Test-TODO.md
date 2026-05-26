@@ -643,6 +643,20 @@ scope. The next actual blocker is general invalid-Date preservation: Date setter
 emission currently casts `f64::NAN` timestamps to `i64`, turning an invalid Date into a valid
 epoch value before interval termination checks.
 
+Follow-up on 2026-05-26:
+
+- The original `/tmp` checkout was cleaned; it was recreated at
+  `/tmp/smelt_date_fns_resume_20260526/date-fns` at the same pinned revision.
+- Focused manifest:
+  `/tmp/smelt_date_fns_resume_20260526/each_hour_probe/Smelt.toml`.
+- Focused generated diagnostic report: `blocker-logs/date-fns-each-hour-current.md`
+  (`cargo check` passes with `0` errors and `20` warnings).
+- Invalid-Date preservation is fixed through general Date emission: the focused
+  `eachHourOfInterval` probe now completes, with all three invalid-Date empty-array tests
+  passing. Its current result is `16 passed; 5 failed`, with the remaining failures limited to
+  option-step, normalization, and timezone-context assertion mismatches.
+- The recreated `format/test.ts` canary remains green at `108 / 108`.
+
 #### date-fns Compatibility Probe: 2026-05-11
 
 Probe roots:
@@ -788,8 +802,8 @@ Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Runtime invalid-date parity | Full test-only native manifest; execution stalls at `eachHourOfInterval` invalid-start-date test | Date helper emission casts `f64::NAN` to `i64`, losing invalidity and allowing interval iteration to continue from the epoch. |
-| 2 | Runtime context/date assertions | Full native execution before the stall | Context-result tests and multiple invalid-date result tests fail; rerun after invalidity is preserved to separate shared failures from independent behavior. |
+| 1 | Runtime option/context/date assertions | Focused `eachHourOfInterval` now completes with `16 / 21` passing | Invalid-date iteration no longer stalls; remaining failures cover option-step arrays, date normalization, and timezone context output. |
+| 2 | Full native runtime inventory after invalid-Date repair | Full test-only native manifest | Recreate the 253-file manifest and rerun serial native tests now that the prior non-termination is removed. |
 | 3 | Broad parser/Intl runtime parity | Full native execution before the stall | `parse` and `intlFormatDistance` groups fail at high frequency; inspect after non-terminating invalid-date behavior is removed. |
 
 Optional chaining surface in date-fns:

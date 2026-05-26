@@ -10,16 +10,22 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         match self.mir.types.get(dest_ty) {
-            Some(Type::Float) => Ok(format!("({text} as f64)")),
+            Some(Type::Float) => Ok(format!(
+                "{{ let timestamp_ms = ({text}) as f64; if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }} }}"
+            )),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                Ok(format!("SmeltUnknown::Number({text} as f64)"))
+                Ok(format!(
+                    "{{ let timestamp_ms = ({text}) as f64; SmeltUnknown::Number(if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}) }}"
+                ))
             }
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_result_text(text, *inner)?;
                 Ok(format!("Some({inner_text})"))
             }
             _ if self.is_erased_class_type(dest_ty) => {
-                Ok(format!("SmeltUnknown::Number({text} as f64)"))
+                Ok(format!(
+                    "{{ let timestamp_ms = ({text}) as f64; SmeltUnknown::Number(if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}) }}"
+                ))
             }
             _ => Ok(text.to_owned()),
         }
@@ -32,7 +38,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let timestamp_text = self.date_timestamp_text(timestamp_ms)?;
         Ok(format!(
-            "chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned())"
+            "{{ let timestamp_ms = ({timestamp_text}) as f64; if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned()) }} else {{ \"Invalid Date\".to_owned() }} }}"
         ))
     }
 
@@ -111,7 +117,7 @@ impl FunctionEmitter<'_> {
             ));
         };
         Ok(format!(
-            "{{ let year = {year} as i32; let month0 = {month} as u32; let day = {day} as u32; let hour = {hour} as u32; let minute = {minute} as u32; let second = {second} as u32; let milli = {milli} as u32; chrono::NaiveDate::from_ymd_opt(year, month0 + 1, day).and_then(|date| date.and_hms_milli_opt(hour, minute, second, milli)).map(|dt| dt.and_utc().timestamp_millis()).unwrap_or(i64::MIN) }}",
+            "{{ let year_value = ({year}) as f64; let month_value = ({month}) as f64; let day_value = ({day}) as f64; let hour_value = ({hour}) as f64; let minute_value = ({minute}) as f64; let second_value = ({second}) as f64; let milli_value = ({milli}) as f64; if [year_value, month_value, day_value, hour_value, minute_value, second_value, milli_value].into_iter().all(f64::is_finite) {{ let year = year_value as i32; let month0 = month_value as u32; let day = day_value as u32; let hour = hour_value as u32; let minute = minute_value as u32; let second = second_value as u32; let milli = milli_value as u32; chrono::NaiveDate::from_ymd_opt(year, month0 + 1, day).and_then(|date| date.and_hms_milli_opt(hour, minute, second, milli)).map(|dt| dt.and_utc().timestamp_millis()).unwrap_or(i64::MIN) }} else {{ i64::MIN }} }}",
         ))
     }
 
@@ -139,7 +145,7 @@ impl FunctionEmitter<'_> {
             ),
         };
         Ok(format!(
-            "{{ use {trait_use}; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).map_or(f64::NAN, |date| {accessor}) }}"
+            "{{ use {trait_use}; let timestamp_ms = ({timestamp_text}) as f64; if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| {accessor}) }} else {{ f64::NAN }} }}"
         ))
     }
 
@@ -158,6 +164,11 @@ impl FunctionEmitter<'_> {
             .iter()
             .map(|value| self.date_timestamp_text(value))
             .collect::<Result<Vec<_>, _>>()?;
+        let values_are_finite = value_texts
+            .iter()
+            .map(|value| format!("(({value}) as f64).is_finite()"))
+            .collect::<Vec<_>>()
+            .join(" && ");
         let update = match part {
             smelt_hir::DatePart::FullYear => {
                 let Some(year) = value_texts.first() else {
@@ -238,7 +249,7 @@ impl FunctionEmitter<'_> {
             }
         };
         Ok(format!(
-            "{{ use chrono::{{Datelike as _, Timelike as _}}; chrono::DateTime::<chrono::Utc>::from_timestamp_millis({timestamp_text} as i64).and_then(|date| {update}).map(|date| date.timestamp_millis()).unwrap_or(i64::MIN) }}"
+            "{{ use chrono::{{Datelike as _, Timelike as _}}; let timestamp_ms = ({timestamp_text}) as f64; if timestamp_ms.is_finite() && {values_are_finite} {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).and_then(|date| {update}).map(|date| date.timestamp_millis()).unwrap_or(i64::MIN) }} else {{ i64::MIN }} }}"
         ))
     }
 

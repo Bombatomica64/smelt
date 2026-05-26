@@ -395,5 +395,27 @@ export function isExists(year: number, month: number, day: number): boolean {
 
     assert!(source.contains("unwrap_or(i64::MIN)"));
     assert!(source.contains("map_or(f64::NAN"));
+    assert!(source.contains("timestamp_ms.is_finite()"));
     assert!(!source.contains("timestamp out of range"));
+}
+
+#[test]
+fn preserves_invalid_date_through_setters_and_iso_conversion() {
+    let source = source_for(
+        r#"
+export function keepInvalid(): string {
+  const date = new Date(NaN);
+  date.setHours(0);
+  return date.toISOString();
+}
+"#,
+    );
+
+    assert!(source.contains("timestamp_ms.is_finite()"), "{source}");
+    assert!(source.contains("else { i64::MIN }"), "{source}");
+    assert!(
+        source.contains("timestamp_ms == i64::MIN as f64 { f64::NAN }"),
+        "{source}"
+    );
+    assert!(source.contains("\"Invalid Date\".to_owned()"), "{source}");
 }
