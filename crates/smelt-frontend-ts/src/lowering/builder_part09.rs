@@ -30,6 +30,14 @@ impl ModuleBuilder<'_> {
             ));
         };
         let class_text = class_ident.name.as_str();
+        if class_text == "Date" && self.expression_is_known_date_value(value, body) {
+            let ty = self.ctx.krate.types.intern(Type::Bool);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Bool(true)),
+                ty,
+                span: self.span(binary.span.start, binary.span.end),
+            }));
+        }
         if Self::instanceof_fold_false_builtin_target(class_text)
             && !self.instanceof_concrete_class(value_ty)
         {
@@ -93,6 +101,48 @@ impl ModuleBuilder<'_> {
     /// Return true when `instanceof` can be emitted as a concrete HIR class check.
     fn instanceof_concrete_class(&self, ty: smelt_hir::TypeId) -> bool {
         matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+    }
+
+    /// Return true when a timestamp-backed expression is statically known to be a JavaScript Date.
+    ///
+    /// Date values use numeric timestamps in generated Rust, so runtime Rust
+    /// type inspection cannot distinguish them from arbitrary source numbers.
+    /// TypeScript still guarantees `Date` and `T extends Date` values satisfy
+    /// `instanceof Date`, and direct Date constructors retain that provenance
+    /// until this predicate is lowered.
+    fn type_is_known_date_value(&self, ty: smelt_hir::TypeId) -> bool {
+        matches!(
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(ty)),
+            Some(Type::Class { name, .. })
+                if self.ctx.krate.symbols.get(*name) == Some("Date")
+        )
+    }
+
+    /// Return true when an expression carries JavaScript `Date` identity despite timestamp storage.
+    fn expression_is_known_date_value(&self, value: smelt_hir::ExprId, body: &Body) -> bool {
+        let Some(expr) = body.exprs.get(value.0 as usize) else {
+            return false;
+        };
+        if self.type_is_known_date_value(expr.ty) {
+            return true;
+        }
+        match &expr.kind {
+            ExprKind::DateFromParts { .. } | ExprKind::DateFromValue { .. } => true,
+            ExprKind::Local(local) => self.date_value_locals.contains(local),
+            ExprKind::TypeAssert { value } => self.expression_is_known_date_value(*value, body),
+            ExprKind::Call { callee, .. } => body
+                .exprs
+                .get(callee.0 as usize)
+                .and_then(|callee| match callee.kind {
+                    ExprKind::Item(item) => Some(item),
+                    _ => None,
+                })
+                .is_some_and(|item| self.ctx.date_returning_functions.contains(&item)),
+            _ => false,
+        }
     }
 
     /// Return true when an `instanceof` left operand can participate in a lowered guard.

@@ -1187,6 +1187,93 @@ const result = value instanceof Date;
 }
 
 #[test]
+fn folds_date_instanceof_true_for_constrained_timestamp_date_result() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function identity<ResultDate extends Date>(date: ResultDate): ResultDate {
+  return date;
+}
+const value = identity(new Date(0));
+const result = value instanceof Date;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(true))))
+    );
+    Ok(())
+}
+
+#[test]
+fn folds_date_instanceof_true_inside_native_test_function() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+import { expect, it } from "vitest";
+
+function identity<ResultDate extends Date>(date: ResultDate): ResultDate {
+  return date;
+}
+
+it("preserves Date identity", () => {
+  const value = identity(new Date(NaN));
+  expect(value instanceof Date).toBe(true);
+});
+"#),
+        &mut ctx,
+    )?;
+    ensure!(ctx.krate.bodies.iter().any(|body| body
+        .exprs
+        .iter()
+        .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(true))))));
+    Ok(())
+}
+
+#[test]
+fn folds_date_instanceof_true_for_declared_date_timestamp() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const value: Date = new Date(0);
+const result = value instanceof Date;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(true))))
+    );
+    Ok(())
+}
+
+#[test]
+fn folds_date_now_instanceof_false_for_numeric_timestamp() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const result = Date.now() instanceof Date;
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(false))))
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_error_instanceof_for_generic_union_guard() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

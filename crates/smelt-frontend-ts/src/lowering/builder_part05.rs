@@ -299,6 +299,7 @@ impl ModuleBuilder<'_> {
         table_bindings: &[(&str, TableBindingValue<'_>)],
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
         let saved_async = self.current_async;
         self.current_async = arrow.r#async;
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
@@ -333,6 +334,7 @@ impl ModuleBuilder<'_> {
             }
         }
         self.locals = saved_locals;
+        self.date_value_locals = saved_date_value_locals;
         self.current_async = saved_async;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);
@@ -385,6 +387,7 @@ return_ty: none,
         }
 
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
         let saved_async = self.current_async;
         self.current_async = function.r#async;
         let mut body = Body::new(
@@ -422,6 +425,7 @@ return_ty: none,
             }
         }
         self.locals = saved_locals;
+        self.date_value_locals = saved_date_value_locals;
         self.current_async = saved_async;
         if let Some(error) = errors.into_iter().next() {
             return Err(error);

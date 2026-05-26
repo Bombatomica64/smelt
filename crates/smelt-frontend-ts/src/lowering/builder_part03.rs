@@ -69,6 +69,7 @@ impl ModuleBuilder<'_> {
         }
 
         let saved_locals = std::mem::take(&mut self.locals);
+        let saved_date_value_locals = std::mem::take(&mut self.date_value_locals);
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
@@ -86,6 +87,7 @@ impl ModuleBuilder<'_> {
                 Ok(value) => value,
                 Err(error) => {
                     self.locals = saved_locals;
+                    self.date_value_locals = saved_date_value_locals;
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
@@ -130,6 +132,7 @@ impl ModuleBuilder<'_> {
         let rest = if let Some(rest) = &function.params.rest {
             let BindingPattern::BindingIdentifier(binding) = &rest.rest.argument else {
                 self.locals = saved_locals;
+                self.date_value_locals = saved_date_value_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -155,6 +158,7 @@ impl ModuleBuilder<'_> {
                 Ok(value) => value,
                 Err(error) => {
                     self.locals = saved_locals;
+                    self.date_value_locals = saved_date_value_locals;
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
                     self.current_return_ty = saved_return_ty;
@@ -164,6 +168,7 @@ impl ModuleBuilder<'_> {
             };
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.locals = saved_locals;
+                self.date_value_locals = saved_date_value_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
                 self.current_return_ty = saved_return_ty;
@@ -239,6 +244,7 @@ impl ModuleBuilder<'_> {
             body.build_async_state_machine();
         }
         self.locals = saved_locals;
+        self.date_value_locals = saved_date_value_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;

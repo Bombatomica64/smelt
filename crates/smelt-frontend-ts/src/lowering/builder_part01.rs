@@ -22,6 +22,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             source,
             ctx,
             locals: HashMap::new(),
+            date_value_locals: HashSet::new(),
             module_globals: HashMap::new(),
             items,
             classes,
@@ -1249,8 +1250,14 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .and_then(|annotation| self.predicate_return_type(&annotation.type_annotation))
             .transpose();
         let result = self.predeclared_function(function, id.name.as_str());
+        let returns_date = result
+            .as_ref()
+            .is_ok_and(|function| self.type_is_known_date_value(function.return_ty));
         self.pop_type_parameter_scope();
         let item = self.ctx.krate.push_item(Item::Function(result?));
+        if returns_date {
+            self.ctx.date_returning_functions.insert(item);
+        }
         if let Ok(Some((parameter_name, target))) = predicate_return
             && let Some(param_index) = function.params.items.iter().position(|param| {
                 matches!(

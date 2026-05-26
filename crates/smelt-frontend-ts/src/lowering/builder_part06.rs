@@ -2204,6 +2204,11 @@ impl ModuleBuilder<'_> {
                     mutable,
                     span: self.span(binding.span.start, binding.span.end),
                 });
+                if value.is_some_and(|value| self.expression_is_known_date_value(value, body))
+                    || self.type_is_known_date_value(ty)
+                {
+                    self.date_value_locals.insert(local);
+                }
                 self.locals.insert(name.to_owned(), local);
                 let pat = body.push_pattern(Pattern::Binding(local));
                 body.push_stmt_to_block(block, Stmt::Let { pat, ty, value });

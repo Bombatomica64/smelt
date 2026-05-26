@@ -665,6 +665,14 @@ Follow-up on 2026-05-26:
   `formatDistanceToNowStrict/test.ts` (`42`), `parseISO/test.ts` (`33`), and
   `setDefaultOptions/test.ts` (`26`).
 - The recreated `format/test.ts` canary remains green at `108 / 108`.
+- Timestamp-backed values returned under a `Date` or `T extends Date` contract now preserve
+  `instanceof Date` semantics through native-test lowering. In the regenerated
+  `addMinutes/test.ts` invalid-date assertion, the generated conjunction now begins with
+  `true && ...` rather than `false && ...`.
+- The focused generated `addMinutes` invalid-date test still fails after that change because
+  `isNaN(result.getTime())` currently lowers to `false`; generated test compilation also reports
+  semantic `invalid_nan_comparisons` warnings elsewhere. Numeric NaN predicate/comparison
+  lowering is the next invalid-Date blocker.
 
 #### date-fns Compatibility Probe: 2026-05-11
 
@@ -811,7 +819,7 @@ Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Date identity through timestamp-backed values | Invalid-date assertions across `add*`, `set*`, `startOf*`, `sub*`, and parser tests | Generated NaN propagation is present, but `result instanceof Date` currently lowers false for the numeric Date model. Fix requires a general Date identity rule. |
+| 1 | Invalid-date numeric predicates/comparisons | Invalid-date assertions across `add*`, `set*`, `startOf*`, `sub*`, and parser tests | Timestamp-backed `instanceof Date` now lowers true for Date-contracted values; focused `addMinutes` still fails because `isNaN(result.getTime())` lowers false, and generated tests expose `invalid_nan_comparisons` warnings. |
 | 2 | Broad parser/Intl runtime parity | Full native execution: `parse/test.ts` has `247` failures and `intlFormatDistance/test.ts` has `88` | Triage after Date identity failures are reduced because invalid-Date assertions contribute to these groups. |
 | 3 | Timezone normalization/context output | Focused `eachHourOfInterval` (`16 / 21`) and `eachWeekendOfInterval` (`11 / 13`) | Loop termination and invalid endpoints now pass; remaining failures are normalization/context output mismatches and interval step behavior. |
 

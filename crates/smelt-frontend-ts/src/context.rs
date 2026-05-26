@@ -86,6 +86,8 @@ pub struct HirCtx {
     pub overloads: HashMap<String, Vec<OverloadSignature>>,
     /// Rest-parameter metadata visible to later TypeScript modules.
     pub function_rests: HashMap<String, RestParam>,
+    /// Functions whose source return contract is a JavaScript `Date` value.
+    pub date_returning_functions: HashSet<ItemId>,
     /// Structural fields attached to type aliases visible to later modules.
     pub type_alias_fields: HashMap<smelt_hir::Symbol, Vec<Field>>,
     /// Interface heritage clauses visible to later modules for lazy field lookup.
@@ -114,6 +116,7 @@ impl HirCtx {
             const_collections: HashMap::new(),
             overloads: HashMap::new(),
             function_rests: HashMap::new(),
+            date_returning_functions: HashSet::new(),
             type_alias_fields: HashMap::new(),
             interface_extends: HashMap::new(),
             interface_index_values: HashMap::new(),

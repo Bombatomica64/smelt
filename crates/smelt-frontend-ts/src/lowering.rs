@@ -315,6 +315,8 @@ struct ModuleBuilder<'ctx> {
     ctx: &'ctx mut HirCtx,
     /// Local variable bindings in current scope.
     locals: HashMap<String, smelt_hir::LocalId>,
+    /// Local values statically known to retain JavaScript `Date` identity.
+    date_value_locals: HashSet<smelt_hir::LocalId>,
     /// Typed top-level mutable bindings visible from nested function bodies.
     module_globals: HashMap<String, smelt_hir::TypeId>,
     /// Declared and imported items (functions, classes, interfaces).

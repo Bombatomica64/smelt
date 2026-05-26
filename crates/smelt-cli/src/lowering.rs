@@ -90,6 +90,8 @@ struct FrontendLoweringState {
     ts_overloads: HashMap<String, Vec<smelt_frontend_ts::OverloadSignature>>,
     /// TypeScript rest-parameter metadata visible across manifest entries.
     ts_function_rests: HashMap<String, smelt_frontend_ts::RestParam>,
+    /// TypeScript functions whose source return contract is a JavaScript `Date`.
+    ts_date_returning_functions: std::collections::HashSet<smelt_hir::ItemId>,
     /// TypeScript structural type-alias fields visible across manifest entries.
     ts_type_alias_fields: HashMap<smelt_hir::Symbol, Vec<smelt_hir::Field>>,
     /// TypeScript interface heritage edges visible across manifest entries.
@@ -387,6 +389,7 @@ fn lower_manifest_source(
                 const_collections: state.ts_const_collections,
                 overloads: state.ts_overloads,
                 function_rests: state.ts_function_rests,
+                date_returning_functions: state.ts_date_returning_functions,
                 type_alias_fields: state.ts_type_alias_fields,
                 interface_extends: state.ts_interface_extends,
                 interface_index_values: state.ts_interface_index_values,
@@ -418,6 +421,7 @@ fn lower_manifest_source(
                     ts_const_collections: ctx.const_collections,
                     ts_overloads: ctx.overloads,
                     ts_function_rests: ctx.function_rests,
+                    ts_date_returning_functions: ctx.date_returning_functions,
                     ts_type_alias_fields: ctx.type_alias_fields,
                     ts_interface_extends: ctx.interface_extends,
                     ts_interface_index_values: ctx.interface_index_values,
@@ -459,6 +463,7 @@ fn lower_manifest_source(
                     ts_const_collections: state.ts_const_collections,
                     ts_overloads: state.ts_overloads,
                     ts_function_rests: state.ts_function_rests,
+                    ts_date_returning_functions: state.ts_date_returning_functions,
                     ts_type_alias_fields: state.ts_type_alias_fields,
                     ts_interface_extends: state.ts_interface_extends,
                     ts_interface_index_values: state.ts_interface_index_values,
