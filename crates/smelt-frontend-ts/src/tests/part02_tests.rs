@@ -1176,7 +1176,7 @@ const result = value instanceof Box;
 }
 
 #[test]
-fn folds_date_instanceof_for_timestamp_model() -> Result<(), String> {
+fn lowers_date_instanceof_for_union_that_can_contain_date() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -1191,7 +1191,7 @@ const result = value instanceof Date;
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(false))))
+            .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
     );
     Ok(())
 }
@@ -1279,6 +1279,28 @@ const result = Date.now() instanceof Date;
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(false))))
+    );
+    Ok(())
+}
+
+#[test]
+fn lowers_date_instanceof_for_unknown_runtime_date_identity() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function isDate(value: unknown): boolean {
+  return value instanceof Date;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::InstanceOf { .. }))
     );
     Ok(())
 }

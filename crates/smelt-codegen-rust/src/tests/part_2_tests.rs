@@ -126,6 +126,55 @@ function invalid<ResultDate extends Date>(value: ResultDate): boolean {
 }
 
 #[test]
+fn emits_nan_predicate_for_optional_numeric_and_date_values() {
+    let source = source_for(
+        r#"
+function numeric(value: number | undefined): boolean {
+  return value != null && isNaN(value);
+}
+
+function optionalResult(): number | undefined {
+  return undefined;
+}
+
+function numericResult(): boolean {
+  const value = optionalResult();
+  return value != null && isNaN(value);
+}
+
+function dateValue(value: Date | undefined): boolean {
+  return value instanceof Date && isNaN(value.getTime());
+}
+"#,
+    );
+
+    assert!(source.contains("unwrap_or(f64::NAN)"), "{source}");
+    assert!(source.contains(".map_or(f64::NAN"), "{source}");
+    assert!(source.contains(".is_nan()"), "{source}");
+}
+
+#[test]
+fn emits_runtime_date_identity_for_unknown_instanceof_guard() {
+    let source = source_for(
+        r#"
+function isDate(value: unknown): boolean {
+  return value instanceof Date;
+}
+
+const candidate = new Date(NaN);
+const date = isDate(candidate);
+const number = isDate(1);
+"#,
+    );
+
+    assert!(source.contains("\"__smelt_date\".to_owned()"), "{source}");
+    assert!(
+        source.contains("value.contains_key(\"__smelt_date\")"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_vitest_to_be_nan_using_same_value_semantics() {
     let source = source_for(
         r#"

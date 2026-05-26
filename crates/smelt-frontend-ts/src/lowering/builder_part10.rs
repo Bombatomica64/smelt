@@ -540,7 +540,13 @@ return_ty: string_ty,
                 && self.is_date_constructor_arg_type(operand_ty))
                 || matches!(
                     self.ctx.krate.types.get(operand_ty),
-                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                    Some(
+                        Type::Unknown
+                            | Type::TypeParam { .. }
+                            | Type::Class { .. }
+                            | Type::Optional(_)
+                            | Type::Union(_)
+                    )
                 )
             {
                 let ty = self.ctx.krate.types.intern(Type::Float);

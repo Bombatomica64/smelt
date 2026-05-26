@@ -824,13 +824,13 @@ Full manifest build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files and compiles with `0` errors; native execution currently completes with `2057 / 2851` passing, including concurrent overload-lowering work in the worktree. |
+| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files from date-fns `424a783de1fd974bcdbe907c9c5eb5154e9db29f`, compiles with `0` errors, and reports `663` warnings in `blocker-logs/date-fns-full-tests-current.md`; with concurrent overload-lowering changes present, native execution currently completes with `1736 / 2851` passing. |
 
 Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Remaining invalid-date semantics | `closestTo`, `parse`/`parseISO`, and `add` invalid-date assertions | Numeric NaN predicates, timezone-context NaN preservation, `max`/`min` Date truthiness/value fallback, and `previousWednesday` invalid-Date string output are fixed; remaining failures are separate rest/spread, indexing, and exception-behavior groups. |
+| 1 | Remaining invalid-date semantics | `invalid_date` filtered execution passes `334 / 344`; failures remain in `parse`/`parseISO`, `closestIndexTo`/`closestTo`, and `add` | Timestamp-backed Dates now retain runtime identity when erased into `unknown`, and optional Date numeric coercion emits `NaN` rather than `0`; `add` is blocked before its assertion by `firstTickInLocalDay` falling through the bounded control-flow emitter to `Default::default()`, parser failures are index panics, and closest-value assertions remain matcher/lowering failures. |
 | 2 | Broad parser/Intl runtime parity | Full native execution: `parse/test.ts` has `247` failures and `intlFormatDistance/test.ts` has `88` | Triage after Date identity failures are reduced because invalid-Date assertions contribute to these groups. |
 | 3 | Timezone normalization/context output | Focused `eachHourOfInterval` (`16 / 21`) and `eachWeekendOfInterval` (`11 / 13`) | Loop termination and invalid endpoints now pass; remaining failures are normalization/context output mismatches and interval step behavior. |
 

@@ -275,17 +275,18 @@ impl SmeltUnknown {
     }
     /// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.
     pub fn get_day(&self) -> f64 {
-        let Self::Number(timestamp_ms) = self else { return f64::NAN; };
-        let days_since_epoch = (*timestamp_ms / 86_400_000.0).floor() as i64;
+        let timestamp_ms = match self { Self::Number(value) => *value, Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => return f64::NAN }, _ => return f64::NAN };
+        let days_since_epoch = (timestamp_ms / 86_400_000.0).floor() as i64;
         ((days_since_epoch + 4).rem_euclid(7)) as f64
     }
     /// Return JavaScript Date.toISOString output for erased Date-compatible values.
     pub fn to_iso_string(&self) -> String {
         let timestamp_ms = match self {
             Self::Number(value) => *value,
+            Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },
             Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),
             Self::Bool(value) => if *value { 1.0 } else { 0.0 },
-            Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) => f64::NAN,
+            Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Function(_) => f64::NAN,
         };
         chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| "Invalid Date".to_owned())
     }

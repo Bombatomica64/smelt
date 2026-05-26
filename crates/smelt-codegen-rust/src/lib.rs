@@ -674,17 +674,18 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             });
             impl_writer.line("/// Return a JavaScript-like weekday for erased Date-compatible numeric timestamps.");
             impl_writer.block("pub fn get_day(&self) -> f64", |fn_writer| {
-                fn_writer.line("let Self::Number(timestamp_ms) = self else { return f64::NAN; };");
-                fn_writer.line("let days_since_epoch = (*timestamp_ms / 86_400_000.0).floor() as i64;");
+                fn_writer.line("let timestamp_ms = match self { Self::Number(value) => *value, Self::Object(value) => match value.get(\"__smelt_date\") { Some(Self::Number(value)) => value, _ => return f64::NAN }, _ => return f64::NAN };");
+                fn_writer.line("let days_since_epoch = (timestamp_ms / 86_400_000.0).floor() as i64;");
                 fn_writer.line("((days_since_epoch + 4).rem_euclid(7)) as f64");
             });
             impl_writer.line("/// Return JavaScript Date.toISOString output for erased Date-compatible values.");
             impl_writer.block("pub fn to_iso_string(&self) -> String", |fn_writer| {
                 fn_writer.line("let timestamp_ms = match self {");
                 fn_writer.line("    Self::Number(value) => *value,");
+                fn_writer.line("    Self::Object(value) => match value.get(\"__smelt_date\") { Some(Self::Number(value)) => value, _ => f64::NAN },");
                 fn_writer.line("    Self::String(value) => value.parse::<f64>().unwrap_or(f64::NAN),");
                 fn_writer.line("    Self::Bool(value) => if *value { 1.0 } else { 0.0 },");
-                fn_writer.line("    Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Object(_) | Self::Function(_) => f64::NAN,");
+                fn_writer.line("    Self::Null | Self::Symbol(_) | Self::Array(_) | Self::Function(_) => f64::NAN,");
                 fn_writer.line("};");
                 fn_writer.line("chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned())");
             });

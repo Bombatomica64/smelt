@@ -49,6 +49,12 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Class { name, .. })
+                if self.is_erased_class_type(self.operand_ty(operand)?)
+                    && self.symbol_name(*name)? == "Date" =>
+            {
+                Ok(self.date_unknown_identity_text(&text))
+            }
+            Some(Type::Class { .. })
                 if self.is_erased_class_type(self.operand_ty(operand)?) =>
             {
                 Ok(text)
@@ -200,7 +206,14 @@ impl FunctionEmitter<'_> {
                     "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
                 ))
             }
-            Some(Type::Class { .. }) if self.is_erased_class_type(ty) => Ok(value_text.to_owned()),
+            Some(Type::Class { name, .. })
+                if self.is_erased_class_type(ty) && self.symbol_name(*name)? == "Date" =>
+            {
+                Ok(self.date_unknown_identity_text(value_text))
+            }
+            Some(Type::Class { .. }) if self.is_erased_class_type(ty) => {
+                Ok(value_text.to_owned())
+            }
             Some(Type::Class { name, .. }) => self.class_unknown_object_text(value_text, *name),
             Some(Type::Set(_)) => Ok("SmeltUnknown::Array(Vec::new())".to_owned()),
             Some(Type::Tuple(items)) => {
@@ -262,6 +275,17 @@ impl FunctionEmitter<'_> {
             Some(Type::Union(_)) => Ok(value_text.to_owned()),
             Some(Type::Future(_)) => Ok("SmeltUnknown::Null".to_owned()),
         }
+    }
+
+    /// Mark a timestamp-backed `Date` only when it crosses an erased value boundary.
+    ///
+    /// Internally dates stay as numeric timestamps for compact date arithmetic. The
+    /// marker preserves JavaScript object identity for later dynamic `instanceof Date`
+    /// checks without changing ordinary typed Date storage or comparisons.
+    fn date_unknown_identity_text(&self, value_text: &str) -> String {
+        format!(
+            "match {value_text}.clone() {{ SmeltUnknown::Object(value) if value.contains_key(\"__smelt_date\") => SmeltUnknown::Object(value), SmeltUnknown::Number(value) => SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(value))]))), value => value }}"
+        )
     }
 
     /// Wrap a generated class or interface value into an erased object.
@@ -408,10 +432,10 @@ impl FunctionEmitter<'_> {
                 "match {text}.clone() {{ SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }}"
             )),
             Some(Type::Float) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
             )),
             Some(Type::Int) => Ok(format!(
-                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => 0_i64 }}"
+                "match {text}.clone() {{ SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value {{ 1_i64 }} else {{ 0_i64 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }}"
             )),
             Some(Type::String) => Ok(format!(
                 "match {text}.clone() {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"

@@ -1398,6 +1398,31 @@ function read(): boolean {
 }
 
 #[test]
+fn lowers_global_is_nan_with_optional_number() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function read(value: number | undefined): boolean {
+  return value != null && isNaN(value);
+}
+"#),
+        &mut ctx,
+    )?;
+    let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    ensure!(ctx.krate.bodies.iter().flat_map(|body| body.exprs.iter()).any(
+        |expr| matches!(
+            expr.kind,
+            ExprKind::NumericPredicate {
+                op: NumericPredicateOp::IsNaN,
+                ..
+            }
+        )
+    ));
+    Ok(())
+}
+
+#[test]
 fn lowers_console_warn_and_error_like_console_log() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

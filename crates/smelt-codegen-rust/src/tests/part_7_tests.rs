@@ -284,7 +284,11 @@ const number = +value;
         "{source}"
     );
     assert!(
-        source.contains("SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN"),
+        source.contains("SmeltUnknown::Object(value) => match value.get(\"__smelt_date\")"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN"),
         "{source}"
     );
 }
@@ -1658,7 +1662,11 @@ const result = format({ locale: customLocale });
         !source.contains("borrow_mut())(Default::default(),"),
         "{source}"
     );
-    assert!(source.contains("smelt_call_args.push(arg0);"), "{source}");
+    assert!(
+        source.contains("smelt_call_args.push(match arg0.clone()"),
+        "{source}"
+    );
+    assert!(source.contains("\"__smelt_date\".to_owned()"), "{source}");
 }
 
 #[test]

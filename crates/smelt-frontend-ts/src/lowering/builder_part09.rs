@@ -39,6 +39,11 @@ impl ModuleBuilder<'_> {
             }));
         }
         if Self::instanceof_fold_false_builtin_target(class_text)
+            && !(class_text == "Date"
+                && matches!(
+                    self.ctx.krate.types.get(value_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+                ))
             && !self.instanceof_concrete_class(value_ty)
         {
             let ty = self.ctx.krate.types.intern(Type::Bool);
@@ -1226,7 +1231,19 @@ impl ModuleBuilder<'_> {
         new_expr: &oxc::ast::ast::NewExpression<'_>,
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        self.date_constructor_timestamp(new_expr, body)
+        let timestamp_ms = self.date_constructor_timestamp(new_expr, body)?;
+        let date_name = self.intern_type_name("Date");
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name: date_name,
+            args: Vec::new(),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::DateFromValue {
+                value: timestamp_ms,
+            },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
     }
 
     /// Lower `new (date.constructor as DateCtor)(value)` for timestamp-mode Dates.
