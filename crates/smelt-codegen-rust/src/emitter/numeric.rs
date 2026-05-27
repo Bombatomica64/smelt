@@ -114,16 +114,24 @@ impl FunctionEmitter<'_> {
                 format!("{operand_text} as f64")
             });
         }
-        if !matches!(self.mir.types.get(operand_ty), Some(Type::Float)) {
-            return Err(EmitError::new("numeric round operand must be numeric"));
-        }
         let method_name = match op {
             smelt_hir::NumericRoundOp::Floor => "floor",
             smelt_hir::NumericRoundOp::Ceil => "ceil",
             smelt_hir::NumericRoundOp::Round => "round",
             smelt_hir::NumericRoundOp::Trunc => "trunc",
         };
-        let text = format!("{}.{}()", self.operand_text(operand)?, method_name);
+        let operand_text = if matches!(self.mir.types.get(operand_ty), Some(Type::Float)) {
+            self.operand_text(operand)?
+        } else if matches!(
+            self.mir.types.get(operand_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(operand_ty)
+        {
+            self.operand_as_type_text(operand, self.type_id(Type::Float)?)?
+        } else {
+            return Err(EmitError::new("numeric round operand must be numeric"));
+        };
+        let text = format!("{operand_text}.{method_name}()");
         if matches!(self.mir.types.get(dest_ty), Some(Type::Int)) {
             Ok(format!("{text} as i64"))
         } else {

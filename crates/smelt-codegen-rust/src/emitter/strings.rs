@@ -82,6 +82,7 @@ impl FunctionEmitter<'_> {
         op: smelt_hir::StringSearchOp,
         haystack: &Operand,
         needle: &Operand,
+        from_index: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let (missing, cast) = match self.mir.types.get(dest_ty) {
@@ -95,6 +96,17 @@ impl FunctionEmitter<'_> {
         };
         let haystack_text = self.string_like_operand_text(haystack, "string search")?;
         let needle_text = self.string_like_operand_text(needle, "string search")?;
+        if let Some(from_index) = from_index {
+            let index_text = self.operand_as_type_text(from_index, self.type_id(Type::Float)?)?;
+            return match op {
+                smelt_hir::StringSearchOp::Find => Ok(format!(
+                    "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as {cast})).unwrap_or({missing}) }}"
+                )),
+                smelt_hir::StringSearchOp::RFind => Ok(format!(
+                    "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_end_char = smelt_from.saturating_add(smelt_needle.chars().count()); let smelt_end_byte = smelt_haystack.char_indices().nth(smelt_end_char).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack[..smelt_end_byte].rfind(&smelt_needle).map_or({missing}, |idx| idx as {cast}) }}"
+                )),
+            };
+        }
         Ok(format!(
             "{haystack_text}.{method_name}(&{needle_text}).map_or({missing}, |idx| idx as {cast})"
         ))
@@ -380,6 +392,17 @@ impl FunctionEmitter<'_> {
         Ok(format!("{regex_text}.exec(&{haystack_text})"))
     }
 
+    /// Converts JavaScript `String.prototype.matchAll` to indexed match records.
+    pub(super) fn regex_match_all_text(
+        &self,
+        regex: &Operand,
+        haystack: &Operand,
+    ) -> Result<String, EmitError> {
+        let regex_text = self.regexp_operand_text(regex)?;
+        let haystack_text = self.string_like_operand_text(haystack, "regex matchAll")?;
+        Ok(format!("{regex_text}.match_all_indices(&{haystack_text})"))
+    }
+
     /// Render a value as a `SmeltRegExp`.
     fn regexp_operand_text(&self, operand: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(operand)?;
@@ -387,7 +410,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => Ok(text),
             Some(Type::String) => Ok(format!("SmeltRegExp::new({text}, String::new())")),
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => Ok(format!(
-                "match {text} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value, String::new()), _ => SmeltRegExp::new(String::new(), String::new()) }}"
+                "match {text} {{ SmeltUnknown::String(value) => SmeltRegExp::new(value, String::new()), SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::new(String::new(), String::new()) }}"
             )),
             _ => Ok(format!(
                 "SmeltRegExp::new({text}.to_string(), String::new())"
@@ -451,6 +474,17 @@ impl FunctionEmitter<'_> {
             Some(Type::Optional(inner)) if self.mir.types.get(*inner) == Some(&Type::String) => Ok(
                 format!("{}.unwrap_or_default()", self.operand_text(operand)?),
             ),
+            Some(Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(*inner) =>
+            {
+                let text = self.operand_text(operand)?;
+                Ok(format!(
+                    "{text}.map_or_else(String::new, |value| match value {{ SmeltUnknown::Null => String::new(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }})"
+                ))
+            }
             Some(Type::Tuple(_) | Type::Optional(_) | Type::Future(_)) => {
                 Ok("String::new()".to_owned())
             }
@@ -579,6 +613,10 @@ impl FunctionEmitter<'_> {
 
     /// Converts a list containment operation to Rust text.
     /// Converts a string split operation to Rust text.
+    ///
+    /// JavaScript accepts both literal strings and `RegExp` separator values.
+    /// Preserve RegExp flags and matching behavior instead of stringifying the
+    /// separator pattern.
     pub(super) fn string_split_text(
         &self,
         haystack: &Operand,
@@ -586,8 +624,16 @@ impl FunctionEmitter<'_> {
         limit: Option<&Operand>,
     ) -> Result<String, EmitError> {
         let haystack_text = self.string_like_operand_text(haystack, "string split")?;
-        let separator_text = self.string_like_operand_text(separator, "string split")?;
-        let base = format!("{haystack_text}.split(&{separator_text}).map(str::to_owned)");
+        let base = if matches!(
+            self.mir.types.get(self.operand_ty(separator)?),
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+        ) {
+            let regex_text = self.regexp_operand_text(separator)?;
+            format!("{regex_text}.split_string(&{haystack_text}).into_iter()")
+        } else {
+            let separator_text = self.string_like_operand_text(separator, "string split")?;
+            format!("{haystack_text}.split(&{separator_text}).map(str::to_owned)")
+        };
         let Some(limit_operand) = limit else {
             return Ok(format!("{base}.collect::<Vec<_>>()"));
         };

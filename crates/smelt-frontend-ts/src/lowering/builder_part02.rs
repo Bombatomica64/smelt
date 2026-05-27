@@ -6,7 +6,21 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        self.arrow_function_const_declaration_inner(name_text, arrow, type_hint, false)
+        self.arrow_function_const_declaration_inner(name_text, arrow, type_hint, false, false)
+    }
+
+    /// Lower a module-private arrow constant with a crate-unique internal function symbol.
+    ///
+    /// Multiple TypeScript modules legitimately use helper spellings such as
+    /// `lazyImplementation`; their Rust items must remain distinct after all
+    /// source modules are emitted into one generated crate.
+    fn private_arrow_function_const_declaration(
+        &mut self,
+        name_text: &str,
+        arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
+        type_hint: Option<smelt_hir::TypeId>,
+    ) -> Result<smelt_hir::ItemId, SmeltError> {
+        self.arrow_function_const_declaration_inner(name_text, arrow, type_hint, false, true)
     }
 
     /// Lower a synthetic object-table arrow function while preserving exact key spelling.
@@ -16,7 +30,7 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
-        self.arrow_function_const_declaration_inner(name_text, arrow, type_hint, true)
+        self.arrow_function_const_declaration_inner(name_text, arrow, type_hint, true, false)
     }
 
     /// Shared implementation for arrow function constants.
@@ -26,6 +40,7 @@ impl ModuleBuilder<'_> {
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         type_hint: Option<smelt_hir::TypeId>,
         preserve_source_name: bool,
+        qualify_private_name: bool,
     ) -> Result<smelt_hir::ItemId, SmeltError> {
         let function_hint = self.contextual_function_type(type_hint);
         let _type_params = self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
@@ -90,13 +105,16 @@ impl ModuleBuilder<'_> {
                     return Err(error);
                 }
             };
-            let ty = param_annotation_ty
+            let mut ty = param_annotation_ty
                 .or_else(|| {
                     function_hint
                         .as_ref()
                         .and_then(|function| function.params.get(params.len()).copied())
                 })
                 .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            if param.optional && !matches!(self.ctx.krate.types.get(ty), Some(Type::Optional(_))) {
+                ty = self.ctx.krate.types.intern(Type::Optional(ty));
+            }
             let (param_name, param_span) = match &param.pattern {
                 BindingPattern::BindingIdentifier(binding) => (
                     self.intern_source_name(binding.name.as_str()),
@@ -277,6 +295,8 @@ impl ModuleBuilder<'_> {
         let body_id = self.ctx.krate.push_body(body);
         let name = if preserve_source_name {
             self.intern_exact_source_name(name_text)
+        } else if qualify_private_name {
+            self.intern_source_name(&format!("{name_text}__module_{}", self.path))
         } else {
             self.intern_source_name(name_text)
         };
@@ -285,7 +305,16 @@ impl ModuleBuilder<'_> {
             span: self.span(arrow.span.start, arrow.span.end),
             params,
             rest: rest.map(|rest| rest.index),
-            required_params: None,
+            required_params: Some(
+                arrow
+                    .params
+                    .items
+                    .iter()
+                    .position(|param| {
+                        param.optional || Self::formal_parameter_has_default(param)
+                    })
+                    .unwrap_or(arrow.params.items.len()),
+            ),
 return_ty,
             is_async: arrow.r#async,
             is_test: false,

@@ -71,11 +71,11 @@ returned: int = adder(6)
 "#,
     );
 
-    assert!(source.contains("Rc<::std::cell::RefCell<dyn FnMut(i64) -> i64>>"));
+    assert!(source.contains("Rc<dyn Fn(i64) -> i64>"));
     assert!(source.contains("(3)"));
     assert!(source.contains("apply(4,"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(&mut *adder.borrow_mut())(6)"));
+    assert!(source.contains("(adder)(6)"));
     assert!(source.contains("move |"));
 }
 
@@ -115,6 +115,31 @@ export function collect(values: number[], flags: boolean[]): number {
 }
 
 #[test]
+fn keeps_continuation_after_short_circuit_call_guard() {
+    let source = source_for(
+        r#"
+function valid(value: boolean): boolean {
+  return value;
+}
+
+export function count(a: boolean, b: boolean): number {
+  if (!valid(a) || !valid(b)) return NaN;
+  let result = 0;
+  while (a) {
+    result += 1;
+    break;
+  }
+  return result;
+}
+"#,
+    );
+
+    assert!(source.contains("return f64::NAN;"), "{source}");
+    assert!(source.contains("result.clone() + 1.0"), "{source}");
+    assert!(source.contains("return result.clone();"), "{source}");
+}
+
+#[test]
 fn emits_postfix_index_update_inside_while_loop_body() {
     let source = source_for(
         r#"
@@ -145,6 +170,31 @@ export function read(values: number[]): number[] {
             && increment > loop_start,
         "postfix update escaped the loop body:\n{source}"
     );
+}
+
+#[test]
+fn emits_do_while_value_iteration_without_defaulting_after_recursive_expansion() {
+    let source = source_for(
+        r#"
+export function firstOutside(value: number): number {
+  let previous = value;
+  let current = value;
+  do {
+    previous = current;
+    current = current - 1;
+  } while (current > 0);
+  return previous;
+}
+"#,
+    );
+
+    assert!(source.contains("loop {"), "{source}");
+    assert!(
+        !source
+            .contains("Smelt could not structurally emit this recursive control-flow region yet"),
+        "{source}"
+    );
+    assert!(!source.contains("return Default::default()"), "{source}");
 }
 
 #[test]
@@ -181,7 +231,7 @@ result: int = adder(6)
 
     assert!(source.contains("move |"));
     assert!(source.contains("make_adder(5)"));
-    assert!(source.contains("(&mut *adder.borrow_mut())(6)"));
+    assert!(source.contains("(adder)(6)"));
 }
 
 #[test]

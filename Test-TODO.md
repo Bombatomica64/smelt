@@ -633,7 +633,7 @@ Status: green as of the 2026-05-11 external rerun.
 | Measurement | Result | Notes |
 |---|---:|---|
 | `smelt build`, `[output] build = false` | pass | Fresh emission completed for the complete core test scope. |
-| Generated `cargo check` | pass | `0` errors and `659` non-fatal warnings in the grouped report. |
+| Generated `cargo check` | pass | `0` errors and `754` non-fatal warnings in the current grouped report. |
 | Generated native Rust tests | `2851` | Count reported when `cargo test -- --test-threads=1` entered execution. |
 | Generated `cargo test` | fail, `2057 / 2851` pass | Serial execution completes; `794` assertion/runtime failures remain after NaN, timezone-context, Date-truthiness, and invalid-Date string fixes. This measurement also includes concurrently active overload-lowering changes. |
 
@@ -674,6 +674,13 @@ Follow-up on 2026-05-26:
 - The `tz(...)` date-context callback now preserves non-finite timestamp values instead of
   casting `NaN` to epoch milliseconds. Focused invalid-value tests now pass for
   `addMinutes` (`2 / 2`), `toDate` (`2 / 2`), and the `constructFrom` timezone-context edge case.
+- Panic-focused isolated validation, kept separate from concurrent overload edits, emits the
+  complete `253`-file probe without a compiler stack overflow and passes generated `cargo check`
+  with `0` errors and `655` warnings in `blocker-logs/date-fns-full-tests-current.md`.
+- In that isolated validation, the full native suite completes with `1903 / 2851` passing and
+  `0` panics. The `invalid_date` filter now passes `342 / 344`; all `parseISO` invalid-input
+  checks pass after preserving `RegExp` split separators and preventing conditional assignment
+  narrowing from treating possibly absent Date values as always present.
 - Optional object-backed Date values now preserve value selection for `result || NaN` and
   truthiness for `!result`; all four invalid-Date tests in `max/test.ts` and `min/test.ts`
   now pass.
@@ -684,6 +691,49 @@ Follow-up on 2026-05-26:
   separate semantic groups: `closestTo` rest/spread normalization, `previousWednesday`
   invalid Date string behavior, parse/parseISO indexing panics, and `add` invalid-date
   exception behavior.
+
+Follow-up on 2026-05-27:
+
+- Panic-focused isolated validation continues to emit and compile the complete `253`-file probe.
+  The current grouped report is `blocker-logs/date-fns-full-tests-current.md`: generated
+  `cargo check` passes with `0` errors and `754` warnings.
+- `Values extends unknown[]` is intentionally erased at the generated Rust generic ABI as
+  `SmeltUnknown`, but rest-call lowering now projects erased array spreads back to the required
+  runtime list at the operation boundary. Variable-length spread tails no longer select a
+  fixed tuple-rest overload.
+- Timestamp-backed invalid Dates returned through dynamic Date constructors retain Date
+  identity, and optional-number `typeof` checks now test runtime presence rather than folding
+  to `false`.
+- Boolean `&&` / `||` evaluation now preserves source short-circuit behavior for guards such
+  as an absent `closestTo` index, and structured Rust emission preserves a shared continuation
+  when one lazy branch reaches it through a function call.
+- Generated serial test execution now passes the entire `invalid_date` filter at `344 / 344`;
+  all `11 / 11` `closestTo` tests pass, including the empty-array case that previously risked
+  eager optional-value access. The `format/test.ts` native canary remains green at `108 / 108`.
+- Full serial native execution of the already compiled probe after those fixes completes at
+  `1935 / 2851` passing (`916` failing). The three largest failing source files are
+  `parse/test.ts` (`209` failures), `intlFormatDistance/test.ts` (`88`), and
+  `parseISO/test.ts` (`32`).
+- Logical assignment lowering now accepts `||=` and `&&=` through lazy conditional value
+  selection. A fresh full-suite emission reaches the concurrent overload-resolution blocker in
+  `pkgs/core/src/formatDistance/index.ts` rather than rejecting `LogicalOr` assignment in
+  `pkgs/tz/src/tzOffset/index.ts`.
+- Fresh isolated parse probe:
+  `/tmp/smelt_date_fns_parse_probe_20260527/Smelt.toml`, using date-fns
+  `424a783de1fd974bcdbe907c9c5eb5154e9db29f`. Its generated `cargo check` passes with
+  `0` errors and `310` warnings; grouped diagnostics are in
+  `blocker-logs/date-fns-parse-current.md`.
+- The isolated `parse/test.ts` native execution currently passes `38 / 247` tests
+  (`209` failing). Mixed `+(parts[index] || 0)` selection is fixed through erased-value
+  numeric coercion; the remaining broad blocker is general subclass method erasure when
+  concrete `Parser` and `Setter` instances are stored through base-class collection types.
+  Generated base records retain fields but lose overriding `parse`, `validate`, and `set`
+  behavior, causing valid token parses to return invalid dates.
+- Rebuilding the `format/test.ts` canary in the shared tree now compiles but executes at
+  `59 / 108` passing (`49` failing), including long-format optional-value panics. This is a
+  regression from the prior `108 / 108` measurement and occurs alongside concurrent
+  structural/options and overload work; it is not treated as validation of the parse or
+  logical-assignment fixes until that shared-tree regression is reconciled.
 
 #### date-fns Compatibility Probe: 2026-05-11
 
@@ -824,14 +874,14 @@ Full manifest build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files from date-fns `424a783de1fd974bcdbe907c9c5eb5154e9db29f`, compiles with `0` errors, and reports `663` warnings in `blocker-logs/date-fns-full-tests-current.md`; with concurrent overload-lowering changes present, native execution currently completes with `1736 / 2851` passing. |
+| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files from date-fns `424a783de1fd974bcdbe907c9c5eb5154e9db29f`, compiles with `0` errors, and reports `754` warnings in `blocker-logs/date-fns-full-tests-current.md`. The last recorded whole-suite runtime total predates the latest invalid-date fixes; targeted native validation is current below. |
 
 Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Remaining invalid-date semantics | `invalid_date` filtered execution passes `334 / 344`; failures remain in `parse`/`parseISO`, `closestIndexTo`/`closestTo`, and `add` | Timestamp-backed Dates now retain runtime identity when erased into `unknown`, and optional Date numeric coercion emits `NaN` rather than `0`; `add` is blocked before its assertion by `firstTickInLocalDay` falling through the bounded control-flow emitter to `Default::default()`, parser failures are index panics, and closest-value assertions remain matcher/lowering failures. |
-| 2 | Broad parser/Intl runtime parity | Full native execution: `parse/test.ts` has `247` failures and `intlFormatDistance/test.ts` has `88` | Triage after Date identity failures are reduced because invalid-Date assertions contribute to these groups. |
+| 1 | Broad parser/Intl runtime parity | Last whole-suite execution: `parse/test.ts` has `247` failures and `intlFormatDistance/test.ts` has `88` | Rerun the complete generated suite after concurrent overload work stabilizes; `invalid_date` is now green in targeted native validation. |
+| 2 | Remaining invalid-date semantics | Panic-focused isolated `invalid_date` execution passes `344 / 344`; `closestTo` passes `11 / 11` | The compiler stack-overflow abort, eager optional-index panic path, Date identity mismatch, and invalid-date `differenceInBusinessDays` guard failures no longer reproduce. |
 | 3 | Timezone normalization/context output | Focused `eachHourOfInterval` (`16 / 21`) and `eachWeekendOfInterval` (`11 / 13`) | Loop termination and invalid endpoints now pass; remaining failures are normalization/context output mismatches and interval step behavior. |
 
 Optional chaining surface in date-fns:

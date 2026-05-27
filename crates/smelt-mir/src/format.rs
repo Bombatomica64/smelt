@@ -381,6 +381,7 @@ fn rvalue_text(value: &Rvalue) -> String {
                 smelt_hir::PrimitiveCastOp::ToBool => "bool",
                 smelt_hir::PrimitiveCastOp::ToInt => "int",
                 smelt_hir::PrimitiveCastOp::ToFloat => "float",
+                smelt_hir::PrimitiveCastOp::ToJsNumber => "js_number",
                 smelt_hir::PrimitiveCastOp::ToString => "string",
             };
             format!("primitive_cast_{op_text} {}", operand_text(operand))
@@ -428,15 +429,20 @@ fn rvalue_text(value: &Rvalue) -> String {
             op,
             haystack,
             needle,
+            from_index,
         } => {
             let op_text = match op {
                 smelt_hir::StringSearchOp::Find => "find",
                 smelt_hir::StringSearchOp::RFind => "rfind",
             };
-            format!(
+            let base = format!(
                 "string_{op_text} {}, {}",
                 operand_text(haystack),
                 operand_text(needle)
+            );
+            from_index.as_ref().map_or_else(
+                || base.clone(),
+                |index| format!("{base}, {}", operand_text(index)),
             )
         }
         Rvalue::StringReplace {
@@ -577,6 +583,13 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::RegexExec { regex, haystack } => {
             format!(
                 "regex_exec {}, {}",
+                operand_text(regex),
+                operand_text(haystack)
+            )
+        }
+        Rvalue::RegexMatchAll { regex, haystack } => {
+            format!(
+                "regex_match_all {}, {}",
                 operand_text(regex),
                 operand_text(haystack)
             )
@@ -800,7 +813,11 @@ fn rvalue_text(value: &Rvalue) -> String {
             operand_text(index),
             operand_text(replacement)
         ),
-        Rvalue::ListFlat { list } => format!("list_flat {}", operand_text(list)),
+        Rvalue::ListFlat { list, depth } => format!(
+            "list_flat {}, {}",
+            operand_text(list),
+            optional_operand_text(depth.as_ref())
+        ),
         Rvalue::ListProjection { op, list } => {
             let op_text = match op {
                 smelt_hir::ListProjectionOp::Keys => "keys",
@@ -1006,6 +1023,8 @@ fn rvalue_text(value: &Rvalue) -> String {
         }
         Rvalue::HttpGetText { url } => format!("http_get_text {}", operand_text(url)),
         Rvalue::DateNow => "date_now".to_owned(),
+        Rvalue::DateSetNow { timestamp } => format!("date_set_now {}", operand_text(timestamp)),
+        Rvalue::DateResetNow => "date_reset_now".to_owned(),
         Rvalue::DateTimezoneOffset => "date_timezone_offset".to_owned(),
         Rvalue::DateSetTimezoneOffset { offset } => {
             format!("date_set_timezone_offset {}", operand_text(offset))

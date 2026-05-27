@@ -310,7 +310,7 @@ function truthy<T>(value: T): boolean {
 
     for expected in [
         PrimitiveCastOp::ToString,
-        PrimitiveCastOp::ToFloat,
+        PrimitiveCastOp::ToJsNumber,
         PrimitiveCastOp::ToBool,
     ] {
         ensure!(
@@ -566,7 +566,7 @@ fn lowers_unary_plus_bool_to_float() -> Result<(), String> {
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,
         ExprKind::PrimitiveCast {
-            op: PrimitiveCastOp::ToFloat,
+            op: PrimitiveCastOp::ToJsNumber,
             ..
         }
     )));
@@ -613,7 +613,10 @@ while (index < values.length) {
     let body = module_body(&ctx, module)?;
     let Some(Stmt::While {
         body: loop_body, ..
-    }) = body.stmts.iter().find(|stmt| matches!(stmt, Stmt::While { .. }))
+    }) = body
+        .stmts
+        .iter()
+        .find(|stmt| matches!(stmt, Stmt::While { .. }))
     else {
         return Err("expected while statement".to_owned());
     };
@@ -763,6 +766,42 @@ const numeric = typeof 1;
     ensure!(body.exprs.iter().any(
         |expr| matches!(&expr.kind, ExprKind::Literal(Literal::String(value)) if value == "number")
     ));
+    Ok(())
+}
+
+#[test]
+fn lowers_typeof_optional_number_as_a_runtime_presence_check() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function isNumber(value?: number): boolean {
+  return typeof value === "number";
+}
+
+function isUndefined(value?: number): boolean {
+  return typeof value === "undefined";
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let first_body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+    let second_body = function_body(&ctx, function_item(&ctx, module, 1)?)?;
+    ensure!(first_body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::UnknownIs {
+            kind: smelt_hir::UnknownKind::Null,
+            ..
+        }
+    )));
+    ensure!(second_body.exprs.iter().any(|expr| matches!(
+        expr.kind,
+        ExprKind::UnknownIs {
+            kind: smelt_hir::UnknownKind::Null,
+            ..
+        }
+    )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
 
@@ -1237,10 +1276,11 @@ it("preserves Date identity", () => {
 "#),
         &mut ctx,
     )?;
-    ensure!(ctx.krate.bodies.iter().any(|body| body
-        .exprs
-        .iter()
-        .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(true))))));
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Literal(Literal::Bool(true))))
+    }));
     Ok(())
 }
 
@@ -1352,7 +1392,7 @@ function isPromise<T>(data: PromiseLike<unknown> | T): boolean {
 }
 
 #[test]
-fn lowers_date_constructor_member_as_timestamp_passthrough() -> Result<(), String> {
+fn lowers_date_constructor_member_as_date_from_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -1364,10 +1404,11 @@ const result = new (date.constructor as unknown)(value);
     )?;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
-    ensure!(body.exprs.iter().any(|expr| matches!(
-        expr.kind,
-        ExprKind::Literal(Literal::Int(2) | Literal::Float(2.0))
-    )));
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateFromValue { .. }))
+    );
     Ok(())
 }
 
@@ -1419,7 +1460,7 @@ function timestamp(value: DateArg): number {
             matches!(
                 expr.kind,
                 ExprKind::PrimitiveCast {
-                    op: PrimitiveCastOp::ToFloat,
+                    op: PrimitiveCastOp::ToJsNumber,
                     ..
                 }
             )
@@ -2447,6 +2488,41 @@ function localDay(day: number, weekStartsOn: number): string {
 }
 
 #[test]
+fn preserves_mixed_string_numeric_logical_fallback_for_numeric_coercion() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function offset(values: string[]): number {
+  return +(values[0] || 0);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })
+                && ctx.krate.types.get(expr.ty) == Some(&Type::Unknown)),
+        "expected string-or-number selection to remain erased until unary coercion"
+    );
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToJsNumber,
+                ..
+            }
+        )),
+        "expected unary plus to coerce the selected JavaScript value"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_date_fns_build_localize_width_fallback() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2816,6 +2892,40 @@ function rest(matchResult: string[] | undefined, text: string): string | undefin
 }
 
 #[test]
+fn keeps_conditional_assignment_to_uninitialized_value_nullishable_after_branch()
+-> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function read(available: boolean): Date {
+  let date;
+  if (available) {
+    date = new Date(0);
+  }
+  if (!date) {
+    return new Date(NaN);
+  }
+  return date;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(expr.kind, ExprKind::UnaryOp { op: smelt_hir::UnaryOp::Not, operand }
+                if matches!(body.exprs.get(usize::try_from(operand.0).unwrap_or(usize::MAX)).map(|operand| &operand.ty).and_then(|ty| ctx.krate.types.get(*ty)), Some(Type::Unknown)))
+        }),
+        "possibly unassigned values must preserve runtime truthiness after a conditional assignment"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_global_numeric_parse_calls() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2850,6 +2960,41 @@ const floatValue = parseFloat("42.5");
             ..
         }
     )));
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_computed_class_record_reads_as_optional_runtime_lookups() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+class Parser {
+  run(): number { return 1; }
+}
+function read(parsers: Record<string, Parser>, key: string): number {
+  const parser = parsers[key];
+  if (parser) {
+    return parser.run();
+  }
+  return 0;
+}
+"#),
+        &mut ctx,
+    )?;
+    let _ = module(&ctx, module_id)?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body.exprs.iter().any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::Index { .. }
+                        if matches!(ctx.krate.types.get(expr.ty), Some(Type::Optional(_)))
+                )
+            }))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

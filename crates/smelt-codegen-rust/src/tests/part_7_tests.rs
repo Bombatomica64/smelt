@@ -67,6 +67,51 @@ spy.mockRestore();
 }
 
 #[test]
+fn emits_vitest_date_now_mock_state() {
+    let source = source_for(
+        r#"
+import { vi } from "vitest";
+
+vi.useFakeTimers({ now: new Date(2020, 0, 1) });
+const initial = Date.now();
+vi.setSystemTime(new Date(2020, 0, 2));
+const updated = Date.now();
+vi.useRealTimers();
+"#,
+    );
+
+    assert!(source.contains("SMELT_DATE_NOW"), "{source}");
+    assert!(source.contains("value.set(Some("), "{source}");
+    assert!(source.contains("with(::std::cell::Cell::get)"), "{source}");
+    assert!(source.contains("value.set(None)"), "{source}");
+}
+
+#[test]
+fn isolates_vitest_date_now_state_at_native_test_entry() {
+    let source = source_for(
+        r#"
+import { test, vi } from "vitest";
+
+test("sets clock", () => {
+  vi.setSystemTime(new Date(2020, 0, 1));
+  Date.now();
+});
+test("reads real clock", () => {
+  Date.now();
+});
+"#,
+    );
+
+    assert!(
+        source
+            .matches("SMELT_DATE_NOW.with(|value| value.set(None));")
+            .count()
+            >= 2,
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_date_fns_timezone_context_with_iana_conversion() {
     let source = source_for(
         r#"
@@ -154,10 +199,7 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
         source.contains("value.parse::<f64>().unwrap_or(f64::NAN)"),
         "{source}"
     );
-    assert!(
-        source.contains("_ => SmeltRecord::new()"),
-        "{source}"
-    );
+    assert!(source.contains("_ => SmeltRecord::new()"), "{source}");
 }
 
 #[test]
@@ -287,6 +329,8 @@ const number = +value;
         source.contains("SmeltUnknown::Object(value) => match value.get(\"__smelt_date\")"),
         "{source}"
     );
+    assert!(source.contains("SmeltUnknown::Null => 0.0"), "{source}");
+    assert!(source.contains("smelt_text.is_empty() { 0.0 }"), "{source}");
     assert!(
         source.contains("SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN"),
         "{source}"
@@ -361,7 +405,7 @@ export function run(formatLong: FormatLong): string {
     );
 
     assert!(
-        source.contains("date.borrow_mut())({ let smelt_record_map ="),
+        source.contains("(format_long.date)({ let smelt_record_map ="),
         "{source}"
     );
     assert!(
@@ -394,6 +438,123 @@ export function make(): Duration {
     assert!(
         source.contains("months: smelt_record_map.get(\"months\").cloned().map(|value|"),
         "{source}"
+    );
+}
+
+#[test]
+fn preserves_optional_record_arguments_and_defaults_missing_fields() {
+    let source = source_for(
+        r#"
+function throttle(
+  callback: () => void,
+  wait = 0,
+  { leading = true, trailing = true }: { leading?: boolean; trailing?: boolean } = {},
+): boolean {
+  callback();
+  return leading && trailing && wait >= 0;
+}
+
+const explicit = throttle(() => {}, 1, { leading: false });
+const defaulted = throttle(() => {});
+"#,
+    );
+
+    assert!(
+        source.contains(".get(&\"leading\".to_owned()).flatten()")
+            && source.contains(".unwrap_or(true)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltRecord::from([(\"leading\".to_owned(), Some(false))])"),
+        "{source}"
+    );
+    assert!(
+        source.contains(", 1.0, _smelt_tmp_3.clone())"),
+        "explicit object argument should remain in the call: {source}"
+    );
+}
+
+#[test]
+fn captures_callable_factory_result_for_recursive_callback_invocation() {
+    let source = source_for(
+        r#"
+type Fn = (value: string) => void;
+
+function wrap(callback: Fn): Fn {
+  return callback;
+}
+
+export function run(): void {
+  const recursive = wrap((value: string) => {
+    recursive(value);
+  });
+  recursive("a");
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_capture_recursive"),
+        "recursive callable result should be captured by its callback: {source}"
+    );
+    assert!(
+        !source.contains("SmeltRecord::from([])"),
+        "recursive callback should not fall back to an empty callable object: {source}"
+    );
+}
+
+#[test]
+fn captures_recursive_callable_factory_result_inside_test_callback() {
+    let source = source_for(
+        r#"
+import { test } from "vitest";
+
+type Fn = (value: string) => void;
+
+function wrap(callback: Fn): Fn {
+  return callback;
+}
+
+test("recursive", async () => {
+  const recursive = wrap((value: string) => {
+    recursive(value);
+  });
+  recursive("a");
+});
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_capture_recursive"),
+        "test callbacks must retain recursive callable result storage: {source}"
+    );
+}
+
+#[test]
+fn invokes_void_erased_rest_closures_before_returning_null() {
+    let source = source_for(
+        r#"
+type RestCallback = (...args: unknown[]) => void;
+
+export function make(): RestCallback {
+  return (...args: unknown[]) => {
+    args.push("called");
+  };
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let smelt_callback = ::std::rc::Rc::new(")
+            && source.contains(
+                "move |smelt_args: Vec<SmeltUnknown>| { (smelt_callback)(smelt_args"
+            )
+            && !source.contains("SmeltErasedFunction { callback: { let smelt_callback = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        "an erased void callback wrapper must invoke its source closure through a reentrant handle: {source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Null"),
+        "an erased void callback wrapper must still produce undefined/null ABI output: {source}"
     );
 }
 
@@ -435,7 +596,7 @@ export function callbacks(): Record<string, (value: number) => string> {
 
     assert!(
         source
-            .matches("let smelt_fn: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(f64) -> String>>")
+            .matches("let smelt_fn: ::std::rc::Rc<dyn Fn(f64) -> String>")
             .count()
             >= 2,
         "{source}"
@@ -601,10 +762,10 @@ export function purryOn(
     );
 
     assert!(
-        source.contains("implementation: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut"),
+        source.contains("implementation: ::std::rc::Rc<dyn Fn"),
         "{source}"
     );
-    assert!(source.contains("implementation.borrow_mut()"), "{source}");
+    assert!(source.contains("(implementation)("), "{source}");
     assert!(source.contains("args.clone().get(0).cloned()"), "{source}");
     assert!(
         source.contains("args.clone().into_iter().skip(1).collect::<Vec<_>>()"),
@@ -959,6 +1120,32 @@ function isArray(value: unknown): boolean {
 }
 
 #[test]
+fn emits_array_entries_for_guarded_erased_generic() {
+    let source = source_for(
+        r#"
+function copy<T>(value: T): unknown[] {
+  const copied: unknown[] = [];
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) {
+      copied[index] = item;
+    }
+  }
+  return copied;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Array(values) => values.into_iter().enumerate()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("Vec<(i64, SmeltUnknown)> = Default::default()"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_runtime_index_for_erased_string_generics() {
     let source = source_for(
         r#"
@@ -1091,7 +1278,10 @@ function empty(flag: boolean): unknown[] | unknown {
 "#,
     );
 
-    assert!(source.contains("SmeltUnknown::Array(vec![])"), "{source}");
+    assert!(
+        source.contains("SmeltUnknown::Array(vec![].into())"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -1145,6 +1335,22 @@ function label(values: string[]): string[] {
     );
 
     assert!(source.contains("format!(\"{}{}\""), "{source}");
+}
+
+#[test]
+fn emits_case_conversion_for_erased_callback_string_indexes() {
+    let source = source_for(
+        r#"
+function initialCaps<T extends string>(values: T[]): string[] {
+  return values.map((value) => value[0].toUpperCase());
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::String(value)"), "{source}");
+    assert!(source.contains("value.chars().nth(index)"), "{source}");
+    assert!(source.contains(".to_uppercase()"), "{source}");
+    assert!(!source.contains("String::new().to_uppercase()"), "{source}");
 }
 
 #[test]
@@ -1433,11 +1639,11 @@ function makeDataLast(fn: (value: number, extra: number) => number, extra: numbe
     );
 
     assert!(
-        source.contains("fn_: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(f64, f64) -> f64>>"),
+        source.contains("fn_: ::std::rc::Rc<dyn Fn(f64, f64) -> f64>"),
         "{source}"
     );
     assert!(
-        source.contains("(&mut *fn_.borrow_mut())(closure_arg_0.clone(), extra.clone())"),
+        source.contains("(fn_)(closure_arg_0.clone(), extra.clone())"),
         "{source}"
     );
 }
@@ -1588,11 +1794,85 @@ const result = format({ locale: customLocale });
     );
 
     assert!(
-        source.contains("locale: smelt_record_map.get(\"locale\")"),
+        source.contains("FormatOptions { locale: smelt_record_map.get(\"locale\").map(|value|"),
         "{source}"
     );
     assert!(source.contains("Locale { code:"), "{source}");
     assert!(!source.contains("FormatOptions { locale: None"), "{source}");
+}
+
+#[test]
+fn adapts_nested_required_records_when_retyping_mixed_option_bags() {
+    let source = source_for(
+        r#"
+interface InputFormatLong {
+  date: (value: string) => string;
+}
+
+interface InputLocale {
+  formatLong: InputFormatLong;
+}
+
+interface OutputFormatLong {
+  date: (value: string) => string;
+}
+
+interface OutputLocale {
+  formatLong: OutputFormatLong;
+}
+
+interface FormatOptions {
+  locale?: OutputLocale;
+  weekStartsOn?: number;
+}
+
+function format(options?: FormatOptions): string {
+  return options?.locale?.formatLong.date("P") ?? "";
+}
+
+function forward(locale: InputLocale): string {
+  return format({ locale, weekStartsOn: 0 });
+}
+"#,
+    );
+
+    assert!(source.contains("OutputLocale {"), "{source}");
+    assert!(source.contains("OutputFormatLong {"), "{source}");
+    assert!(
+        !source.contains(
+            "locale: smelt_record_map.get(\"locale\").cloned().map(|value| Default::default())"
+        ),
+        "{source}"
+    );
+}
+
+#[test]
+fn bounds_recursive_locale_callback_option_record_adaptation() {
+    let source = source_for(
+        r#"
+interface CallbackOptions {
+  locale?: Locale;
+}
+
+interface Locale {
+  formatRelative: (token: string, options?: CallbackOptions) => string;
+}
+
+function forward(value: unknown): string {
+  const locale = value as Locale;
+  return locale.formatRelative("today", { locale });
+}
+"#,
+    );
+
+    assert!(source.contains("Locale {"), "{source}");
+    assert!(source.contains("format_relative:"), "{source}");
+    assert!(
+        !source.contains(
+            "locale: smelt_record_map.get(\"locale\").cloned().map(|value| Default::default())"
+        ),
+        "{source}"
+    );
 }
 
 #[test]
@@ -1622,7 +1902,7 @@ const result = useLocale({ locale: customLocale });
 
     assert!(source.contains("let smelt_adapted:"), "{source}");
     assert!(source.contains("move |arg0: f64"), "{source}");
-    assert!(source.contains("borrow_mut())()"), "{source}");
+    assert!(source.contains("(smelt_callback)()"), "{source}");
 }
 
 #[test]
@@ -1658,10 +1938,7 @@ const result = format({ locale: customLocale });
     );
 
     assert!(source.contains("preprocessor:"), "{source}");
-    assert!(
-        !source.contains("borrow_mut())(Default::default(),"),
-        "{source}"
-    );
+    assert!(!source.contains(")(Default::default(),"), "{source}");
     assert!(
         source.contains("smelt_call_args.push(match arg0.clone()"),
         "{source}"
@@ -1762,7 +2039,7 @@ const sortByImplementation = <T>(
     );
 
     assert!(
-        source.contains("(&mut *closure_arg_1.borrow_mut())((left.clone()).into_smelt_unknown(), (right.clone()).into_smelt_unknown())"),
+        source.contains("(closure_arg_1)((left.clone()).into_smelt_unknown(), (right.clone()).into_smelt_unknown())"),
         "{source}"
     );
 }
@@ -1779,13 +2056,11 @@ function makeMapper(): (value: number) => number {
     );
 
     assert!(
-        source.contains(
-            "fn make_mapper() -> ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(f64) -> f64>>"
-        ),
+        source.contains("fn make_mapper() -> ::std::rc::Rc<dyn Fn(f64) -> f64>"),
         "{source}"
     );
     assert!(
-        source.contains("return ::std::rc::Rc::new(::std::cell::RefCell::new(")
+        source.contains("return ::std::rc::Rc::new(")
             || source.contains("return _smelt_tmp_2.clone()"),
         "{source}"
     );
@@ -1804,7 +2079,7 @@ function adapt(
     );
 
     assert!(
-        source.contains("SmeltUnknown::Object(SmeltObject::from_unknown_record(((&mut *_smelt_adapted_callback.borrow_mut())(arg0)).clone()))"),
+        source.contains("SmeltUnknown::Object(SmeltObject::from_unknown_record(((_smelt_adapted_callback)(arg0)).clone()))"),
         "{source}"
     );
 }
@@ -1909,6 +2184,65 @@ function parts(value: string): string[] | undefined {
 }
 
 #[test]
+fn emits_regexp_array_elements_with_flags_preserved() {
+    let source = source_for(
+        r#"
+const patterns = [/x/u, /x/gimu];
+const pattern = patterns[1];
+const usesGlobal = pattern.global;
+const ignoresCase = pattern.ignoreCase;
+const usesMultiline = pattern.multiline;
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRegExp::new(\"x\".to_owned(), \"u\".to_owned())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltRegExp::new(\"x\".to_owned(), \"gimu\".to_owned())"),
+        "{source}"
+    );
+    assert!(source.contains(".has_flag('g')"), "{source}");
+    assert!(source.contains(".has_flag('i')"), "{source}");
+    assert!(source.contains(".has_flag('m')"), "{source}");
+}
+
+#[test]
+fn emits_string_match_all_as_indexed_regexp_iteration() {
+    let source = source_for(
+        r#"
+const pattern = /,|\./gu;
+const matches = "a,b.c".matchAll(pattern);
+for (const { index } of matches) {
+  console.log(index);
+}
+"#,
+    );
+
+    assert!(source.contains(".match_all_indices(&"));
+    assert!(source.contains("pub fn match_all_indices(&self"));
+}
+
+#[test]
+fn tests_uninitialized_erased_value_presence_before_numeric_extraction() {
+    let source = source_for(
+        r#"
+function latest(flag: boolean): number | undefined {
+  let found;
+  if (flag) {
+    found = 3;
+  }
+  return found !== undefined ? found : undefined;
+}
+"#,
+    );
+
+    assert!(source.contains("matches!(found.clone(), SmeltUnknown::Null)"));
+    assert!(!source.contains("!(false)"));
+}
+
+#[test]
 fn emits_javascript_any_character_regex_translation() {
     let source = source_for(
         r#"
@@ -1968,13 +2302,10 @@ function expose(callback: (value: unknown) => unknown): unknown {
     );
 
     assert!(
-        source.contains("fn expose(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(SmeltUnknown) -> SmeltUnknown>>)"),
+        source.contains("fn expose(callback: ::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>)"),
         "{source}"
     );
-    assert!(
-        !source.contains("fn expose(callback: &mut dyn FnMut"),
-        "{source}"
-    );
+    assert!(!source.contains("fn expose(callback: &dyn Fn"), "{source}");
     assert!(source.contains("SmeltUnknown::Function"), "{source}");
 }
 
@@ -2101,4 +2432,33 @@ function read(values: Array<number | undefined>, index: number): number | undefi
 
     assert!(source.contains(".cloned().flatten()"), "{source}");
     assert!(!source.contains("Option<Option<f64>>"), "{source}");
+}
+
+#[test]
+fn emits_optional_constructor_parameter_without_unwrapping_optional_argument() {
+    let source = source_for(
+        r#"
+class Parser {
+  subPriority?: number;
+  constructor() {}
+}
+class ValueSetter {
+  constructor(subPriority?: number) {}
+}
+function make(parser: Parser): ValueSetter {
+  return new ValueSetter(parser.subPriority);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn new(sub_priority: Option<f64>) -> Self"),
+        "{source}"
+    );
+    assert!(
+        !source.contains(
+            "sub_priority.clone().clone().expect(\"optional value was absent after narrowing\")"
+        ),
+        "{source}"
+    );
 }

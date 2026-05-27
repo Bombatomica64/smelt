@@ -300,10 +300,23 @@ fn validate_rvalue_exists(
             haystack, needle, ..
         }
         | Rvalue::StringSearch {
-            haystack, needle, ..
+            haystack,
+            needle,
+            from_index: None,
+            ..
         } => {
             validate_operand_exists(function, haystack, errors);
             validate_operand_exists(function, needle, errors);
+        }
+        Rvalue::StringSearch {
+            haystack,
+            needle,
+            from_index: Some(from_index),
+            ..
+        } => {
+            validate_operand_exists(function, haystack, errors);
+            validate_operand_exists(function, needle, errors);
+            validate_operand_exists(function, from_index, errors);
         }
         Rvalue::StringReplace {
             haystack,
@@ -466,7 +479,11 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, index, errors);
             validate_operand_exists(function, replacement, errors);
         }
-        Rvalue::ListFlat { list } | Rvalue::ListProjection { list, .. } => {
+        Rvalue::ListFlat { list, depth } => {
+            validate_operand_exists(function, list, errors);
+            validate_optional_operand_exists(function, depth.as_ref(), errors);
+        }
+        Rvalue::ListProjection { list, .. } => {
             validate_operand_exists(function, list, errors);
         }
         Rvalue::ListPush { list, item } => {
@@ -671,10 +688,18 @@ fn validate_rvalue_exists(
             validate_operand_exists(function, regex, errors);
             validate_operand_exists(function, haystack, errors);
         }
+        Rvalue::RegexMatchAll { regex, haystack } => {
+            validate_operand_exists(function, regex, errors);
+            validate_operand_exists(function, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand_exists(function, url, errors);
         }
         Rvalue::DateNow => {}
+        Rvalue::DateResetNow => {}
+        Rvalue::DateSetNow { timestamp } => {
+            validate_operand_exists(function, timestamp, errors);
+        }
         Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => {}
         Rvalue::DateSetTimezoneOffset { offset } => {
             validate_operand_exists(function, offset, errors);
@@ -1122,10 +1147,23 @@ fn validate_rvalue(
             haystack, needle, ..
         }
         | Rvalue::StringSearch {
-            haystack, needle, ..
+            haystack,
+            needle,
+            from_index: None,
+            ..
         } => {
             validate_operand(mir, function, definitions, haystack, errors);
             validate_operand(mir, function, definitions, needle, errors);
+        }
+        Rvalue::StringSearch {
+            haystack,
+            needle,
+            from_index: Some(from_index),
+            ..
+        } => {
+            validate_operand(mir, function, definitions, haystack, errors);
+            validate_operand(mir, function, definitions, needle, errors);
+            validate_operand(mir, function, definitions, from_index, errors);
         }
         Rvalue::StringReplace {
             haystack,
@@ -1288,7 +1326,13 @@ fn validate_rvalue(
             validate_operand(mir, function, definitions, index, errors);
             validate_operand(mir, function, definitions, replacement, errors);
         }
-        Rvalue::ListFlat { list } | Rvalue::ListProjection { list, .. } => {
+        Rvalue::ListFlat { list, depth } => {
+            validate_operand(mir, function, definitions, list, errors);
+            if let Some(depth) = depth {
+                validate_operand(mir, function, definitions, depth, errors);
+            }
+        }
+        Rvalue::ListProjection { list, .. } => {
             validate_operand(mir, function, definitions, list, errors);
         }
         Rvalue::ListPush { list, item } => {
@@ -1493,10 +1537,18 @@ fn validate_rvalue(
             validate_operand(mir, function, definitions, regex, errors);
             validate_operand(mir, function, definitions, haystack, errors);
         }
+        Rvalue::RegexMatchAll { regex, haystack } => {
+            validate_operand(mir, function, definitions, regex, errors);
+            validate_operand(mir, function, definitions, haystack, errors);
+        }
         Rvalue::HttpGetText { url } => {
             validate_operand(mir, function, definitions, url, errors);
         }
         Rvalue::DateNow => {}
+        Rvalue::DateResetNow => {}
+        Rvalue::DateSetNow { timestamp } => {
+            validate_operand(mir, function, definitions, timestamp, errors);
+        }
         Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => {}
         Rvalue::DateSetTimezoneOffset { offset } => {
             validate_operand(mir, function, definitions, offset, errors);

@@ -145,7 +145,7 @@ impl FunctionEmitter<'_> {
                 "dict setdefault receiver must be a mutable local for now",
             ));
         };
-        let dict_text = self.local_name(*local)?;
+        let dict_text = self.local_mut_value_text(*local)?;
         let key_text = self.operand_text(key)?;
         let default_text = self.operand_text(default)?;
         if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
@@ -188,7 +188,7 @@ impl FunctionEmitter<'_> {
                 "dict set receiver must be a mutable local for now",
             ));
         };
-        let dict_text = self.local_name(*local)?;
+        let dict_text = self.local_mut_value_text(*local)?;
         let key_text = self.dict_key_operand_text(key, *key_ty)?;
         let value_text = self.operand_as_type_text(value, *value_ty)?;
         Ok(format!(
@@ -250,7 +250,7 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(format!(
                         "match &mut {} {{ SmeltUnknown::Object(map) => map.remove(&{key_text}).is_some(), _ => true }}",
-                        self.local_name(*local)?
+                        self.local_mut_value_text(*local)?
                     ));
                 }
                 return Ok("true".to_owned());
@@ -270,7 +270,7 @@ impl FunctionEmitter<'_> {
         };
         Ok(format!(
             "{}.remove(&{}).is_some()",
-            self.local_name(*local)?,
+            self.local_mut_value_text(*local)?,
             self.operand_text(key)?
         ))
     }
@@ -308,7 +308,7 @@ impl FunctionEmitter<'_> {
                 "dict pop receiver must be a mutable local for now",
             ));
         };
-        let dict_text = self.local_name(*local)?;
+        let dict_text = self.local_mut_value_text(*local)?;
         let key_text = self.operand_text(key)?;
         if let Some(default_operand) = default {
             let default_text = self.operand_text(default_operand)?;
@@ -347,7 +347,7 @@ impl FunctionEmitter<'_> {
                 "dict update receiver must be a mutable local for now",
             ));
         };
-        let dict_text = self.local_name(*local)?;
+        let dict_text = self.local_mut_value_text(*local)?;
         let other_text = self.operand_text(other)?;
         Ok(format!(
             "{{ {dict_text}.extend({other_text}.iter().map(|(key, value)| (key.clone(), value.clone()))); () }}"

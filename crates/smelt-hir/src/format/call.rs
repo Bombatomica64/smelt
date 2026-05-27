@@ -122,6 +122,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 crate::expr::PrimitiveCastOp::ToBool => "bool",
                 crate::expr::PrimitiveCastOp::ToInt => "int",
                 crate::expr::PrimitiveCastOp::ToFloat => "float",
+                crate::expr::PrimitiveCastOp::ToJsNumber => "js_number",
                 crate::expr::PrimitiveCastOp::ToString => "string",
             };
             format!("primitive_cast_{op_name} {}", expr_ref(*operand))
@@ -169,16 +170,18 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             op,
             haystack,
             needle,
+            from_index,
         } => {
             let op_name = match op {
                 crate::expr::StringSearchOp::Find => "find",
                 crate::expr::StringSearchOp::RFind => "rfind",
             };
-            format!(
+            let base = format!(
                 "string_{op_name} {}, {}",
                 expr_ref(*haystack),
                 expr_ref(*needle)
-            )
+            );
+            from_index.map_or(base.clone(), |index| format!("{base}, {}", expr_ref(index)))
         }
         ExprKind::StringReplace {
             op,
@@ -309,6 +312,13 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::RegexExec { regex, haystack } => {
             format!("regex_exec {}, {}", expr_ref(*regex), expr_ref(*haystack))
+        }
+        ExprKind::RegexMatchAll { regex, haystack } => {
+            format!(
+                "regex_match_all {}, {}",
+                expr_ref(*regex),
+                expr_ref(*haystack)
+            )
         }
         ExprKind::StringCharAt { operand, index } => {
             format!(
@@ -499,7 +509,11 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             expr_ref(*index),
             expr_ref(*value)
         ),
-        ExprKind::ListFlat { list } => format!("list_flat {}", expr_ref(*list)),
+        ExprKind::ListFlat { list, depth } => format!(
+            "list_flat {}, {}",
+            expr_ref(*list),
+            optional_expr_ref(*depth)
+        ),
         ExprKind::ListProjection { op, list } => {
             let op_name = match op {
                 crate::expr::ListProjectionOp::Keys => "keys",
@@ -670,6 +684,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::JsonParse { text } => format!("json_parse {}", expr_ref(*text)),
         ExprKind::HttpGetText { url } => format!("http_get_text {}", expr_ref(*url)),
         ExprKind::DateNow => "date_now".to_owned(),
+        ExprKind::DateSetNow { timestamp } => format!("date_set_now {}", expr_ref(*timestamp)),
+        ExprKind::DateResetNow => "date_reset_now".to_owned(),
         ExprKind::DateTimezoneOffset => "date_timezone_offset".to_owned(),
         ExprKind::DateSetTimezoneOffset { offset } => {
             format!("date_set_timezone_offset {}", expr_ref(*offset))

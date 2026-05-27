@@ -2199,6 +2199,17 @@ return_ty: unknown_ty,
         if self.ctx.krate.types.get(expr_ty) == Some(&Type::Bool) {
             return Ok(expr);
         }
+        if let CallbackExprKind::FunctionTableLookup { key, cases } = &expr.kind {
+            let case_keys = cases
+                .iter()
+                .map(|(case_key, _)| case_key.clone())
+                .collect::<Vec<_>>();
+            return self.callback_function_table_has_key(
+                key,
+                &case_keys,
+                self.expression_span(expression),
+            );
+        }
         if matches!(
             self.ctx.krate.types.get(expr_ty),
             Some(Type::Function(_) | Type::Class { .. } | Type::TypeParam { .. })
@@ -2784,7 +2795,20 @@ return_ty: unknown_ty,
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         self.current_async = arrow.r#async;
         self.current_return_ty = Some(return_ty);
-        let lowering_result = if arrow.expression {
+        let predeclare_result = if arrow.expression {
+            Ok(())
+        } else {
+            self.predeclare_local_function_declarations(&arrow.body.statements, &mut closure_body)
+                .and_then(|()| {
+                    self.predeclare_local_arrow_callbacks(
+                        &arrow.body.statements,
+                        &mut closure_body,
+                    )
+                })
+        };
+        let lowering_result = if let Err(error) = predeclare_result {
+            Err(error)
+        } else if arrow.expression {
             match self.arrow_return_expression(arrow) {
                 Ok(return_expression) => self
                     .expression_with_hint(return_expression, &mut closure_body, Some(return_ty))
@@ -3780,7 +3804,11 @@ return_ty,
                         ty: collection.ty,
                     });
                 }
-                if let Some(item) = self.items.get(identifier.name.as_str()).copied() {
+                // An enclosing local is lexically nearer than an imported or
+                // module-scoped item, including when both are callable.
+                if !self.locals.contains_key(identifier.name.as_str())
+                    && let Some(item) = self.items.get(identifier.name.as_str()).copied()
+                {
                     let span = self.span(identifier.span.start, identifier.span.end);
                     let ty = self.item_expr_type(item, span)?;
                     let function_name = if let Item::Function(function) = self.item_ref(item) {
@@ -3804,7 +3832,8 @@ return_ty,
                         ty,
                     });
                 }
-                if let Some((name, ty)) = self
+                if !self.locals.contains_key(identifier.name.as_str())
+                    && let Some((name, ty)) = self
                     .forward_function_types
                     .get(identifier.name.as_str())
                     .copied()
@@ -4189,7 +4218,10 @@ return_ty,
                     };
                     let value = self.callback_expression(argument, params, body)?;
                     let ty = self.ctx.krate.types.intern(Type::Bool);
-                    if self.ctx.krate.types.get(value.ty) == Some(&Type::Unknown) {
+                    if matches!(
+                        self.ctx.krate.types.get(value.ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) {
                         return Ok(CallbackExpr {
                             kind: CallbackExprKind::UnknownIs {
                                 value: Box::new(value),

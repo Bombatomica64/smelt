@@ -572,6 +572,60 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_resolves_named_import_from_workspace_package_source_fallback() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::create_dir_all(project_path.join("packages/utility/src"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-workspace-package-import"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_workspace_package_import"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("package.json"),
+        "{\"name\":\"workspace-root\",\"private\":true}\n",
+    )?;
+    fs::write(
+        project_path.join("packages/utility/package.json"),
+        "{\"name\":\"utility\",\"main\":\"dist/index.js\",\"module\":\"dist/index.js\"}\n",
+    )?;
+    fs::write(
+        project_path.join("packages/utility/src/index.ts"),
+        "export * from \"./increment\";\n",
+    )?;
+    fs::write(
+        project_path.join("packages/utility/src/increment.ts"),
+        "export function increment(value: number): number {\n  return value + 1;\n}\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { increment } from \"utility\";\nconsole.log(increment(4));\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"5\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
 fn build_dependency_closure_ignores_typescript_type_only_edges() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

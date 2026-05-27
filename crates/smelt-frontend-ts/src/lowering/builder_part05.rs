@@ -321,6 +321,13 @@ impl ModuleBuilder<'_> {
                 }
             }
         }
+        if let Err(error) = self.predeclare_local_function_declarations(&arrow.body.statements, &mut body)
+        {
+            errors.push(error);
+        }
+        if let Err(error) = self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut body) {
+            errors.push(error);
+        }
         for statement in &arrow.body.statements {
             if let Err(error) = self.test_case_statement(statement, &mut body) {
                 errors.push(error);
@@ -411,6 +418,15 @@ return_ty: none,
                     errors.push(error);
                 }
             }
+        }
+        if let Err(error) =
+            self.predeclare_local_function_declarations(&function_body.statements, &mut body)
+        {
+            errors.push(error);
+        }
+        if let Err(error) = self.predeclare_local_arrow_callbacks(&function_body.statements, &mut body)
+        {
+            errors.push(error);
         }
         for statement in &function_body.statements {
             if let Err(error) = self.test_case_statement(statement, &mut body) {

@@ -33,7 +33,7 @@ impl FunctionEmitter<'_> {
 
     /// Return true when rendered callback argument text is a generated no-op.
     fn callback_arg_text_is_default(arg: &str) -> bool {
-        arg.contains("RefCell<dyn FnMut")
+        arg.contains("Rc<dyn Fn")
             || arg.starts_with("&mut |")
             || arg.contains("let smelt_default_callback")
     }
@@ -563,10 +563,7 @@ impl FunctionEmitter<'_> {
                 array_param_ty,
             )?);
         }
-        let call_text = format!(
-            "(&mut *smelt_callback.borrow_mut())({})",
-            call_args.join(", ")
-        );
+        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         let value_text =
             self.rendered_value_as_type_text(&call_text, function_ty.return_ty, *dest_item_ty)?;
         Ok(format!(
@@ -664,7 +661,7 @@ impl FunctionEmitter<'_> {
                     Err(_) => return Ok("Default::default()".to_owned()),
                 };
                 format!(
-                    "{{ let mut smelt_callback = {callback_closure}; (&mut *smelt_callback.borrow_mut())(acc, item, index, array) }}"
+                    "{{ let smelt_callback = {callback_closure}; (smelt_callback)(acc, item, index, array) }}"
                 )
             } else {
                 legacy_text
@@ -675,7 +672,7 @@ impl FunctionEmitter<'_> {
                 Err(_) => return Ok("Default::default()".to_owned()),
             };
             format!(
-                "{{ let mut smelt_callback = {callback_closure}; (&mut *smelt_callback.borrow_mut())(acc, item, index, array) }}"
+                "{{ let smelt_callback = {callback_closure}; (smelt_callback)(acc, item, index, array) }}"
             )
         };
         if let Some(initial_operand) = initial {
@@ -771,47 +768,53 @@ impl FunctionEmitter<'_> {
         };
         let closure = self.closure_text_with_extra_params(id, extra_params, target_return_ty)?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
-            let adjusted_closure = if !has_captures
-                || closure.starts_with("move ")
-                || closure.starts_with('{')
-            {
-                closure
-            } else {
-                let source_closure = self
-                    .mir
-                    .closures
-                    .get(id_index(id.0, "closure id does not fit usize")?)
-                    .ok_or_else(|| {
-                        EmitError::new("closure rvalue references an unknown closure")
-                    })?;
-                let mut cloned_captures = HashSet::new();
-                let mut shared_replacements = Vec::new();
-                let capture_prelude = source_closure
-                    .captures
-                    .iter()
-                    .filter_map(|capture| {
-                        let local = self.local_decl(capture.source_local).ok()?;
-                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
-                            && matches!(local.kind, LocalKind::Param { .. })
-                        {
-                            return None;
-                        }
-                        if !matches!(local.kind, LocalKind::Param { .. })
-                            && !self
-                                .declared_locals
-                                .borrow()
-                                .contains(&capture.source_local)
-                        {
-                            return None;
-                        }
-                        let name = self.local_name(capture.source_local).ok()?.to_owned();
-                        if name.starts_with("(*smelt_capture_") {
-                            return None;
-                        }
-                            cloned_captures.insert(name.clone()).then(|| {
-                                if self.closure_capture_needs_shared_access(source_closure, capture) {
-                                shared_replacements.push((name.clone(), format!("(*smelt_capture_{name}.borrow_mut())")));
-                                return format!("let smelt_capture_{name} = smelt_shared_capture(smelt_capture_scope, &raw mut {name}, {name}.clone());");
+            let adjusted_closure =
+                if !has_captures || closure.starts_with("move ") || closure.starts_with('{') {
+                    closure
+                } else {
+                    let source_closure = self
+                        .mir
+                        .closures
+                        .get(id_index(id.0, "closure id does not fit usize")?)
+                        .ok_or_else(|| {
+                            EmitError::new("closure rvalue references an unknown closure")
+                        })?;
+                    let mut cloned_captures = HashSet::new();
+                    let mut shared_replacements = Vec::new();
+                    let capture_prelude =
+                        source_closure
+                            .captures
+                            .iter()
+                            .filter_map(|capture| {
+                                let local = self.local_decl(capture.source_local).ok()?;
+                                if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
+                                    && matches!(local.kind, LocalKind::Param { .. })
+                                {
+                                    return None;
+                                }
+                                if !matches!(local.kind, LocalKind::Param { .. })
+                                    && !self
+                                        .declared_locals
+                                        .borrow()
+                                        .contains(&capture.source_local)
+                                {
+                                    return None;
+                                }
+                                let name = self.local_name(capture.source_local).ok()?.to_owned();
+                                if name.starts_with("(*smelt_capture_") {
+                                    return None;
+                                }
+                                cloned_captures.insert(name.clone()).then(|| {
+                            if self.closure_capture_needs_shared_access(source_closure, capture)
+                                || self.local_uses_shared_capture_storage(capture.source_local)
+                            {
+                                shared_replacements.push((
+                                    name.clone(),
+                                    format!("(*smelt_capture_{name}.borrow_mut())"),
+                                ));
+                                return format!(
+                                    "let smelt_capture_{name} = smelt_capture_{name}.clone();"
+                                );
                             }
                             let mutability = if self.mutable_locals.contains(&capture.source_local)
                                 || source_closure
@@ -833,20 +836,19 @@ impl FunctionEmitter<'_> {
                             };
                             format!("let {mutability}{name} = {name}.clone();")
                         })
-                    })
-                    .collect::<Vec<_>>();
-                let closure = replace_shared_capture_uses(closure, &shared_replacements);
-                if capture_prelude.is_empty() {
-                    format!("move {closure}")
-                } else {
-                    format!(
-                        "{{\n    {}\n    move {closure}\n}}",
-                        capture_prelude.join("\n    ")
-                    )
-                }
-            };
-            let callback_text =
-                format!("::std::rc::Rc::new(::std::cell::RefCell::new({adjusted_closure}))");
+                            })
+                            .collect::<Vec<_>>();
+                    let closure = replace_shared_capture_uses(closure, &shared_replacements);
+                    if capture_prelude.is_empty() {
+                        format!("move {closure}")
+                    } else {
+                        format!(
+                            "{{\n    {}\n    move {closure}\n}}",
+                            capture_prelude.join("\n    ")
+                        )
+                    }
+                };
+            let callback_text = format!("::std::rc::Rc::new({adjusted_closure})");
             if let Some(Type::Function(function)) = self.mir.types.get(dest_ty)
                 && self.is_erased_unknown_rest_function(function)
                 && !function.may_throw
@@ -882,16 +884,16 @@ impl FunctionEmitter<'_> {
                 let args = self.function_args_from_smelt_args_text(&source_function)?;
                 let call = if source_closure.can_throw {
                     format!(
-                        "(&mut *smelt_callback.borrow_mut())({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                        "(smelt_callback)({args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
                     )
                 } else {
-                    format!("(&mut *smelt_callback.borrow_mut())({args})")
+                    format!("(smelt_callback)({args})")
                 };
                 let unknown_ty = self.type_id(Type::Unknown)?;
                 let return_text = if self.mir.types.get(source_closure.return_ty)
                     == Some(&Type::None)
                 {
-                    "SmeltUnknown::Null".to_owned()
+                    format!("{{ {call}; SmeltUnknown::Null }}")
                 } else {
                     self.rendered_value_as_type_text(&call, source_closure.return_ty, unknown_ty)?
                 };
@@ -899,7 +901,7 @@ impl FunctionEmitter<'_> {
                     .required_params
                     .unwrap_or_else(|| source_closure.rest.unwrap_or(source_closure.params.len()));
                 return Ok(format!(
-                    "SmeltErasedFunction {{ callback: {{ let smelt_callback = {callback_text}; ::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})) }}, length: {length}.0 }}"
+                    "SmeltErasedFunction {{ callback: {{ let smelt_callback = ::std::rc::Rc::new({adjusted_closure}); ::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}) }}, length: {length}.0, object: None }}"
                 ));
             }
             return Ok(callback_text);
@@ -1058,6 +1060,7 @@ impl FunctionEmitter<'_> {
                         emitter.borrowed_callback_names.insert(source_name.clone());
                     }
                     let capture_name = if self.closure_capture_needs_shared_access(closure, capture)
+                        || self.local_uses_shared_capture_storage(capture.source_local)
                     {
                         format!("(*smelt_capture_{source_name}.borrow_mut())")
                     } else {
@@ -1227,10 +1230,14 @@ impl FunctionEmitter<'_> {
                     return None;
                 }
                 cloned_captures.insert(name.clone()).then(|| {
-                    if self.closure_capture_needs_shared_access(closure, capture) {
-                        shared_replacements
-                            .push((name.clone(), format!("(*smelt_capture_{name}.borrow_mut())")));
-                        return format!("let smelt_capture_{name} = smelt_shared_capture(smelt_capture_scope, &raw mut {name}, {name}.clone());");
+                    if self.closure_capture_needs_shared_access(closure, capture)
+                        || self.local_uses_shared_capture_storage(capture.source_local)
+                    {
+                        shared_replacements.push((
+                            name.clone(),
+                            format!("(*smelt_capture_{name}.borrow_mut())"),
+                        ));
+                        return format!("let smelt_capture_{name} = smelt_capture_{name}.clone();");
                     }
                     let mutability = if self.mutable_locals.contains(&capture.source_local)
                         || self.closure_capture_body_writes(closure, capture)
@@ -1666,7 +1673,7 @@ impl FunctionEmitter<'_> {
                         })
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
-                    return Ok(format!("SmeltUnknown::Array(vec![{items_text}])"));
+                    return Ok(format!("SmeltUnknown::Array(vec![{items_text}].into())"));
                 }
                 let list_item_ty = match self.mir.types.get(expr.ty) {
                     Some(Type::List(item_ty)) => Some(*item_ty),
@@ -1752,6 +1759,20 @@ impl FunctionEmitter<'_> {
                     Some(Type::String) => Ok(format!(
                         "{receiver_text}.chars().nth({index}).unwrap_or_default().to_string()"
                     )),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    | Some(Type::Class { .. })
+                        if self.is_erased_class_type(receiver.ty)
+                            || matches!(
+                                self.mir.types.get(receiver.ty),
+                                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                            ) =>
+                    {
+                        Ok(self.callback_unknown_index_text(
+                            &receiver_text,
+                            &format!("{index} as i64"),
+                            &format!("{:?}.to_owned()", index.to_string()),
+                        ))
+                    }
                     _ => Ok("Default::default()".to_owned()),
                 }
             }
@@ -1766,6 +1787,43 @@ impl FunctionEmitter<'_> {
                         "{{ let callback_index_receiver = ({receiver_text}).clone(); let callback_index = {{ let len = callback_index_receiver.chars().count() as i64; let index = {} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}; callback_index_receiver.chars().nth(callback_index).map(|ch| ch.to_string()).expect(\"index out of bounds\") }}",
                         self.callback_expr_text(index, params)?
                     )),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    | Some(Type::Class { .. })
+                        if self.is_erased_class_type(receiver.ty)
+                            || matches!(
+                                self.mir.types.get(receiver.ty),
+                                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                            ) =>
+                    {
+                        let index_text = self.callback_expr_text(index, params)?;
+                        let numeric_index_text = match self.mir.types.get(index.ty) {
+                            Some(Type::Int | Type::Float) => index_text.clone(),
+                            Some(Type::Bool) => {
+                                format!("if {index_text} {{ 1.0 }} else {{ 0.0 }}")
+                            }
+                            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                            | Some(Type::Class { .. })
+                                if self.is_erased_class_type(index.ty)
+                                    || matches!(
+                                        self.mir.types.get(index.ty),
+                                        Some(
+                                            Type::Unknown | Type::TypeParam { .. } | Type::Union(_)
+                                        )
+                                    ) =>
+                            {
+                                format!(
+                                    "match {index_text}.clone() {{ SmeltUnknown::Number(value) => value, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                                )
+                            }
+                            _ => "f64::NAN".to_owned(),
+                        };
+                        let key_text = self.property_key_to_string_text(&index_text, index.ty)?;
+                        Ok(self.callback_unknown_index_text(
+                            &receiver_text,
+                            &numeric_index_text,
+                            &key_text,
+                        ))
+                    }
                     Some(Type::Dict(key_ty, value_ty))
                         if self.mir.types.get(*key_ty) == Some(&Type::String) =>
                     {
@@ -1802,7 +1860,7 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
-                        "match &{receiver_text} {{ SmeltUnknown::Object(value) => match value.get({source_field_text:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (&mut *smelt_getter.borrow_mut())(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                        "match &{receiver_text} {{ SmeltUnknown::Object(value) => match value.get({source_field_text:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
                     )),
                     Some(Type::Dict(key_ty, value_ty)) => {
                         if self.dict_uses_smelt_record(*key_ty) {
@@ -2150,7 +2208,11 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     )
                 {
-                    let rhs_value = self.rendered_value_as_type_text(&rhs_text, rhs.ty, lhs.ty)?;
+                    let rhs_value = if self.callback_expr_renders_numeric(rhs) {
+                        rhs_text
+                    } else {
+                        self.rendered_value_as_type_text(&rhs_text, rhs.ty, lhs.ty)?
+                    };
                     return Ok(format!(
                         "({lhs_text} {} {rhs_value})",
                         smelt_hir::bin_op_text(*op)
@@ -2169,7 +2231,11 @@ impl FunctionEmitter<'_> {
                         Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                     )
                 {
-                    let lhs_value = self.rendered_value_as_type_text(&lhs_text, lhs.ty, rhs.ty)?;
+                    let lhs_value = if self.callback_expr_renders_numeric(lhs) {
+                        lhs_text
+                    } else {
+                        self.rendered_value_as_type_text(&lhs_text, lhs.ty, rhs.ty)?
+                    };
                     return Ok(format!(
                         "({lhs_value} {} {rhs_text})",
                         smelt_hir::bin_op_text(*op)
@@ -2190,12 +2256,36 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
                 ) {
                     let float_ty = self.type_id(Type::Float)?;
-                    let lhs_value =
-                        self.rendered_value_as_type_text(&lhs_text, lhs.ty, float_ty)?;
-                    let rhs_value =
-                        self.rendered_value_as_type_text(&rhs_text, rhs.ty, float_ty)?;
+                    let lhs_value = if self.callback_expr_renders_numeric(lhs) {
+                        lhs_text
+                    } else {
+                        self.rendered_value_as_type_text(&lhs_text, lhs.ty, float_ty)?
+                    };
+                    let rhs_value = if self.callback_expr_renders_numeric(rhs) {
+                        rhs_text
+                    } else {
+                        self.rendered_value_as_type_text(&rhs_text, rhs.ty, float_ty)?
+                    };
                     return Ok(format!(
                         "({lhs_value} {} {rhs_value})",
+                        smelt_hir::bin_op_text(*op)
+                    ));
+                }
+                if matches!(
+                    op,
+                    smelt_hir::BinOp::Add
+                        | smelt_hir::BinOp::Sub
+                        | smelt_hir::BinOp::Mul
+                        | smelt_hir::BinOp::Div
+                        | smelt_hir::BinOp::Rem
+                ) && matches!(
+                    self.mir.types.get(lhs.ty),
+                    Some(Type::Optional(inner))
+                        if matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float))
+                ) && matches!(self.mir.types.get(rhs.ty), Some(Type::Int | Type::Float))
+                {
+                    return Ok(format!(
+                        "({lhs_text}.unwrap_or(f64::NAN) {} {rhs_text})",
                         smelt_hir::bin_op_text(*op)
                     ));
                 }
@@ -2320,11 +2410,8 @@ impl FunctionEmitter<'_> {
                     self.callback_expr_text(callee, params)?
                 };
                 let actual_callee_ty =
-                    if let smelt_hir::CallbackExprKind::Capture(local) = callee.kind {
-                        self.local_decl(LocalId(local.0)).ok().map(|decl| decl.ty)
-                    } else {
-                        None
-                    };
+                    matches!(callee.kind, smelt_hir::CallbackExprKind::Capture(_))
+                        .then_some(callee.ty);
                 let named_param_ty = self.function.params.iter().find_map(|param| {
                     if self.local_name(*param).ok()? == callee_text {
                         Some(self.local_decl(*param).ok()?.ty)
@@ -2333,56 +2420,60 @@ impl FunctionEmitter<'_> {
                     }
                 });
                 let callee_ty = named_param_ty.or(actual_callee_ty).unwrap_or(callee.ty);
-                let emitted_params = self.emitted_function_param_types(&callee_text)?;
-                let symbol_function =
-                    if let smelt_hir::CallbackExprKind::Function(symbol) = callee.kind {
+                let emitted_params =
+                    if matches!(callee.kind, smelt_hir::CallbackExprKind::Function(_)) {
+                        self.emitted_function_param_types(&callee_text)?
+                    } else {
+                        None
+                    };
+                // Callback trees can retain an emitted static callee name even
+                // when the original expression classification was widened.
+                // Resolve by the printed Rust symbol before consulting source
+                // symbols so borrowed callback parameter ABIs remain intact.
+                let emitted_symbol_function =
+                    (!matches!(callee.kind, smelt_hir::CallbackExprKind::Capture(_))
+                        || callee_text.contains("__module_"))
+                    .then(|| {
                         self.mir.functions.iter().find(|function| {
-                            function.name == symbol
-                                || self
-                                    .function_rust_name(function)
-                                    .is_ok_and(|name| name == callee_text)
+                            self.function_rust_name(function)
+                                .is_ok_and(|name| name == callee_text)
                         })
-                    } else {
-                        None
-                    };
-                let symbol_params =
-                    if let smelt_hir::CallbackExprKind::Function(symbol) = callee.kind {
-                        symbol_function
-                            .or_else(|| {
-                                self.mir.functions.iter().find(|function| {
-                                    function.name == symbol
-                                        || self
-                                            .function_rust_name(function)
-                                            .is_ok_and(|name| name == callee_text)
-                                })
+                    })
+                    .flatten();
+                let symbol_function = emitted_symbol_function.or_else(|| match callee.kind {
+                    smelt_hir::CallbackExprKind::Function(symbol) => self
+                        .mir
+                        .functions
+                        .iter()
+                        .find(|function| function.name == symbol),
+                    _ => None,
+                });
+                let symbol_params = symbol_function
+                    .map(|function| {
+                        function
+                            .params
+                            .iter()
+                            .map(|param| {
+                                self.function_local_decl(function, *param)
+                                    .map(|local| local.ty)
                             })
-                            .map(|function| {
-                                function
-                                    .params
-                                    .iter()
-                                    .map(|param| {
-                                        self.function_local_decl(function, *param)
-                                            .map(|local| local.ty)
-                                    })
-                                    .collect::<Result<Vec<_>, EmitError>>()
-                            })
-                            .transpose()?
-                    } else {
-                        None
-                    };
+                            .collect::<Result<Vec<_>, EmitError>>()
+                    })
+                    .transpose()?;
                 let callee_function = match self.mir.types.get(callee_ty) {
                     Some(Type::Function(function)) => Some(function),
                     _ => None,
                 };
-                let callee_params = if let Some(emitted_param_types) = emitted_params.as_deref() {
-                    emitted_param_types
-                } else if let Some(symbol_param_types) = symbol_params.as_deref() {
+                let callee_params = if let Some(symbol_param_types) = symbol_params.as_deref() {
                     symbol_param_types
+                } else if let Some(emitted_param_types) = emitted_params.as_deref() {
+                    emitted_param_types
                 } else if let Some(function) = callee_function {
                     function.params.as_slice()
                 } else {
                     &[]
                 };
+                let call_uses_static_abi = symbol_params.is_some() || emitted_params.is_some();
                 let callee_return_ty = callee_function.map(|function| function.return_ty);
                 let source_call_has_no_args = args.is_empty()
                     && matches!(
@@ -2427,11 +2518,22 @@ impl FunctionEmitter<'_> {
                                     let item_text = format!(
                                         "{spread_text}.get({offset}).cloned().unwrap_or(SmeltUnknown::Null)"
                                     );
-                                    rendered.push(self.rendered_value_as_type_text(
+                                    let mut text = self.rendered_value_as_type_text(
                                         &item_text,
                                         rest_item_ty,
                                         target,
-                                    )?);
+                                    )?;
+                                    if call_uses_static_abi
+                                        && matches!(
+                                            self.mir.types.get(target),
+                                            Some(Type::Function(_))
+                                        )
+                                        && text.contains("Rc<dyn Fn")
+                                        && !text.starts_with('&')
+                                    {
+                                        text = format!("&*({text})");
+                                    }
+                                    rendered.push(text);
                                     fixed_index = fixed_index.checked_add(1).ok_or_else(|| {
                                         EmitError::new("argument index overflowed")
                                     })?;
@@ -2448,9 +2550,21 @@ impl FunctionEmitter<'_> {
                                 let target = *callee_params.get(fixed_index).ok_or_else(|| {
                                     EmitError::new("fixed argument target is missing")
                                 })?;
-                                rendered.push(
-                                    self.callback_expr_as_type_text(&arg.expr, target, params)?,
-                                );
+                                let mut text =
+                                    self.callback_expr_as_type_text(&arg.expr, target, params)?;
+                                let rendered_owned_callback = text.contains("::std::rc::Rc<dyn Fn")
+                                    && !text.starts_with("SmeltUnknown::Function")
+                                    && !text.starts_with('&');
+                                if call_uses_static_abi
+                                    && (matches!(
+                                        self.mir.types.get(target),
+                                        Some(Type::Function(_))
+                                    ) || rendered_owned_callback)
+                                    && !text.starts_with('&')
+                                {
+                                    text = format!("&*({text})");
+                                }
+                                rendered.push(text);
                                 fixed_index = fixed_index
                                     .checked_add(1)
                                     .ok_or_else(|| EmitError::new("argument index overflowed"))?;
@@ -2550,13 +2664,26 @@ impl FunctionEmitter<'_> {
                                 {
                                     text = self.borrowed_default_function_text(*target)?;
                                 }
+                                let rendered_owned_callback =
+                                    text.contains("::std::rc::Rc<dyn Fn")
+                                        && !text.starts_with("SmeltUnknown::Function")
+                                        && !text.starts_with('&');
+                                if call_uses_static_abi
+                                    && (matches!(
+                                        self.mir.types.get(*target),
+                                        Some(Type::Function(_))
+                                    ) || rendered_owned_callback)
+                                    && !text.starts_with('&')
+                                {
+                                    text = format!("&*({text})");
+                                }
                                 if callee_text == "when_implementation"
                                     && index == 1
                                     && Self::callback_arg_text_is_default(&text)
                                 {
                                     text = self.borrowed_default_function_text(*target)?;
                                 }
-                                if text.contains("RefCell<dyn FnMut")
+                                if text.contains("Rc<dyn Fn")
                                     && !matches!(
                                         self.mir.types.get(*target),
                                         Some(
@@ -2575,7 +2702,7 @@ impl FunctionEmitter<'_> {
                                 } else if callee_text == "when_implementation"
                                     && text == "arg1.clone()"
                                 {
-                                    Ok("SmeltUnknown::Array(arg1.clone())".to_owned())
+                                    Ok("SmeltUnknown::Array(arg1.clone().into())".to_owned())
                                 } else {
                                     Ok(text)
                                 }
@@ -2602,7 +2729,7 @@ impl FunctionEmitter<'_> {
                         Some(Type::Function(_))
                     ) {
                         format!(
-                            "&mut |arg0: SmeltUnknown, arg1: Vec<SmeltUnknown>| {{ let smelt_function = match {predicate_source}.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_result = (&mut *smelt_function.borrow_mut())({{ let mut smelt_call_args = Vec::new(); smelt_call_args.push(arg0.into_smelt_unknown()); smelt_call_args.extend(arg1.into_iter()); smelt_call_args }}).unwrap_or_else(|error| panic!(\"{{}}\", error)); if let SmeltUnknown::Bool(value) = smelt_result {{ value }} else {{ panic!(\"unknown is not boolean\") }} }} else {{ panic!(\"unknown is not function\") }} }}"
+                            "&mut |arg0: SmeltUnknown, arg1: Vec<SmeltUnknown>| {{ let smelt_function = match {predicate_source}.clone() {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_function {{ let smelt_result = (smelt_function)({{ let mut smelt_call_args = Vec::new(); smelt_call_args.push(arg0.into_smelt_unknown()); smelt_call_args.extend(arg1.into_iter()); smelt_call_args }}).unwrap_or_else(|error| panic!(\"{{}}\", error)); if let SmeltUnknown::Bool(value) = smelt_result {{ value }} else {{ panic!(\"unknown is not boolean\") }} }} else {{ panic!(\"unknown is not function\") }} }}"
                         )
                     } else {
                         self.unknown_cast_value_text(&predicate_source, *predicate_ty)?
@@ -2648,7 +2775,7 @@ impl FunctionEmitter<'_> {
                         format!("{callee_text}({args_text})")
                     }
                     _ if matches!(self.mir.types.get(callee.ty), Some(Type::Function(_))) => {
-                        format!("(&mut *{callee_text}.borrow_mut())({args_text})")
+                        format!("({callee_text})({args_text})")
                     }
                     _ => self.default_value(expr.ty)?,
                 };
@@ -2716,6 +2843,27 @@ impl FunctionEmitter<'_> {
                     } else {
                         Ok(split_text)
                     }
+                } else if method_text == "flat"
+                    && matches!(
+                        self.mir.types.get(receiver.ty),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    )
+                    && args.len() <= 1
+                {
+                    let depth_text = args
+                        .first()
+                        .map(|depth| {
+                            self.callback_expr_as_type_text(
+                                &depth.expr,
+                                self.type_id(Type::Float)?,
+                                params,
+                            )
+                        })
+                        .transpose()?
+                        .unwrap_or_else(|| "1.0_f64".to_owned());
+                    Ok(format!(
+                        "{{ fn smelt_callback_flat(value: SmeltUnknown, depth: i64) -> SmeltUnknown {{ if depth <= 0 {{ return value; }} match value {{ SmeltUnknown::Array(values) => SmeltUnknown::Array(values.into_iter().flat_map(|value| match smelt_callback_flat(value, depth - 1) {{ SmeltUnknown::Array(values) => values.into_vec(), value => vec![value] }}).collect()), value => value }} }} smelt_callback_flat({receiver_text}.clone(), ({depth_text}).max(0.0).floor() as i64) }}"
+                    ))
                 } else if method_text == "to_lower_case" && args.is_empty() {
                     let string_receiver_text = self.callback_expr_as_type_text(
                         receiver,
@@ -2902,6 +3050,39 @@ impl FunctionEmitter<'_> {
                 }
             }
         }
+    }
+
+    /// Emit an erased index access performed inside an embedded callback tree.
+    ///
+    /// Callback trees are emitted directly rather than lowered through MIR
+    /// places, so erased receivers must repeat the ordinary runtime index
+    /// dispatch here. The returned value intentionally remains `SmeltUnknown`;
+    /// a following operation such as `word[0].toUpperCase()` can then extract
+    /// the actual string before applying its method.
+    fn callback_unknown_index_text(
+        &self,
+        receiver_text: &str,
+        numeric_index_text: &str,
+        key_text: &str,
+    ) -> String {
+        format!(
+            r"match {receiver_text}.clone() {{
+                    SmeltUnknown::String(value) => {{
+                        let len = value.chars().count() as i64;
+                        let index = {numeric_index_text} as i64;
+                        let normalized = if index < 0 {{ len + index }} else {{ index }};
+                        usize::try_from(normalized).ok().and_then(|index| value.chars().nth(index).map(|ch| SmeltUnknown::String(ch.to_string()))).unwrap_or(SmeltUnknown::Null)
+                    }}
+                    SmeltUnknown::Array(values) => {{
+                        let len = values.len() as i64;
+                        let index = {numeric_index_text} as i64;
+                        let normalized = if index < 0 {{ len + index }} else {{ index }};
+                        usize::try_from(normalized).ok().and_then(|index| values.get(index).cloned()).unwrap_or(SmeltUnknown::Null)
+                    }}
+                    SmeltUnknown::Object(values) => values.get(&{key_text}).unwrap_or(SmeltUnknown::Null),
+                    _ => SmeltUnknown::Null,
+                }}"
+        )
     }
 
     /// Emits a dynamic call through a statically known function table.

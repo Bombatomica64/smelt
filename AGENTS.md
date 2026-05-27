@@ -14,6 +14,10 @@ This produces a grouped Markdown report sorted by diagnostic count so LLMs can s
 ## Generated Rust incremental builds
 the Rust emitter intentionally preserves generated file mtimes by writing files only when their bytes change. This lets Cargo reuse incremental artifacts for large generated crates. Do not replace this with unconditional `fs::write`, and avoid touching/regenerating generated Rust files unless their contents actually changed.
 
+## Generated test investigation workflow
+when fixing generated Rust runtime compatibility in any source project, use `skills/smelt-debug-workflow/SKILL.md` and `smelt rust-test-report` instead of manually issuing repeated generated-crate test and diagnostics commands
+write each investigation report to `blocker-logs/<name>.md`; agents should consult that readable report and load additional raw/generated context only for the selected failure family
+
 ## Style
 put docstrings in modules and functions
 

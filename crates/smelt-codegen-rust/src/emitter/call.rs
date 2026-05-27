@@ -5,7 +5,7 @@ use super::*;
 impl FunctionEmitter<'_> {
     /// Return true when rendered argument text is a generated no-op callback.
     fn argument_text_is_callback_default(arg: &str) -> bool {
-        arg.contains("RefCell<dyn FnMut")
+        arg.contains("Rc<dyn Fn")
             || arg.starts_with("&mut |")
             || arg.contains("let smelt_default_callback")
     }
@@ -81,12 +81,13 @@ impl FunctionEmitter<'_> {
                     && function.params.is_empty()
                 {
                     if function.may_throw {
-                        "(&mut *smelt_timer_callback.borrow_mut())().map(|_| ())".to_owned()
+                        "(smelt_timer_callback)().map(|_| ())".to_owned()
                     } else {
-                        "Ok::<(), Box<dyn std::error::Error>>({ (&mut *smelt_timer_callback.borrow_mut())(); () })".to_owned()
+                        "Ok::<(), Box<dyn std::error::Error>>({ (smelt_timer_callback)(); () })"
+                            .to_owned()
                     }
                 } else {
-                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (&mut *smelt_function.borrow_mut())(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
+                    "{ let smelt_function_value = smelt_timer_callback.clone(); let smelt_callable = match smelt_function_value { SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") { Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }, _ => None }; if let Some(smelt_function) = smelt_callable { (smelt_function)(Vec::new()).map(|_| ()) } else { Err(std::io::Error::new(std::io::ErrorKind::Other, \"timer callback is not callable\").into()) } }".to_owned()
                 };
                 Ok(format!(
                     "{{ let smelt_timer_callback = {callback_text}.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
@@ -329,7 +330,15 @@ impl FunctionEmitter<'_> {
                             EmitError::new("call argument has no target parameter")
                         })?;
                         let target_ty = self.function_local_decl(function, param)?.ty;
-                        if self.parameter_needs_mutable_reference_in(function, param) {
+                        if matches!(self.mir.types.get(target_ty), Some(Type::Function(_)))
+                            && !self
+                                .function_parameter_requires_owned_in(function, param)
+                                .unwrap_or(false)
+                        {
+                            rendered_args.push(self.borrowed_function_argument_text(
+                                arg, target_ty,
+                            )?);
+                        } else if self.parameter_needs_mutable_reference_in(function, param) {
                             rendered_args.push(self.mutable_reference_argument_text(arg, target_ty)?);
                         } else {
                             rendered_args.push(self.operand_as_type_text(arg, target_ty)?);
@@ -421,27 +430,6 @@ impl FunctionEmitter<'_> {
                         rendered_args.push(self.borrowed_default_function_text(target_ty)?);
                     } else {
                         rendered_args.push(self.default_value(target_ty)?);
-                    }
-                }
-                if (rust_function_name.contains("debounce")
-                    || rust_function_name.contains("throttle"))
-                    && rendered_args.len() >= 3
-                {
-                    if rendered_args
-                        .get(1)
-                        .is_some_and(|arg| Self::argument_text_is_callback_default(arg))
-                        && let Some(arg) = rendered_args.get_mut(1)
-                    {
-                        "0.0".clone_into(arg);
-                    }
-                    if rendered_args.get(2).is_some_and(|arg| {
-                        arg.contains("RefCell<dyn FnMut")
-                            || !arg.contains("HashMap")
-                                && !arg.contains("::std::collections::HashMap")
-                                && !arg.contains("SmeltRecord")
-                    }) && let Some(arg) = rendered_args.get_mut(2)
-                    {
-                        "SmeltRecord::new()".clone_into(arg);
                     }
                 }
                 if rust_function_name.starts_with("flat_") && rendered_args.len() >= 2 {
@@ -574,9 +562,7 @@ impl FunctionEmitter<'_> {
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 let suffix = if function.may_throw { "?" } else { "" };
-                Ok(format!(
-                    "(&mut *{callee_text}.borrow_mut())({rendered_args}){suffix}"
-                ))
+                Ok(format!("({callee_text})({rendered_args}){suffix}"))
             }
         }
     }
@@ -591,8 +577,8 @@ impl FunctionEmitter<'_> {
         let mut call_text = self.call_text(callee, args)?;
         if args.is_empty() && call_text.ends_with("(Vec::new())") {
             call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
-        } else if call_text == "(&mut *fn_.borrow_mut())(Vec::new())" {
-            "(&mut *fn_.borrow_mut())()".clone_into(&mut call_text);
+        } else if call_text == "(fn_)(Vec::new())" {
+            "(fn_)()".clone_into(&mut call_text);
         }
         if let Callee::Static(func) = callee {
             let function = self
@@ -625,7 +611,7 @@ impl FunctionEmitter<'_> {
                     .collect::<Vec<_>>()
                     .join(", ");
                 return Ok(format!(
-                    "{{ let smelt_piped = {call_text}; ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> f64 {{ (&mut *smelt_piped.borrow_mut())({call_args}).smelt_into_f64() }})) }}"
+                    "{{ let smelt_piped = {call_text}; ::std::rc::Rc::new(move |{params}| -> f64 {{ (smelt_piped)({call_args}).smelt_into_f64() }}) }}"
                 ));
             }
         }

@@ -278,7 +278,12 @@ impl DependencyCollector {
             .ok_or_else(|| "failed to canonicalize workspace package import candidate".into())
     }
 
-    /// Resolves named imports from an `index.ts` barrel to matching re-export files.
+    /// Resolves named imports from an `index.ts` barrel to their source files.
+    ///
+    /// A consuming application only needs modules that supply its named
+    /// imports. Including the barrel itself causes its unrelated `export *`
+    /// edges to expand the entire package, including runtime surfaces not used
+    /// by the consumer.
     fn resolve_barrel_import_targets(
         &mut self,
         candidate: &Path,
@@ -298,7 +303,7 @@ impl DependencyCollector {
                 .insert(key.clone(), scan_typescript_barrel_exports(&source));
         }
         let export_map = self.barrel_exports.get(&key)?;
-        let mut targets = vec![candidate.canonicalize().ok()?];
+        let mut targets = Vec::new();
         for name in names {
             let module = export_map.get(name)?;
             let target = resolve_typescript_path(&self.ts_resolver, candidate, module).ok()??;
@@ -515,6 +520,14 @@ fn workspace_package_entry(
             }
         }
     }
+    for source_entry in [
+        package_dir.join("src/index.ts"),
+        package_dir.join("index.ts"),
+    ] {
+        if source_entry.is_file() {
+            return Ok(Some(source_entry));
+        }
+    }
     Ok(None)
 }
 
@@ -555,12 +568,25 @@ fn scan_typescript_barrel_exports(source: &str) -> HashMap<String, String> {
     exports
 }
 
-/// Infers the exported symbol name from `./name/index.ts` barrel entries.
+/// Infers a conventional exported symbol from one-module `export *` entries.
+///
+/// Utility packages commonly expose `flat` with `export * from "./flat"` and
+/// place that public function in `flat.ts`. Resolving an imported name equal
+/// to the module basename lets a named consumer compile only the modules it
+/// actually imports. Multi-export modules still fall back to barrel lowering
+/// when their requested name cannot be inferred here.
 fn barrel_export_name_from_module(module: &str) -> Option<String> {
     let trimmed = module.strip_prefix("./").unwrap_or(module);
     let mut parts = trimmed.split('/');
     let name = parts.next()?;
-    (parts.next() == Some("index.ts")).then(|| name.to_owned())
+    match parts.next() {
+        None => Path::new(name)
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .map(ToOwned::to_owned),
+        Some("index" | "index.ts") => Some(name.to_owned()),
+        Some(_) => None,
+    }
 }
 
 /// Normalizes a path key without requiring the path to already exist.

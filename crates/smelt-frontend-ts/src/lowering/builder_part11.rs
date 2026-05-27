@@ -831,7 +831,10 @@ return_ty,
             ));
         };
         let value = self.argument(argument, body)?;
-        if self.ctx.krate.types.get(Self::expr_ty(body, value)) == Some(&Type::Unknown) {
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, value)),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
             let ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::UnknownIs {
@@ -1126,7 +1129,7 @@ return_ty,
             ));
         };
         let needle = self.argument(needle_argument, body)?;
-        if let Some(from_index_argument) = call.arguments.get(1) {
+        let from_index = if let Some(from_index_argument) = call.arguments.get(1) {
             let from_index = self.argument(from_index_argument, body)?;
             if !self.slice_index_type_is_number(Self::expr_ty(body, from_index)) {
                 return Err(SmeltError::unsupported(
@@ -1134,7 +1137,10 @@ return_ty,
                     "string search fromIndex must be numeric",
                 ));
             }
-        }
+            Some(from_index)
+        } else {
+            None
+        };
         if self.ctx.krate.types.get(Self::expr_ty(body, haystack)) != Some(&Type::String)
             || self.ctx.krate.types.get(Self::expr_ty(body, needle)) != Some(&Type::String)
         {
@@ -1149,6 +1155,7 @@ return_ty,
                 op,
                 haystack,
                 needle,
+                from_index,
             },
             ty,
             span: self.span(call.span.start, call.span.end),
@@ -1180,13 +1187,13 @@ return_ty,
                 "string matchAll requires a string receiver",
             ));
         }
-        let _pattern = self.argument(pattern_argument, body)?;
+        let regex = self.argument(pattern_argument, body)?;
         let key_ty = self.ctx.krate.types.intern(Type::String);
         let value_ty = self.ctx.krate.types.intern(Type::Float);
         let match_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
         let ty = self.ctx.krate.types.intern(Type::List(match_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListLit(Vec::new()),
+            kind: ExprKind::RegexMatchAll { regex, haystack },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))

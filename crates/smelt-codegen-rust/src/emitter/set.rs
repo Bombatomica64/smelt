@@ -85,7 +85,7 @@ impl FunctionEmitter<'_> {
                 "set add receiver must be a mutable local for now",
             ));
         };
-        let set_text = self.local_name(*local)?;
+        let set_text = self.local_mut_value_text(*local)?;
         let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
             return Err(EmitError::new("set add receiver must be a set"));
         };
@@ -133,7 +133,7 @@ impl FunctionEmitter<'_> {
                 "set remove receiver must be a mutable local for now",
             ));
         };
-        let set_text = self.local_name(*local)?;
+        let set_text = self.local_mut_value_text(*local)?;
         let item_text = self.operand_text(item)?;
         match op {
             smelt_hir::SetRemoveOp::Delete => {

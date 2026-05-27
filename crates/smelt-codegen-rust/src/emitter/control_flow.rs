@@ -35,6 +35,27 @@ impl FunctionEmitter<'_> {
 
     /// Emits a basic block after recursion-depth accounting has been applied.
     fn emit_block_body(&self, block: &BasicBlock, out: &mut String) -> Result<(), EmitError> {
+        if let Some((cond, repeat_block, exit_block, repeat_when_true)) =
+            self.do_while_body(block)?
+        {
+            let repeated = self.block(repeat_block)?;
+            let exit = self.block(exit_block)?;
+            let loop_declared = self.declared_locals_snapshot();
+            out.push_str("    loop {\n");
+            for statement in &block.statements {
+                self.emit_statement_for_block(block, statement, out)?;
+            }
+            if repeat_when_true {
+                out.push_str(&format!("    if !({cond}) {{ break; }}\n"));
+            } else {
+                out.push_str(&format!("    if {cond} {{ break; }}\n"));
+            }
+            self.emit_block_until_goto(repeated, block.id, Some(exit_block), out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(loop_declared);
+            return self.emit_block(exit, out);
+        }
+
         if let Some((cond, then_block, else_block, cond_statement_idx)) =
             self.while_header(block)?
         {
@@ -198,11 +219,11 @@ impl FunctionEmitter<'_> {
                         .join(", ");
                     rendered_value = if function.may_throw {
                         format!(
-                            "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> Result<f64, Box<dyn std::error::Error>> {{ Ok::<_, Box<dyn std::error::Error>>((&mut *smelt_fn.borrow_mut())({call_args})?.smelt_into_f64()) }})) }}"
+                            "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(move |{params}| -> Result<f64, Box<dyn std::error::Error>> {{ Ok::<_, Box<dyn std::error::Error>>((smelt_fn)({call_args})?.smelt_into_f64()) }}) }}"
                         )
                     } else {
                         format!(
-                            "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> f64 {{ (&mut *smelt_fn.borrow_mut())({call_args}).smelt_into_f64() }})) }}"
+                            "{{ let smelt_fn = {function_value}.clone(); ::std::rc::Rc::new(move |{params}| -> f64 {{ (smelt_fn)({call_args}).smelt_into_f64() }}) }}"
                         )
                     };
                 }
@@ -215,7 +236,8 @@ impl FunctionEmitter<'_> {
                         || self.mutable_locals.contains(dest)
                         || self.predeclared_locals.contains(dest))
                 {
-                    out.push_str(&format!("    {name} = {rendered_value};\n"));
+                    let assignment = self.assignment_place_text(&Place::Local(*dest))?;
+                    out.push_str(&format!("    {assignment} = {rendered_value};\n"));
                     return Ok(());
                 }
                 let mutability = if name != "_" && self.local_binding_needs_mut(*dest) {
@@ -233,9 +255,15 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!(": {}", self.type_text_with_impl_trait(local.ty, false)?)
                 };
-                out.push_str(&format!(
-                    "    let {mutability}{name}{annotation} = {rendered_value};\n",
-                ));
+                if self.local_uses_shared_capture_storage(*dest) {
+                    out.push_str(&format!(
+                        "    let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "    let {mutability}{name}{annotation} = {rendered_value};\n",
+                    ));
+                }
                 self.mark_local_declared(*dest);
                 Ok(())
             }
@@ -263,7 +291,7 @@ impl FunctionEmitter<'_> {
                     let rendered_value = self.rvalue_text_for_dest(value, *item)?;
                     out.push_str(&format!(
                         "    {}.insert({:?}.to_owned(), {rendered_value});\n",
-                        self.local_name(*base)?,
+                        self.local_mut_value_text(*base)?,
                         self.symbol_name(*field)?
                     ));
                     return Ok(());
@@ -277,7 +305,7 @@ impl FunctionEmitter<'_> {
                     let rendered_value = self.rvalue_text_for_dest(value, unknown_ty)?;
                     out.push_str(&format!(
                         "    match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert({:?}.to_owned(), {rendered_value}); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert({:?}.to_owned(), {rendered_value}); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }}\n",
-                        self.local_name(*base)?,
+                        self.local_mut_value_text(*base)?,
                         self.symbol_name(*field)?,
                         self.symbol_name(*field)?
                     ));
@@ -292,14 +320,14 @@ impl FunctionEmitter<'_> {
                         let key_text = self.operand_as_type_text(index, *key)?;
                         out.push_str(&format!(
                             "    {}.insert({}, {rendered_value});\n",
-                            self.local_name(*base)?,
+                            self.local_mut_value_text(*base)?,
                             key_text
                         ));
                         return Ok(());
                     }
                     Some(Type::List(item)) => {
                         let rendered_value = self.rvalue_text_for_dest(value, *item)?;
-                        let base_text = self.local_name(*base)?;
+                        let base_text = self.local_mut_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
                         let default_value = self.default_value(*item)?;
@@ -331,10 +359,17 @@ impl FunctionEmitter<'_> {
             } else {
                 ""
             };
-            out.push_str(&format!(
-                "    let {mutability}{name}: {} = {rendered_value};\n",
-                self.type_text_with_impl_trait(decl.ty, false)?
-            ));
+            if self.local_uses_shared_capture_storage(*local) {
+                out.push_str(&format!(
+                    "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({rendered_value}));\n",
+                    self.type_text_with_impl_trait(decl.ty, false)?
+                ));
+            } else {
+                out.push_str(&format!(
+                    "    let {mutability}{name}: {} = {rendered_value};\n",
+                    self.type_text_with_impl_trait(decl.ty, false)?
+                ));
+            }
             self.mark_local_declared(*local);
             return Ok(());
         }
@@ -789,6 +824,37 @@ impl FunctionEmitter<'_> {
             return self.emit_block(self.block(*else_target)?, out);
         }
 
+        // A short-circuit branch may call a function before reaching the same
+        // join as its direct sibling. Keep emitting the common continuation
+        // instead of treating the direct edge as an unstructured escape.
+        if let Some(Terminator::Goto(then_target)) = then.terminator
+            && self.branch_join_target(else_.id, &mut HashSet::new())? == Some(then_target)
+        {
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            self.emit_block_until_goto(then, then_target, None, out)?;
+            out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
+            self.emit_block_until_goto(else_, then_target, None, out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            return self.emit_block(self.block(then_target)?, out);
+        }
+
+        if let Some(Terminator::Goto(else_target)) = else_.terminator
+            && self.branch_join_target(then.id, &mut HashSet::new())? == Some(else_target)
+        {
+            let branch_declared = self.declared_locals_snapshot();
+            out.push_str(&format!("    if {} {{\n", self.truthy_operand_text(cond)?));
+            self.emit_block_until_goto(then, else_target, None, out)?;
+            out.push_str("    } else {\n");
+            self.restore_declared_locals(branch_declared.clone());
+            self.emit_block_until_goto(else_, else_target, None, out)?;
+            out.push_str("    }\n");
+            self.restore_declared_locals(branch_declared);
+            return self.emit_block(self.block(else_target)?, out);
+        }
+
         if let Some(Terminator::Goto(then_target)) = then.terminator
             && then_target.0 > current.0
             && (self.block_eventually_terminates(then_target, &mut HashSet::new())?
@@ -1033,6 +1099,63 @@ impl FunctionEmitter<'_> {
             *else_block,
             idx,
         )))
+    }
+
+    /// Recognizes a loop whose one switch branch returns to the current block.
+    ///
+    /// TypeScript `do...while` commonly routes its back edge through a small
+    /// latch block. Treating that edge as an ordinary conditional branch
+    /// recursively repeats emitted source and eventually substitutes a default
+    /// return value. The same `loop { ...; if exit { break; } }` form is valid
+    /// for a pre-test header when it has the same one-sided cycle shape.
+    fn do_while_body(
+        &self,
+        block: &BasicBlock,
+    ) -> Result<Option<(String, smelt_mir::BlockId, smelt_mir::BlockId, bool)>, EmitError> {
+        let Some(Terminator::Switch {
+            cond,
+            then_block,
+            else_block,
+        }) = &block.terminator
+        else {
+            return Ok(None);
+        };
+        let then_repeats = self.block_reaches_target(*then_block, block.id, &mut HashSet::new());
+        let else_repeats = self.block_reaches_target(*else_block, block.id, &mut HashSet::new());
+        if then_repeats == else_repeats {
+            return Ok(None);
+        }
+        if then_repeats
+            && self.block_exits_to_loop(
+                self.block(*then_block)?,
+                block.id,
+                *else_block,
+                &mut HashSet::new(),
+            )?
+        {
+            return Ok(Some((
+                self.truthy_operand_text(cond)?,
+                *then_block,
+                *else_block,
+                true,
+            )));
+        }
+        if else_repeats
+            && self.block_exits_to_loop(
+                self.block(*else_block)?,
+                block.id,
+                *then_block,
+                &mut HashSet::new(),
+            )?
+        {
+            return Ok(Some((
+                self.truthy_operand_text(cond)?,
+                *else_block,
+                *then_block,
+                false,
+            )));
+        }
+        Ok(None)
     }
 
     /// Returns the local that stores a structured switch condition.

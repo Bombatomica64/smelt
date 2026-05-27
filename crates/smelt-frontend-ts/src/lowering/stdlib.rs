@@ -475,6 +475,98 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// Lower Vitest fake-clock APIs to the mutable timestamp observed by `Date.now()`.
+    pub(super) fn vitest_fake_timer_call(
+        &mut self,
+        call: &CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "vi" {
+            return Ok(None);
+        }
+        let ty = self.ctx.krate.types.intern(Type::None);
+        match member.property.name.as_str() {
+            "setSystemTime" => {
+                let [timestamp] = call.arguments.as_slice() else {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "vi.setSystemTime requires exactly one Date-compatible value",
+                    ));
+                };
+                let timestamp = self.argument(timestamp, body)?;
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::DateSetNow { timestamp },
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "useRealTimers" => {
+                if !call.arguments.is_empty() {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "vi.useRealTimers does not accept arguments",
+                    ));
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::DateResetNow,
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            "useFakeTimers" => {
+                let Some(argument) = call.arguments.first() else {
+                    return Ok(Some(body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::None),
+                        ty,
+                        span: self.span(call.span.start, call.span.end),
+                    })));
+                };
+                if call.arguments.len() != 1 {
+                    return Err(SmeltError::unsupported(
+                        self.span(call.span.start, call.span.end),
+                        "vi.useFakeTimers accepts at most one options object",
+                    ));
+                }
+                let Argument::ObjectExpression(options) = argument else {
+                    return Err(SmeltError::unsupported(
+                        self.span(argument.span().start, argument.span().end),
+                        "vi.useFakeTimers currently expects an options object",
+                    ));
+                };
+                for property in &options.properties {
+                    let ObjectPropertyKind::ObjectProperty(property) = property else {
+                        continue;
+                    };
+                    let key = match &property.key {
+                        PropertyKey::StaticIdentifier(identifier) => identifier.name.as_str(),
+                        PropertyKey::StringLiteral(literal) => literal.value.as_str(),
+                        _ => continue,
+                    };
+                    if key == "now" {
+                        let timestamp = self.expression(&property.value, body)?;
+                        return Ok(Some(body.push_expr(Expr {
+                            kind: ExprKind::DateSetNow { timestamp },
+                            ty,
+                            span: self.span(call.span.start, call.span.end),
+                        })));
+                    }
+                }
+                Ok(Some(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty,
+                    span: self.span(call.span.start, call.span.end),
+                })))
+            }
+            _ => Ok(None),
+        }
+    }
+
     /// Lower `tz(zone)` from `@date-fns/tz` to its date-context function value.
     pub(super) fn date_fns_timezone_context_call(
         &mut self,
@@ -1857,9 +1949,14 @@ impl ModuleBuilder<'_> {
                 if call.arguments.len() > 1 {
                     return Err(SmeltError::unsupported(
                         span,
-                        "array flat supports depth 0 or 1",
+                        "array flat accepts at most one depth argument",
                     ));
                 }
+                let depth = call
+                    .arguments
+                    .first()
+                    .map(|argument| self.argument(argument, body))
+                    .transpose()?;
                 let flat_item_ty = match self
                     .ctx
                     .krate
@@ -1875,7 +1972,7 @@ impl ModuleBuilder<'_> {
                 };
                 let ty = self.ctx.krate.types.intern(Type::List(flat_item_ty));
                 Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::ListFlat { list },
+                    kind: ExprKind::ListFlat { list, depth },
                     ty,
                     span,
                 })))

@@ -117,6 +117,7 @@ impl ModuleBuilder<'_> {
                 op,
                 haystack,
                 needle,
+                from_index: None,
             },
             ty,
             span,

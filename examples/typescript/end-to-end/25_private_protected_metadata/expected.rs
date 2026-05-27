@@ -9,8 +9,9 @@ struct Secret {
 
 
 fn main() {
+    let mut secret: Secret;
     let mut _smelt_tmp_1: Secret = Secret::new("s".to_owned(), 1.0);
-    let mut secret: Secret = _smelt_tmp_1.clone();
+    secret = _smelt_tmp_1.clone();
     let _smelt_tmp_2: String = secret.reveal();
     let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
 }

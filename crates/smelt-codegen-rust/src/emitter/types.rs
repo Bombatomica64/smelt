@@ -3,7 +3,7 @@
 use super::*;
 
 impl FunctionEmitter<'_> {
-    /// Converts a primitive Python-style cast operation to Rust text.
+    /// Converts a primitive source-language cast operation to Rust text.
     pub(super) fn primitive_cast_text(
         &self,
         op: smelt_hir::PrimitiveCastOp,
@@ -26,6 +26,7 @@ impl FunctionEmitter<'_> {
             (smelt_hir::PrimitiveCastOp::ToBool, Type::Bool, Type::Bool)
             | (smelt_hir::PrimitiveCastOp::ToInt, Type::Int, Type::Int)
             | (smelt_hir::PrimitiveCastOp::ToFloat, Type::Float, Type::Float)
+            | (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Float)
             | (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::String) => {
                 Ok(operand_text)
             }
@@ -118,6 +119,56 @@ impl FunctionEmitter<'_> {
                     "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
                 ))
             }
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Bool) => {
+                Ok(format!("if {operand_text} {{ 1.0 }} else {{ 0.0 }}"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Int) => {
+                Ok(format!("{operand_text} as f64"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::String) => {
+                Ok(self.js_number_from_string_text(&operand_text))
+            }
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::Float)) =>
+            {
+                Ok(format!("{operand_text}.unwrap_or(f64::NAN)"))
+            }
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::Int)) =>
+            {
+                Ok(format!(
+                    "{operand_text}.map_or(f64::NAN, |value| value as f64)"
+                ))
+            }
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+                if matches!(self.mir.types.get(*inner), Some(Type::String)) =>
+            {
+                let conversion = self.js_number_from_string_text("value");
+                Ok(format!(
+                    "{operand_text}.map_or(f64::NAN, |value| {conversion})"
+                ))
+            }
+            (
+                smelt_hir::PrimitiveCastOp::ToJsNumber,
+                Type::Float,
+                Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never,
+            ) => Ok(self.js_number_from_unknown_text(&operand_text)),
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Optional(inner))
+                if matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. } | Type::Never)
+                ) || self.is_erased_class_type(*inner) =>
+            {
+                let conversion = self.js_number_from_unknown_text("value");
+                Ok(format!(
+                    "{operand_text}.map_or(f64::NAN, |value| {conversion})"
+                ))
+            }
+            (smelt_hir::PrimitiveCastOp::ToJsNumber, Type::Float, Type::Class { .. })
+                if self.is_erased_class_type(operand_ty) =>
+            {
+                Ok(self.js_number_from_unknown_text(&operand_text))
+            }
             (smelt_hir::PrimitiveCastOp::ToString, Type::String, Type::Bool) => Ok(format!(
                 "if {operand_text} {{ \"True\".to_owned() }} else {{ \"False\".to_owned() }}"
             )),
@@ -142,6 +193,21 @@ impl FunctionEmitter<'_> {
             (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.unknown_wrap_text(operand),
             _ => self.default_value(dest_ty),
         }
+    }
+
+    /// Emit JavaScript numeric conversion for a Rust string expression.
+    fn js_number_from_string_text(&self, operand_text: &str) -> String {
+        format!(
+            "{{ let smelt_value = {operand_text}; let smelt_text = smelt_value.trim(); if smelt_text.is_empty() {{ 0.0 }} else {{ smelt_text.parse::<f64>().unwrap_or(f64::NAN) }} }}"
+        )
+    }
+
+    /// Emit JavaScript numeric conversion for an erased runtime value.
+    fn js_number_from_unknown_text(&self, operand_text: &str) -> String {
+        let string_conversion = self.js_number_from_string_text("value");
+        format!(
+            "match {operand_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => {string_conversion}, SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null => 0.0, SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+        )
     }
 
     /// Converts an optional value to JavaScript truthiness for its contained type.
@@ -345,10 +411,10 @@ impl FunctionEmitter<'_> {
 
     /// Convert a function parameter type to Rust.
     ///
-    /// Callback parameters are borrowed mutably so callers can forward the same
-    /// callback through multiple helper calls without consuming it. Returned
-    /// functions and nested function values still use owned boxes because
-    /// references would not be valid value representations there.
+    /// Callback parameters are borrowed as reentrant functions so callers can
+    /// forward the same callback through multiple helper calls without
+    /// consuming it. Generated closure state is stored in shared cells rather
+    /// than requiring `FnMut` receiver access.
     pub(super) fn param_type_text(&self, ty: TypeId) -> Result<String, EmitError> {
         if let Some(Type::Function(function)) = self.mir.types.get(ty) {
             let params = function
@@ -358,7 +424,7 @@ impl FunctionEmitter<'_> {
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
-            return Ok(format!("&mut dyn FnMut({params}) -> {return_ty}"));
+            return Ok(format!("&dyn Fn({params}) -> {return_ty}"));
         }
         self.type_text(ty)
     }
@@ -494,11 +560,9 @@ impl FunctionEmitter<'_> {
                     self.type_text_with_impl_trait(function.return_ty, false)?
                 };
                 if allow_impl_trait {
-                    Ok(format!("impl FnMut({params}) -> {return_ty}"))
+                    Ok(format!("impl Fn({params}) -> {return_ty}"))
                 } else {
-                    Ok(format!(
-                        "::std::rc::Rc<::std::cell::RefCell<dyn FnMut({params}) -> {return_ty}>>"
-                    ))
+                    Ok(format!("::std::rc::Rc<dyn Fn({params}) -> {return_ty}>"))
                 }
             }
             Type::Future(item) => Ok(format!(
@@ -570,7 +634,7 @@ impl FunctionEmitter<'_> {
             Type::Class { .. } => Ok("Default::default()".to_owned()),
             Type::Function(function) => {
                 if self.is_erased_unknown_rest_function(function) && !function.may_throw {
-                    return Ok("SmeltErasedFunction { callback: ::std::rc::Rc::new(::std::cell::RefCell::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null)), length: 0.0 }".to_owned());
+                    return Ok("SmeltErasedFunction { callback: ::std::rc::Rc::new(move |_smelt_args: Vec<SmeltUnknown>| SmeltUnknown::Null), length: 0.0, object: None }".to_owned());
                 }
                 let params = function
                     .params
@@ -614,7 +678,7 @@ impl FunctionEmitter<'_> {
                 };
                 let function_type = self.type_text_with_impl_trait(ty, false)?;
                 Ok(format!(
-                    "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{params}| -> {return_ty} {{ {return_text} }})); smelt_default_callback }}"
+                    "{{ let smelt_default_callback: {function_type} = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ {return_text} }}); smelt_default_callback }}"
                 ))
             }
             Type::Future(item) => Ok(format!(

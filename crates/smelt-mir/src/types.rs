@@ -670,6 +670,8 @@ pub enum Rvalue {
         haystack: Operand,
         /// Substring to search for.
         needle: Operand,
+        /// Optional JavaScript `fromIndex` position.
+        from_index: Option<Operand>,
     },
     /// Replace literal string matches with a literal replacement string.
     StringReplace {
@@ -770,6 +772,13 @@ pub enum Rvalue {
     },
     /// Execute a JavaScript-like `RegExp` value and return a match object.
     RegexExec {
+        /// `RegExp` value.
+        regex: Operand,
+        /// String value to search.
+        haystack: Operand,
+    },
+    /// Return every match index from JavaScript `String.prototype.matchAll`.
+    RegexMatchAll {
         /// `RegExp` value.
         regex: Operand,
         /// String value to search.
@@ -986,10 +995,12 @@ pub enum Rvalue {
         /// Replacement value.
         value: Operand,
     },
-    /// Flatten one list nesting level.
+    /// Flatten a list to an optional JavaScript depth.
     ListFlat {
         /// List value to flatten.
         list: Operand,
+        /// Explicit flatten depth, or omitted for JavaScript's depth of one.
+        depth: Option<Operand>,
     },
     /// Project array keys, values, or entries.
     ListProjection {
@@ -1293,6 +1304,13 @@ pub enum Rvalue {
     },
     /// Read the current timestamp in milliseconds.
     DateNow,
+    /// Configure the timestamp returned by JavaScript `Date.now()`.
+    DateSetNow {
+        /// Timestamp or Date-compatible value to use as the mocked clock.
+        timestamp: Operand,
+    },
+    /// Restore the real JavaScript `Date.now()` clock.
+    DateResetNow,
     /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
     DateTimezoneOffset,
     /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.

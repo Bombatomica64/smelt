@@ -37,6 +37,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            record_conversion_stack: RefCell::new(Vec::new()),
             none_ty,
             unknown_local: LocalDecl {
                 ty: unknown_ty,
@@ -153,8 +154,9 @@ impl<'mir> FunctionEmitter<'mir> {
             ));
         }
 
-        if self.function_uses_shared_captures() {
-            out.push_str("    let smelt_capture_scope = smelt_next_capture_scope();\n");
+        self.emit_shared_parameter_preludes(out)?;
+        if self.function.is_test && self.context.needs_date_now_runtime {
+            out.push_str("    SMELT_DATE_NOW.with(|value| value.set(None));\n");
         }
         self.emit_mutable_local_preludes(out)?;
         self.emit_block(self.entry_block()?, out)?;
@@ -167,27 +169,21 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(())
     }
 
-    /// Return whether this function constructs closures that need shared capture handles.
-    fn function_uses_shared_captures(&self) -> bool {
-        self.function.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| {
-                let Statement::Assign {
-                    value: Rvalue::Closure { id, .. },
-                    ..
-                } = statement
-                else {
-                    return false;
-                };
-                self.mir
-                    .closures
-                    .get(usize::try_from(id.0).unwrap_or(usize::MAX))
-                    .is_some_and(|closure| {
-                        closure.captures.iter().any(|capture| {
-                            self.closure_capture_needs_shared_access(closure, capture)
-                        })
-                    })
-            })
-        })
+    /// Emits shared cells for parameters mutated through lexical closures.
+    ///
+    /// Parameters already exist at function entry, so their shared binding
+    /// must be created before statements can observe it.
+    fn emit_shared_parameter_preludes(&self, out: &mut String) -> Result<(), EmitError> {
+        for local in &self.function.params {
+            if !self.local_uses_shared_capture_storage(*local) {
+                continue;
+            }
+            let name = self.local_name(*local)?;
+            out.push_str(&format!(
+                "    let smelt_capture_{name} = ::std::rc::Rc::new(::std::cell::RefCell::new({name}));\n"
+            ));
+        }
+        Ok(())
     }
 
     /// Emits a conservative return for non-terminating generated control flow.
@@ -238,6 +234,8 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             if matches!(self.mir.types.get(decl.ty), Some(Type::Class { .. }))
                 && !self.is_erased_class_type(decl.ty)
+                && (self.predeclared_local_needs_default(local)?
+                    || self.local_may_be_used_before_assignment(local)?)
             {
                 continue;
             }
@@ -246,7 +244,13 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 ""
             };
-            if self.predeclared_local_needs_default(local)?
+            if self.local_uses_shared_capture_storage(local) {
+                out.push_str(&format!(
+                    "    let smelt_capture_{name}: ::std::rc::Rc<::std::cell::RefCell<{}>> = ::std::rc::Rc::new(::std::cell::RefCell::new({}));\n",
+                    self.type_text_with_impl_trait(decl.ty, false)?,
+                    self.default_value(decl.ty)?
+                ));
+            } else if self.predeclared_local_needs_default(local)?
                 || self.local_may_be_used_before_assignment(local)?
             {
                 out.push_str(&format!(
@@ -284,7 +288,7 @@ impl<'mir> FunctionEmitter<'mir> {
         let is_callable = matches!(self.mir.types.get(decl.ty), Some(Type::Function(_)))
             || self
                 .type_text_with_impl_trait(decl.ty, false)?
-                .contains("FnMut");
+                .contains("dyn Fn");
         if is_callable
             && (name.starts_with("_smelt_tmp_")
                 || self.local_assignment_count(local) == 0
@@ -863,14 +867,19 @@ impl<'mir> FunctionEmitter<'mir> {
     /// Returns whether a non-escaping capture must share outer storage.
     ///
     /// JavaScript closures observe the same binding as the outer scope. The
-    /// generated Rust only uses shared local storage when the closure body
-    /// writes through that capture; read-only captures can remain cloned.
+    /// generated Rust uses shared local storage when the closure body writes
+    /// through that capture or when the binding is assigned after the closure
+    /// is created; read-only captures of already-initialized bindings can remain
+    /// cloned.
     pub(super) fn closure_capture_needs_shared_access(
         &self,
         closure: &MirClosure,
         capture: &smelt_mir::MirClosureCapture,
     ) -> bool {
         if capture.mode == smelt_hir::CaptureMode::ByMut {
+            return true;
+        }
+        if self.local_is_assigned_after_capture(capture.source_local) {
             return true;
         }
         if closure.escapes
@@ -886,6 +895,100 @@ impl<'mir> FunctionEmitter<'mir> {
             return false;
         }
         self.closure_capture_body_writes(closure, capture)
+    }
+
+    /// Return whether closure creation precedes an assignment to a captured binding.
+    ///
+    /// This is the generated-Rust storage requirement for source such as
+    /// `const recursive = factory(() => recursive())`: the callback is built
+    /// before the factory result initializes `recursive`, but JavaScript reads
+    /// the eventual binding value when the callback executes.
+    fn local_is_assigned_after_capture(&self, local: LocalId) -> bool {
+        let mut observed_capture = false;
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                match statement {
+                    Statement::Assign {
+                        value: Rvalue::Closure { id, .. },
+                        ..
+                    } => {
+                        observed_capture |= self
+                            .mir
+                            .closures
+                            .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                            .is_some_and(|closure| {
+                                closure
+                                    .captures
+                                    .iter()
+                                    .any(|capture| capture.source_local == local)
+                            });
+                    }
+                    Statement::Assign { dest, .. } if observed_capture && *dest == local => {
+                        return true;
+                    }
+                    Statement::AssignPlace {
+                        place: Place::Local(candidate),
+                        ..
+                    } if observed_capture && *candidate == local => return true,
+                    _ => {}
+                }
+            }
+        }
+        false
+    }
+
+    /// Return whether an outer binding needs storage shared with a closure.
+    ///
+    /// Mutating captures observe the same JavaScript binding as reads and
+    /// assignments in their defining function, so all access must use one
+    /// generated `RefCell`.
+    pub(super) fn local_uses_shared_capture_storage(&self, local: LocalId) -> bool {
+        self.function.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                let Statement::Assign {
+                    value: Rvalue::Closure { id, .. },
+                    ..
+                } = statement
+                else {
+                    return false;
+                };
+                self.mir
+                    .closures
+                    .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+                    .is_some_and(|closure| {
+                        closure.captures.iter().any(|capture| {
+                            capture.source_local == local
+                                && self.closure_capture_needs_shared_access(closure, capture)
+                        })
+                    })
+            })
+        })
+    }
+
+    /// Renders a read of a local through shared closure storage.
+    pub(super) fn local_value_text(&self, local: LocalId) -> Result<String, EmitError> {
+        let name = self.local_name(local)?;
+        if name.starts_with("(*smelt_capture_") {
+            return Ok(name.replace(".borrow_mut()", ".borrow()"));
+        }
+        if self.local_uses_shared_capture_storage(local) && self.is_local_declared(local) {
+            Ok(format!("(*smelt_capture_{name}.borrow())"))
+        } else {
+            Ok(name.to_owned())
+        }
+    }
+
+    /// Renders a mutable receiver or assignment through shared closure storage.
+    pub(super) fn local_mut_value_text(&self, local: LocalId) -> Result<String, EmitError> {
+        let name = self.local_name(local)?;
+        if name.starts_with("(*smelt_capture_") {
+            return Ok(name.to_owned());
+        }
+        if self.local_uses_shared_capture_storage(local) && self.is_local_declared(local) {
+            Ok(format!("(*smelt_capture_{name}.borrow_mut())"))
+        } else {
+            Ok(name.to_owned())
+        }
     }
 
     /// Returns whether an escaping closure mutates a captured source binding.
@@ -1097,20 +1200,11 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether an erased object can be safely expanded into a record.
     ///
-    /// Unknown object extraction is intentionally bounded: records whose
-    /// required fields are themselves nominal records can recurse through large
-    /// option-bag graphs while rendering Rust. Optional nested records can use
-    /// `None`, and required function/primitive fields still use their normal
-    /// unknown conversions.
+    /// Expansion depth is guarded while rendering so callback-bearing records
+    /// may retain nested option bags without infinitely expanding cyclic shapes.
     pub(super) fn can_extract_unknown_object_record(&self, target: TypeId) -> bool {
-        let Some(fields) = self.structural_record_fields(target) else {
-            return false;
-        };
-        !fields.is_empty()
-            && fields.iter().all(|field| {
-                matches!(self.mir.types.get(field.ty), Some(Type::Optional(_)))
-                    || !matches!(self.mir.types.get(field.ty), Some(Type::Class { .. }))
-            })
+        self.structural_record_fields(target)
+            .is_some_and(|fields| !fields.is_empty())
     }
 
     /// Returns matching source/target fields for a structural record adapter.
@@ -1548,6 +1642,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            record_conversion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
             unknown_local: LocalDecl {
                 ty,
@@ -1582,6 +1677,7 @@ impl<'mir> FunctionEmitter<'mir> {
             termination_cache: RefCell::new(HashMap::new()),
             loop_exit_cache: RefCell::new(HashMap::new()),
             borrowed_callback_names: HashSet::new(),
+            record_conversion_stack: RefCell::new(Vec::new()),
             none_ty: ty,
             unknown_local: LocalDecl {
                 ty,
@@ -1664,6 +1760,18 @@ impl<'mir> FunctionEmitter<'mir> {
             let mapped_value =
                 self.rendered_value_as_type_text("value", *source_inner, *target_inner)?;
             return Ok(format!("{value_text}.map(|value| {mapped_value})"));
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Optional(_)))
+            && matches!(
+                operand,
+                Operand::Copy(Place::Field { .. }) | Operand::Move(Place::Field { .. })
+            )
+            && (matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_erased_class_type(self.operand_ty(operand)?))
+        {
+            return self.unknown_cast_text(operand, target);
         }
         if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
             let operand_ty = self.operand_ty(operand)?;
@@ -2055,7 +2163,7 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let length = self.operand_function_length(operand)?;
         Ok(Some(format!(
-            "SmeltErasedFunction {{ callback: {callback}, length: {length}.0 }}"
+            "SmeltErasedFunction {{ callback: {callback}, length: {length}.0, object: None }}"
         )))
     }
 
@@ -2094,10 +2202,13 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             "smelt_callback".to_owned()
         };
-        let call = if is_borrowed_param {
+        let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
+        let call = if source_is_erased {
+            format!("{callback_text}.call({args})")
+        } else if is_borrowed_param {
             format!("{callback_text}({args})")
         } else {
-            format!("(&mut *{callback_text}.borrow_mut())({args})")
+            format!("({callback_text})({args})")
         };
         let call_value = if source.may_throw {
             format!("{call}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
@@ -2106,16 +2217,16 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let unknown_ty = self.type_id(Type::Unknown)?;
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
-            "SmeltUnknown::Null".to_owned()
+            format!("{{ {call_value}; SmeltUnknown::Null }}")
         } else {
             self.rendered_value_as_type_text(&call_value, source.return_ty, unknown_ty)?
         };
         let closure = format!("move |smelt_args: Vec<SmeltUnknown>| {return_text}");
         Ok(Some(if is_borrowed_param {
-            format!("::std::rc::Rc::new(::std::cell::RefCell::new({closure}))")
+            format!("::std::rc::Rc::new({closure})")
         } else {
             format!(
-                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new({closure})) }}"
+                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}"
             )
         }))
     }
@@ -2194,7 +2305,7 @@ impl<'mir> FunctionEmitter<'mir> {
     ///
     /// Callback bodies can reference captured source parameters through MIR
     /// locals that are not themselves in the nested closure parameter list. The
-    /// emitted Rust type is still `&mut dyn FnMut`, so calls must use direct
+    /// emitted Rust type is still `&dyn Fn`, so calls must use direct
     /// callable syntax instead of the `Rc<RefCell<_>>` handle path.
     pub(super) fn is_function_parameter_name(&self, name: &str) -> Result<bool, EmitError> {
         if name.starts_with("closure_arg_") {
@@ -2216,7 +2327,7 @@ impl<'mir> FunctionEmitter<'mir> {
     ///
     /// Closure MIR currently records captured outer callback parameters as
     /// ordinary function-typed locals, so name shape is the remaining signal
-    /// that the emitted Rust value is a borrowed `&mut dyn FnMut` rather than
+    /// that the emitted Rust value is a borrowed `&dyn Fn` rather than
     /// an owned callable handle.
     pub(super) fn is_borrowed_callback_capture_name(&self, name: &str) -> bool {
         self.borrowed_callback_names.contains(name)
@@ -2224,8 +2335,8 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Return true when a captured local is a borrowed callback parameter.
     ///
-    /// Such captures must not force a `move` closure: moving the `&mut dyn
-    /// FnMut` borrow prevents later direct uses in the same generated function.
+    /// Such captures must not force a `move` closure: moving the borrowed
+    /// callback prevents later direct uses in the same generated function.
     pub(super) fn capture_is_borrowed_callback_param(
         &self,
         local: LocalId,
@@ -2267,8 +2378,8 @@ impl<'mir> FunctionEmitter<'mir> {
     ///
     /// Borrowed callback params are used only when crate-level callback ABI
     /// analysis proves the callee does not retain the callback. Owned callback
-    /// values are borrowed from their `Rc<RefCell<_>>` handle for the duration
-    /// of the call; already-borrowed callback parameters are reborrowed.
+    /// values are borrowed from their reentrant `Rc<dyn Fn>` handle for the
+    /// duration of the call; already-borrowed callback parameters are reborrowed.
     pub(super) fn borrowed_function_argument_text(
         &self,
         operand: &Operand,
@@ -2289,11 +2400,7 @@ impl<'mir> FunctionEmitter<'mir> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => {
                 let place_text = self.place_text(place)?;
-                if self.is_function_parameter_place(place)? {
-                    Ok(format!("&mut *{place_text}"))
-                } else {
-                    Ok(format!("&mut *{place_text}.borrow_mut()"))
-                }
+                Ok(format!("&*{place_text}"))
             }
             Operand::Const(_) => self.borrowed_default_function_text(target),
         }
@@ -2327,7 +2434,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             return_value
         };
-        Ok(format!("&mut |{params}| {return_text}"))
+        Ok(format!("&|{params}| {return_text}"))
     }
 
     /// Wrap a borrowed callback parameter in a cloneable owned callable handle.
@@ -2357,7 +2464,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .collect::<Vec<_>>()
             .join(", ");
         Ok(format!(
-            "::std::rc::Rc::new(::std::cell::RefCell::new(move |{}| {function_text}({args})))",
+            "::std::rc::Rc::new(move |{}| {function_text}({args}))",
             params.join(", ")
         ))
     }
@@ -2705,7 +2812,7 @@ impl<'mir> FunctionEmitter<'mir> {
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
-        let call = format!("(&mut *smelt_callback.borrow_mut())({forwarded})");
+        let call = format!("(smelt_callback)({forwarded})");
         let call_value = if source_function.may_throw && target_function.may_throw {
             format!("{call}?")
         } else if source_function.may_throw {
@@ -2725,7 +2832,7 @@ impl<'mir> FunctionEmitter<'mir> {
         };
         let target_text = self.type_text_with_impl_trait(target, false)?;
         Ok(Some(format!(
-            "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(::std::cell::RefCell::new(move |{}| {returned})); smelt_adapted }}",
+            "{{ let smelt_callback = {value_text}.clone(); let smelt_adapted: {target_text} = ::std::rc::Rc::new(move |{}| {returned}); smelt_adapted }}",
             arg_decls.join(", ")
         )))
     }
@@ -2798,10 +2905,13 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             "smelt_callback".to_owned()
         };
-        let call = if is_borrowed_param {
+        let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
+        let call = if source_is_erased {
+            format!("{callback_text}.call({args})")
+        } else if is_borrowed_param {
             format!("{callback_text}({args})")
         } else {
-            format!("(&mut *{callback_text}.borrow_mut())({args})")
+            format!("({callback_text})({args})")
         };
         let source_returns_future =
             matches!(self.mir.types.get(source.return_ty), Some(Type::Future(_)));
@@ -2886,10 +2996,10 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(Some(if borrowed {
             format!("&mut {closure}")
         } else if is_borrowed_param {
-            format!("::std::rc::Rc::new(::std::cell::RefCell::new({closure}))")
+            format!("::std::rc::Rc::new({closure})")
         } else {
             format!(
-                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new(::std::cell::RefCell::new({closure})) }}"
+                "{{ let smelt_callback = {function_text}.clone(); ::std::rc::Rc::new({closure}) }}"
             )
         }))
     }
@@ -3034,11 +3144,19 @@ impl<'mir> FunctionEmitter<'mir> {
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
-        let (call_text, callback_prelude) = if self.is_function_parameter_place(place)? {
+        let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
+        let (call_text, callback_prelude) = if source_is_erased {
+            (
+                format!("_smelt_adapted_callback.call({forwarded})"),
+                Some(format!(
+                    "let _smelt_adapted_callback = {function_text}.clone();"
+                )),
+            )
+        } else if self.is_function_parameter_place(place)? {
             (format!("({function_text})({forwarded})"), None)
         } else {
             (
-                format!("(&mut *_smelt_adapted_callback.borrow_mut())({forwarded})"),
+                format!("(_smelt_adapted_callback)({forwarded})"),
                 Some(format!(
                     "let mut _smelt_adapted_callback = {function_text}.clone();"
                 )),
@@ -3178,7 +3296,7 @@ impl<'mir> FunctionEmitter<'mir> {
         Ok(Some(if borrowed {
             format!("&mut {closure}")
         } else {
-            format!("::std::rc::Rc::new(::std::cell::RefCell::new({closure}))")
+            format!("::std::rc::Rc::new({closure})")
         }))
     }
 
@@ -3221,13 +3339,18 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             function_text.clone()
         };
-        let call = match operand {
-            Operand::Copy(place) | Operand::Move(place)
-                if !self.is_function_parameter_place(place)? =>
-            {
-                format!("(&mut *{callback_text}.borrow_mut())({args})")
+        let source_is_erased = self.is_erased_unknown_rest_function(source) && !source.may_throw;
+        let call = if source_is_erased {
+            format!("{callback_text}.call({args})")
+        } else {
+            match operand {
+                Operand::Copy(place) | Operand::Move(place)
+                    if !self.is_function_parameter_place(place)? =>
+                {
+                    format!("({callback_text})({args})")
+                }
+                _ => format!("{callback_text}({args})"),
             }
-            _ => format!("{callback_text}({args})"),
         };
         let return_text = if self.mir.types.get(source.return_ty) == Some(&Type::None) {
             if source.may_throw {
@@ -3252,9 +3375,8 @@ impl<'mir> FunctionEmitter<'mir> {
             let value = self.unknown_wrap_value_text(&call, source.return_ty)?;
             format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
         };
-        let closure = format!(
-            "::std::rc::Rc::new(::std::cell::RefCell::new(move |smelt_args: Vec<SmeltUnknown>| {return_text}))"
-        );
+        let closure =
+            format!("::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| {return_text})");
         Ok(Some(if needs_owned_callback {
             format!("{{ let smelt_callback = {function_text}.clone(); {closure} }}")
         } else {

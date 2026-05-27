@@ -207,17 +207,18 @@ impl ModuleBuilder<'_> {
 
     /// Return whether a type has reference identity under JavaScript `toBe`.
     fn test_to_be_identity_type(&self, ty: smelt_hir::TypeId) -> bool {
-        matches!(
-            self.ctx.krate.types.get(ty),
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Optional(inner)) => self.test_to_be_identity_type(*inner),
             Some(
                 Type::List(_)
-                    | Type::Dict(_, _)
-                    | Type::Set(_)
-                    | Type::Tuple(_)
-                    | Type::Class { .. }
-                    | Type::Function(_)
-            )
-        )
+                | Type::Dict(_, _)
+                | Type::Set(_)
+                | Type::Tuple(_)
+                | Type::Class { .. }
+                | Type::Function(_),
+            ) => true,
+            _ => false,
+        }
     }
 
     /// Return whether a type is erased enough that `toBe` must defer to runtime.
@@ -1419,12 +1420,44 @@ impl ModuleBuilder<'_> {
         Ok(local)
     }
 
-    /// Predeclare function-local arrow callbacks before statement lowering.
+    /// Return whether an initializer needs its declaration binding before evaluation.
+    ///
+    /// A valid TypeScript initializer can refer to the binding receiving its
+    /// result only through deferred execution, for example
+    /// `const recursive = wrap(() => recursive())`. Temporarily making that
+    /// binding visible lets the existing capture walk identify this case
+    /// without assigning premature types to unrelated factory results.
+    fn initializer_needs_deferred_self_binding(
+        &mut self,
+        initializer: &Expression<'_>,
+        name: &str,
+    ) -> bool {
+        if matches!(
+            initializer,
+            Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_)
+        ) {
+            return false;
+        }
+        let previous = self
+            .locals
+            .insert(name.to_owned(), smelt_hir::LocalId(u32::MAX));
+        let mut captures = Vec::new();
+        self.collect_expression_capture_names(initializer, &HashSet::new(), &mut captures);
+        if let Some(previous) = previous {
+            self.locals.insert(name.to_owned(), previous);
+        } else {
+            self.locals.remove(name);
+        }
+        captures.iter().any(|capture| capture == name)
+    }
+
+    /// Predeclare function-local callable bindings before statement lowering.
     ///
     /// JavaScript closures can reference `const` arrow callbacks declared later
-    /// in the same function body. Smelt still lowers statements in source order,
-    /// so this pass reserves locals with callable types first; the declaration
-    /// lowering later fills in the closure value and callback metadata.
+    /// in the same function body, and a callback passed into a callable factory
+    /// can reference the binding receiving that factory's result. Smelt still
+    /// lowers statements in source order, so this pass reserves required locals
+    /// first; declaration lowering later fills in the runtime value.
     fn predeclare_local_arrow_callbacks(
         &mut self,
         statements: &[Statement<'_>],
@@ -1441,9 +1474,20 @@ impl ModuleBuilder<'_> {
                 let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
                     continue;
                 };
-                let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                let Some(initializer) = &declarator.init else {
                     continue;
                 };
+                let is_deferred_self_binding = self
+                    .initializer_needs_deferred_self_binding(initializer, binding.name.as_str());
+                let direct_arrow = if let Expression::ArrowFunctionExpression(arrow) = initializer
+                {
+                    Some(arrow)
+                } else {
+                    None
+                };
+                if direct_arrow.is_none() && !is_deferred_self_binding {
+                    continue;
+                }
                 if self.locals.contains_key(binding.name.as_str()) {
                     continue;
                 }
@@ -1452,26 +1496,29 @@ impl ModuleBuilder<'_> {
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                     .transpose()?;
-                let fn_ty = self
-                    .local_arrow_function_type(arrow, annotated_ty)
-                    .unwrap_or_else(|_| {
-                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
-                        let return_ty = self
-                            .contextual_function_type(annotated_ty)
-                            .map_or(unknown, |function| function.return_ty);
-                        self.ctx.krate.types.intern(Type::Function(FunctionType {
-                            params: vec![unknown; arrow.params.items.len()],
-                            rest: None,
-                            required_params: None,
-                            return_ty,
-                            is_async: arrow.r#async,
-                            may_throw: false,
-                        }))
-                    });
+                let ty = if let Some(arrow) = direct_arrow {
+                    self.local_arrow_function_type(arrow, annotated_ty)
+                        .unwrap_or_else(|_| {
+                            let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                            let return_ty = self
+                                .contextual_function_type(annotated_ty)
+                                .map_or(unknown, |function| function.return_ty);
+                            self.ctx.krate.types.intern(Type::Function(FunctionType {
+                                params: vec![unknown; arrow.params.items.len()],
+                                rest: None,
+                                required_params: None,
+                                return_ty,
+                                is_async: arrow.r#async,
+                                may_throw: false,
+                            }))
+                        })
+                } else {
+                    annotated_ty.unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown))
+                };
                 let symbol = self.intern_source_name(binding.name.as_str());
                 let local = body.push_local(LocalDecl {
                     name: Some(symbol),
-                    ty: fn_ty,
+                    ty,
                     mutable: false,
                     span: self.span(binding.span.start, binding.span.end),
                 });
@@ -1511,7 +1558,7 @@ impl ModuleBuilder<'_> {
                     .params
                     .items
                     .iter()
-                    .position(Self::formal_parameter_has_default)
+                    .position(|param| param.optional || Self::formal_parameter_has_default(param))
                     .unwrap_or(function.params.items.len());
                 let return_ty = function
                     .return_type
@@ -1582,6 +1629,18 @@ impl ModuleBuilder<'_> {
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
+            let deferred_self_local = if let BindingPattern::BindingIdentifier(binding) =
+                &declarator.id
+                && let Some(initializer) = &declarator.init
+                && self.initializer_needs_deferred_self_binding(
+                    initializer,
+                    binding.name.as_str(),
+                )
+            {
+                self.local_arrow_existing_body_local(binding.name.as_str(), body)
+            } else {
+                None
+            };
             let predeclared_self = if let BindingPattern::BindingIdentifier(binding) =
                 &declarator.id
                 && matches!(declarator.init, Some(Expression::FunctionExpression(_)))
@@ -1614,14 +1673,45 @@ impl ModuleBuilder<'_> {
                 self.locals
                     .insert(binding.name.as_str().to_owned(), previous);
             }
-            self.binding_declaration(
-                &declarator.id,
-                value,
-                annotated_ty,
-                matches!(declarator.kind, oxc::ast::ast::VariableDeclarationKind::Let),
-                body,
-                block,
-            )?;
+            match (deferred_self_local, value) {
+                (Some(local), Some(value)) => {
+                    let local_index = usize::try_from(local.0).map_err(|err| {
+                        SmeltError::unsupported(
+                            self.span(declarator.span.start, declarator.span.end),
+                            format!("deferred callable local id does not fit in usize: {err}"),
+                        )
+                    })?;
+                    let ty = body
+                        .locals
+                        .get(local_index)
+                        .ok_or_else(|| {
+                            SmeltError::unsupported(
+                                self.span(declarator.span.start, declarator.span.end),
+                                "deferred callable local is missing from its function body",
+                            )
+                        })?
+                        .ty;
+                    let pat = body.push_pattern(Pattern::Binding(local));
+                    body.push_stmt_to_block(
+                        block,
+                        Stmt::Let {
+                            pat,
+                            ty,
+                            value: Some(value),
+                        },
+                    );
+                }
+                (_, value) => {
+                    self.binding_declaration(
+                        &declarator.id,
+                        value,
+                        annotated_ty,
+                        matches!(declarator.kind, oxc::ast::ast::VariableDeclarationKind::Let),
+                        body,
+                        block,
+                    )?;
+                }
+            }
             for update in deferred_updates {
                 body.push_stmt_to_block(block, update);
             }
@@ -1644,8 +1734,15 @@ impl ModuleBuilder<'_> {
         let saved_outer_locals = self.locals.clone();
         let result = (|| {
             let contextual_function = self.contextual_function_type(type_hint);
-            let params =
+            let mut params =
                 self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+            for (param, ty) in arrow.params.items.iter().zip(params.iter_mut()) {
+                if param.optional
+                    && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_)))
+                {
+                    *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
+                }
+            }
             let mut default_params = HashMap::new();
             for (index, param) in arrow.params.items.iter().enumerate() {
                 let ty = params
@@ -1687,7 +1784,7 @@ impl ModuleBuilder<'_> {
                 .params
                 .items
                 .iter()
-                .position(Self::formal_parameter_has_default)
+                .position(|param| param.optional || Self::formal_parameter_has_default(param))
                 .unwrap_or(arrow.params.items.len());
             let mut closure_defaults = defaults;
             if rest.is_some() {
@@ -2098,8 +2195,15 @@ impl ModuleBuilder<'_> {
         type_hint: Option<smelt_hir::TypeId>,
     ) -> Result<smelt_hir::TypeId, SmeltError> {
         let contextual_function = self.contextual_function_type(type_hint);
-        let params =
+        let mut params =
             self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+        for (param, ty) in arrow.params.items.iter().zip(params.iter_mut()) {
+            if param.optional
+                && !matches!(self.ctx.krate.types.get(*ty), Some(Type::Optional(_)))
+            {
+                *ty = self.ctx.krate.types.intern(Type::Optional(*ty));
+            }
+        }
         let return_ty = arrow
             .return_type
             .as_ref()
@@ -2114,7 +2218,16 @@ impl ModuleBuilder<'_> {
         Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: None,
-            required_params: None,
+            required_params: Some(
+                arrow
+                    .params
+                    .items
+                    .iter()
+                    .position(|param| {
+                        param.optional || Self::formal_parameter_has_default(param)
+                    })
+                    .unwrap_or(arrow.params.items.len()),
+            ),
             return_ty,
             is_async: arrow.r#async,
             may_throw: false,

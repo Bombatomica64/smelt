@@ -1780,7 +1780,19 @@ impl<'hir> LoweringCtx<'hir> {
                         Some(expr.span),
                     )
                 })?;
-                Operand::Copy(Place::Local(local_id))
+                let operand = Operand::Copy(Place::Local(local_id));
+                let local_ty = self.mir_local(local_id)?.ty;
+                if matches!(self.krate.types.get(local_ty), Some(Type::Optional(inner)) if *inner == expr.ty)
+                {
+                    let dest = self.push_temp(expr.ty, expr.span);
+                    self.block_mut()?.statements.push(Statement::Assign {
+                        dest,
+                        value: Rvalue::Use(operand),
+                    });
+                    Operand::Copy(Place::Local(dest))
+                } else {
+                    operand
+                }
             }
             ExprKind::Call { callee, args } => {
                 let callee_id = self.lower_callee(*callee)?;
@@ -2266,9 +2278,12 @@ impl<'hir> LoweringCtx<'hir> {
                 op,
                 haystack,
                 needle,
+                from_index,
             } => {
                 let haystack_operand = self.lower_expr(*haystack)?;
                 let needle_operand = self.lower_expr(*needle)?;
+                let from_index_operand =
+                    from_index.map(|value| self.lower_expr(value)).transpose()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
@@ -2276,6 +2291,7 @@ impl<'hir> LoweringCtx<'hir> {
                         op: *op,
                         haystack: haystack_operand,
                         needle: needle_operand,
+                        from_index: from_index_operand,
                     },
                 });
                 Operand::Copy(Place::Local(dest))
@@ -2471,6 +2487,19 @@ impl<'hir> LoweringCtx<'hir> {
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::RegexExec {
+                        regex: regex_operand,
+                        haystack: haystack_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::RegexMatchAll { regex, haystack } => {
+                let regex_operand = self.lower_expr(*regex)?;
+                let haystack_operand = self.lower_expr(*haystack)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::RegexMatchAll {
                         regex: regex_operand,
                         haystack: haystack_operand,
                     },
@@ -2869,12 +2898,16 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
-            ExprKind::ListFlat { list } => {
+            ExprKind::ListFlat { list, depth } => {
                 let list_operand = self.lower_expr(*list)?;
+                let depth_operand = depth.map(|depth| self.lower_expr(depth)).transpose()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
-                    value: Rvalue::ListFlat { list: list_operand },
+                    value: Rvalue::ListFlat {
+                        list: list_operand,
+                        depth: depth_operand,
+                    },
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -3442,6 +3475,25 @@ impl<'hir> LoweringCtx<'hir> {
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::DateNow,
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateSetNow { timestamp } => {
+                let timestamp_operand = self.lower_expr(*timestamp)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateSetNow {
+                        timestamp: timestamp_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::DateResetNow => {
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::DateResetNow,
                 });
                 Operand::Copy(Place::Local(dest))
             }
@@ -4083,6 +4135,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::RegexSplit { .. }
             | ExprKind::RegexFind { .. }
             | ExprKind::RegexExec { .. }
+            | ExprKind::RegexMatchAll { .. }
             | ExprKind::StringCharAt { .. }
             | ExprKind::StringCharCodeAt { .. }
             | ExprKind::StringContains { .. }
@@ -4158,6 +4211,8 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::JsonParse { .. }
             | ExprKind::HttpGetText { .. }
             | ExprKind::DateNow
+            | ExprKind::DateSetNow { .. }
+            | ExprKind::DateResetNow
             | ExprKind::DateTimezoneOffset
             | ExprKind::DateSetTimezoneOffset { .. }
             | ExprKind::DateResetTimezoneOffset

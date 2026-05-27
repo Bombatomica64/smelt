@@ -3170,6 +3170,9 @@ return_ty: function.return_ty,
                     .map(|arg| Self::clone_const_body_expr(source_body, arg, target_body))
                     .collect::<Result<Vec<_>, _>>()?,
             },
+            ExprKind::DateFromValue { value } => ExprKind::DateFromValue {
+                value: Self::clone_const_body_expr(source_body, value, target_body)?,
+            },
             ExprKind::DictLit(entries) => ExprKind::DictLit(
                 entries
                     .into_iter()
@@ -3181,6 +3184,10 @@ return_ty: function.return_ty,
                     })
                     .collect::<Result<Vec<_>, SmeltError>>()?,
             ),
+            ExprKind::DictProjection { op, dict } => ExprKind::DictProjection {
+                op,
+                dict: Self::clone_const_body_expr(source_body, dict, target_body)?,
+            },
             ExprKind::ListLit(items) => ExprKind::ListLit(
                 items
                     .into_iter()

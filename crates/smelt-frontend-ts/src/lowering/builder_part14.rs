@@ -801,11 +801,25 @@ impl ModuleBuilder<'_> {
                 self.object_expression(object, body, None)
             }
             ArrayExpressionElement::RegExpLiteral(literal) => {
-                let ty = self.ctx.krate.types.intern(Type::String);
-                let value = Self::regex_literal_pattern_text(literal);
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let pattern = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(
+                        Self::regex_literal_pattern_text_without_flags(literal),
+                    )),
+                    ty: string_ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                });
+                let flags = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(literal.regex.flags.to_string())),
+                    ty: string_ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                });
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::String(value)),
-                    ty,
+                    kind: ExprKind::New {
+                        class: self.intern_type_name("RegExp"),
+                        args: vec![pattern, flags],
+                    },
+                    ty: self.regexp_type(),
                     span: self.span(literal.span.start, literal.span.end),
                 }))
             }
@@ -1166,7 +1180,11 @@ impl ModuleBuilder<'_> {
         })))
     }
 
-    /// Lower JavaScript `left || right` fallback expressions for string values.
+    /// Lower JavaScript `left || right` fallback expressions selected by string truthiness.
+    ///
+    /// A numeric fallback remains an erased selected value because expressions
+    /// such as `+(parts[index] || 0)` numerically coerce either branch after
+    /// selection. Emitting a boolean result would discard the string value.
     fn logical_or_string_fallback_expression(
         &mut self,
         logical: &oxc::ast::ast::LogicalExpression<'_>,
@@ -1179,9 +1197,13 @@ impl ModuleBuilder<'_> {
         }
         let fallback = self.expression_with_hint(&logical.right, body, Some(value_ty))?;
         let fallback_ty = Self::expr_ty(body, fallback);
-        if !self.is_string_compatible_type(fallback_ty) {
+        let result_ty = if self.is_string_compatible_type(fallback_ty) {
+            self.ctx.krate.types.intern(Type::String)
+        } else if self.is_numeric_like_type(fallback_ty) {
+            self.ctx.krate.types.intern(Type::Unknown)
+        } else {
             return Ok(None);
-        }
+        };
         let string_ty = self.ctx.krate.types.intern(Type::String);
         let empty = body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::String(String::new())),
@@ -1203,7 +1225,7 @@ impl ModuleBuilder<'_> {
                 then_expr: value,
                 else_expr: fallback,
             },
-            ty: string_ty,
+            ty: result_ty,
             span: self.span(logical.span.start, logical.span.end),
         })))
     }
@@ -1600,7 +1622,7 @@ impl ModuleBuilder<'_> {
                     let ty = self.ctx.krate.types.intern(Type::Float);
                     return Ok(body.push_expr(Expr {
                         kind: ExprKind::PrimitiveCast {
-                            op: PrimitiveCastOp::ToFloat,
+                            op: PrimitiveCastOp::ToJsNumber,
                             operand,
                         },
                         ty,
@@ -2292,7 +2314,16 @@ impl ModuleBuilder<'_> {
             _ => return None,
         };
         let field = self.intern_source_name(field_name);
-        self.class_field_type(hint, field).ok()
+        let field_ty = self.class_field_type(hint, field).ok()?;
+        if matches!(&property.value, Expression::ObjectExpression(_))
+            && matches!(
+                self.ctx.krate.types.get(field_ty),
+                Some(Type::Class { .. } | Type::Optional(_))
+            )
+        {
+            return None;
+        }
+        Some(field_ty)
     }
 
     /// Lower an object property value, treating zero-argument getters as field values.
@@ -2698,7 +2729,12 @@ impl ModuleBuilder<'_> {
         }
     }
 
-    /// Infer the dictionary type used for a lowered object literal.
+    /// Infer the storage type used for a lowered object literal.
+    ///
+    /// A fully compatible contextual record keeps nested typed fields, such as
+    /// a locale option bag, from first erasing through `Record<string, unknown>`.
+    /// Incomplete or incompatible contextual records remain dictionaries so
+    /// ordinary structural adaptation can still occur at their use site.
     fn object_literal_type(
         &mut self,
         entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
@@ -2707,6 +2743,11 @@ impl ModuleBuilder<'_> {
     ) -> smelt_hir::TypeId {
         if let Some(ty) = type_hint
             && matches!(self.ctx.krate.types.get(ty), Some(Type::Dict(_, _)))
+        {
+            return ty;
+        }
+        if let Some(ty) =
+            type_hint.and_then(|ty| self.contextual_record_literal_type(ty, entries, body))
         {
             return ty;
         }
@@ -2722,6 +2763,113 @@ impl ModuleBuilder<'_> {
             })
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
         self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty))
+    }
+
+    /// Preserve a contextual interface type only when the literal can be
+    /// constructed directly without inventing values for required fields.
+    fn contextual_record_literal_type(
+        &mut self,
+        type_hint: smelt_hir::TypeId,
+        entries: &[(smelt_hir::ExprId, smelt_hir::ExprId)],
+        body: &Body,
+    ) -> Option<smelt_hir::TypeId> {
+        let candidate = match self.ctx.krate.types.get(type_hint) {
+            Some(Type::Class { .. }) => type_hint,
+            Some(Type::Optional(inner))
+                if matches!(self.ctx.krate.types.get(*inner), Some(Type::Class { .. })) =>
+            {
+                *inner
+            }
+            _ => return None,
+        };
+        let fields = self.contextual_record_literal_fields(candidate)?;
+        if fields.is_empty() || fields.iter().any(|field| !field.optional) {
+            return None;
+        }
+        let mut needs_structural_adapter = false;
+        for (key, value) in entries {
+            let ExprKind::Literal(Literal::String(key)) = &body.exprs[key.0 as usize].kind else {
+                return None;
+            };
+            let field = self.intern_source_name(key);
+            let expected = self.class_field_type(candidate, field).ok()?;
+            let actual = Self::expr_ty(body, *value);
+            if !self.contextual_record_field_assignable(actual, expected) {
+                return None;
+            }
+            needs_structural_adapter |=
+                !self.contextual_record_field_directly_assignable(actual, expected);
+        }
+        needs_structural_adapter.then_some(candidate)
+    }
+
+    /// Return whether a contextual field can be assigned without record adaptation.
+    fn contextual_record_field_directly_assignable(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+    ) -> bool {
+        if self.type_assignable_to(actual, expected) {
+            return true;
+        }
+        matches!(self.ctx.krate.types.get(expected), Some(Type::Optional(inner)) if self.contextual_record_field_directly_assignable(actual, *inner))
+    }
+
+    /// Return whether direct record emission can initialize one contextual field.
+    ///
+    /// Typed interface values may require the backend's established structural
+    /// record adapter even when their nominal HIR names differ.
+    fn contextual_record_field_assignable(
+        &self,
+        actual: smelt_hir::TypeId,
+        expected: smelt_hir::TypeId,
+    ) -> bool {
+        if self.contextual_record_field_directly_assignable(actual, expected) {
+            return true;
+        }
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(expected) {
+            return self.contextual_record_field_assignable(actual, *inner);
+        }
+        self.contextual_record_literal_fields(actual).is_some()
+            && self.contextual_record_literal_fields(expected).is_some()
+    }
+
+    /// Collect fields that direct record-literal emission must initialize.
+    ///
+    /// Plain classes are deliberately excluded: constructor semantics are not
+    /// equivalent to constructing a TypeScript options/interface literal.
+    fn contextual_record_literal_fields(
+        &self,
+        candidate: smelt_hir::TypeId,
+    ) -> Option<Vec<Field>> {
+        let Some(Type::Class { name, .. }) = self.ctx.krate.types.get(candidate) else {
+            return None;
+        };
+        if let Some(interface) = self.find_interface(*name) {
+            return self.contextual_interface_fields(interface.name, &mut HashSet::new());
+        }
+        self.type_alias_fields.get(name).cloned()
+    }
+
+    /// Collect inherited interface fields while rejecting recursive surfaces.
+    fn contextual_interface_fields(
+        &self,
+        name: smelt_hir::Symbol,
+        visited: &mut HashSet<smelt_hir::Symbol>,
+    ) -> Option<Vec<Field>> {
+        if !visited.insert(name) {
+            return None;
+        }
+        let interface = self.find_interface(name)?;
+        let mut fields = interface.fields.clone();
+        for parent in &interface.extends {
+            for field in self.contextual_interface_fields(parent.parent, visited)? {
+                if !fields.iter().any(|existing| existing.name == field.name) {
+                    fields.push(field);
+                }
+            }
+        }
+        Some(fields)
     }
 
     /// Lower a static member access expression.

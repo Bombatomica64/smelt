@@ -248,12 +248,12 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(dest_ty)
         {
-            format!("SmeltUnknown::Array({result_text})")
+            format!("SmeltUnknown::Array({result_text}.into())")
         } else {
             result_text.to_owned()
         };
         Ok(format!(
-            "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text}; let smelt_slice_end = {end_text}; let smelt_slice_values = match smelt_slice_value {{ SmeltUnknown::Array(values) => values, SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 {{ smelt_slice_len + smelt_start_index }} else {{ smelt_start_index }}.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| {{ let end = end as i64; if end < 0 {{ smelt_slice_len + end }} else {{ end }} }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; {result_text} }}"
+            "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text}; let smelt_slice_end = {end_text}; let smelt_slice_values = match smelt_slice_value {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 {{ smelt_slice_len + smelt_start_index }} else {{ smelt_start_index }}.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| {{ let end = end as i64; if end < 0 {{ smelt_slice_len + end }} else {{ end }} }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; {result_text} }}"
         ))
     }
 
@@ -298,7 +298,7 @@ impl FunctionEmitter<'_> {
                     "array splice receiver must be a mutable local for now",
                 ));
             };
-            self.local_name(*local)?.to_owned()
+            self.local_mut_value_text(*local)?
         } else {
             format!("{list_text}.clone()")
         };
@@ -367,7 +367,7 @@ impl FunctionEmitter<'_> {
                 "array fill receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let value_text = self.operand_text(value)?;
         let start_text = start
             .map(|operand| self.operand_text(operand))
@@ -402,7 +402,7 @@ impl FunctionEmitter<'_> {
                 "array copyWithin receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let target_text = self.operand_text(target)?;
         let start_text = self.operand_text(start)?;
         let end_text = end
@@ -460,19 +460,52 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts one-level array flattening to Rust text.
+    /// Converts JavaScript array flattening to Rust text.
+    ///
+    /// Nested typed lists retain the simple depth-one representation. Arrays
+    /// crossing an erased `unknown` boundary need runtime recursion because
+    /// their nested shape and requested depth are only available at execution.
     pub(super) fn list_flat_text(
         &self,
         list: &Operand,
+        depth: Option<&Operand>,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
             return Ok("Default::default()".to_owned());
         };
+        if self.mir.types.get(*nested_ty) == Some(&Type::Unknown)
+            && self.mir.types.get(dest_ty) == Some(&Type::List(*nested_ty))
+        {
+            let depth_text = match depth {
+                None => "1.0_f64".to_owned(),
+                Some(depth) => {
+                    let text = self.operand_text(depth)?;
+                    match self.mir.types.get(self.operand_ty(depth)?) {
+                        Some(Type::Optional(inner))
+                            if self.mir.types.get(*inner) == Some(&Type::Float) =>
+                        {
+                            format!("{text}.clone().unwrap_or(1.0)")
+                        }
+                        Some(Type::Float) => text,
+                        _ => return Err(EmitError::new("array flat depth must be numeric")),
+                    }
+                }
+            };
+            return Ok(format!(
+                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, depth: i64) -> Vec<SmeltUnknown> {{ if depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = ({depth_text}).max(0.0).floor() as i64; smelt_flat_values({}.clone(), smelt_flat_depth) }}",
+                self.operand_text(list)?
+            ));
+        }
         let Some(Type::List(item_ty)) = self.mir.types.get(*nested_ty) else {
             return Ok("Default::default()".to_owned());
         };
+        if depth.is_some() {
+            return Err(EmitError::new(
+                "array flat with explicit depth requires an erased nested list",
+            ));
+        }
         if self.mir.types.get(dest_ty) != Some(&Type::List(*item_ty)) {
             return Err(EmitError::new(
                 "array flat destination must match nested item type",
@@ -492,10 +525,55 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
+        let list_text = self.operand_text(list)?;
+        if matches!(
+            self.mir.types.get(list_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            return match op {
+                smelt_hir::ListProjectionOp::Keys => {
+                    let int_ty = self.type_id(Type::Int)?;
+                    if self.mir.types.get(dest_ty) != Some(&Type::List(int_ty)) {
+                        return Err(EmitError::new("array keys destination must be int list"));
+                    }
+                    Ok(format!(
+                        "match {list_text}.clone() {{ SmeltUnknown::Array(values) => (0..values.len()).map(|idx| idx as i64).collect::<Vec<_>>(), _ => Vec::new() }}"
+                    ))
+                }
+                smelt_hir::ListProjectionOp::Values => {
+                    let Some(Type::List(value_ty)) = self.mir.types.get(dest_ty) else {
+                        return Err(EmitError::new(
+                            "dynamic array values destination must be a list",
+                        ));
+                    };
+                    let item_text = self.unknown_cast_value_text("item", *value_ty)?;
+                    Ok(format!(
+                        "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|item| {item_text}).collect::<Vec<_>>(), _ => Vec::new() }}"
+                    ))
+                }
+                smelt_hir::ListProjectionOp::Entries => {
+                    let int_ty = self.type_id(Type::Int)?;
+                    let Some(Type::List(tuple_ty)) = self.mir.types.get(dest_ty) else {
+                        return Err(EmitError::new("array entries destination must be a list"));
+                    };
+                    let Some(Type::Tuple(items)) = self.mir.types.get(*tuple_ty) else {
+                        return Err(EmitError::new("array entries item must be a tuple"));
+                    };
+                    if items.first() != Some(&int_ty) || items.len() != 2 {
+                        return Err(EmitError::new(
+                            "dynamic array entries destination must contain (int, item) tuples",
+                        ));
+                    }
+                    let item_text = self.unknown_cast_value_text("item", items[1])?;
+                    Ok(format!(
+                        "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}"
+                    ))
+                }
+            };
+        }
         let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
             return Err(EmitError::new("array projection receiver must be a list"));
         };
-        let list_text = self.operand_text(list)?;
         match op {
             smelt_hir::ListProjectionOp::Keys => {
                 let int_ty = self.type_id(Type::Int)?;

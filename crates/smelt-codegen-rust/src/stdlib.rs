@@ -92,6 +92,8 @@ fn rvalue_needs_regex(rvalue: &Rvalue) -> bool {
             | Rvalue::RegexSplit { .. }
             | Rvalue::RegexFind { .. }
             | Rvalue::RegexExec { .. }
+            | Rvalue::RegexMatchAll { .. }
+            | Rvalue::StringSplit { .. }
     )
 }
 
@@ -179,6 +181,8 @@ fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
     matches!(
         rvalue,
         Rvalue::DateNow
+            | Rvalue::DateSetNow { .. }
+            | Rvalue::DateResetNow
             | Rvalue::DateToIsoString { .. }
             | Rvalue::DateToString { .. }
             | Rvalue::DateFromParts { .. }
@@ -192,6 +196,17 @@ fn rvalue_needs_chrono(rvalue: &Rvalue) -> bool {
 /// Returns true when a MIR rvalue converts timestamps in an IANA time zone.
 fn rvalue_needs_chrono_tz(rvalue: &Rvalue) -> bool {
     matches!(rvalue, Rvalue::DateTimezoneContext { .. })
+}
+
+/// Returns true when generated Rust needs mutable `Date.now()` mock-clock state.
+#[must_use]
+pub(crate) fn needs_date_now_runtime(mir: &Mir) -> bool {
+    any_rvalue_needs(mir, |rvalue| {
+        matches!(
+            rvalue,
+            Rvalue::DateNow | Rvalue::DateSetNow { .. } | Rvalue::DateResetNow
+        )
+    })
 }
 
 /// Returns true when generated Rust needs mutable `Date.getTimezoneOffset()` state.

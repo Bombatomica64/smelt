@@ -77,6 +77,45 @@ pub enum Command {
         output: Option<String>,
     },
 
+    /// Run generated Rust tests and write a compact Markdown investigation report
+    RustTestReport {
+        /// Path to the generated Rust crate Cargo.toml.
+        #[arg(long = "cargo-manifest")]
+        cargo_manifest: String,
+
+        /// Optional Smelt.toml to build before running generated Rust tests.
+        #[arg(long = "build-manifest")]
+        build_manifest: Option<String>,
+
+        /// Test filter to investigate; repeat for independent focused runs.
+        #[arg(long)]
+        focus: Vec<String>,
+
+        /// Regression test filter to protect while investigating; repeat as needed.
+        #[arg(long)]
+        guard: Vec<String>,
+
+        /// Run the complete generated Rust test suite after focused runs.
+        #[arg(long)]
+        full: bool,
+
+        /// Previous Markdown report used to compute resolved and newly failing tests.
+        #[arg(long = "baseline-report")]
+        baseline_report: Option<String>,
+
+        /// Include grouped `cargo check` diagnostics in the Markdown report.
+        #[arg(long)]
+        diagnostics: bool,
+
+        /// Suppress generated Rust warnings while executing tests.
+        #[arg(long)]
+        suppress_warnings: bool,
+
+        /// Optional path to write the Markdown report instead of stdout.
+        #[arg(long)]
+        output: Option<String>,
+    },
+
     /// Remove the output target directory
     Clean,
     /// Print the JSON Schema for Smelt.toml

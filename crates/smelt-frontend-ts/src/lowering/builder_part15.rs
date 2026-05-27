@@ -734,6 +734,16 @@ return_ty: number_ty,
             }));
         }
         let ty = self.index_type(access_receiver_ty)?;
+        if matches!(self.ctx.krate.types.get(access_receiver_ty), Some(Type::Dict(_, _)))
+            && matches!(self.ctx.krate.types.get(ty), Some(Type::Class { .. }))
+        {
+            let ty = self.optional_chain_result_type(ty);
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::Index { receiver, index },
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         Ok(body.push_expr(Expr {
             kind: ExprKind::Index { receiver, index },
             ty,
@@ -960,7 +970,8 @@ return_ty: number_ty,
         }
         let (op, result_ty) = match callee.name.as_str() {
             "String" => (PrimitiveCastOp::ToString, Type::String),
-            "Number" | "parseFloat" | "BigInt" => (PrimitiveCastOp::ToFloat, Type::Float),
+            "Number" => (PrimitiveCastOp::ToJsNumber, Type::Float),
+            "parseFloat" | "BigInt" => (PrimitiveCastOp::ToFloat, Type::Float),
             "Boolean" => (PrimitiveCastOp::ToBool, Type::Bool),
             _ => return Ok(None),
         };
@@ -1010,13 +1021,18 @@ return_ty: number_ty,
         if op == PrimitiveCastOp::ToString && self.erased_or_union_surface(operand_ty) {
             return true;
         }
-        if op == PrimitiveCastOp::ToFloat {
+        if matches!(op, PrimitiveCastOp::ToFloat | PrimitiveCastOp::ToJsNumber) {
             return !matches!(self.ctx.krate.types.get(operand_ty), Some(Type::Never));
         }
         match self.ctx.krate.types.get(operand_ty) {
             Some(Type::Bool | Type::String | Type::Int | Type::Float | Type::Unknown) => true,
             Some(Type::TypeParam { .. } | Type::Class { .. }) => {
-                matches!(op, PrimitiveCastOp::ToBool | PrimitiveCastOp::ToFloat)
+                matches!(
+                    op,
+                    PrimitiveCastOp::ToBool
+                        | PrimitiveCastOp::ToFloat
+                        | PrimitiveCastOp::ToJsNumber
+                )
             }
             Some(Type::Union(items)) => items
                 .iter()
@@ -1042,6 +1058,7 @@ return_ty: number_ty,
         let right_ty_hint = match assign.operator {
             AssignmentOperator::Assign => Some(target_ty),
             AssignmentOperator::LogicalNullish => self.non_nullish_type(target_ty),
+            AssignmentOperator::LogicalOr | AssignmentOperator::LogicalAnd => Some(target_ty),
             _ => None,
         };
         let right = self.expression_with_hint(&assign.right, body, right_ty_hint)?;
@@ -1055,6 +1072,24 @@ return_ty: number_ty,
                     },
                     ty: self.non_nullish_type(target_ty).unwrap_or(target_ty),
                     span: self.span(assign.span.start, assign.span.end),
+                })
+            }
+            AssignmentOperator::LogicalOr | AssignmentOperator::LogicalAnd => {
+                let span = self.span(assign.span.start, assign.span.end);
+                let cond = self.lowered_condition_expression(target, span, body)?;
+                let (then_expr, else_expr) = if assign.operator == AssignmentOperator::LogicalOr {
+                    (target, right)
+                } else {
+                    (right, target)
+                };
+                body.push_expr(Expr {
+                    kind: ExprKind::Conditional {
+                        cond,
+                        then_expr,
+                        else_expr,
+                    },
+                    ty: target_ty,
+                    span,
                 })
             }
             AssignmentOperator::Addition

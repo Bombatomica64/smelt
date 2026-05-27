@@ -72,6 +72,7 @@ fn propagate_function(function: &mut MirFunction, types: &smelt_hir::TypeInterne
                 && !is_temp_local(function, *source)
                 && !is_function_local(function, types, *dest)
                 && !is_function_local(function, types, *source)
+                && locals_have_same_type(function, *dest, *source)
             {
                 aliases.insert(*dest, resolve_alias(&aliases, *source));
             }
@@ -141,6 +142,19 @@ fn is_temp_local(function: &MirFunction, local: LocalId) -> bool {
         .locals
         .get(usize::try_from(local.0).unwrap_or(usize::MAX))
         .is_some_and(|decl| matches!(decl.kind, crate::LocalKind::Temp))
+}
+
+/// Return whether copy propagation can preserve the assignment's type semantics.
+fn locals_have_same_type(function: &MirFunction, left: LocalId, right: LocalId) -> bool {
+    let left_ty = function
+        .locals
+        .get(usize::try_from(left.0).unwrap_or(usize::MAX))
+        .map(|decl| decl.ty);
+    let right_ty = function
+        .locals
+        .get(usize::try_from(right.0).unwrap_or(usize::MAX))
+        .map(|decl| decl.ty);
+    left_ty.is_some() && left_ty == right_ty
 }
 
 /// Return whether a local has a function type that must not be clone-propagated.
@@ -255,10 +269,23 @@ fn rewrite_rvalue(
             haystack, needle, ..
         }
         | Rvalue::StringSearch {
-            haystack, needle, ..
+            haystack,
+            needle,
+            from_index: None,
+            ..
         } => {
             rewrite_operand_except(haystack, aliases, dest)
                 | rewrite_operand_except(needle, aliases, dest)
+        }
+        Rvalue::StringSearch {
+            haystack,
+            needle,
+            from_index: Some(from_index),
+            ..
+        } => {
+            rewrite_operand_except(haystack, aliases, dest)
+                | rewrite_operand_except(needle, aliases, dest)
+                | rewrite_operand_except(from_index, aliases, dest)
         }
         Rvalue::StringReplace {
             haystack,
@@ -299,6 +326,10 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(haystack, aliases, dest)
         }
         Rvalue::RegexExec { regex, haystack } => {
+            rewrite_operand_except(regex, aliases, dest)
+                | rewrite_operand_except(haystack, aliases, dest)
+        }
+        Rvalue::RegexMatchAll { regex, haystack } => {
             rewrite_operand_except(regex, aliases, dest)
                 | rewrite_operand_except(haystack, aliases, dest)
         }
@@ -445,9 +476,11 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(index, aliases, dest)
                 | rewrite_operand_except(replacement, aliases, dest)
         }
-        Rvalue::ListFlat { list } | Rvalue::ListProjection { list, .. } => {
+        Rvalue::ListFlat { list, depth } => {
             rewrite_operand_except(list, aliases, dest)
+                | rewrite_optional_operand_except(depth, aliases, dest)
         }
+        Rvalue::ListProjection { list, .. } => rewrite_operand_except(list, aliases, dest),
         Rvalue::ListPush { list, item } => {
             rewrite_operand_except(list, aliases, dest)
                 | rewrite_operand_except(item, aliases, dest)
@@ -589,6 +622,8 @@ fn rewrite_rvalue(
         }
         Rvalue::HttpGetText { url } => rewrite_operand_except(url, aliases, dest),
         Rvalue::DateNow => false,
+        Rvalue::DateResetNow => false,
+        Rvalue::DateSetNow { timestamp } => rewrite_operand_except(timestamp, aliases, dest),
         Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => false,
         Rvalue::DateSetTimezoneOffset { offset } => rewrite_operand_except(offset, aliases, dest),
         Rvalue::DateTimezoneContext { timezone } => rewrite_operand_except(timezone, aliases, dest),

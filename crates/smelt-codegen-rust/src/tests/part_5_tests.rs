@@ -64,6 +64,23 @@ test("adds numbers", () => {
 }
 
 #[test]
+fn emits_nullish_vitest_matchers_as_success_for_null_literals() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("nullish", () => {
+  expect(undefined).toBeUndefined();
+  expect(null).toBeNull();
+});
+"#,
+    );
+
+    assert!(source.contains("!(true)"), "{source}");
+    assert!(!source.contains("!(false)"), "{source}");
+}
+
+#[test]
 fn emits_typescript_describe_it_as_flattened_rust_test() {
     let source = source_for(
         r#"
@@ -114,6 +131,53 @@ test("common matchers", () => {
     assert!(source.matches('!').count() >= 2);
     assert!(source.contains(".contains_key(&"));
     assert!(source.contains("deepStrictEqual(...) failed"));
+}
+
+#[test]
+fn emits_identity_bearing_erased_arrays_for_strict_matchers() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+test("array reference identity", () => {
+  const original: unknown = [1];
+  const alias: unknown = original;
+  const copy: unknown = [1];
+  expect(alias).toBe(original);
+  expect(copy).not.toBe(original);
+  expect(copy).toStrictEqual(original);
+});
+"#,
+    );
+
+    assert!(source.contains("Array(SmeltArray)"), "{source}");
+    assert!(
+        source.contains(
+            "(SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id"
+        ),
+        "{source}"
+    );
+    assert!(source.contains("SmeltUnknown::Array(vec!["), "{source}");
+    assert!(source.contains(".same_js_key(&"), "{source}");
+}
+
+#[test]
+fn emits_strict_identity_for_optional_records() {
+    let source = source_for(
+        r#"
+import { expect } from "vitest";
+
+function compare(left?: { a: number }, right?: { a: number }): void {
+  expect(left).toBe(right);
+  expect(left).not.toBe(right);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("(Some(left), Some(right)) => left.id == right.id"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -266,6 +330,24 @@ const limited = word.split(",", 2);
 }
 
 #[test]
+fn emits_regexp_string_split_from_static_object_separator() {
+    let source = source_for(
+        r#"
+function parts(value: string): string[] {
+  return value.split(patterns.separator);
+}
+const patterns = { separator: /[T ]/i };
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRegExp::new(\"[T ]\".to_owned(), \"i\".to_owned())"),
+        "{source}"
+    );
+    assert!(source.contains(".split_string(&"), "{source}");
+}
+
+#[test]
 fn emits_array_join_method() {
     let source = source_for(
         r#"
@@ -306,9 +388,18 @@ const last = values.lastIndexOf(2);
 "#,
     );
 
-    assert!(source.contains(".iter().position(|item| *item == smelt_needle"), "{source}");
-    assert!(source.contains(".iter().rposition(|item| *item == smelt_needle"), "{source}");
-    assert!(source.contains("item.is_nan() && smelt_needle.is_nan()"), "{source}");
+    assert!(
+        source.contains(".iter().position(|item| *item == smelt_needle"),
+        "{source}"
+    );
+    assert!(
+        source.contains(".iter().rposition(|item| *item == smelt_needle"),
+        "{source}"
+    );
+    assert!(
+        source.contains("item.is_nan() && smelt_needle.is_nan()"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -414,6 +505,7 @@ fn emits_modern_array_methods() {
         r#"
 let values: number[] = [1, 2, 3, 4];
 let nested: number[][] = [[1], [2, 3]];
+let erasedNested: unknown[] = [[1], [[2]]];
 const spliced = values.splice(1, 2, 9);
 const copiedSplice = values.toSpliced(1, 1, 8);
 const spreadSplice = values.toSpliced(1, 1, ...[10, 11]);
@@ -421,6 +513,7 @@ const filled = values.fill(0, 1, 3);
 const copiedWithin = values.copyWithin(0, 1, 3);
 const replaced = values.with(1, 7);
 const flat = nested.flat();
+const deepFlat = erasedNested.flat(2);
 const flatMapped = values.flatMap((value, index) => [value + index]);
 const sorted = values.toSorted((left, right) => right - left);
 const reversed = values.toReversed();
@@ -438,6 +531,8 @@ const entries = values.entries();
     assert!(source.contains("fill_index"));
     assert!(source.contains("with_items"));
     assert!(source.contains(".flat_map(|items| items.iter().cloned())"));
+    assert!(source.contains("fn smelt_flat_values"));
+    assert!(source.contains("smelt_flat_depth"));
     assert!(source.contains(".iter().enumerate().flat_map("));
     assert!(source.contains(".iter().enumerate().rev().find("));
     assert!(source.contains(".iter().enumerate().rposition("));

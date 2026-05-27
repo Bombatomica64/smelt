@@ -140,6 +140,7 @@ pub enum ExprKind {
         op: StringSearchOp,
         haystack: ExprId,
         needle: ExprId,
+        from_index: Option<ExprId>,
     },
     StringReplace {
         op: StringReplaceOp,
@@ -196,6 +197,10 @@ pub enum ExprKind {
         haystack: ExprId,
     },
     RegexExec {
+        regex: ExprId,
+        haystack: ExprId,
+    },
+    RegexMatchAll {
         regex: ExprId,
         haystack: ExprId,
     },
@@ -314,6 +319,7 @@ pub enum ExprKind {
     },
     ListFlat {
         list: ExprId,
+        depth: Option<ExprId>,
     },
     ListProjection {
         op: ListProjectionOp,
@@ -473,6 +479,12 @@ pub enum ExprKind {
         url: ExprId,
     },
     DateNow,
+    /// Configure the timestamp returned by JavaScript `Date.now()`.
+    DateSetNow {
+        timestamp: ExprId,
+    },
+    /// Restore the real JavaScript `Date.now()` clock.
+    DateResetNow,
     /// Read the configured JavaScript `Date.prototype.getTimezoneOffset` value.
     DateTimezoneOffset,
     /// Configure the return value observed by `Date.prototype.getTimezoneOffset`.

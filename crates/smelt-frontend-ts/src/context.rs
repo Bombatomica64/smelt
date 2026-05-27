@@ -3,7 +3,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::lowering::{ConstCollection, RestParam};
-use smelt_hir::{Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId};
+use smelt_hir::{
+    Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Literal, TypeId, TypeParamDef,
+};
 
 /// Reusable value stored in a static object constant.
 #[derive(Debug, Clone)]
@@ -11,6 +13,13 @@ use smelt_hir::{Crate as HirCrate, ExprKind, Field, FunctionType, ItemId, Litera
 pub enum ObjectConstValue {
     /// Primitive literal value.
     Literal(Literal),
+    /// JavaScript `RegExp` literal value with source pattern and flags.
+    RegExp {
+        /// Regex source without flag translation.
+        pattern: String,
+        /// JavaScript regular-expression flags.
+        flags: String,
+    },
     /// Literal array value.
     List(Vec<ObjectConstEntryValue>),
     /// Literal object value.
@@ -51,6 +60,8 @@ pub struct ObjectConst {
 /// A TypeScript overload signature attached to a concrete implementation item.
 #[derive(Debug, Clone)]
 pub struct OverloadSignature {
+    /// Generic parameters and their TypeScript constraints/defaults.
+    pub type_params: Vec<TypeParamDef>,
     /// Parameter types in source order.
     pub params: Vec<TypeId>,
     /// Source index of a rest parameter, when this overload declares one.

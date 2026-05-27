@@ -248,6 +248,41 @@ const limited = word.split(",", 2);
 }
 
 #[test]
+fn preserves_regexp_separator_from_static_object_for_string_split() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function parts(value: string) {
+  return value.split(patterns.separator);
+}
+const patterns = { separator: /[T ]/i };
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_item(&ctx, module, 0).and_then(|function| function_body(&ctx, function))?;
+    let split_separator = body.exprs.iter().find_map(|expr| match &expr.kind {
+        ExprKind::StringSplit { separator, .. } => Some(*separator),
+        _ => None,
+    });
+    let separator = split_separator.ok_or_else(|| "expected StringSplit expression".to_owned())?;
+    let separator_ty = body
+        .exprs
+        .get(usize::try_from(separator.0).map_err(|error| error.to_string())?)
+        .ok_or_else(|| "missing split separator expression".to_owned())?
+        .ty;
+    ensure!(
+        matches!(
+            ctx.krate.types.get(separator_ty),
+            Some(Type::Class { name, .. })
+                if ctx.krate.symbols.get(*name).is_some_and(|name| name == "RegExp")
+        ),
+        "expected object-held regex separator to retain RegExp type"
+    );
+    Ok(())
+}
+
+#[test]
 fn rejects_unknown_identifier() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let errors = lowering_errors(ts!("console.log(x);"), &mut ctx)?;

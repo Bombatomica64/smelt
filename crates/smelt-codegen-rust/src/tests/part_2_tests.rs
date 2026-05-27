@@ -151,6 +151,7 @@ function dateValue(value: Date | undefined): boolean {
     assert!(source.contains("unwrap_or(f64::NAN)"), "{source}");
     assert!(source.contains(".map_or(f64::NAN"), "{source}");
     assert!(source.contains(".is_nan()"), "{source}");
+    assert!(source.contains("if "), "{source}");
 }
 
 #[test]
@@ -202,10 +203,7 @@ const context = tz("Asia/Singapore");
 "#,
     );
 
-    assert!(
-        source.contains("if timestamp_ms.is_finite()"),
-        "{source}"
-    );
+    assert!(source.contains("if timestamp_ms.is_finite()"), "{source}");
     assert!(source.contains("else { f64::NAN }"), "{source}");
 }
 
@@ -239,7 +237,10 @@ function absent<ResultDate extends Date>(
     );
 
     assert!(source.contains("result.clone().is_none()"), "{source}");
-    assert!(!source.contains("Some(SmeltUnknown::Number(value))"), "{source}");
+    assert!(
+        !source.contains("Some(SmeltUnknown::Number(value))"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -418,4 +419,82 @@ dict_result: None = mapping.clear()
     assert!(source.contains("let mut"));
     assert!(source.matches(".clear();").count() >= 2);
     assert!(source.matches("()").count() >= 2);
+}
+
+#[test]
+fn emits_missing_class_record_reads_as_optional_values() {
+    let source = source_for(
+        r#"
+class Parser {
+  run(): number { return 1; }
+}
+function read(parsers: Record<string, Parser>, key: string): number {
+  const parser = parsers[key];
+  if (parser) {
+    return parser.run();
+  }
+  return 0;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".get(&key.clone().clone()).cloned()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("expect(\"index out of bounds\")"),
+        "{source}"
+    );
+    assert!(
+        source.contains("expect(\"optional value was absent after narrowing\")"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_nullable_module_array_reads_without_negative_index_panics() {
+    let source = source_for(
+        r#"
+const daysInMonths = [31, null, 31];
+function read(month: number): number | undefined {
+  return daysInMonths[month];
+}
+"#,
+    );
+
+    assert!(
+        source.contains("vec![Some(31.0), None::<f64>, Some(31.0)]"),
+        "{source}"
+    );
+    assert!(
+        source.contains("usize::try_from(normalized).ok()"),
+        "{source}"
+    );
+    assert!(!source.contains("negative index out of bounds"), "{source}");
+}
+
+#[test]
+fn guards_callback_function_table_calls_selected_through_a_local() {
+    let source = source_for(
+        r#"
+type Formatter = (value: string) => string;
+const lower: Formatter = (value) => value.toLowerCase();
+export const table: Record<string, Formatter> = { a: lower };
+export function apply(values: string[]): string[] {
+  return values.map((value) => {
+    const key = value[0];
+    const formatter = table[key];
+    if (formatter) {
+      return formatter(value);
+    }
+    return value;
+  });
+}
+"#,
+    );
+
+    assert!(source.contains("== \"a\".to_owned()"), "{source}");
+    assert!(source.contains("if "), "{source}");
+    assert!(source.contains("unknown function table key"), "{source}");
 }

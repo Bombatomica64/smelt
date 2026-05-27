@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smelt Debug Workflow"
+  short_description: "Create concise generated-code debug reports"
+  default_prompt: "Use $smelt-debug-workflow to produce a focused Markdown report, fix the general transpiler defect, and validate the change."

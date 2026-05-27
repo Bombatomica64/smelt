@@ -44,6 +44,7 @@ mod lowering;
 mod manifest;
 mod pipeline;
 pub mod stubs;
+mod test_report;
 mod timing;
 
 use std::{io, io::Write as _, path::PathBuf};
@@ -72,6 +73,43 @@ fn main() -> CliResult<()> {
     } = &args.command
     {
         let report = diagnostics::rust_diagnostics_markdown(&PathBuf::from(cargo_manifest))?;
+        if let Some(output_path) = output {
+            std::fs::write(output_path, report)?;
+        } else {
+            let mut stdout = io::stdout().lock();
+            write!(stdout, "{report}")?;
+        }
+        return Ok(());
+    }
+    if let Command::RustTestReport {
+        cargo_manifest,
+        build_manifest,
+        focus,
+        guard,
+        full,
+        baseline_report,
+        diagnostics: include_diagnostics,
+        suppress_warnings,
+        output,
+    } = &args.command
+    {
+        if let Some(source_manifest) = build_manifest {
+            let path = PathBuf::from(source_manifest);
+            let config = config_parser::parse(
+                path.to_str()
+                    .ok_or("build manifest path contains invalid UTF-8")?,
+            )?;
+            pipeline::build_rust_crate(&config, &path)?;
+        }
+        let report = test_report::rust_test_report_markdown(&test_report::RustTestReportOptions {
+            cargo_manifest: &PathBuf::from(cargo_manifest),
+            focus,
+            guard,
+            full: *full,
+            baseline_report: baseline_report.as_deref().map(PathBuf::from),
+            include_diagnostics: *include_diagnostics,
+            suppress_warnings: *suppress_warnings,
+        })?;
         if let Some(output_path) = output {
             std::fs::write(output_path, report)?;
         } else {
@@ -122,7 +160,9 @@ fn main() -> CliResult<()> {
                     .into());
             }
         },
-        Command::RustDiagnostics { .. } | Command::DumpSchema => return Ok(()),
+        Command::RustDiagnostics { .. } | Command::RustTestReport { .. } | Command::DumpSchema => {
+            return Ok(());
+        }
         Command::Clean => return Err("`smelt clean` is not implemented yet".into()),
     }
     Ok(())

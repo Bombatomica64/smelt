@@ -719,6 +719,141 @@ const dataLast = add(5)(10);
 }
 
 #[test]
+fn constrained_data_last_overload_does_not_capture_direct_string_argument() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+type Options = { readonly preserve?: boolean };
+
+export function convert<T extends string>(data: T): string;
+export function convert<Config extends Options>(options?: Config): (data: string) => string;
+export function convert(value?: Options | string): unknown {
+  return value;
+}
+"#),
+        "src/convert.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { convert } from "./convert";
+
+const direct = convert("Ada");
+const dataLast = convert({ preserve: true });
+"#),
+        "src/convert.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let local_ty = |name: &str| {
+        body.locals
+            .iter()
+            .find(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name))
+            .map(|local| local.ty)
+            .ok_or_else(|| format!("missing `{name}` local"))
+    };
+    ensure!(
+        matches!(ctx.krate.types.get(local_ty("direct")?), Some(Type::String)),
+        "expected direct string argument to select the data-first overload"
+    );
+    ensure!(
+        matches!(
+            ctx.krate.types.get(local_ty("data_last")?),
+            Some(Type::Function(_))
+        ),
+        "expected options object argument to select the data-last overload"
+    );
+    Ok(())
+}
+
+#[test]
+fn dependent_data_last_constraint_waits_for_callback_context() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export function pick<T extends object, K extends KeysOf<T>>(
+  key: K,
+): (data: T) => unknown;
+export function pick(value: unknown): unknown {
+  return value;
+}
+"#),
+        "src/pick.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { pick } from "./pick";
+const getter = pick("active");
+"#),
+        "src/pick.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let getter = body
+        .locals
+        .iter()
+        .find(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some("getter"))
+        .ok_or_else(|| "missing `getter` local".to_owned())?;
+    ensure!(
+        matches!(ctx.krate.types.get(getter.ty), Some(Type::Function(_))),
+        "expected a dependent data-last constraint to preserve its callable return"
+    );
+    Ok(())
+}
+
+#[test]
+fn optional_overload_parameters_preserve_data_first_selection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_path_ok(
+        ts!(r#"
+export function flatten<T extends readonly unknown[]>(data: T, depth?: number): unknown[];
+export function flatten(depth?: number): (data: readonly unknown[]) => unknown[];
+export function flatten(value?: readonly unknown[] | number, depth?: number): unknown {
+  return value;
+}
+"#),
+        "src/flatten.ts",
+        &mut ctx,
+    )?;
+    let module_id = lower_path_ok(
+        ts!(r#"
+import { flatten } from "./flatten";
+const direct = flatten([1, [2]]);
+const curried = flatten(2);
+"#),
+        "src/flatten.test.ts",
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    let local_ty = |name: &str| {
+        body.locals
+            .iter()
+            .find(|local| local.name.and_then(|symbol| ctx.krate.symbols.get(symbol)) == Some(name))
+            .map(|local| local.ty)
+            .ok_or_else(|| format!("missing `{name}` local"))
+    };
+    ensure!(
+        matches!(
+            ctx.krate.types.get(local_ty("direct")?),
+            Some(Type::List(_))
+        ),
+        "expected optional trailing depth to allow the direct overload"
+    );
+    ensure!(
+        matches!(
+            ctx.krate.types.get(local_ty("curried")?),
+            Some(Type::Function(_))
+        ),
+        "expected numeric argument to retain the curried overload"
+    );
+    Ok(())
+}
+
+#[test]
 fn remeda_test_overload_fallback_rejects_impossible_argument_shapes() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_path_ok(
@@ -1265,6 +1400,43 @@ describe("outer", () => {
         body.stmts.len() >= 3,
         "expected inherited beforeEach, test body, and nested afterEach statements"
     );
+    Ok(())
+}
+
+#[test]
+fn vitest_setup_helpers_inline_registered_before_each_callbacks() -> Result<(), String> {
+    let source = ts!(r#"
+import { beforeEach, describe, test, vi } from "vitest";
+
+function fakeClock(date: Date) {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: date });
+  });
+}
+
+describe("clock", () => {
+  fakeClock(new Date(2020, 0, 1));
+  test("reads the mocked clock", () => {
+    Date.now();
+  });
+});
+"#);
+    let mut ctx = HirCtx::new();
+    let module_id = lower_path_ok(source, "src/setup-helper.test.ts", &mut ctx)?;
+    let module = module(&ctx, module_id)?;
+    let helper_has_clock_setup = module
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, _)| function_item(&ctx, module, index).ok())
+        .filter(|function| !function.is_test)
+        .filter_map(|function| function_body(&ctx, function).ok())
+        .any(|body| {
+            body.exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::DateSetNow { .. }))
+        });
+    ensure!(helper_has_clock_setup);
     Ok(())
 }
 

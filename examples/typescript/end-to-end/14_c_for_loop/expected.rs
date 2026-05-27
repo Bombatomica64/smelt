@@ -7,7 +7,9 @@ fn main() {
     let mut _smelt_tmp_4: f64;
     let mut sum: f64 = 0.0;
     let mut i: f64 = 0.0;
-    while i.clone() < 4.0 {
+    loop {
+    _smelt_tmp_2 = i.clone() < 4.0;
+    if !(_smelt_tmp_2.clone()) { break; }
     _smelt_tmp_3 = sum.clone() + i.clone();
     sum = _smelt_tmp_3.clone();
     _smelt_tmp_4 = i.clone() + 1.0;

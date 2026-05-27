@@ -47,6 +47,8 @@ use literals::{assigned_locals, constant_text, hir_literal_text, method_mutates_
 pub(crate) struct EmitContext {
     /// The type ID of the None type.
     pub(crate) none_ty: TypeId,
+    /// Whether emitted native tests must isolate mutable `Date.now()` mock state.
+    needs_date_now_runtime: bool,
     /// Rust function names keyed by MIR function ID.
     function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
@@ -141,6 +143,7 @@ impl EmitContext {
 
         Ok(Self {
             none_ty,
+            needs_date_now_runtime: crate::stdlib::needs_date_now_runtime(mir),
             function_names,
             function_param_types,
             function_return_types,
@@ -166,7 +169,7 @@ fn emitted_signature_priority(function: &MirFunction) -> u8 {
     }
 }
 
-/// Computes which callback parameters need owned `Rc<RefCell<dyn FnMut...>>`.
+/// Computes which callback parameters need owned reentrant `Rc<dyn Fn...>` handles.
 ///
 /// A callback parameter needs ownership if it escapes its defining function, or
 /// if it is forwarded to another function parameter that itself needs
@@ -373,7 +376,7 @@ fn callback_param_escapes_locally(
 /// `SmeltUnknown::Function` is stored as a `'static` callable handle in the
 /// generated runtime. If a source callback parameter is wrapped into unknown
 /// state, or passed to an erased closure-call result, the parameter cannot stay
-/// as `&mut dyn FnMut`; it must enter the function as an owned handle.
+/// as `&dyn Fn`; it must enter the function as an owned handle.
 fn statement_erases_callback_param(
     mir: &Mir,
     function: &MirFunction,
@@ -564,8 +567,13 @@ pub(crate) struct FunctionEmitter<'mir> {
     /// Cached loop-exit shape queries keyed by block, continue target, and break target.
     loop_exit_cache:
         RefCell<HashMap<(smelt_mir::BlockId, smelt_mir::BlockId, smelt_mir::BlockId), bool>>,
-    /// Captured callback names that are emitted as borrowed `FnMut` values.
+    /// Captured callback names that are emitted as borrowed `Fn` values.
     borrowed_callback_names: HashSet<String>,
+    /// Record types currently being wrapped or extracted through erased objects.
+    ///
+    /// Callback-bearing records can contain their own option type again, so
+    /// this bounds structural expansion of cyclic TypeScript object shapes.
+    record_conversion_stack: RefCell<Vec<TypeId>>,
     /// The type ID of the None type.
     none_ty: TypeId,
     /// Synthetic unknown local used when malformed MIR references a missing local.

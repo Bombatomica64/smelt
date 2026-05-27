@@ -205,7 +205,7 @@ impl ModuleBuilder<'_> {
             .params
             .items
             .iter()
-            .position(Self::formal_parameter_has_default)
+            .position(|param| param.optional || Self::formal_parameter_has_default(param))
             .unwrap_or(function.params.items.len());
 
         let mut errors = Vec::new();
@@ -1254,17 +1254,7 @@ return_ty,
         let mut destructured_params = Vec::new();
         let mut parameter_property_initializers = Vec::new();
         for (index, param) in method.value.params.items.iter().enumerate() {
-            let ty = if let Some(annotation) = &param.type_annotation {
-                self.ts_type_to_hir(&annotation.type_annotation)?
-            } else if let Some(default) = &param.initializer {
-                let default = self.expression(default, &mut body)?;
-                Self::expr_ty(&body, default)
-            } else {
-                return Err(SmeltError::unsupported(
-                    self.span(param.span.start, param.span.end),
-                    "method parameters must have explicit type annotations",
-                ));
-            };
+            let ty = self.function_parameter_type(param)?;
             let (param_name, span, source_name) =
                 if let BindingPattern::BindingIdentifier(binding) = &param.pattern {
                     (

@@ -1410,15 +1410,26 @@ function read(value: number | undefined): boolean {
     )?;
     let _module = module(&ctx, module_id)?;
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
-    ensure!(ctx.krate.bodies.iter().flat_map(|body| body.exprs.iter()).any(
-        |expr| matches!(
-            expr.kind,
-            ExprKind::NumericPredicate {
-                op: NumericPredicateOp::IsNaN,
-                ..
-            }
-        )
-    ));
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(
+                expr.kind,
+                ExprKind::NumericPredicate {
+                    op: NumericPredicateOp::IsNaN,
+                    ..
+                }
+            ))
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. }))
+    );
     Ok(())
 }
 
@@ -2201,6 +2212,63 @@ function call(values: readonly unknown[]): unknown {
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListSlice { .. })),
         "missing rest slice from spread list"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn casts_generic_array_spread_to_rest_list_before_concatenation() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function collect(first: unknown, ...rest: unknown[]): unknown[] {
+  return rest;
+}
+
+function call<Values extends unknown[]>(values: Values): unknown[] {
+  return collect("prefix", ...values);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 1)?)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            expr.kind,
+            ExprKind::UnknownCast { target, .. }
+                if matches!(ctx.krate.types.get(target), Some(Type::List(_)))
+        )),
+        "generic spread array was not extracted as a rest list"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn selects_array_rest_overload_for_variable_spread_tail() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function collect(context: unknown, ...dates: [unknown, unknown]): [unknown, unknown];
+function collect(context: unknown, ...dates: unknown[]): unknown[];
+function collect(context: unknown, ...dates: unknown[]): unknown[] {
+  return dates;
+}
+
+function call<Values extends unknown[]>(values: Values): unknown[] {
+  return collect(undefined, "head", ...values);
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    ensure!(
+        matches!(ctx.krate.types.get(function.return_ty), Some(Type::List(_))),
+        "variable spread tail selected a fixed tuple overload"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -3465,6 +3533,31 @@ export function read(value: number | undefined): number | undefined {
 }
 
 #[test]
+fn lowers_logical_or_assignment_as_lazy_value_selection() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+export function initialize(value: number): number {
+  value ||= 3;
+  return value;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = function_body(&ctx, function_item(&ctx, module, 0)?)?;
+
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "expected ||= to preserve short-circuit selection through a conditional"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn destructures_fields_from_union_intersection_aliases() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -3565,6 +3658,41 @@ describe("console.warn", () => {
         &mut ctx,
     )?;
     let _module = module(&ctx, module_id)?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_vitest_fake_timers_to_date_now_mock_state() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+import { vi } from "vitest";
+
+vi.useFakeTimers({ now: new Date(2020, 0, 1) });
+vi.setSystemTime(new Date(2020, 0, 2));
+const now = Date.now();
+vi.useRealTimers();
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateSetNow { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateResetNow))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::DateNow))
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

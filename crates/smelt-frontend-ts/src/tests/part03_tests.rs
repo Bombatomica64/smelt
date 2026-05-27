@@ -817,6 +817,7 @@ fn lowers_modern_array_methods() -> Result<(), String> {
         ts!(r#"
 let values: number[] = [1, 2, 3, 4];
 let nested: number[][] = [[1], [2, 3]];
+let erasedNested: unknown[] = [[1], [[2]]];
 const spliced = values.splice(1, 2, 9);
 const copiedSplice = values.toSpliced(1, 1, 8);
 const spreadSplice = values.toSpliced(1, 1, ...[10, 11]);
@@ -824,6 +825,7 @@ const filled = values.fill(0, 1, 3);
 const copiedWithin = values.copyWithin(0, 1, 3);
 const replaced = values.with(1, 7);
 const flat = nested.flat();
+const deepFlat = erasedNested.flat(2);
 const flatMapped = values.flatMap((value, index) => [value + index]);
 const sorted = values.toSorted((left, right) => right - left);
 const reversed = values.toReversed();
@@ -870,6 +872,12 @@ const entries = values.entries();
         body.exprs
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::ListFlat { .. }))
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::ListFlat { depth: Some(_), .. })),
+        "expected explicit array flat depth to remain in HIR"
     );
     ensure!(body.exprs.iter().any(|expr| matches!(
         expr.kind,

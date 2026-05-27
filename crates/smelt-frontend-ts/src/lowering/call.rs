@@ -35,6 +35,9 @@ impl ModuleBuilder<'_> {
         if let Some(expr) = self.vitest_mock_handle_method_call(call, body)? {
             return Ok(expr);
         }
+        if let Some(expr) = self.vitest_fake_timer_call(call, body)? {
+            return Ok(expr);
+        }
         if let Some(expr) = self.date_fns_timezone_context_call(call, body)? {
             return Ok(expr);
         }
@@ -1410,6 +1413,8 @@ impl ModuleBuilder<'_> {
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
             if self.overload_signature_matches_args(signature, &lowered_arg_tys, &mut substitutions)
+                && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
+                && self.overload_substitutions_satisfy_constraints(signature, &substitutions)
             {
                 let score =
                     self.overload_signature_specificity_score(signature, lowered_arg_tys.len());
@@ -1441,7 +1446,9 @@ impl ModuleBuilder<'_> {
                     signature,
                     &lowered_arg_tys,
                     &mut substitutions,
-                ) {
+                ) || !self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
+                    || !self.overload_substitutions_satisfy_constraints(signature, &substitutions)
+                {
                     continue;
                 }
                 let score =
@@ -1493,10 +1500,12 @@ impl ModuleBuilder<'_> {
         arg_tys: &[smelt_hir::TypeId],
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
-        if signature.params.len() == arg_tys.len()
+        if Self::overload_signature_arity_matches(signature, arg_tys.len())
+            && signature.rest.is_none()
             && signature
                 .params
                 .iter()
+                .take(arg_tys.len())
                 .zip(arg_tys)
                 .all(|(expected, actual)| {
                     self.loose_overload_type_matches(*expected, *actual, substitutions)
@@ -1615,11 +1624,11 @@ impl ModuleBuilder<'_> {
         signature: &OverloadSignature,
         argument_count: usize,
     ) -> bool {
-        signature
-            .rest
-            .map_or(signature.params.len() == argument_count, |rest| {
-                argument_count >= rest
-            })
+        let minimum = signature.required_params.unwrap_or(signature.params.len());
+        argument_count >= minimum
+            && signature
+                .rest
+                .map_or(argument_count <= signature.params.len(), |_| true)
     }
 
     /// Score a matching overload by source-shape specificity.
@@ -1653,6 +1662,51 @@ impl ModuleBuilder<'_> {
         fixed_arity * 100 + fixed_score + rest_score
     }
 
+    /// Reject fixed tuple-rest overloads for variable-length spread tails.
+    ///
+    /// A call such as `fn(head, ...values)` cannot select an overload whose
+    /// rest parameter is a fixed tuple unless the spread expression itself has
+    /// a fixed tuple shape. Otherwise runtime values beyond the tuple width
+    /// would be discarded by later destructuring.
+    fn overload_accepts_spread_shape(
+        &self,
+        signature: &OverloadSignature,
+        arguments: &[Argument<'_>],
+        argument_tys: &[smelt_hir::TypeId],
+    ) -> bool {
+        let Some(rest_index) = signature.rest else {
+            return true;
+        };
+        let Some(rest_ty) = signature.params.get(rest_index).copied() else {
+            return false;
+        };
+        if !matches!(
+            self.ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(rest_ty)),
+            Some(Type::Tuple(_))
+        ) {
+            return true;
+        }
+        arguments
+            .iter()
+            .enumerate()
+            .skip(rest_index)
+            .filter(|(_, argument)| matches!(argument, Argument::SpreadElement(_)))
+            .all(|(index, _)| {
+                argument_tys.get(index).is_some_and(|ty| {
+                    matches!(
+                        self.ctx
+                            .krate
+                            .types
+                            .get(self.type_param_constraint_or_self(*ty)),
+                        Some(Type::Tuple(_))
+                    )
+                })
+            })
+    }
+
     /// Return whether an overload parameter contributes useful shape
     /// information beyond accepting any value.
     fn overload_param_is_specific(&self, ty: smelt_hir::TypeId) -> bool {
@@ -1677,10 +1731,12 @@ impl ModuleBuilder<'_> {
         arg_tys: &[smelt_hir::TypeId],
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
-        if signature.params.len() == arg_tys.len()
+        if Self::overload_signature_arity_matches(signature, arg_tys.len())
+            && signature.rest.is_none()
             && signature
                 .params
                 .iter()
+                .take(arg_tys.len())
                 .zip(arg_tys)
                 .all(|(expected, actual)| {
                     self.infer_overload_type(*expected, *actual, substitutions)
@@ -1752,12 +1808,167 @@ impl ModuleBuilder<'_> {
             .collect();
         let return_ty = self.substitute_type_params(signature.return_ty, substitutions);
         OverloadSignature {
+            type_params: signature.type_params,
             params,
             rest: signature.rest,
-            required_params: None,
+            required_params: signature.required_params,
             return_ty,
             is_async: signature.is_async,
         }
+    }
+
+    /// Return whether inferred generic overload arguments satisfy their declared bounds.
+    ///
+    /// Applicability of a TypeScript overload includes each generic `extends`
+    /// constraint. Checking this after inference retains substitutions learned
+    /// from nested parameter shapes while preventing broad purry overloads such
+    /// as `<Options extends OptionsShape>(options?: Options)` from accepting a
+    /// primitive data argument.
+    fn overload_substitutions_satisfy_constraints(
+        &mut self,
+        signature: &OverloadSignature,
+        substitutions: &HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
+    ) -> bool {
+        signature.type_params.iter().all(|param| {
+            let Some(constraint) = param.constraint else {
+                return true;
+            };
+            let Some(actual) = substitutions.get(&param.name).copied() else {
+                return true;
+            };
+            let constraint = self.substitute_type_params(constraint, substitutions);
+            if self.overload_constraint_contains_unresolved_type_param(constraint) {
+                return true;
+            }
+            self.overload_constraint_accepts(actual, constraint)
+        })
+    }
+
+    /// Return whether a generic bound still depends on contextual type inference.
+    ///
+    /// TypeScript can select a data-last overload such as
+    /// `<T, K extends Keys<T>>(key: K) => (data: T) => ...` before `T` is
+    /// known; the later callable context provides it. Enforcing `K`'s bound
+    /// while `T` is still present rejects valid curried calls.
+    fn overload_constraint_contains_unresolved_type_param(
+        &self,
+        constraint: smelt_hir::TypeId,
+    ) -> bool {
+        match self.ctx.krate.types.get(constraint) {
+            Some(Type::TypeParam { .. }) => true,
+            Some(Type::List(item) | Type::Set(item) | Type::Optional(item) | Type::Future(item)) => {
+                self.overload_constraint_contains_unresolved_type_param(*item)
+            }
+            Some(Type::Dict(key, value)) => {
+                self.overload_constraint_contains_unresolved_type_param(*key)
+                    || self.overload_constraint_contains_unresolved_type_param(*value)
+            }
+            Some(Type::Tuple(items) | Type::Union(items)) => items
+                .iter()
+                .copied()
+                .any(|item| self.overload_constraint_contains_unresolved_type_param(item)),
+            Some(Type::Class { args, .. }) => args
+                .iter()
+                .copied()
+                .any(|arg| self.overload_constraint_contains_unresolved_type_param(arg)),
+            Some(Type::Function(function)) => {
+                function.params.iter().copied().any(|param| {
+                    self.overload_constraint_contains_unresolved_type_param(param)
+                }) || self.overload_constraint_contains_unresolved_type_param(function.return_ty)
+            }
+            Some(
+                Type::Bool
+                | Type::Int
+                | Type::Float
+                | Type::String
+                | Type::Unknown
+                | Type::Never
+                | Type::None,
+            )
+            | None => false,
+        }
+    }
+
+    /// Return whether an inferred overload argument satisfies its `extends` surface.
+    ///
+    /// Lowered object literals use `Dict` storage even when their TypeScript
+    /// annotation is a named structural object. Constraint applicability must
+    /// bridge that erased representation while primitive values still fail
+    /// object constraints.
+    fn overload_constraint_accepts(
+        &mut self,
+        actual: smelt_hir::TypeId,
+        constraint: smelt_hir::TypeId,
+    ) -> bool {
+        if self.type_assignable_to(actual, constraint) {
+            return true;
+        }
+        if let (Some(Type::Function(expected)), Some(Type::Function(actual))) = (
+            self.ctx.krate.types.get(constraint).cloned(),
+            self.ctx.krate.types.get(actual).cloned(),
+        ) {
+            let mut inferred = HashMap::new();
+            if self.infer_overload_function_type(&expected, &actual, &mut inferred) {
+                return true;
+            }
+        }
+        let (
+            Some(Type::Dict(actual_key, actual_value)),
+            Some(Type::Class { name, args }),
+        ) = (
+            self.ctx.krate.types.get(actual).cloned(),
+            self.ctx.krate.types.get(constraint).cloned(),
+        ) else {
+            return false;
+        };
+        if !matches!(self.ctx.krate.types.get(actual_key), Some(Type::String)) {
+            return false;
+        }
+        let Some(fields) = self.overload_structural_constraint_fields(name, &args) else {
+            return false;
+        };
+        if fields.is_empty() {
+            return true;
+        }
+        fields.into_iter().any(|field| {
+            self.type_assignable_to(actual_value, field.ty)
+                || (field.optional
+                    && self.ctx.krate.types.get(field.ty).is_some_and(|ty| {
+                        if let Type::Optional(inner) = ty {
+                            self.type_assignable_to(actual_value, *inner)
+                        } else {
+                            false
+                        }
+                    }))
+        })
+    }
+
+    /// Return declared fields for a named structural constraint with generic arguments applied.
+    fn overload_structural_constraint_fields(
+        &mut self,
+        name: smelt_hir::Symbol,
+        args: &[smelt_hir::TypeId],
+    ) -> Option<Vec<Field>> {
+        if let Some(class) = self.class_by_symbol(name).cloned() {
+            let substitutions = self
+                .type_argument_substitution(&class.type_params, args, self.span(0, 0))
+                .ok()?;
+            return Some(self.substituted_fields(&class.fields, &substitutions));
+        }
+        if let Some(interface) = self.find_interface(name).cloned() {
+            let substitutions = self
+                .type_argument_substitution(&interface.type_params, args, self.span(0, 0))
+                .ok()?;
+            return Some(self.substituted_fields(&interface.fields, &substitutions));
+        }
+        let alias = self.find_type_alias(name).cloned()?;
+        let substitutions = self
+            .type_argument_substitution(&alias.type_params, args, self.span(0, 0))
+            .ok()?;
+        self.type_alias_fields
+            .get(&name)
+            .cloned()
+            .map(|fields| self.substituted_fields(&fields, &substitutions))
     }
 
     /// Infer generic overload substitutions while checking argument compatibility.
@@ -2188,7 +2399,8 @@ impl ModuleBuilder<'_> {
                     fixed_index += 1;
                     continue;
                 };
-                let spread_list = self.expression(&spread.argument, body)?;
+                let spread_list =
+                    self.rest_spread_list_expression(&spread.argument, rest_ty, spread.span, body)?;
                 let consumed = fixed_param_count - fixed_index;
                 for offset in 0..consumed {
                     let index = self.usize_float_literal(
@@ -2261,7 +2473,8 @@ impl ModuleBuilder<'_> {
                         body,
                         self.span(spread.span.start, spread.span.end),
                     );
-                    let spread_list = self.expression(&spread.argument, body)?;
+                    let spread_list =
+                        self.rest_spread_list_expression(&spread.argument, rest_ty, spread.span, body)?;
                     rest_list = Some(rest_list.map_or(spread_list, |left| {
                         body.push_expr(Expr {
                             kind: ExprKind::ListConcat {
@@ -2297,6 +2510,42 @@ impl ModuleBuilder<'_> {
             })
         }));
         Ok(args)
+    }
+
+    /// Convert an erased array spread argument to the statically required rest-list type.
+    ///
+    /// Generic array parameters are represented as erased runtime values even
+    /// when their source constraint is an array. A rest call still needs their
+    /// array payload for concatenation, so extract that payload before building
+    /// the packed argument vector.
+    fn rest_spread_list_expression(
+        &mut self,
+        expression: &Expression<'_>,
+        rest_ty: smelt_hir::TypeId,
+        span: oxc::span::Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let value = self.expression(expression, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        if value_ty == rest_ty {
+            return Ok(value);
+        }
+        if self.type_contains_unknown(value_ty)
+            || matches!(
+                self.ctx.krate.types.get(value_ty),
+                Some(Type::TypeParam { .. } | Type::Union(_))
+            )
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value,
+                    target: rest_ty,
+                },
+                ty: rest_ty,
+                span: self.span(span.start, span.end),
+            }));
+        }
+        Ok(value)
     }
 
     /// Lower a small positional index as the numeric literal used by JS indexing.

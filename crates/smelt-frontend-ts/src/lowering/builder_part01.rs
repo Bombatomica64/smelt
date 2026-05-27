@@ -180,13 +180,32 @@ impl<'ctx> ModuleBuilder<'ctx> {
         self.predeclare_function_items(program, &implemented_functions, &mut errors);
         let mut forward_arrow_consts = self.forward_arrow_const_names(program);
         forward_arrow_consts.extend(Self::object_namespace_arrow_const_names(program));
-        for statement in &program.body {
-            if let Statement::VariableDeclaration(variable) = statement {
-                match self.arrow_function_const_item_declarations(variable, &forward_arrow_consts) {
-                    Ok(items) => module.items.extend(items),
-                    Err(error) => errors.push(error),
-                }
+        let mut pending_arrows = program
+            .body
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::VariableDeclaration(variable) => Some(variable),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let mut lowered_arrows = HashSet::new();
+        while !pending_arrows.is_empty() {
+            let index = pending_arrows
+                .iter()
+                .position(|variable| {
+                    self.arrow_const_dependencies_are_lowered(
+                        variable,
+                        &forward_arrow_consts,
+                        &lowered_arrows,
+                    )
+                })
+                .unwrap_or(0);
+            let variable = pending_arrows.remove(index);
+            match self.arrow_function_const_item_declarations(variable, &forward_arrow_consts) {
+                Ok(items) => module.items.extend(items),
+                Err(error) => errors.push(error),
             }
+            lowered_arrows.extend(Self::arrow_const_declaration_names(variable));
         }
         for statement in &program.body {
             if let Statement::ImportDeclaration(_) = statement {
@@ -769,6 +788,13 @@ impl<'ctx> ModuleBuilder<'ctx> {
                         ty,
                     });
                 }
+                ArrayExpressionElement::NullLiteral(_) => {
+                    let ty = self.ctx.krate.types.intern(Type::None);
+                    items.push(ConstCollectionItem {
+                        value: ConstCollectionValue::Expr(ExprKind::Literal(Literal::None)),
+                        ty,
+                    });
+                }
                 ArrayExpressionElement::SpreadElement(spread) => {
                     let Expression::Identifier(identifier) = &spread.argument else {
                         return None;
@@ -818,6 +844,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     ObjectConstValue::Literal(literal) => {
                         ConstCollectionValue::Expr(ExprKind::Literal(literal.clone()))
                     }
+                    ObjectConstValue::RegExp { .. } => ConstCollectionValue::UnknownObject,
                     ObjectConstValue::Expr(kind) => ConstCollectionValue::Expr(kind.clone()),
                     ObjectConstValue::List(_) => ConstCollectionValue::UnknownArray,
                     ObjectConstValue::Object(_) => ConstCollectionValue::UnknownObject,
@@ -974,7 +1001,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         &mut self,
         function: &oxc::ast::ast::Function<'_>,
     ) -> Result<OverloadSignature, SmeltError> {
-        let _type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
+        let type_params = self.push_type_parameter_scope(function.type_parameters.as_deref())?;
         let result = (|| {
             let mut params = Vec::new();
             for param in &function.params.items {
@@ -1013,13 +1040,23 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     )
                 })?;
             Ok(OverloadSignature {
+                type_params,
                 params,
                 rest: function
                     .params
                     .rest
                     .as_ref()
                     .map(|_| function.params.items.len()),
-                required_params: None,
+                required_params: Some(
+                    function
+                        .params
+                        .items
+                        .iter()
+                        .position(|param| {
+                            param.optional || Self::formal_parameter_has_default(param)
+                        })
+                        .unwrap_or(function.params.items.len()),
+                ),
                 return_ty,
                 is_async: function.r#async,
             })
@@ -1351,7 +1388,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             .params
             .items
             .iter()
-            .position(Self::formal_parameter_has_default)
+            .position(|param| param.optional || Self::formal_parameter_has_default(param))
             .unwrap_or(function.params.items.len());
         Ok(Function {
             name,
@@ -1900,19 +1937,69 @@ impl<'ctx> ModuleBuilder<'ctx> {
             if !forward_arrow_consts.contains(binding.name.as_str()) {
                 continue;
             }
-            if self.items.contains_key(binding.name.as_str()) {
-                continue;
-            }
             let type_hint = declarator
                 .type_annotation
                 .as_ref()
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?;
-            let item =
-                self.arrow_function_const_declaration(binding.name.as_str(), arrow, type_hint)?;
+            let item = self.private_arrow_function_const_declaration(
+                binding.name.as_str(),
+                arrow,
+                type_hint,
+            )?;
             items.push(item);
         }
         Ok(items)
+    }
+
+    /// Return top-level arrow binding names declared by one variable statement.
+    fn arrow_const_declaration_names(
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+    ) -> Vec<String> {
+        decl.declarations.iter().filter_map(|declarator| {
+            let BindingPattern::BindingIdentifier(binding) = &declarator.id else {
+                return None;
+            };
+            matches!(
+                declarator.init,
+                Some(Expression::ArrowFunctionExpression(_))
+            )
+            .then(|| binding.name.to_string())
+        }).collect()
+    }
+
+    /// Check whether a private arrow constant can resolve arrow values it reads.
+    ///
+    /// Top-level `const` arrows are lexical values rather than hoisted function
+    /// declarations. When one arrow returns or passes a later arrow value, the
+    /// referenced callable item must be lowered first so the value is not
+    /// replaced by a conservative unresolved-global placeholder.
+    fn arrow_const_dependencies_are_lowered(
+        &self,
+        decl: &oxc::ast::ast::VariableDeclaration<'_>,
+        candidates: &HashSet<String>,
+        lowered: &HashSet<String>,
+    ) -> bool {
+        let declared = Self::arrow_const_declaration_names(decl)
+            .into_iter()
+            .collect::<HashSet<_>>();
+        decl.declarations.iter().all(|declarator| {
+            let Some(Expression::ArrowFunctionExpression(arrow)) = &declarator.init else {
+                return true;
+            };
+            let text = self
+                .source
+                .get(
+                    usize::try_from(arrow.span.start).unwrap_or(usize::MAX)
+                        ..usize::try_from(arrow.span.end).unwrap_or(usize::MAX),
+                )
+                .unwrap_or_default();
+            candidates.iter().all(|candidate| {
+                declared.contains(candidate)
+                    || !text.contains(candidate)
+                    || lowered.contains(candidate)
+            })
+        })
     }
 
     /// Find top-level arrow consts that function bodies may reference before declaration order.
@@ -2349,6 +2436,16 @@ impl<'ctx> ModuleBuilder<'ctx> {
             }
             _ => {}
         }
+        if let Expression::RegExpLiteral(literal) = expression {
+            let ty = self.regexp_type();
+            return Ok((
+                ObjectConstValue::RegExp {
+                    pattern: Self::regex_literal_pattern_text_without_flags(literal),
+                    flags: literal.regex.flags.to_string(),
+                },
+                ty,
+            ));
+        }
         if let Ok(literal) = self.literal_const_expression(expression) {
             return Ok((ObjectConstValue::Literal(literal.literal), literal.ty));
         }
@@ -2359,15 +2456,6 @@ impl<'ctx> ModuleBuilder<'ctx> {
             let value = self.object_const_from_expression(object, None)?;
             let ty = value.ty;
             return Ok((ObjectConstValue::Object(value), ty));
-        }
-        if let Expression::RegExpLiteral(literal) = expression {
-            let ty = self.ctx.krate.types.intern(Type::String);
-            return Ok((
-                ObjectConstValue::Literal(Literal::String(Self::regex_literal_pattern_text(
-                    literal,
-                ))),
-                ty,
-            ));
         }
         if matches!(expression, Expression::ArrowFunctionExpression(_)) {
             let span = self.span(expression.span().start, expression.span().end);
@@ -2555,6 +2643,27 @@ impl<'ctx> ModuleBuilder<'ctx> {
                 ty,
                 span,
             }),
+            ObjectConstValue::RegExp { pattern, flags } => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let pattern = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(pattern.clone())),
+                    ty: string_ty,
+                    span,
+                });
+                let flags = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(flags.clone())),
+                    ty: string_ty,
+                    span,
+                });
+                body.push_expr(Expr {
+                    kind: ExprKind::New {
+                        class: self.intern_type_name("RegExp"),
+                        args: vec![pattern, flags],
+                    },
+                    ty,
+                    span,
+                })
+            }
             ObjectConstValue::List(items) => {
                 let values = items
                     .iter()

@@ -236,6 +236,28 @@ impl ModuleBuilder<'_> {
             let value = self.expression(&unary.argument, body)?;
             let value_ty = Self::expr_ty(body, value);
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+            if matches!(self.ctx.krate.types.get(value_ty), Some(Type::Optional(_))) {
+                let check = body.push_expr(Expr {
+                    kind: ExprKind::UnknownIs {
+                        value,
+                        kind: UnknownKind::Null,
+                    },
+                    ty: bool_ty,
+                    span: self.span(binary.span.start, binary.span.end),
+                });
+                if matches!(
+                    binary.operator,
+                    BinaryOperator::StrictInequality | BinaryOperator::Inequality
+                ) {
+                    return Ok(Some(self.unary_bool_expr(
+                        UnaryOp::Not,
+                        check,
+                        binary.span,
+                        body,
+                    )));
+                }
+                return Ok(Some(check));
+            }
             let matches_kind = self.type_matches_typeof(value_ty, "undefined");
             let result = if matches!(
                 binary.operator,
@@ -264,6 +286,31 @@ impl ModuleBuilder<'_> {
         let value = self.expression(&unary.argument, body)?;
         let value_ty = Self::expr_ty(body, value);
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(value_ty).cloned()
+            && self.static_typeof_match(inner, expected) == Some(true)
+        {
+            let absent = body.push_expr(Expr {
+                kind: ExprKind::UnknownIs {
+                    value,
+                    kind: UnknownKind::Null,
+                },
+                ty: bool_ty,
+                span: self.span(binary.span.start, binary.span.end),
+            });
+            let present = self.unary_bool_expr(UnaryOp::Not, absent, binary.span, body);
+            if matches!(
+                binary.operator,
+                BinaryOperator::StrictInequality | BinaryOperator::Inequality
+            ) {
+                return Ok(Some(self.unary_bool_expr(
+                    UnaryOp::Not,
+                    present,
+                    binary.span,
+                    body,
+                )));
+            }
+            return Ok(Some(present));
+        }
         if let Some(matches_kind) = self.static_typeof_match(value_ty, expected) {
             let result = if matches!(
                 binary.operator,
@@ -317,6 +364,11 @@ impl ModuleBuilder<'_> {
                 let first = matches.next()?;
                 matches.all(|item| item == first).then_some(first)
             }
+            Some(Type::Optional(inner)) => {
+                let present = self.static_typeof_match(inner, expected)?;
+                let absent = expected == "undefined";
+                (present == absent).then_some(present)
+            }
             Some(_) => Some(self.type_matches_typeof(resolved_ty, expected)),
             None => None,
         }
@@ -368,6 +420,15 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let value = self.expression(value_expr, body)?;
+        let value = match &body.exprs[value.0 as usize].kind {
+            ExprKind::UnknownCast { value: erased, .. }
+                if matches!(body.exprs[erased.0 as usize].kind, ExprKind::Local(local)
+                    if self.ctx.krate.types.get(Self::local_ty(body, local)) == Some(&Type::Unknown)) =>
+            {
+                *erased
+            }
+            _ => value,
+        };
         let bool_ty = self.ctx.krate.types.intern(Type::Bool);
         if self.ctx.krate.types.get(Self::expr_ty(body, value)) != Some(&Type::Unknown) {
             let none = body.push_expr(Expr {
@@ -1246,7 +1307,7 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Lower `new (date.constructor as DateCtor)(value)` for timestamp-mode Dates.
+    /// Lower `new (date.constructor as DateCtor)(value)` while retaining Date identity.
     fn dynamic_date_constructor_expression(
         &mut self,
         new_expr: &oxc::ast::ast::NewExpression<'_>,
@@ -1261,7 +1322,17 @@ impl ModuleBuilder<'_> {
                 "dynamic Date constructor calls require exactly one value argument",
             ));
         };
-        Ok(Some(self.argument(value, body)?))
+        let value = self.argument(value, body)?;
+        let date_name = self.intern_type_name("Date");
+        let ty = self.ctx.krate.types.intern(Type::Class {
+            name: date_name,
+            args: Vec::new(),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::DateFromValue { value },
+            ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        })))
     }
 
     /// Lower guarded dynamic Date constructor identifiers such as `new constructor(0)`.

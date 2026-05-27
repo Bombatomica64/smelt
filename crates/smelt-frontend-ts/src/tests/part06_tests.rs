@@ -116,6 +116,32 @@ fn lowers_optional_class_fields() -> Result<(), String> {
 }
 
 #[test]
+fn lowers_optional_constructor_parameters_as_optional_values() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!("class ValueSetter {
+  constructor(subPriority?: number) {}
+}
+"),
+        &mut ctx,
+    )?;
+    let constructor = ctx.krate.items.iter().find_map(|item| match item {
+        Item::Function(function)
+            if matches!(function.owner, smelt_hir::FunctionOwner::Constructor { .. }) =>
+        {
+            Some(function)
+        }
+        _ => None,
+    });
+    let constructor = constructor.ok_or_else(|| "missing constructor function".to_owned())?;
+    ensure!(matches!(
+        ctx.krate.types.get(constructor.params[0].ty),
+        Some(Type::Optional(_))
+    ));
+    Ok(())
+}
+
+#[test]
 fn lowers_generic_classes() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

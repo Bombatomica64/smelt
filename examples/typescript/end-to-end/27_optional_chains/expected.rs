@@ -17,6 +17,25 @@ fn smelt_next_object_id() -> usize {
     SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
 }
 
+thread_local! {
+    static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
+}
+
+/// Return the stable key for an erased callback wrapper.
+fn smelt_erased_function_key(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> usize {
+    ::std::rc::Rc::as_ptr(function) as *const () as usize
+}
+
+/// Retain typed callback identity while it crosses an erased ABI.
+fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>, origin: T) {
+    SMELT_FUNCTION_ORIGINS.with(|origins| { origins.borrow_mut().insert(smelt_erased_function_key(function), Box::new(origin)); });
+}
+
+/// Recover a typed callback previously passed through an erased ABI.
+fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>) -> Option<T> {
+    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())
+}
+
 impl<K, V> Clone for SmeltRecord<K, V> {
     fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } }
 }
@@ -120,7 +139,7 @@ pub trait SmeltJsKeyEq {
 }
 
 impl SmeltJsKeyEq for SmeltUnknown {
-    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), _ => self == other } }
+    fn same_js_key(&self, other: &Self) -> bool { match (self, other) { (SmeltUnknown::Number(left), SmeltUnknown::Number(right)) if left.is_nan() && right.is_nan() => true, (SmeltUnknown::Array(left), SmeltUnknown::Array(right)) => left.id == right.id, (SmeltUnknown::Object(left), SmeltUnknown::Object(right)) => left.id == right.id, (SmeltUnknown::Function(left), SmeltUnknown::Function(right)) => ::std::rc::Rc::ptr_eq(left, right), _ => self == other } }
 }
 
 impl SmeltJsKeyEq for String { fn same_js_key(&self, other: &Self) -> bool { self == other } }
@@ -154,15 +173,33 @@ impl Eq for SmeltObject {}
 impl ::std::hash::Hash for SmeltObject { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_hash(self, state, &mut smelt_seen); } }
 impl IntoIterator for SmeltObject { type Item = (String, SmeltUnknown); type IntoIter = ::std::vec::IntoIter<(String, SmeltUnknown)>; fn into_iter(self) -> Self::IntoIter { self.iter() } }
 
+#[derive(Debug)]
+pub struct SmeltArray {
+    id: usize,
+    values: Vec<SmeltUnknown>,
+}
+
+impl Clone for SmeltArray { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }
+impl SmeltArray {
+    /// Create an identity-bearing erased JavaScript array.
+    fn new(values: Vec<SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values } }
+    /// Consume an erased array when lowering back to statically typed list storage.
+    fn into_vec(self) -> Vec<SmeltUnknown> { self.values }
+}
+impl From<Vec<SmeltUnknown>> for SmeltArray { fn from(values: Vec<SmeltUnknown>) -> Self { Self::new(values) } }
+impl ::std::iter::FromIterator<SmeltUnknown> for SmeltArray { fn from_iter<T: IntoIterator<Item = SmeltUnknown>>(iter: T) -> Self { Self::new(iter.into_iter().collect()) } }
+impl ::std::ops::Deref for SmeltArray { type Target = [SmeltUnknown]; fn deref(&self) -> &Self::Target { &self.values } }
+impl IntoIterator for SmeltArray { type Item = SmeltUnknown; type IntoIter = ::std::vec::IntoIter<SmeltUnknown>; fn into_iter(self) -> Self::IntoIter { self.values.into_iter() } }
+
 pub enum SmeltUnknown {
     Null,
     Bool(bool),
     Number(f64),
     String(String),
     Symbol(String),
-    Array(Vec<SmeltUnknown>),
+    Array(SmeltArray),
     Object(SmeltObject),
-    Function(::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>),
+    Function(::std::rc::Rc<dyn Fn(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>),
 }
 
 impl Clone for SmeltUnknown {
@@ -183,7 +220,7 @@ impl Clone for SmeltUnknown {
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     match map.get(field).unwrap_or(SmeltUnknown::Null) {
         SmeltUnknown::Object(mut getter) if getter.contains_key("__smelt_get") => match getter.remove("__smelt_get") {
-            Some(SmeltUnknown::Function(smelt_getter)) => (&mut *smelt_getter.borrow_mut())(Vec::new()).unwrap_or_else(|error| panic!("{}", error)),
+            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!("{}", error)),
             _ => SmeltUnknown::Null,
         },
         value => value,
@@ -221,7 +258,7 @@ fn smelt_unknown_structural_hash<H: ::std::hash::Hasher>(value: &SmeltUnknown, s
         SmeltUnknown::Number(value) => { 2_u8.hash(state); if value.is_nan() { f64::NAN.to_bits().hash(state); } else { value.to_bits().hash(state); } }
         SmeltUnknown::String(value) => { 3_u8.hash(state); value.hash(state); }
         SmeltUnknown::Symbol(value) => { 4_u8.hash(state); value.hash(state); }
-        SmeltUnknown::Array(values) => { 5_u8.hash(state); values.len().hash(state); for value in values { smelt_unknown_structural_hash(value, state, seen); } }
+        SmeltUnknown::Array(values) => { 5_u8.hash(state); values.len().hash(state); for value in values.iter() { smelt_unknown_structural_hash(value, state, seen); } }
         SmeltUnknown::Object(values) => { 6_u8.hash(state); smelt_object_structural_hash(values, state, seen); }
         SmeltUnknown::Function(function) => { 7_u8.hash(state); ::std::rc::Rc::as_ptr(function).hash(state); }
     }
@@ -512,7 +549,7 @@ impl SmeltUnitExt for () {
 
 impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Array(vec![self.0.into_smelt_unknown(), self.1.into_smelt_unknown()])
+        SmeltUnknown::Array(vec![self.0.into_smelt_unknown(), self.1.into_smelt_unknown()].into())
     }
 }
 
@@ -528,7 +565,7 @@ impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SmeltRegExp {
     source: String,
     flags: String,
@@ -570,6 +607,11 @@ impl SmeltRegExp {
             Some((0..captures.len()).map(|index| captures.get(index).map_or(String::new(), |value| value.as_str().to_owned())).collect::<Vec<_>>())
         }
     }
+    /// Split a string with JavaScript RegExp separator semantics.
+    pub fn split_string(&self, haystack: &str) -> Vec<String> {
+        let Some(regex) = self.try_compiled() else { return vec![haystack.to_owned()]; };
+        regex.split(haystack).filter_map(Result::ok).map(str::to_owned).collect::<Vec<_>>()
+    }
     /// Replace matches with JavaScript RegExp-aware String.prototype.replace semantics.
     pub fn replace_string(&self, haystack: &str, replacement: &str, force_all: bool) -> String {
         let Some(regex) = self.try_compiled() else { return haystack.to_owned(); };
@@ -608,6 +650,11 @@ impl SmeltRegExp {
         object.insert("index".to_owned(), SmeltUnknown::Number((start + matched.start()) as f64));
         object.insert("input".to_owned(), SmeltUnknown::String(haystack.to_owned()));
         Some(SmeltUnknown::Object(SmeltObject::new(object)))
+    }
+    /// Return indexed match records for JavaScript String.prototype.matchAll.
+    pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltRecord<String, f64>> {
+        let Some(regex) = self.try_compiled() else { return Vec::new(); };
+        regex.find_iter(haystack).filter_map(Result::ok).map(|matched| SmeltRecord::from([("index".to_owned(), matched.start() as f64)])).collect::<Vec<_>>()
     }
     /// Test this RegExp against a string with JavaScript lastIndex updates.
     pub fn test(&self, haystack: &str) -> bool {
@@ -667,7 +714,7 @@ fn main() {
     _smelt_tmp_9 = missing.clone().as_ref().map(|_smelt_value| _smelt_value.name.clone());
     absent_name = _smelt_tmp_9.clone();
     _smelt_tmp_10 = present.clone().as_ref().map(|_smelt_value| _smelt_value.scores.clone());
-    _smelt_tmp_11 = _smelt_tmp_10.clone().as_ref().and_then(|_smelt_value| _smelt_value.get({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned());
+    _smelt_tmp_11 = _smelt_tmp_10.clone().as_ref().and_then(|_smelt_value| ({ let len = _smelt_value.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).ok() }).and_then(|index| _smelt_value.get(index).cloned()));
     score = _smelt_tmp_11.clone();
     _smelt_tmp_12 = present.clone().as_ref().map(|_smelt_value| _smelt_value.label());
     label = _smelt_tmp_12.clone();

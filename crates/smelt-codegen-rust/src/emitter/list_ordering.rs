@@ -79,23 +79,18 @@ impl FunctionEmitter<'_> {
         ))
     }
 
-    /// Converts Python `enumerate(list)` materialization to Rust text.
-    /// Converts Python `enumerate(list)` materialization to Rust text.
-    /// Converts Python `enumerate(list)` materialization to Rust text.
-    /// Converts Python `enumerate(list)` materialization to Rust text.
-    /// Converts Python `enumerate(list)` materialization to Rust text.
-    /// Converts Python `enumerate(list)` materialization to Rust text.
-    /// Converts Python `enumerate(list)` materialization to Rust text.
-    /// Converts Python `enumerate(list)` materialization to Rust text.
+    /// Converts list enumeration materialization to Rust text.
+    ///
+    /// TypeScript can narrow an erased generic through `Array.isArray` before
+    /// calling `entries()`, while MIR retains its erased receiver type. The
+    /// dynamic branch enumerates that array variant without library-specific
+    /// lowering.
     pub(super) fn list_enumerate_text(
         &self,
         list: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
-        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
-            return Ok("Default::default()".to_owned());
-        };
         let Some(Type::List(tuple_ty)) = self.mir.types.get(dest_ty) else {
             return Err(EmitError::new("enumerate() destination must be a list"));
         };
@@ -107,7 +102,25 @@ impl FunctionEmitter<'_> {
                 "enumerate() destination must contain (int, item) tuples",
             ));
         };
-        if self.mir.types.get(*index_ty) != Some(&Type::Int) || *value_ty != *item_ty {
+        if self.mir.types.get(*index_ty) != Some(&Type::Int) {
+            return Err(EmitError::new(
+                "enumerate() destination must contain (int, item) tuples",
+            ));
+        }
+        if matches!(
+            self.mir.types.get(list_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            let item_text = self.unknown_cast_value_text("item", *value_ty)?;
+            return Ok(format!(
+                "match {}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
+                self.operand_text(list)?
+            ));
+        }
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("enumerate() argument must be a list"));
+        };
+        if *value_ty != *item_ty {
             return Err(EmitError::new(
                 "enumerate() destination must contain (int, item) tuples",
             ));

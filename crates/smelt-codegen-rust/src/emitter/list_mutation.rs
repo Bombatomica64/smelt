@@ -28,7 +28,7 @@ impl FunctionEmitter<'_> {
                 "list push receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let item_text = self.operand_as_type_text(item, *item_ty)?;
         if returns_length {
             Ok(format!(
@@ -70,7 +70,7 @@ impl FunctionEmitter<'_> {
                 "list extend receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let other_text = self.operand_text(other)?;
         if returns_length {
             Ok(format!(
@@ -120,7 +120,7 @@ impl FunctionEmitter<'_> {
                 "list insert receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let index_text = self.operand_text(index)?;
         let item_text = self.operand_text(item)?;
         Ok(format!(
@@ -155,7 +155,7 @@ impl FunctionEmitter<'_> {
                 "list unshift receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let mut statements = Vec::with_capacity(items.len().saturating_add(1));
         for item in items.iter().rev() {
             let item_text = self.operand_text(item)?;
@@ -190,7 +190,7 @@ impl FunctionEmitter<'_> {
                 "list reverse receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         if returns_list {
             Ok(format!("{{ {list_text}.reverse(); {list_text}.clone() }}"))
         } else {
@@ -223,7 +223,7 @@ impl FunctionEmitter<'_> {
                 "list pop receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         if returns_optional {
             Ok(format!("{list_text}.pop()"))
         } else {
@@ -253,7 +253,7 @@ impl FunctionEmitter<'_> {
                 "list shift receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         Ok(format!(
             "if {list_text}.is_empty() {{ None }} else {{ Some({list_text}.remove(0)) }}"
         ))
@@ -290,7 +290,7 @@ impl FunctionEmitter<'_> {
                 "{collection_name} clear receiver must be a mutable local for now"
             )));
         };
-        let collection_text = self.local_name(*local)?;
+        let collection_text = self.local_mut_value_text(*local)?;
         Ok(format!("{{ {collection_text}.clear(); () }}"))
     }
 
@@ -319,7 +319,7 @@ impl FunctionEmitter<'_> {
                 "list remove receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let item_text = self.operand_text(item)?;
         if self.list_item_uses_same_value_zero(*item_ty) {
             if self.mir.types.get(*item_ty) == Some(&Type::Float) {
@@ -364,7 +364,7 @@ impl FunctionEmitter<'_> {
                 "list sort receiver must be a mutable local for now",
             ));
         };
-        let list_text = self.local_name(*local)?;
+        let list_text = self.local_mut_value_text(*local)?;
         let result_text = if returns_list {
             format!("{list_text}.clone()")
         } else {

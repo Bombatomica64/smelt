@@ -8,8 +8,9 @@ struct Box {
 
 
 fn main() {
+    let mut box_: Box;
     let mut _smelt_tmp_1: Box = Box::new("ok".to_owned());
-    let mut box_: Box = _smelt_tmp_1.clone();
+    box_ = _smelt_tmp_1.clone();
     let _smelt_tmp_2: () = { println!("{}", box_.value.clone()); };
 }
 

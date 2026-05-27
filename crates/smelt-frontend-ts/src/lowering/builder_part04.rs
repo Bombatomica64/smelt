@@ -391,6 +391,9 @@ return_ty,
             }
             Statement::TSModuleDeclaration(_) => Ok(()),
             Statement::ExpressionStatement(expr_stmt) => {
+                if self.inline_runtime_lifecycle_setup(&expr_stmt.expression, body, block)? {
+                    return Ok(());
+                }
                 if self.is_test_framework_statement(&expr_stmt.expression) {
                     return Ok(());
                 }
@@ -449,25 +452,22 @@ return_ty,
             Statement::IfStatement(if_stmt) => {
                 let cond = self.condition_expression(&if_stmt.test, body)?;
                 let then_narrowing = self.guard_narrowing(&if_stmt.test, body);
-                if let Some(narrowing) = then_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
-                }
+                // Assignments performed only within this branch are flow facts
+                // for the branch, not for statements reached from either path.
+                self.narrowed_locals
+                    .push(then_narrowing.unwrap_or_default());
                 let then_block = self.block_from_statement(&if_stmt.consequent, body)?;
-                if then_narrowing.is_some() {
-                    self.narrowed_locals.pop();
-                }
+                self.narrowed_locals.pop();
                 let else_narrowing = self.inverse_guard_narrowing(&if_stmt.test, body);
-                if let Some(narrowing) = else_narrowing.clone() {
-                    self.narrowed_locals.push(narrowing);
-                }
-                let else_block = if_stmt
-                    .alternate
-                    .as_ref()
-                    .map(|alternate| self.block_from_statement(alternate, body))
-                    .transpose()?;
-                if else_narrowing.is_some() {
+                let else_block = if let Some(alternate) = &if_stmt.alternate {
+                    self.narrowed_locals
+                        .push(else_narrowing.unwrap_or_default());
+                    let else_block = self.block_from_statement(alternate, body)?;
                     self.narrowed_locals.pop();
-                }
+                    Some(else_block)
+                } else {
+                    None
+                };
                 body.push_stmt_to_block(
                     block,
                     Stmt::If {
@@ -1423,6 +1423,40 @@ return_ty,
             after_each.push(callback);
         }
         true
+    }
+
+    /// Inline setup hooks that are invoked from suite setup helpers.
+    ///
+    /// Suite expressions are copied into every native Rust test body. If such a
+    /// helper registers `beforeEach` or `beforeAll`, executing its callback at
+    /// that copied call site gives the same setup ordering for the current test.
+    /// Teardown hooks remain handled by ordinary suite collection or by the
+    /// per-test reset emitted for mutable Vitest runtime state.
+    fn inline_runtime_lifecycle_setup(
+        &mut self,
+        expression: &Expression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        let Expression::CallExpression(call) = expression else {
+            return Ok(false);
+        };
+        let Expression::Identifier(callee) = &call.callee else {
+            return Ok(false);
+        };
+        if !self.test_builtins.contains(callee.name.as_str())
+            || !matches!(callee.name.as_str(), "beforeAll" | "beforeEach")
+        {
+            return Ok(false);
+        }
+        let Some(callback_arg) = call.arguments.first() else {
+            return Ok(false);
+        };
+        let callback = self.test_arrow_callback(callback_arg, "lifecycle callbacks")?;
+        for statement in &callback.body.statements {
+            self.statement_in_block(statement, body, block)?;
+        }
+        Ok(true)
     }
 
     /// Return whether a callee belongs to an imported test-framework API.

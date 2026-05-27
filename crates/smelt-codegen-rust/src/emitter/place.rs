@@ -6,10 +6,10 @@ impl FunctionEmitter<'_> {
     /// Converts a place to its Rust text representation.
     pub(super) fn place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
-            Place::Local(local) => self.local_name(*local).map(str::to_owned),
+            Place::Local(local) => self.local_value_text(*local),
             Place::Field { base, field } => {
                 let base_ty = self.local_decl(*base)?.ty;
-                if let Some(Type::Dict(key, _)) = self.mir.types.get(base_ty) {
+                if let Some(Type::Dict(key, value)) = self.mir.types.get(base_ty) {
                     let field_name = self.symbol_source_name(*field)?;
                     let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
                         format!("{field_name:?}.to_owned()")
@@ -22,7 +22,13 @@ impl FunctionEmitter<'_> {
                     } else {
                         self.default_value(*key)?
                     };
-                    let base_text = self.local_name(*base)?;
+                    let base_text = self.local_value_text(*base)?;
+                    if matches!(self.mir.types.get(*value), Some(Type::Optional(_))) {
+                        if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
+                            return Ok(format!("{base_text}.get(&{key_text}).flatten()"));
+                        }
+                        return Ok(format!("{base_text}.get(&{key_text}).cloned().flatten()"));
+                    }
                     if self.dict_uses_smelt_record(*key) || self.dict_uses_js_key_map(*key) {
                         return Ok(format!(
                             "{base_text}.get(&{key_text}).expect(\"missing field\")"
@@ -38,7 +44,7 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(base_ty)
                 {
                     let field_name = self.symbol_source_name(*field)?;
-                    let base_text = self.local_name(*base)?;
+                    let base_text = self.local_value_text(*base)?;
                     return Ok(format!(
                         "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
                     ));
@@ -50,7 +56,7 @@ impl FunctionEmitter<'_> {
                     ) || self.is_erased_class_type(*inner))
                 {
                     let field_name = self.symbol_source_name(*field)?;
-                    let base_text = self.local_name(*base)?;
+                    let base_text = self.local_value_text(*base)?;
                     return Ok(format!(
                         "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
                     ));
@@ -60,10 +66,15 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*key_ty) == Some(&Type::String)
                 {
                     let field_name = self.symbol_source_name(*field)?;
-                    let base_text = self.local_name(*base)?;
+                    let base_text = self.local_value_text(*base)?;
                     return Ok(format!(
                         "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
                     ));
+                }
+                if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
+                    && self.symbol_name(*name)? == "RegExp"
+                {
+                    return self.regexp_field_text(&self.local_value_text(*base)?, *field);
                 }
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && let Some(fields) = self.structural_record_fields(*inner)
@@ -72,7 +83,7 @@ impl FunctionEmitter<'_> {
                         .find(|candidate| candidate.name == *field)
                         .map(|candidate| candidate.ty)
                 {
-                    let base_text = self.local_name(*base)?;
+                    let base_text = self.local_value_text(*base)?;
                     let field_name = sanitize_ident(self.symbol_name(*field)?);
                     return if matches!(self.mir.types.get(field_ty), Some(Type::Optional(_))) {
                         Ok(format!(
@@ -91,11 +102,14 @@ impl FunctionEmitter<'_> {
                     return Ok("SmeltUnknown::Null".to_owned());
                 }
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
-                    return self.string_field_text(self.local_name(*base)?, *field);
+                    return self.string_field_text(&self.local_value_text(*base)?, *field);
                 }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
-                    && let Some(method_text) =
-                        self.class_method_reference_text(self.local_name(*base)?, *name, *field)?
+                    && let Some(method_text) = self.class_method_reference_text(
+                        &self.local_value_text(*base)?,
+                        *name,
+                        *field,
+                    )?
                 {
                     return Ok(method_text);
                 }
@@ -106,7 +120,7 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(format!(
                     "{}.{}",
-                    self.local_name(*base)?,
+                    self.local_value_text(*base)?,
                     sanitize_ident(self.symbol_name(*field)?)
                 ))
             }
@@ -114,7 +128,7 @@ impl FunctionEmitter<'_> {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item_ty)) => {
-                        let base_text = self.local_name(*base)?;
+                        let base_text = self.local_mut_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
                         let missing = self.default_value(*item_ty)?;
@@ -128,7 +142,7 @@ impl FunctionEmitter<'_> {
                         let Some(Type::List(item_ty)) = self.mir.types.get(*inner_ty) else {
                             return Ok("SmeltUnknown::Null".to_owned());
                         };
-                        let base_text = self.local_name(*base)?;
+                        let base_text = self.local_value_text(*base)?;
                         let index_text = self.normalized_index_text(
                             &format!("{base_text}.as_ref().map_or(0, Vec::len)"),
                             index,
@@ -152,7 +166,7 @@ impl FunctionEmitter<'_> {
                         } else {
                             self.operand_as_type_text(index, *key_ty)?
                         };
-                        let base_text = self.local_name(*base)?;
+                        let base_text = self.local_value_text(*base)?;
                         let value_is_unknownish = matches!(
                             self.mir.types.get(*value_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -181,7 +195,7 @@ impl FunctionEmitter<'_> {
                         }
                     }
                     Some(Type::String) => {
-                        let base_text = self.local_name(*base)?;
+                        let base_text = self.local_value_text(*base)?;
                         let index_text = self.normalized_index_text(
                             &format!("{base_text}.chars().count()"),
                             index,
@@ -191,7 +205,7 @@ impl FunctionEmitter<'_> {
                         ))
                     }
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                        self.unknown_index_text(self.local_name(*base)?, index)
+                        self.unknown_index_text(&self.local_value_text(*base)?, index)
                     }
                     _ => Ok("SmeltUnknown::Null".to_owned()),
                 }
@@ -203,11 +217,12 @@ impl FunctionEmitter<'_> {
     /// Converts a place to its Rust text representation for assignment.
     pub(super) fn assignment_place_text(&self, place: &Place) -> Result<String, EmitError> {
         match place {
+            Place::Local(local) => self.local_mut_value_text(*local),
             Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(_)) => {
-                        let base_text = self.local_name(*base)?;
+                        let base_text = self.local_mut_value_text(*base)?;
                         let index_text =
                             self.normalized_index_text(&format!("{base_text}.len()"), index)?;
                         Ok(format!("{base_text}[{index_text}]"))
@@ -222,7 +237,7 @@ impl FunctionEmitter<'_> {
                         };
                         Ok(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
-                            self.local_name(*base)?
+                            self.local_mut_value_text(*base)?
                         ))
                     }
                     _ => Err(EmitError::new(
@@ -230,7 +245,7 @@ impl FunctionEmitter<'_> {
                     )),
                 }
             }
-            _ => self.place_text(place),
+            Place::Field { .. } => self.place_text(place),
         }
     }
 

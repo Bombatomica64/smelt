@@ -535,12 +535,7 @@ impl ModuleBuilder<'_> {
                 if let Some(expr) = self.logical_and_numeric_value_expression(logical, body)? {
                     return Ok(expr);
                 }
-                let op = if logical.operator == LogicalOperator::And {
-                    BinOp::And
-                } else {
-                    BinOp::Or
-                };
-                let lhs = self.expression(&logical.left, body)?;
+                let cond = self.condition_expression(&logical.left, body)?;
                 let rhs_narrowing = if logical.operator == LogicalOperator::And {
                     self.guard_narrowing(&logical.left, body)
                 } else {
@@ -554,8 +549,24 @@ impl ModuleBuilder<'_> {
                     self.narrowed_locals.pop();
                 }
                 let ty = self.ctx.krate.types.intern(Type::Bool);
+                let identity = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Bool(
+                        logical.operator == LogicalOperator::Or,
+                    )),
+                    ty,
+                    span: self.expression_span(&logical.left),
+                });
+                let (then_expr, else_expr) = if logical.operator == LogicalOperator::And {
+                    (rhs, identity)
+                } else {
+                    (identity, rhs)
+                };
                 Ok(body.push_expr(Expr {
-                    kind: ExprKind::BinOp { op, lhs, rhs },
+                    kind: ExprKind::Conditional {
+                        cond,
+                        then_expr,
+                        else_expr,
+                    },
                     ty,
                     span: self.span(logical.span.start, logical.span.end),
                 }))
@@ -611,6 +622,10 @@ impl ModuleBuilder<'_> {
                     then_ty
                 } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
                     function_ty
+                } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty)) {
+                    then_ty
+                } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
+                    else_ty
                 } else if self.is_string_compatible_type(then_ty)
                     && (self.is_string_compatible_type(else_ty)
                         || self.union_has_string_compatible_member(else_ty))
@@ -687,7 +702,7 @@ impl ModuleBuilder<'_> {
                             let ty = self.ctx.krate.types.intern(Type::Float);
                             return Ok(body.push_expr(Expr {
                                 kind: ExprKind::PrimitiveCast {
-                                    op: PrimitiveCastOp::ToFloat,
+                                    op: PrimitiveCastOp::ToJsNumber,
                                     operand,
                                 },
                                 ty,
@@ -943,6 +958,10 @@ impl ModuleBuilder<'_> {
             Ok(then_ty)
         } else if let Some(function_ty) = self.single_function_branch_type(then_ty, else_ty) {
             Ok(function_ty)
+        } else if matches!(self.ctx.krate.types.get(then_ty), Some(Type::Union(items)) if items.contains(&else_ty)) {
+            Ok(then_ty)
+        } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
+            Ok(else_ty)
         } else if type_hint
             .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
             || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
@@ -1003,6 +1022,20 @@ impl ModuleBuilder<'_> {
         body: &mut Body,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         let cond = self.expression(expression, body)?;
+        self.lowered_condition_expression(cond, self.expression_span(expression), body)
+    }
+
+    /// Coerce an already lowered JavaScript value into its boolean truthiness result.
+    ///
+    /// Assignment operators such as `||=` already lower their target as a
+    /// writable place. Reusing the resulting expression here avoids lowering a
+    /// computed receiver solely to form the condition that selects its value.
+    fn lowered_condition_expression(
+        &mut self,
+        cond: smelt_hir::ExprId,
+        span: Span,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
         let cond_ty = Self::expr_ty(body, cond);
         if self.ctx.krate.types.get(cond_ty) == Some(&Type::Bool) {
             return Ok(cond);
@@ -1015,7 +1048,7 @@ impl ModuleBuilder<'_> {
             return Ok(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::Bool(true)),
                 ty,
-                span: self.expression_span(expression),
+                span,
             }));
         }
         if self.ctx.krate.types.get(cond_ty) == Some(&Type::String) {
@@ -1023,7 +1056,7 @@ impl ModuleBuilder<'_> {
             let empty = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::String(String::new())),
                 ty: string_ty,
-                span: self.expression_span(expression),
+                span,
             });
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
@@ -1033,7 +1066,7 @@ impl ModuleBuilder<'_> {
                     rhs: empty,
                 },
                 ty: bool_ty,
-                span: self.expression_span(expression),
+                span,
             }));
         }
         if matches!(self.ctx.krate.types.get(cond_ty), Some(Type::Int | Type::Float)) {
@@ -1043,7 +1076,7 @@ impl ModuleBuilder<'_> {
                     _ => ExprKind::Literal(Literal::Float(0.0)),
                 },
                 ty: cond_ty,
-                span: self.expression_span(expression),
+                span,
             });
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
@@ -1053,15 +1086,10 @@ impl ModuleBuilder<'_> {
                     rhs: zero,
                 },
                 ty: bool_ty,
-                span: self.expression_span(expression),
+                span,
             }));
         }
-        if let Some(condition) = self.optional_known_date_presence_condition(
-            cond,
-            self.expression_span(expression),
-            body,
-        )
-        {
+        if let Some(condition) = self.optional_known_date_presence_condition(cond, span, body) {
             return Ok(condition);
         }
         if self
@@ -1072,7 +1100,7 @@ impl ModuleBuilder<'_> {
             let none = body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
                 ty: none_ty,
-                span: self.expression_span(expression),
+                span,
             });
             let bool_ty = self.ctx.krate.types.intern(Type::Bool);
             return Ok(body.push_expr(Expr {
@@ -1082,7 +1110,7 @@ impl ModuleBuilder<'_> {
                     rhs: none,
                 },
                 ty: bool_ty,
-                span: self.expression_span(expression),
+                span,
             }));
         }
         if self.is_nullishable_type(cond_ty) || self.type_is_truthy_condition_surface(cond_ty) {
@@ -1093,11 +1121,11 @@ impl ModuleBuilder<'_> {
                     operand: cond,
                 },
                 ty: bool_ty,
-                span: self.expression_span(expression),
+                span,
             }));
         }
         Err(SmeltError::unsupported(
-            self.expression_span(expression),
+            span,
             format!(
                 "condition expression must be boolean or optional (got {:?})",
                 self.ctx.krate.types.get(cond_ty)

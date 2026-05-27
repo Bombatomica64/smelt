@@ -53,12 +53,54 @@ const returned = adder(6);
 "#,
     );
 
-    assert!(source.contains("Rc<::std::cell::RefCell<dyn FnMut(f64) -> f64>>"));
+    assert!(source.contains("Rc<dyn Fn(f64) -> f64>"));
     assert!(source.contains("(3.0)"));
     assert!(source.contains("apply(4.0,"));
     assert!(source.contains("make_adder(5.0)"));
-    assert!(source.contains("(&mut *adder.borrow_mut())(6.0)"));
+    assert!(source.contains("(adder)(6.0)"));
     assert!(source.contains("move |"));
+}
+
+#[test]
+fn shares_outer_bindings_mutated_by_local_closures() {
+    let source = source_for(
+        r#"
+function collect(): string[] {
+  const values: string[] = [];
+  let current = "x";
+  const flush = (): void => {
+    values.push(current);
+    current = "";
+  };
+  flush();
+  current = "y";
+  flush();
+  return values;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let smelt_capture_values = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        "{source}"
+    );
+    assert!(
+        source
+            .contains("let smelt_capture_current = ::std::rc::Rc::new(::std::cell::RefCell::new("),
+        "{source}"
+    );
+    assert!(
+        source.contains("let smelt_capture_values = smelt_capture_values.clone();"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(*smelt_capture_current.borrow_mut()) = \"y\".to_owned();"),
+        "{source}"
+    );
+    assert!(
+        source.contains("return (*smelt_capture_values.borrow()).clone();"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -212,6 +254,50 @@ const total = sum(2, 3, 4);
 }
 
 #[test]
+fn extracts_generic_spread_arrays_when_packing_rest_calls() {
+    let source = source_for(
+        r#"
+function collect(context: unknown, ...rest: unknown[]): unknown[] {
+  return rest;
+}
+function call<Values extends unknown[]>(first: unknown, values: Values): unknown[] {
+  return collect(undefined, first, ...values);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Array(value) => value"),
+        "{source}"
+    );
+    assert!(
+        source.contains(".iter().cloned().chain("),
+        "spread list was replaced by a default value: {source}"
+    );
+}
+
+#[test]
+fn emits_optional_number_typeof_as_a_presence_check() {
+    let source = source_for(
+        r#"
+function isNumber(value?: number): boolean {
+  return typeof value === "number";
+}
+function isUndefined(value?: number): boolean {
+  return typeof value === "undefined";
+}
+"#,
+    );
+
+    assert!(source.contains("value.clone().is_none()"), "{source}");
+    assert!(source.contains("bool = !("), "{source}");
+    assert!(
+        !source.contains("fn is_number(value: Option<f64>) -> bool {\n    return false;"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_math_abs_call() {
     let source = source_for(
         r#"
@@ -316,12 +402,63 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     assert!(source.contains("(item * 2.0)"), "{source}");
     assert!(source.contains("(item + 2.0)"));
     assert!(
-        source.contains("(&mut *smelt_callback.borrow_mut())(SmeltUnknown::Number(item.clone() as f64))"),
+        source.contains("(smelt_callback)(SmeltUnknown::Number(item.clone() as f64))"),
         "{source}"
     );
     assert!(source.contains("let mut mutable_total"));
     assert!(source.contains("mutable_total.clone() +"));
     assert!(source.contains("mutable_total ="));
+}
+
+#[test]
+fn emits_captured_multi_argument_callback_calls_inside_array_map() {
+    let source = source_for(
+        r#"
+function zip(
+  first: unknown[],
+  second: unknown[],
+  fn: (first: unknown, second: unknown, index: number, data: unknown[]) => unknown,
+): unknown[] {
+  return first.map((item, index) => fn(item, second[index], index, first));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn_(item.clone(),"),
+        "captured callback should retain its four-argument ABI: {source}"
+    );
+    assert!(
+        !source.contains("fn_(match item.clone()"),
+        "captured callback was typed from a synthetic map local: {source}"
+    );
+}
+
+#[test]
+fn does_not_apply_free_function_abi_to_same_named_captured_callback() {
+    let source = source_for(
+        r#"
+function fn(value: unknown[]): unknown[] {
+  return value;
+}
+function zip(
+  first: unknown[],
+  second: unknown[],
+  fn: (first: unknown, second: unknown, index: number, data: unknown[]) => unknown,
+): unknown[] {
+  return first.map((item, index) => fn(item, second[index], index, first));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn_(item.clone(),"),
+        "captured callback should not adopt the same-named free function ABI: {source}"
+    );
+    assert!(
+        !source.contains("fn_(match item.clone()"),
+        "same-named free function ABI leaked into a captured callback: {source}"
+    );
 }
 
 #[test]
@@ -422,12 +559,38 @@ fn emits_string_search_methods() {
 const word = "Smelt";
 const first = word.indexOf("m");
 const last = word.lastIndexOf("t");
+const bounded = word.lastIndexOf("t", 2);
 "#,
     );
 
     assert!(source.contains(".find(&"));
     assert!(source.contains(".rfind(&"));
     assert!(source.contains(".map_or(-1.0"));
+    assert!(source.contains("let smelt_end_char = smelt_from.saturating_add("));
+}
+
+#[test]
+fn emits_optional_string_field_search_without_losing_narrowed_value() {
+    let source = source_for(
+        r#"
+interface Options {
+  separator?: string | RegExp;
+}
+function lastSeparator(data: string, options: Options = {}): number {
+  const { separator } = options;
+  if (typeof separator === "string") {
+    return data.lastIndexOf(separator);
+  }
+  return -1;
+}
+const result = lastSeparator("a,b", { separator: "," });
+"#,
+    );
+
+    assert!(
+        source.contains("map_or_else(String::new"),
+        "narrowed optional dynamic string values must be extracted for string methods"
+    );
 }
 
 #[test]
@@ -539,11 +702,14 @@ const value = 42;
 const digits = "42";
 const asText = String(value);
 const asNumber = Number(digits);
+const emptyNumber = Number("");
 const asBool = Boolean("");
 "#,
     );
 
     assert!(source.contains(".to_string()"));
-    assert!(source.contains(".parse::<f64>().expect(\"float() parse failed\")"));
+    assert!(source.contains("smelt_text.is_empty() { 0.0 }"));
+    assert!(source.contains(".parse::<f64>().unwrap_or(f64::NAN)"));
+    assert!(!source.contains("float() parse failed"));
     assert!(source.contains(".is_empty()"));
 }

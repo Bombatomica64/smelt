@@ -13,20 +13,16 @@ impl FunctionEmitter<'_> {
             Some(Type::Float) => Ok(format!(
                 "{{ let timestamp_ms = ({text}) as f64; if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }} }}"
             )),
-            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                Ok(format!(
-                    "{{ let timestamp_ms = ({text}) as f64; SmeltUnknown::Number(if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}) }}"
-                ))
-            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
+                "{{ let timestamp_ms = ({text}) as f64; let timestamp_ms = if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(timestamp_ms))]))) }}"
+            )),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_result_text(text, *inner)?;
                 Ok(format!("Some({inner_text})"))
             }
-            _ if self.is_erased_class_type(dest_ty) => {
-                Ok(format!(
-                    "{{ let timestamp_ms = ({text}) as f64; SmeltUnknown::Number(if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}) }}"
-                ))
-            }
+            _ if self.is_erased_class_type(dest_ty) => Ok(format!(
+                "{{ let timestamp_ms = ({text}) as f64; let timestamp_ms = if !timestamp_ms.is_finite() || timestamp_ms == i64::MIN as f64 {{ f64::NAN }} else {{ timestamp_ms }}; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(timestamp_ms))]))) }}"
+            )),
             _ => Ok(text.to_owned()),
         }
     }
