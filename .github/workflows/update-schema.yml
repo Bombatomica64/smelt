@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -22,7 +22,7 @@ jobs:
         run: cargo run --bin smelt -- dump-schema > smelt-schema.json
 
       - name: Commit schema
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@v7
         with:
           commit_message: "chore: regenerate smelt-schema.json"
           file_pattern: smelt-schema.json
