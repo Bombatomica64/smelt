@@ -1,0 +1,41 @@
+
+running 24 tests
+.Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+... 4/24
+__smelt_module_truncate_test::test_empty_separator --- FAILED
+..Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+. 8/24
+__smelt_module_truncate_test::test_lodash_spec_should_support_a_separator_option --- FAILED
+...Error: .Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+ 13/24
+__smelt_module_truncate_test::test_regex_separator_matches_after_maxlength --- FAILED
+__smelt_module_truncate_test::test_regex_separator_never_matches --- FAILED
+Error: .Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+ 16/24
+__smelt_module_truncate_test::test_string_separator_matches_after_maxlength --- FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+. 18/24
+__smelt_module_truncate_test::test_trivial_global_regex_separator --- FAILED
+.Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+ 20/24
+__smelt_module_truncate_test::test_trivial_regex_separator --- FAILED
+..Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+ 23/24
+__smelt_module_truncate_test::test_multiple_regex_separators_within_maxlength --- FAILED
+
+failures:
+
+failures:
+    __smelt_module_truncate_test::test_empty_separator
+    __smelt_module_truncate_test::test_lodash_spec_should_support_a_separator_option
+    __smelt_module_truncate_test::test_multiple_regex_separators_within_maxlength
+    __smelt_module_truncate_test::test_regex_separator_matches_after_maxlength
+    __smelt_module_truncate_test::test_regex_separator_never_matches
+    __smelt_module_truncate_test::test_string_separator_matches_after_maxlength
+    __smelt_module_truncate_test::test_trivial_global_regex_separator
+    __smelt_module_truncate_test::test_trivial_regex_separator
+
+test result: FAILED. 16 passed; 8 failed; 0 ignored; 0 measured; 1765 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

@@ -1,0 +1,518 @@
+warning: `function` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:1292:25
+     |
+1292 | ...   .is_ok_and(|function| self.type_is_known_date_value(function.ret...
+     |                   ^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:1272:9
+     |
+1272 |         function: &oxc::ast::ast::Function<'_>,
+     |         ^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+     = note: requested on the command line with `-W clippy::shadow-unrelated`
+
+warning: `array` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:2546:57
+     |
+2546 |                 ArrayExpressionElement::ArrayExpression(array) => {
+     |                                                         ^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/builder_part01.rs:2492:9
+     |
+2492 |         array: &oxc::ast::ast::ArrayExpression<'_>,
+     |         ^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `args` shadows a previous, unrelated binding
+   --> crates/smelt-frontend-ts/src/lowering/call.rs:648:25
+    |
+648 | ...   let args = self.packed_spread_call_arguments(item_ty, call, body)?;
+    |           ^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-frontend-ts/src/lowering/call.rs:623:21
+    |
+623 |                 let mut args = Vec::new();
+    |                     ^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `description` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/call.rs:1371:13
+     |
+1371 |         let description = description_arg
+     |             ^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/call.rs:1356:13
+     |
+1356 |         let description = description_arg
+     |             ^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: using a potentially dangerous silent `as` conversion
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:146:41
+    |
+146 |         let Some(expr) = body.exprs.get(value.0 as usize) else {
+    |                                         ^^^^^^^^^^^^^^^^
+    |
+    = help: consider using a safe wrapper for this conversion
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+    = note: requested on the command line with `-W clippy::as-conversions`
+
+warning: `value` shadows a previous, unrelated binding
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:155:36
+    |
+155 | ...   ExprKind::TypeAssert { value } => self.expression_is_known_date_v...
+    |                              ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:145:46
+    |
+145 |     fn expression_is_known_date_value(&self, value: smelt_hir::ExprId, ...
+    |                                              ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: using a potentially dangerous silent `as` conversion
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:158:22
+    |
+158 |                 .get(callee.0 as usize)
+    |                      ^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using a safe wrapper for this conversion
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+
+warning: indexing may panic
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:423:28
+    |
+423 |         let value = match &body.exprs[value.0 as usize].kind {
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+    = note: requested on the command line with `-W clippy::indexing-slicing`
+
+warning: using a potentially dangerous silent `as` conversion
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:423:39
+    |
+423 |         let value = match &body.exprs[value.0 as usize].kind {
+    |                                       ^^^^^^^^^^^^^^^^
+    |
+    = help: consider using a safe wrapper for this conversion
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+
+warning: indexing may panic
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:425:29
+    |
+425 | ...   if matches!(body.exprs[erased.0 as usize].kind, ExprKind::Local(l...
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: using a potentially dangerous silent `as` conversion
+   --> crates/smelt-frontend-ts/src/lowering/builder_part09.rs:425:40
+    |
+425 | ...   if matches!(body.exprs[erased.0 as usize].kind, ExprKind::Local(l...
+    |                              ^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using a safe wrapper for this conversion
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+
+warning: `optional_ty` shadows a previous, unrelated binding
+    --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:1005:17
+     |
+1005 |             let optional_ty = Self::expr_ty(body, optional);
+     |                 ^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:1000:13
+     |
+1000 |         let optional_ty = Self::expr_ty(body, optional);
+     |             ^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: indexing may panic
+    --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:2791:60
+     |
+2791 | ...al::String(key)) = &body.exprs[key.0 as usize].kind else {
+     |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: consider using `.get(n)` or `.get_mut(n)` instead
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: using a potentially dangerous silent `as` conversion
+    --> crates/smelt-frontend-ts/src/lowering/builder_part14.rs:2791:71
+     |
+2791 | ...tring(key)) = &body.exprs[key.0 as usize].kind else {
+     |                              ^^^^^^^^^^^^^^
+     |
+     = help: consider using a safe wrapper for this conversion
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+
+warning: indexing may panic
+   --> crates/smelt-mir/src/lower.rs:868:22
+    |
+868 |                     &closure_defs_by_function[function_index],
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+    = note: requested on the command line with `-W clippy::indexing-slicing`
+
+warning: indexing may panic
+   --> crates/smelt-mir/src/lower.rs:869:22
+    |
+869 |                     &local_rvalues_by_function[function_index],
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: wildcard match will also match any future added variants
+   --> crates/smelt-mir/src/lower.rs:973:9
+    |
+973 |         _ => {}
+    |         ^ help: try: `Rvalue::Binary { .. } | Rvalue::Unary { .. } | Rvalue::Conditional { .. } | Rvalue::OptionalField { .. } | Rvalue::OptionalIndex { .. } | Rvalue::OptionalMethod { .. } | Rvalue::OptionalCoalesce { .. } | Rvalue::InstanceOf { .. } | Rvalue::UnknownIs { .. } | Rvalue::UnknownCast { .. } | Rvalue::Struct { .. } | Rvalue::ExternalClassInstance { .. } | Rvalue::Len(_) | Rvalue::NumericAbs(_) | Rvalue::NumericRound { .. } | Rvalue::NumericExtrema { .. } | Rvalue::NumericHypot { .. } | Rvalue::NumericPredicate { .. } | Rvalue::NumericUnaryFunc { .. } | Rvalue::Closure { .. } | Rvalue::ClosureCall { .. } | Rvalue::ClosureCallSpread { .. } | Rvalue::NumericPow { .. } | Rvalue::NumericAtan2 { .. } | Rvalue::NumericRandom | Rvalue::NumericRandomInt { .. } | Rvalue::NumericToStringRadix { .. } | Rvalue::PrimitiveCast { .. } | Rvalue::StringCase { .. } | Rvalue::StringNormalize { .. } | Rvalue::StringTrim { .. } | Rvalue::StringAffix { .. } | Rvalue::StringSearch { .. } | Rvalue::StringReplace { .. } | Rvalue::StringRemoveAffix { .. } | Rvalue::StringRepeat { .. } | Rvalue::StringPad { .. } | Rvalue::StringPredicate { .. } | Rvalue::RegexIsMatch { .. } | Rvalue::RegexReplace { .. } | Rvalue::RegexReplaceCallback { .. } | Rvalue::RegexReplaceFirstMatchUppercase { .. } | Rvalue::RegexSplit { .. } | Rvalue::RegexFind { .. } | Rvalue::RegexExec { .. } | Rvalue::RegexMatchAll { .. } | Rvalue::StringCharAt { .. } | Rvalue::StringCharCodeAt { .. } | Rvalue::StringContains { .. } | Rvalue::StringSlice { .. } | Rvalue::ListContains { .. } | Rvalue::SetContains { .. } | Rvalue::SetDisjoint { .. } | Rvalue::SetRelation { .. } | Rvalue::SetAdd { .. } | Rvalue::SetRemove { .. } | Rvalue::SetClear { .. } | Rvalue::SetCopy { .. } | Rvalue::ListToSet { .. } | Rvalue::ListPairsToDict { .. } | Rvalue::SetBinary { .. } | Rvalue::SetProjection { .. } | Rvalue::ListConcat { .. } | Rvalue::ListSearch { .. } | Rvalue::ListCallback { .. } | Rvalue::ListFromLength { .. } | Rvalue::ListFromLengthMap { .. } | Rvalue::ListReduce { .. } | Rvalue::ListSlice { .. } | Rvalue::ListSplice { .. } | Rvalue::ListFill { .. } | Rvalue::ListCopyWithin { .. } | Rvalue::ListWith { .. } | Rvalue::ListFlat { .. } | Rvalue::ListProjection { .. } | Rvalue::ListPush { .. } | Rvalue::ListExtend { .. } | Rvalue::ListInsert { .. } | Rvalue::ListUnshift { .. } | Rvalue::ListReverse { .. } | Rvalue::ListClear { .. } | Rvalue::ListCopy { .. } | Rvalue::TupleToList { .. } | Rvalue::ListToTuple { .. } | Rvalue::TupleToSet { .. } | Rvalue::ListCount { .. } | Rvalue::ListSum { .. } | Rvalue::ListBoolFold { .. } | Rvalue::ListSorted { .. } | Rvalue::ListReversed { .. } | Rvalue::ListEnumerate { .. } | Rvalue::ListZip { .. } | Rvalue::ListRange { .. } | Rvalue::ListRandomChoice { .. } | Rvalue::ListIndex { .. } | Rvalue::ListRemove { .. } | Rvalue::ListSort { .. } | Rvalue::ListPop { .. } | Rvalue::ListShift { .. } | Rvalue::TupleContains { .. } | Rvalue::TupleIndex { .. } | Rvalue::TupleSlice { .. } | Rvalue::DictContainsKey { .. } | Rvalue::DictSet { .. } | Rvalue::DictRemoveKey { .. } | Rvalue::DictGet { .. } | Rvalue::DictSetDefault { .. } | Rvalue::DictClear { .. } | Rvalue::DictPop { .. } | Rvalue::DictUpdate { .. } | Rvalue::DictAssign { .. } | Rvalue::CallableObjectAssign { .. } | Rvalue::DictCopy { .. } | Rvalue::DictProjection { .. } | Rvalue::StringSplit { .. } | Rvalue::StringChars { .. } | Rvalue::StringJoin { .. } | Rvalue::JsonStringify { .. } | Rvalue::JsonParse { .. } | Rvalue::HttpGetText { .. } | Rvalue::DateNow | Rvalue::DateSetNow { .. } | Rvalue::DateResetNow | Rvalue::DateTimezoneOffset | Rvalue::DateSetTimezoneOffset { .. } | Rvalue::DateResetTimezoneOffset | Rvalue::DateTimezoneContext { .. } | Rvalue::DateToIsoString { .. } | Rvalue::DateToString { .. } | Rvalue::DateFromParts { .. } | Rvalue::DateFromValue { .. } | Rvalue::DateGetPart { .. } | Rvalue::DateSetPart { .. } | Rvalue::UrlField { .. } | Rvalue::FileReadText { .. } | Rvalue::FileWriteText { .. } | Rvalue::Await(_) | Rvalue::AsyncOp { .. }`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#wildcard_enum_match_arm
+    = note: requested on the command line with `-W clippy::wildcard-enum-match-arm`
+
+warning: indexing may panic
+    --> crates/smelt-frontend-ts/src/lowering/builder_part16.rs:3136:21
+     |
+3136 |                     source_body.blocks[source_body.root.0 as usize].span,
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: consider using `.get(n)` or `.get_mut(n)` instead
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: using a potentially dangerous silent `as` conversion
+    --> crates/smelt-frontend-ts/src/lowering/builder_part16.rs:3136:40
+     |
+3136 |                     source_body.blocks[source_body.root.0 as usize].span,
+     |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: consider using a safe wrapper for this conversion
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+
+warning: using a potentially dangerous silent `as` conversion
+    --> crates/smelt-mir/src/lower.rs:1728:67
+     |
+1728 | ....function.blocks.get_mut(target.0 as usize) {
+     |                             ^^^^^^^^^^^^^^^^^
+     |
+     = help: consider using a safe wrapper for this conversion
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+     = note: requested on the command line with `-W clippy::as-conversions`
+
+warning: `depth` is shadowed
+    --> crates/smelt-mir/src/lower.rs:2903:48
+     |
+2903 | ...   let depth_operand = depth.map(|depth| self.lower_expr(depth)).tr...
+     |                                      ^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-mir/src/lower.rs:2901:40
+     |
+2901 |             ExprKind::ListFlat { list, depth } => {
+     |                                        ^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+     = note: requested on the command line with `-W clippy::shadow-reuse`
+
+warning: `depth` is shadowed
+    --> crates/smelt-mir/src/validate.rs:1331:25
+     |
+1331 |             if let Some(depth) = depth {
+     |                         ^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-mir/src/validate.rs:1329:34
+     |
+1329 |         Rvalue::ListFlat { list, depth } => {
+     |                                  ^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: indexing may panic
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:240:65
+    |
+240 |                         return self.list_concat_text(receiver, &rest[0]);
+    |                                                                 ^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+    = note: requested on the command line with `-W clippy::indexing-slicing`
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+   --> crates/smelt-codegen-rust/src/emitter/call.rs:246:67
+    |
+246 | ...   let Some(param) = function.params.get(index + 1).copied() else {
+    |                                             ^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+    = note: requested on the command line with `-W clippy::arithmetic-side-effects`
+
+warning: `returned` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:2290:13
+     |
+2290 | ...   let returned = self.unknown_wrap_value_text(&returned, function....
+     |           ^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/call_runtime.rs:2285:13
+     |
+2285 |         let returned = if function.can_throw {
+     |             ^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+     = note: requested on the command line with `-W clippy::shadow-reuse`
+
+warning: using a potentially dangerous silent `as` conversion
+   --> crates/smelt-codegen-rust/src/emitter/core.rs:790:20
+    |
+790 |         let key = (function_ptr as usize, local);
+    |                    ^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using a safe wrapper for this conversion
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+    = note: requested on the command line with `-W clippy::as-conversions`
+
+warning: `source_key` shadows a previous, unrelated binding
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1275:17
+     |
+1275 |             let source_key = self.symbol_name(field.name)?;
+     |                 ^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:1253:9
+     |
+1253 |         source_key: TypeId,
+     |         ^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+     = note: requested on the command line with `-W clippy::shadow-unrelated`
+
+warning: indexing may panic
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:2765:21
+     |
+2765 |                     target_function.params[index],
+     |                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: consider using `.get(n)` or `.get_mut(n)` instead
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: usage of the `unreachable!` macro
+    --> crates/smelt-codegen-rust/src/emitter/core.rs:3151:17
+     |
+3151 |                 unreachable!();
+     |                 ^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#unreachable
+     = note: requested on the command line with `-W clippy::unreachable`
+
+warning: `result_text` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list.rs:246:13
+    |
+246 |         let result_text = if matches!(
+    |             ^^^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list.rs:245:13
+    |
+245 | ...   let result_text = "smelt_slice_values.into_iter().skip(smelt_star...
+    |           ^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `depth` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list.rs:483:22
+    |
+483 |                 Some(depth) => {
+    |                      ^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list.rs:471:9
+    |
+471 |         depth: Option<&Operand>,
+    |         ^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: indexing may panic
+   --> crates/smelt-codegen-rust/src/emitter/list.rs:567:74
+    |
+567 | ...   let item_text = self.unknown_cast_value_text("item", items[1])?;
+    |                                                            ^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: `field` is shadowed
+  --> crates/smelt-codegen-rust/src/emitter/list_query.rs:51:25
+   |
+51 | ...   && let Some(field) = crate::classes::effective_class_fields(self.m...
+   |                   ^^^^^
+   |
+note: previous binding is here
+  --> crates/smelt-codegen-rust/src/emitter/list_query.rs:45:9
+   |
+45 |         field: Symbol,
+   |         ^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `field` is shadowed
+  --> crates/smelt-codegen-rust/src/emitter/list_query.rs:58:25
+   |
+58 | ...   && let Some(field) = crate::classes::effective_interface_fields(se...
+   |                   ^^^^^
+   |
+note: previous binding is here
+  --> crates/smelt-codegen-rust/src/emitter/list_query.rs:45:9
+   |
+45 |         field: Symbol,
+   |         ^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `closure` shadows a previous, unrelated binding
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:254:21
+    |
+254 |                 let closure = format!(
+    |                     ^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:225:13
+    |
+225 |         let closure = format!(
+    |             ^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `callback_text` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:386:13
+    |
+386 |         let callback_text = callback_text
+    |             ^^^^^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:381:9
+    |
+381 |         callback_text: &str,
+    |         ^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `field_ty` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:504:21
+    |
+504 |         if let Some(field_ty) = field_ty
+    |                     ^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:500:13
+    |
+500 |         let field_ty = fields
+    |             ^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `closure` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:844:25
+    |
+844 | ...   let closure = replace_shared_capture_uses(closure, &shared_replac...
+    |           ^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/list_query.rs:772:13
+    |
+772 | ...   let closure = self.closure_text_with_extra_params(id, extra_param...
+    |           ^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `body` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:1260:13
+     |
+1260 | ...   let body = replace_shared_capture_uses(body, &shared_replacements);
+     |           ^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:963:13
+     |
+ 963 | ...   let body = if let Some(callback) = closure.callback_body.as_ref() {
+     |           ^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `final_rest_param` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:2490:21
+     |
+2490 |                 let final_rest_param = final_rest_param
+     |                     ^^^^^^^^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:2487:21
+     |
+2487 |                 let final_rest_param = symbol_function
+     |                     ^^^^^^^^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `call_text` is shadowed
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:3124:21
+     |
+3124 | ...   let call_text = if self.callback_function_can_throw(*function) {
+     |           ^^^^^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:3123:21
+     |
+3123 |                 let call_text = format!("{function_text}({args_text})");
+     |                     ^^^^^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:3725:21
+     |
+3725 |         let start = index + offset;
+     |                     ^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: arithmetic operation that can potentially result in unexpected side-effects
+    --> crates/smelt-codegen-rust/src/emitter/list_query.rs:3726:19
+     |
+3726 |         let end = start + source.len();
+     |                   ^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#arithmetic_side_effects
+
+warning: `from_index` is shadowed
+  --> crates/smelt-codegen-rust/src/emitter/strings.rs:99:21
+   |
+99 |         if let Some(from_index) = from_index {
+   |                     ^^^^^^^^^^
+   |
+note: previous binding is here
+  --> crates/smelt-codegen-rust/src/emitter/strings.rs:85:9
+   |
+85 |         from_index: Option<&Operand>,
+   |         ^^^^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+
+warning: `text` shadows a previous, unrelated binding
+  --> crates/smelt-codegen-rust/src/emitter/unknown.rs:93:25
+   |
+93 |                     let text = self.operand_text(operand)?;
+   |                         ^^^^
+   |
+note: previous binding is here
+  --> crates/smelt-codegen-rust/src/emitter/unknown.rs:9:13
+   |
+ 9 |         let text = self.operand_text(operand)?;
+   |             ^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_unrelated
+
+warning: `closure_defs` is shadowed
+   --> crates/smelt-codegen-rust/src/emitter/mod.rs:454:9
+    |
+454 |     let closure_defs = closure_defs?;
+    |         ^^^^^^^^^^^^
+    |
+note: previous binding is here
+   --> crates/smelt-codegen-rust/src/emitter/mod.rs:452:5
+    |
+452 |     closure_defs: Option<&HashMap<LocalId, smelt_mir::ClosureId>>,
+    |     ^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+

@@ -1,0 +1,21 @@
+
+running 28 tests
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+. 1/28
+__smelt_module_flat_test::test_datafirst_clones_the_array_on_depth_0 --- FAILED
+__smelt_module_flat_test::test_datafirst_clones_the_array_when_no_nested_items --- FAILED
+.......Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+.... 14/28
+__smelt_module_flat_test::test_datalast_works_lazily_with_trivial_depth_0 --- FAILED
+.............
+failures:
+
+failures:
+    __smelt_module_flat_test::test_datafirst_clones_the_array_on_depth_0
+    __smelt_module_flat_test::test_datafirst_clones_the_array_when_no_nested_items
+    __smelt_module_flat_test::test_datalast_works_lazily_with_trivial_depth_0
+
+test result: FAILED. 25 passed; 3 failed; 0 ignored; 0 measured; 1761 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

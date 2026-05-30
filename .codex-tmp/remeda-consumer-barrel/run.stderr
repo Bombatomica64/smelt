@@ -1,0 +1,146 @@
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+  --> src/debounce.rs:76:20
+   |
+76 |     _smelt_tmp_8 = smelt_clear_timeout(timeout_id.clone());
+   |                    ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/debounce.rs:125:20
+    |
+125 |     _smelt_tmp_6 = smelt_clear_timeout(timeout_id.clone());
+    |                    ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/debounce.rs:152:72
+    |
+152 | ...oke.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/debounce.rs:192:80
+    |
+192 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/debounce.rs:201:80
+    |
+201 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/debounce.rs:212:21
+    |
+212 |     _smelt_tmp_18 = smelt_clear_timeout(timeout_id.clone());
+    |                     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/debounce.rs:215:80
+    |
+215 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/debounce.rs:222:21
+    |
+222 |     _smelt_tmp_18 = smelt_clear_timeout(timeout_id.clone());
+    |                     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/debounce.rs:225:80
+    |
+225 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/debounce.rs:251:20
+    |
+251 |     _smelt_tmp_8 = smelt_clear_timeout(timeout_id.clone());
+    |                    ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/debounce.rs:257:21
+    |
+257 |     _smelt_tmp_11 = smelt_clear_timeout(timeout_id_1.clone());
+    |                     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/debounce.rs:270:21
+    |
+270 |     _smelt_tmp_11 = smelt_clear_timeout(timeout_id_1.clone());
+    |                     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+  --> src/funnel.rs:54:79
+   |
+54 | ..._end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+   |                  ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+  --> src/funnel.rs:66:79
+   |
+66 | ..._end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+   |                  ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+  --> src/funnel.rs:85:28
+   |
+85 | ..._tmp_3: () = smelt_clear_timeout((*smelt_capture_interval_timeout_id....
+   |                 ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/funnel.rs:106:28
+    |
+106 | ...tmp_4: () = smelt_clear_timeout((*smelt_capture_burst_timeout_id.bor...
+    |                ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/funnel.rs:183:21
+    |
+183 |     _smelt_tmp_29 = smelt_clear_timeout((*smelt_capture_burst_timeout_i...
+    |                     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/funnel.rs:193:76
+    |
+193 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/funnel.rs:213:76
+    |
+213 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/funnel.rs:248:21
+    |
+248 |     _smelt_tmp_29 = smelt_clear_timeout((*smelt_capture_burst_timeout_i...
+    |                     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/funnel.rs:258:76
+    |
+258 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_set_timeout` in this scope
+   --> src/funnel.rs:278:76
+    |
+278 | ...end.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCe...
+    |                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/funnel.rs:311:28
+    |
+311 | ...tmp_4: () = smelt_clear_timeout((*smelt_capture_burst_timeout_id.bor...
+    |                ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `smelt_clear_timeout` in this scope
+   --> src/funnel.rs:314:28
+    |
+314 | ...tmp_5: () = smelt_clear_timeout((*smelt_capture_interval_timeout_id....
+    |                ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+For more information about this error, try `rustc --explain E0425`.
+error: could not compile `remeda_consumer_barrel_probe` (bin "remeda_consumer_barrel_probe") due to 24 previous errors

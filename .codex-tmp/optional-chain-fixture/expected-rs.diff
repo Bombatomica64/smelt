@@ -1,0 +1,37 @@
+--- examples/typescript/end-to-end/27_optional_chains/expected.rs	2026-05-27 11:25:08.568000401 +0200
++++ .codex-tmp/optional-chain-fixture/dist/src/main.rs	2026-05-27 12:52:35.133808732 +0200
+@@ -17,6 +17,25 @@
+     SMELT_NEXT_OBJECT_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id })
+ }
+ 
++thread_local! {
++    static SMELT_FUNCTION_ORIGINS: ::std::cell::RefCell<::std::collections::HashMap<usize, Box<dyn ::std::any::Any>>> = ::std::cell::RefCell::new(::std::collections::HashMap::new());
++}
++
++/// Return the stable key for an erased callback wrapper.
++fn smelt_erased_function_key(function: &::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>) -> usize {
++    ::std::rc::Rc::as_ptr(function) as *const () as usize
++}
++
++/// Retain typed callback identity while it crosses an erased ABI.
++fn smelt_register_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>, origin: T) {
++    SMELT_FUNCTION_ORIGINS.with(|origins| { origins.borrow_mut().insert(smelt_erased_function_key(function), Box::new(origin)); });
++}
++
++/// Recover a typed callback previously passed through an erased ABI.
++fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<::std::cell::RefCell<dyn FnMut(Vec<SmeltUnknown>) -> Result<SmeltUnknown, Box<dyn std::error::Error>>>>) -> Option<T> {
++    SMELT_FUNCTION_ORIGINS.with(|origins| origins.borrow().get(&smelt_erased_function_key(function)).and_then(|origin| origin.downcast_ref::<T>()).cloned())
++}
++
+ impl<K, V> Clone for SmeltRecord<K, V> {
+     fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } }
+ }
+@@ -546,7 +565,7 @@
+     }
+ }
+ 
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, PartialEq)]
+ pub struct SmeltRegExp {
+     source: String,
+     flags: String,

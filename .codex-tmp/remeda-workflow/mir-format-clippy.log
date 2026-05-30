@@ -1,0 +1,65 @@
+warning: indexing may panic
+   --> crates/smelt-mir/src/lower.rs:868:22
+    |
+868 |                     &closure_defs_by_function[function_index],
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+    = note: requested on the command line with `-W clippy::indexing-slicing`
+
+warning: indexing may panic
+   --> crates/smelt-mir/src/lower.rs:869:22
+    |
+869 |                     &local_rvalues_by_function[function_index],
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: consider using `.get(n)` or `.get_mut(n)` instead
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#indexing_slicing
+
+warning: wildcard match will also match any future added variants
+   --> crates/smelt-mir/src/lower.rs:973:9
+    |
+973 |         _ => {}
+    |         ^ help: try: `Rvalue::Binary { .. } | Rvalue::Unary { .. } | Rvalue::Conditional { .. } | Rvalue::OptionalField { .. } | Rvalue::OptionalIndex { .. } | Rvalue::OptionalMethod { .. } | Rvalue::OptionalCoalesce { .. } | Rvalue::InstanceOf { .. } | Rvalue::UnknownIs { .. } | Rvalue::UnknownCast { .. } | Rvalue::Struct { .. } | Rvalue::ExternalClassInstance { .. } | Rvalue::Len(_) | Rvalue::NumericAbs(_) | Rvalue::NumericRound { .. } | Rvalue::NumericExtrema { .. } | Rvalue::NumericHypot { .. } | Rvalue::NumericPredicate { .. } | Rvalue::NumericUnaryFunc { .. } | Rvalue::Closure { .. } | Rvalue::ClosureCall { .. } | Rvalue::ClosureCallSpread { .. } | Rvalue::NumericPow { .. } | Rvalue::NumericAtan2 { .. } | Rvalue::NumericRandom | Rvalue::NumericRandomInt { .. } | Rvalue::NumericToStringRadix { .. } | Rvalue::PrimitiveCast { .. } | Rvalue::StringCase { .. } | Rvalue::StringNormalize { .. } | Rvalue::StringTrim { .. } | Rvalue::StringAffix { .. } | Rvalue::StringSearch { .. } | Rvalue::StringReplace { .. } | Rvalue::StringRemoveAffix { .. } | Rvalue::StringRepeat { .. } | Rvalue::StringPad { .. } | Rvalue::StringPredicate { .. } | Rvalue::RegexIsMatch { .. } | Rvalue::RegexReplace { .. } | Rvalue::RegexReplaceCallback { .. } | Rvalue::RegexReplaceFirstMatchUppercase { .. } | Rvalue::RegexSplit { .. } | Rvalue::RegexFind { .. } | Rvalue::RegexExec { .. } | Rvalue::RegexMatchAll { .. } | Rvalue::StringCharAt { .. } | Rvalue::StringCharCodeAt { .. } | Rvalue::StringContains { .. } | Rvalue::StringSlice { .. } | Rvalue::ListContains { .. } | Rvalue::SetContains { .. } | Rvalue::SetDisjoint { .. } | Rvalue::SetRelation { .. } | Rvalue::SetAdd { .. } | Rvalue::SetRemove { .. } | Rvalue::SetClear { .. } | Rvalue::SetCopy { .. } | Rvalue::ListToSet { .. } | Rvalue::ListPairsToDict { .. } | Rvalue::SetBinary { .. } | Rvalue::SetProjection { .. } | Rvalue::ListConcat { .. } | Rvalue::ListSearch { .. } | Rvalue::ListCallback { .. } | Rvalue::ListFromLength { .. } | Rvalue::ListFromLengthMap { .. } | Rvalue::ListReduce { .. } | Rvalue::ListSlice { .. } | Rvalue::ListSplice { .. } | Rvalue::ListFill { .. } | Rvalue::ListCopyWithin { .. } | Rvalue::ListWith { .. } | Rvalue::ListFlat { .. } | Rvalue::ListProjection { .. } | Rvalue::ListPush { .. } | Rvalue::ListExtend { .. } | Rvalue::ListInsert { .. } | Rvalue::ListUnshift { .. } | Rvalue::ListReverse { .. } | Rvalue::ListClear { .. } | Rvalue::ListCopy { .. } | Rvalue::TupleToList { .. } | Rvalue::ListToTuple { .. } | Rvalue::TupleToSet { .. } | Rvalue::ListCount { .. } | Rvalue::ListSum { .. } | Rvalue::ListBoolFold { .. } | Rvalue::ListSorted { .. } | Rvalue::ListReversed { .. } | Rvalue::ListEnumerate { .. } | Rvalue::ListZip { .. } | Rvalue::ListRange { .. } | Rvalue::ListRandomChoice { .. } | Rvalue::ListIndex { .. } | Rvalue::ListRemove { .. } | Rvalue::ListSort { .. } | Rvalue::ListPop { .. } | Rvalue::ListShift { .. } | Rvalue::TupleContains { .. } | Rvalue::TupleIndex { .. } | Rvalue::TupleSlice { .. } | Rvalue::DictContainsKey { .. } | Rvalue::DictSet { .. } | Rvalue::DictRemoveKey { .. } | Rvalue::DictGet { .. } | Rvalue::DictSetDefault { .. } | Rvalue::DictClear { .. } | Rvalue::DictPop { .. } | Rvalue::DictUpdate { .. } | Rvalue::DictAssign { .. } | Rvalue::CallableObjectAssign { .. } | Rvalue::DictCopy { .. } | Rvalue::DictProjection { .. } | Rvalue::StringSplit { .. } | Rvalue::StringChars { .. } | Rvalue::StringJoin { .. } | Rvalue::JsonStringify { .. } | Rvalue::JsonParse { .. } | Rvalue::HttpGetText { .. } | Rvalue::DateNow | Rvalue::DateSetNow { .. } | Rvalue::DateResetNow | Rvalue::DateTimezoneOffset | Rvalue::DateSetTimezoneOffset { .. } | Rvalue::DateResetTimezoneOffset | Rvalue::DateTimezoneContext { .. } | Rvalue::DateToIsoString { .. } | Rvalue::DateToString { .. } | Rvalue::DateFromParts { .. } | Rvalue::DateFromValue { .. } | Rvalue::DateGetPart { .. } | Rvalue::DateSetPart { .. } | Rvalue::UrlField { .. } | Rvalue::FileReadText { .. } | Rvalue::FileWriteText { .. } | Rvalue::Await(_) | Rvalue::AsyncOp { .. }`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#wildcard_enum_match_arm
+    = note: requested on the command line with `-W clippy::wildcard-enum-match-arm`
+
+warning: using a potentially dangerous silent `as` conversion
+    --> crates/smelt-mir/src/lower.rs:1728:67
+     |
+1728 | ....function.blocks.get_mut(target.0 as usize) {
+     |                             ^^^^^^^^^^^^^^^^^
+     |
+     = help: consider using a safe wrapper for this conversion
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#as_conversions
+     = note: requested on the command line with `-W clippy::as-conversions`
+
+warning: `depth` is shadowed
+    --> crates/smelt-mir/src/lower.rs:2903:48
+     |
+2903 | ...   let depth_operand = depth.map(|depth| self.lower_expr(depth)).tr...
+     |                                      ^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-mir/src/lower.rs:2901:40
+     |
+2901 |             ExprKind::ListFlat { list, depth } => {
+     |                                        ^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+     = note: requested on the command line with `-W clippy::shadow-reuse`
+
+warning: `depth` is shadowed
+    --> crates/smelt-mir/src/validate.rs:1331:25
+     |
+1331 |             if let Some(depth) = depth {
+     |                         ^^^^^
+     |
+note: previous binding is here
+    --> crates/smelt-mir/src/validate.rs:1329:34
+     |
+1329 |         Rvalue::ListFlat { list, depth } => {
+     |                                  ^^^^^
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.93.0/index.html#shadow_reuse
+

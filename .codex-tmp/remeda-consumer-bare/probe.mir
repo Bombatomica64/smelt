@@ -1,0 +1,52 @@
+fn main (FuncId(0)) -> None
+  locals
+    %0 user flattened: Unknown
+    %1 user remaining: Unknown
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+    %4 temp: List<Float>
+    %5 temp: List<Float>
+    %6 temp: List<List<Float>>
+    %7 temp: Unknown
+    %8 temp: Dict<String, Unknown>
+    %9 temp: Unknown
+    %10 temp: List<Float>
+    %11 temp: Unknown
+    %12 temp: None
+    %13 temp: None
+    %14 temp: Dict<String, Unknown>
+    %15 temp: Unknown
+    %16 temp: List<Float>
+    %17 temp: List<Float>
+    %18 temp: List<List<Float>>
+    %19 temp: Unknown
+    %20 temp: Float
+    %21 temp: None
+  bb0:
+    %2 = {}
+    %3 = unknown_cast copy %2 as t0
+    %4 = [1.0, 2.0]
+    %5 = [3.0]
+    %6 = [copy %4, copy %5]
+    %7 = closure_call copy %3(copy %6)
+    %0 = copy %7
+    %8 = {}
+    %9 = unknown_cast copy %8 as t0
+    %10 = [2.0]
+    %11 = closure_call copy %9(copy %0, copy %10)
+    %1 = copy %11
+    %12 = call @console_log(copy %1[0.0]) -> bb1
+  bb1:
+    %13 = call @console_log(copy %1[1.0]) -> bb2
+  bb2:
+    %14 = {}
+    %15 = unknown_cast copy %14 as t0
+    %16 = [1.0]
+    %17 = [2.0]
+    %18 = [copy %16, copy %17]
+    %19 = closure_call copy %15(copy %18, 0.0)
+    %20 = len copy %19
+    %21 = call @console_log(copy %20) -> bb3
+  bb3:
+    return none
+

@@ -1,0 +1,74 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-2759082811376727)
+
+running 24 tests
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_empty_string_2073 ... Error: okCustom
+ { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_data_last_has_an_implicit_default_options_object ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_lodash_spec_should_coerce_length_to_an_integer ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_lodash_spec_should_not_truncate_if_string_is_length ... ok
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_data_last_accepts_an_options_object ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_empty_separator ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_lodash_spec_should_support_a_maxlength_option ... FAILED
+test __smelt_module_truncate_test::test_lodash_spec_should_support_a_omission_option ... FAILED
+Error: Custom { kind: Othertest __smelt_module_truncate_test::test_empty_omission ... , FAILEDerror
+: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_multiple_string_separators_within_maxlength ... FAILED
+test __smelt_module_truncate_test::test_n_is_in_range_data_length_omission_length_data_length ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_multiple_regex_separators_within_maxlength ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_lodash_spec_should_treat_negative_length_as_0 ... ok
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_regex_separator_never_matches ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_lodash_spec_should_truncate_string_the_given_length ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_omission_is_longer_than_maxlength ... ok
+test __smelt_module_truncate_test::test_string_separator_matches_after_maxlength ... FAILED
+test __smelt_module_truncate_test::test_lodash_spec_should_support_a_separator_option ... FAILED
+test __smelt_module_truncate_test::test_regex_separator_matches_after_maxlength ... FAILED
+test __smelt_module_truncate_test::test_trivial_0_n ... ok
+test __smelt_module_truncate_test::test_string_separator_never_matches ... FAILED
+test __smelt_module_truncate_test::test_trivial_case ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, errortest __smelt_module_truncate_test::test_trivial_regex_separator ... : FAILED"
+expect(...).toBe(...) failed" }
+test __smelt_module_truncate_test::test_trivial_global_regex_separator ... FAILED
+
+failures:
+
+failures:
+    __smelt_module_truncate_test::test_data_last_accepts_an_options_object
+    __smelt_module_truncate_test::test_data_last_has_an_implicit_default_options_object
+    __smelt_module_truncate_test::test_empty_omission
+    __smelt_module_truncate_test::test_empty_separator
+    __smelt_module_truncate_test::test_lodash_spec_should_coerce_length_to_an_integer
+    __smelt_module_truncate_test::test_lodash_spec_should_support_a_maxlength_option
+    __smelt_module_truncate_test::test_lodash_spec_should_support_a_omission_option
+    __smelt_module_truncate_test::test_lodash_spec_should_support_a_separator_option
+    __smelt_module_truncate_test::test_lodash_spec_should_truncate_string_the_given_length
+    __smelt_module_truncate_test::test_multiple_regex_separators_within_maxlength
+    __smelt_module_truncate_test::test_multiple_string_separators_within_maxlength
+    __smelt_module_truncate_test::test_n_is_in_range_data_length_omission_length_data_length
+    __smelt_module_truncate_test::test_regex_separator_matches_after_maxlength
+    __smelt_module_truncate_test::test_regex_separator_never_matches
+    __smelt_module_truncate_test::test_string_separator_matches_after_maxlength
+    __smelt_module_truncate_test::test_string_separator_never_matches
+    __smelt_module_truncate_test::test_trivial_case
+    __smelt_module_truncate_test::test_trivial_global_regex_separator
+    __smelt_module_truncate_test::test_trivial_regex_separator
+
+test result: FAILED. 5 passed; 19 failed; 0 ignored; 0 measured; 1765 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

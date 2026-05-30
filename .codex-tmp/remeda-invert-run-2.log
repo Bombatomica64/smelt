@@ -1,0 +1,18 @@
+
+running 11 tests
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+... 3/11
+__smelt_module_invert_test::test_data_first_numeric_values --- FAILED
+..Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+. 7/11
+__smelt_module_invert_test::test_data_last_numeric_values --- FAILED
+...
+failures:
+
+failures:
+    __smelt_module_invert_test::test_data_first_numeric_values
+    __smelt_module_invert_test::test_data_last_numeric_values
+
+test result: FAILED. 9 passed; 2 failed; 0 ignored; 0 measured; 1778 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

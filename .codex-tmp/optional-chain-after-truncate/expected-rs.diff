@@ -1,0 +1,14 @@
+--- examples/typescript/end-to-end/27_optional_chains/expected.rs	2026-05-27 12:53:03.102875606 +0200
++++ .codex-tmp/optional-chain-after-truncate/dist/src/main.rs	2026-05-27 15:44:08.186466904 +0200
+@@ -651,6 +651,11 @@
+         object.insert("input".to_owned(), SmeltUnknown::String(haystack.to_owned()));
+         Some(SmeltUnknown::Object(SmeltObject::new(object)))
+     }
++    /// Return indexed match records for JavaScript String.prototype.matchAll.
++    pub fn match_all_indices(&self, haystack: &str) -> Vec<SmeltRecord<String, f64>> {
++        let Some(regex) = self.try_compiled() else { return Vec::new(); };
++        regex.find_iter(haystack).filter_map(Result::ok).map(|matched| SmeltRecord::from([("index".to_owned(), matched.start() as f64)])).collect::<Vec<_>>()
++    }
+     /// Test this RegExp against a string with JavaScript lastIndex updates.
+     pub fn test(&self, haystack: &str) -> bool {
+         self.exec(haystack).is_some()

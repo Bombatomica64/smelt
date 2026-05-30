@@ -1,0 +1,167 @@
+fn flat (FuncId(0)) -> Unknown
+  locals
+    %0 param data_or_depth: Optional<List<Unknown> | Float>
+    %1 param depth: Optional<Float>
+    %2 temp: Bool
+    %3 temp: List<Unknown>
+    %4 temp: Dict<String, Unknown>
+    %5 temp: Unknown
+    %6 temp: fn(List<Unknown>, Optional<Float>) -> List<Unknown>
+    %7 temp: Bool
+    %8 temp: List<Unknown>
+    %9 temp: List<Unknown>
+    %10 temp: List<Unknown>
+    %11 temp: fn(Optional<Float>) -> LazyEvaluator
+    %12 temp: Unknown
+  bb0:
+    %2 = unknown_is Object copy %0
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    %3 = call fn1(copy %0, copy %1) -> bb3
+  bb2:
+    %4 = {}
+    %5 = unknown_cast copy %4 as t0
+    %6 = closure ClosureId(0) []
+    %7 = copy %0 == none
+    switch copy %7 ? bb4 : bb5
+  bb3:
+    return copy %3
+  bb4:
+    %9 = []
+    %8 = copy %9
+    goto bb6
+  bb5:
+    %10 = [copy %0]
+    %8 = copy %10
+    goto bb6
+  bb6:
+    %11 = closure ClosureId(1) []
+    %12 = closure_call copy %5(copy %6, copy %8, copy %11)
+    return copy %12
+
+fn flat_implementation__module_third_party/remeda/packages/remeda/src/flat.ts (FuncId(1)) -> List<Unknown>
+  locals
+    %0 param data: List<Unknown>
+    %1 param depth: Optional<Float>
+    %2 temp: Bool
+    %3 temp: List<Unknown>
+    %4 temp: List<Unknown>
+    %5 temp: Float
+    %6 temp: List<Unknown>
+  bb0:
+    %2 = copy %1 == none
+    switch copy %2 ? bb1 : bb2
+  bb1:
+    %4 = list_flat copy %0, _
+    %3 = copy %4
+    goto bb3
+  bb2:
+    %5 = copy %1
+    %6 = list_flat copy %0, copy %5
+    %3 = copy %6
+    goto bb3
+  bb3:
+    return copy %3
+
+fn lazy_implementation__module_third_party/remeda/packages/remeda/src/flat.ts (FuncId(2)) -> LazyEvaluator
+  locals
+    %0 param depth: Optional<Float>
+    %1 temp: Bool
+    %2 temp: Bool
+    %3 temp: Bool
+    %4 temp: Unknown
+    %5 temp: fn(T) -> LazyResult<T>
+    %6 temp: Float
+    %7 temp: Bool
+    %8 temp: Unknown
+    %9 temp: Dict<String, Unknown>
+    %10 temp: Unknown
+    %11 temp: fn(Unknown) -> Dict<String, Unknown>
+  bb0:
+    %1 = copy %0 == none
+    %2 = copy %0 == 1.0
+    %3 = copy %1 || copy %2
+    switch copy %3 ? bb1 : bb2
+  bb1:
+    %5 = closure ClosureId(2) []
+    %4 = copy %5
+    goto bb3
+  bb2:
+    %6 = copy %0
+    %7 = copy %6 <= 0.0
+    switch copy %7 ? bb4 : bb5
+  bb3:
+    return copy %4
+  bb4:
+    %9 = {}
+    %10 = unknown_cast copy %9 as t0
+    %8 = copy %10
+    goto bb6
+  bb5:
+    %11 = closure ClosureId(3) [copy %0]
+    %8 = copy %11
+    goto bb6
+  bb6:
+    %4 = copy %8
+    goto bb3
+
+fn lazy_shallow__module_third_party/remeda/packages/remeda/src/flat.ts (FuncId(3)) -> LazyResult<T>
+  locals
+    %0 param value: T
+    %1 temp: Bool
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Dict<String, Unknown>
+  bb0:
+    %1 = unknown_is Array copy %0
+    switch copy %1 ? bb1 : bb2
+  bb1:
+    %3 = {"next": copy %0, "hasNext": true, "hasMany": true, "done": false}
+    %2 = copy %3
+    goto bb3
+  bb2:
+    %4 = {"next": copy %0, "hasNext": true, "done": false}
+    %2 = copy %4
+    goto bb3
+  bb3:
+    return copy %2
+
+fn main (FuncId(4)) -> None
+  bb0:
+    return none
+
+closure ClosureId(0) -> List<Unknown>
+  locals
+    %0 param data: List<Unknown>
+    %1 param depth: Optional<Float>
+    %2 temp: List<Unknown>
+  bb0:
+    %2 = call fn1(copy %0, copy %1) -> bb1
+  bb1:
+    return copy %2
+
+closure ClosureId(1) -> LazyEvaluator
+  locals
+    %0 param depth: Optional<Float>
+    %1 temp: LazyEvaluator
+  bb0:
+    %1 = call fn2(copy %0) -> bb1
+  bb1:
+    return copy %1
+
+closure ClosureId(2) -> LazyResult<T>
+  locals
+    %0 param arg_0: T
+    %1 temp: Dict<String, Unknown>
+    %2 temp: LazyResult<T>
+  bb0:
+    %1 = {}
+    %2 = unknown_cast copy %1 as t29
+    return copy %2
+
+closure ClosureId(3) -> Dict<String, Unknown>
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    <missing terminator>
+

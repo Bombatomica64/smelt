@@ -1,0 +1,35 @@
+
+running 28 tests
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+__smelt_module_flat_test::test_datafirst_clones_the_array_on_depth_0 --- FAILED
+__smelt_module_flat_test::test_datafirst_clones_the_array_when_no_nested_items --- FAILED
+..........Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+ 12/28
+__smelt_module_flat_test::test_datalast_works_lazily_deep --- FAILED
+. 14/28
+__smelt_module_flat_test::test_datalast_works_lazily_with_trivial_depth_0 --- FAILED
+__smelt_module_flat_test::test_datalast_works_lazily_shallow --- FAILED
+........Error: Custom { kind: .Other, error: "expect(...).toBe(...) failed" }
+ 25/28
+__smelt_module_flat_test::test_legacy_flattendeep_equivalent_depth_4_lazy --- FAILED
+.Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+ 27/28
+__smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_lazy --- FAILED
+
+failures:
+
+failures:
+    __smelt_module_flat_test::test_datafirst_clones_the_array_on_depth_0
+    __smelt_module_flat_test::test_datafirst_clones_the_array_when_no_nested_items
+    __smelt_module_flat_test::test_datalast_works_lazily_deep
+    __smelt_module_flat_test::test_datalast_works_lazily_shallow
+    __smelt_module_flat_test::test_datalast_works_lazily_with_trivial_depth_0
+    __smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_lazy
+    __smelt_module_flat_test::test_legacy_flattendeep_equivalent_depth_4_lazy
+
+test result: FAILED. 21 passed; 7 failed; 0 ignored; 0 measured; 1761 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

@@ -1,0 +1,14 @@
+[project]
+name = "remeda-consumer-barrel-probe"
+version = "0.1.0"
+
+[sources]
+entries = ["../../third_party/remeda/packages/remeda/src/__smelt_consumer_barrel_probe/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "remeda_consumer_barrel_probe"
+build = false
+
+[runtime]
+clone-strategy = "aggressive"

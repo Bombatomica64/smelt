@@ -1,0 +1,162 @@
+error[E0599]: no method named `flat` found for enum `SmeltUnknown` in the current scope
+    --> src/flat.rs:91:158
+     |
+  91 | ...Unknown::Array(_)) { SmeltRecord::from([("next".to_owned(), arg0.flat((depth.clone() - 1.0))), ("hasNext".to_owned(), SmeltUnknown::Bo...
+     |                                                                     ^^^^
+     |
+    ::: src/main.rs:1351:1
+     |
+1351 | pub enum SmeltUnknown {
+     | --------------------- method `flat` not found for this enum
+     |
+help: there is a method `lt` with a similar name
+     |
+  91 -     move |arg0: SmeltUnknown| -> SmeltRecord<String, SmeltUnknown> { if matches!(arg0, SmeltUnknown::Array(_)) { SmeltRecord::from([("next".to_owned(), arg0.flat((depth.clone() - 1.0))), ("hasNext".to_owned(), SmeltUnknown::Bool(true)), ("hasMany".to_owned(), SmeltUnknown::Bool(true)), ("done".to_owned(), SmeltUnknown::Bool(false))]) } else { SmeltRecord::from([("next".to_owned(), (arg0.clone()).into_smelt_unknown()), ("hasNext".to_owned(), SmeltUnknown::Bool(true)), ("done".to_owned(), SmeltUnknown::Bool(false))]) } }
+  91 +     move |arg0: SmeltUnknown| -> SmeltRecord<String, SmeltUnknown> { if matches!(arg0, SmeltUnknown::Array(_)) { SmeltRecord::from([("next".to_owned(), arg0.lt((depth.clone() - 1.0))), ("hasNext".to_owned(), SmeltUnknown::Bool(true)), ("hasMany".to_owned(), SmeltUnknown::Bool(true)), ("done".to_owned(), SmeltUnknown::Bool(false))]) } else { SmeltRecord::from([("next".to_owned(), (arg0.clone()).into_smelt_unknown()), ("hasNext".to_owned(), SmeltUnknown::Bool(true)), ("done".to_owned(), SmeltUnknown::Bool(false))]) } }
+     |
+
+error[E0369]: cannot subtract `{float}` from `std::option::Option<f64>`
+   --> src/flat.rs:91:178
+    |
+ 91 | ...eltRecord::from([("next".to_owned(), arg0.flat((depth.clone() - 1.0))), ("hasNext".to_owned(), SmeltUnknown::Bool(true)), ("hasMany".t...
+    |                                                    ------------- ^ --- {float}
+    |                                                    |
+    |                                                    std::option::Option<f64>
+    |
+note: `std::option::Option<f64>` does not implement `Sub<{float}>`
+   --> /home/lollo/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs:600:1
+    |
+600 | pub enum Option<T> {
+    | ^^^^^^^^^^^^^^^^^^ `std::option::Option<f64>` is defined in another crate
+
+error[E0308]: mismatched types
+  --> src/when.rs:16:1397
+   |
+16 | ... true } })); smelt_callback } else { { let smelt_default_callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut(SmeltUnknown, Vec<Smel...
+   |                 ^^^^^^^^^^^^^^ expected `&mut dyn FnMut(..., ...) -> bool`, found `Rc<RefCell<dyn FnMut(..., ...) -> bool>>`
+   |
+   = note: expected mutable reference `&mut dyn FnMut(SmeltUnknown, Vec<SmeltUnknown>) -> bool`
+                         found struct `Rc<RefCell<dyn FnMut(SmeltUnknown, Vec<SmeltUnknown>) -> bool>>`
+
+error[E0308]: mismatched types
+  --> src/when.rs:16:1658
+   |
+16 | ...lse })); smelt_default_callback } } }, args.clone().get(1).cloned().unwrap_or(SmeltUnknown::Null), { let mut smelt_rest = Vec::new(); ...
+   |             ^^^^^^^^^^^^^^^^^^^^^^ expected `&mut dyn FnMut(..., ...) -> bool`, found `Rc<RefCell<dyn FnMut(..., ...) -> bool>>`
+   |
+   = note: expected mutable reference `&mut dyn FnMut(SmeltUnknown, Vec<SmeltUnknown>) -> bool`
+                         found struct `Rc<RefCell<dyn FnMut(SmeltUnknown, Vec<SmeltUnknown>) -> bool>>`
+
+error[E0308]: mismatched types
+   --> src/zip.rs:132:285
+    |
+132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+    |       |
+    |       this expression has type `f64`
+
+error[E0308]: mismatched types
+   --> src/zip.rs:132:323
+    |
+132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`          ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zip.rs:132:449
+    |
+132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zip.rs:132:522
+    |
+132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+    --> src/zip.rs:132:582
+     |
+ 132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | ...
+     |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                             ^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+     |
+    ::: src/main.rs:1352:5
+     |
+1352 |     Null,
+     |     ---- unit variant defined here
+
+error[E0308]: mismatched types
+   --> src/zip.rs:132:603
+    |
+132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | ...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                                                  ^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zip.rs:132:629
+    |
+132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | ...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                                                                            ^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zip.rs:132:654
+    |
+132 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zipWith.rs:122:863
+    |
+122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------   ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+    |       |
+    |       this expression has type `f64`
+
+error[E0308]: mismatched types
+   --> src/zipWith.rs:122:901
+    |
+122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`          ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zipWith.rs:122:1027
+    |
+122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zipWith.rs:122:1100
+    |
+122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                 ^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+    --> src/zipWith.rs:122:1160
+     |
+ 122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | ...
+     |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                             ^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+     |
+    ::: src/main.rs:1352:5
+     |
+1352 |     Null,
+     |     ---- unit variant defined here
+
+error[E0308]: mismatched types
+   --> src/zipWith.rs:122:1181
+    |
+122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | ...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                                                  ^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zipWith.rs:122:1207
+    |
+122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | ...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                                                                            ^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+error[E0308]: mismatched types
+   --> src/zipWith.rs:122:1232
+    |
+122 | ...ch match &second.clone() { SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }.clone() { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) =>...
+    |       ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ this expression has type `f64`                                                                                                                                                                                                                                                                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^ expected `f64`, found `SmeltUnknown`
+
+Some errors have detailed explanations: E0308, E0369, E0599.
+For more information about an error, try `rustc --explain E0308`.
+error: could not compile `remeda_smelt_probe` (bin "remeda_smelt_probe" test) due to 20 previous errors

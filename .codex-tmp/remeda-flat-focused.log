@@ -1,0 +1,56 @@
+
+running 28 tests
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+__smelt_module_flat_test::test_datafirst_clones_the_array_on_depth_0 --- FAILED
+....Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+. 6/28
+__smelt_module_flat_test::test_datafirst_clones_the_array_when_no_nested_items --- FAILED
+... 10/28
+__smelt_module_flat_test::test_datalast_flattens_shallow_nested_arrays --- FAILED
+__smelt_module_flat_test::test_datalast_handles_optional_depth_as_if_it_was_1 --- FAILED
+__smelt_module_flat_test::test_datalast_handles_objects --- FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+.. 15/28
+__smelt_module_flat_test::test_datalast_works_on_flat_arrays --- FAILED
+__smelt_module_flat_test::test_datalast_works_lazily_with_trivial_depth_0 --- FAILED
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+. 18/28
+__smelt_module_flat_test::test_datalast_works_lazily_shallow --- FAILED
+Error: Custom { kind: Other, error: __smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_flatten_multiple_values --- "FAILEDexpect(...).toBe(...) failed
+" }
+.Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+ 21/28
+__smelt_module_flat_test::test_datalast_works_lazily_deep --- FAILED
+. 23/28
+__smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_flatten_single_value --- FAILED
+.Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+Error: Custom { kind: Other, error: "expect(...).toBe(...) failed" }
+ 25/28
+__smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_lazy --- FAILED
+__smelt_module_flat_test::test_legacy_flattendeep_equivalent_depth_4_lazy --- FAILED
+.
+failures:
+
+failures:
+    __smelt_module_flat_test::test_datafirst_clones_the_array_on_depth_0
+    __smelt_module_flat_test::test_datafirst_clones_the_array_when_no_nested_items
+    __smelt_module_flat_test::test_datalast_flattens_shallow_nested_arrays
+    __smelt_module_flat_test::test_datalast_handles_objects
+    __smelt_module_flat_test::test_datalast_handles_optional_depth_as_if_it_was_1
+    __smelt_module_flat_test::test_datalast_works_lazily_deep
+    __smelt_module_flat_test::test_datalast_works_lazily_shallow
+    __smelt_module_flat_test::test_datalast_works_lazily_with_trivial_depth_0
+    __smelt_module_flat_test::test_datalast_works_on_flat_arrays
+    __smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_flatten_multiple_values
+    __smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_flatten_single_value
+    __smelt_module_flat_test::test_legacy_flatten_equivalent_depth_1_datalast_lazy
+    __smelt_module_flat_test::test_legacy_flattendeep_equivalent_depth_4_lazy
+
+test result: FAILED. 15 passed; 13 failed; 0 ignored; 0 measured; 1761 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`

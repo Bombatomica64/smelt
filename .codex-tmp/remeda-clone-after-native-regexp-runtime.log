@@ -1,0 +1,50 @@
+   Compiling remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 38s
+     Running unittests src/main.rs (third_party/remeda/dist-smelt/target/debug/deps/remeda_smelt_probe-2759082811376727)
+
+running 27 tests
+test __smelt_module_clone_test::test_arrays_clones_shallow_arrays ... ok
+test __smelt_module_clone_test::test_built_in_types_case_1_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_built_in_types_case_0_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_built_in_types_case_2_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_built_in_types_case_3_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_built_in_types_case_4_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_built_in_types_case_5_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_arrays_clones_deep_arrays ... ok
+test __smelt_module_clone_test::test_built_in_types_case_6_clones_regexp_object_s ... ok
+Error: test __smelt_module_clone_test::test_built_in_types_case_7_clones_regexp_object_s ... okCustom
+ { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test __smelt_module_clone_test::test_edge_cases_empty_array_111 ... ok
+test __smelt_module_clone_test::test_built_in_types_case_8_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_built_in_types_clones_date_object ... FAILED
+Error: Custom { kind: Other, error: "expect(...).toBeNull() failed" }
+test __smelt_module_clone_test::test_built_in_types_case_9_clones_regexp_object_s ... ok
+test __smelt_module_clone_test::test_edge_cases_empty_object ... ok
+Error: Custom { kind: test __smelt_module_clone_test::test_edge_cases_nulls ... OtherFAILED, 
+error: "expect(...).toBe(...) failed" }
+test __smelt_module_clone_test::test_nested_mixed_objects_clones_array_with_arrays_nulls ... ok
+Error: Custom { kind: Other, error: "expect(...).toStrictEqual(...) failed" }
+test __smelt_module_clone_test::test_nested_mixed_objects_clones_array_with_arrays_clones_array_with_mutual_ref_object ... FAILED
+Error: Custom { kindtest __smelt_module_clone_test::test_functions_keep_reference_to_function ... : FAILEDOther
+, error: "expect(...).toBeUndefined() failed" }
+test __smelt_module_clone_test::test_edge_cases_undefined ... FAILED
+test __smelt_module_clone_test::test_primitive_types_boolean ... ok
+test __smelt_module_clone_test::test_primitive_types_number ... ok
+test __smelt_module_clone_test::test_primitive_types_string ... ok
+test __smelt_module_clone_test::test_objects_clones_objects_with_circular_references ... ok
+test __smelt_module_clone_test::test_objects_clones_deep_object ... ok
+test __smelt_module_clone_test::test_objects_clones_shallow_object ... ok
+test __smelt_module_clone_test::test_nested_mixed_objects_clones_array_with_objects ... ok
+
+failures:
+
+failures:
+    __smelt_module_clone_test::test_built_in_types_clones_date_object
+    __smelt_module_clone_test::test_edge_cases_nulls
+    __smelt_module_clone_test::test_edge_cases_undefined
+    __smelt_module_clone_test::test_functions_keep_reference_to_function
+    __smelt_module_clone_test::test_nested_mixed_objects_clones_array_with_arrays_clones_array_with_mutual_ref_object
+
+test result: FAILED. 22 passed; 5 failed; 0 ignored; 0 measured; 1762 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--bin remeda_smelt_probe`
