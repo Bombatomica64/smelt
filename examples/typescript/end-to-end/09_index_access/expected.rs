@@ -6,5 +6,5 @@ fn main() {
     let values: Vec<f64> = _smelt_tmp_2.clone();
     let _smelt_tmp_3: ::std::collections::HashMap<String, String> = ::std::collections::HashMap::from([("first".to_owned(), "Ada".to_owned()), ("second".to_owned(), "Grace".to_owned())]);
     let names: ::std::collections::HashMap<String, String> = _smelt_tmp_3.clone();
-    let _smelt_tmp_4: () = { println!("{} {}", values.get({ let len = values.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone(), names.get(&"second".to_owned().clone()).cloned().expect("index out of bounds").clone()); };
+    let _ = { println!("{} {}", values.get({ let len = values.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone(), names.get(&"second".to_owned().clone()).cloned().expect("index out of bounds").clone()); };
 }

@@ -336,6 +336,18 @@ impl FunctionEmitter<'_> {
                         ));
                         return Ok(());
                     }
+                    Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
+                        let rendered_value =
+                            self.rvalue_text_for_dest(value, self.type_id(Type::Unknown)?)?;
+                        let index_ty = self.operand_ty(index)?;
+                        let index_text = self.operand_text(index)?;
+                        let key_text = self.property_key_to_string_text(&index_text, index_ty)?;
+                        out.push_str(&format!(
+                            "    {{ let smelt_key = {key_text}; let smelt_value = {rendered_value}; match &mut {} {{ SmeltUnknown::Object(map) => {{ map.insert(smelt_key, smelt_value); }}, other => {{ let mut map = ::std::collections::HashMap::new(); map.insert(smelt_key, smelt_value); *other = SmeltUnknown::Object(SmeltObject::new(map)); }} }} }}\n",
+                            self.local_mut_value_text(*base)?
+                        ));
+                        return Ok(());
+                    }
                     _ => {
                         let rendered_value = self.rvalue_text(value)?;
                         out.push_str(&format!("    let _ = {rendered_value};\n"));
@@ -536,8 +548,19 @@ impl FunctionEmitter<'_> {
         out: &mut String,
     ) -> Result<(), EmitError> {
         let local = self.local_decl(dest)?;
-        let call_text = self.call_text_for_dest(callee, args, local.ty)?;
         let name = self.local_name(dest)?;
+        if !self.local_has_uses(dest) && self.mir.types.get(local.ty) == Some(&Type::None) {
+            let mut call_text = self.call_text(callee, args)?;
+            if args.is_empty() && call_text.ends_with("(Vec::new())") {
+                call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
+            } else if call_text == "(fn_)(Vec::new())" {
+                "(fn_)()".clone_into(&mut call_text);
+            }
+            out.push_str(&format!("    let _ = {call_text};\n"));
+            self.mark_local_declared(dest);
+            return Ok(());
+        }
+        let call_text = self.call_text_for_dest(callee, args, local.ty)?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "
         } else {
@@ -571,12 +594,55 @@ impl FunctionEmitter<'_> {
         let local = self.local_decl(dest)?;
         let call_text = self.call_text(callee, args)?;
         let Some(raw_call) = call_text.strip_suffix('?') else {
-            self.emit_call_terminator_statement(callee, args, dest, out)?;
-            return self.emit_block(self.block(target)?, out);
+            out.push_str(&format!(
+                "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {call_text})) {{\n"
+            ));
+            out.push_str("        Ok(__smelt_value) => {\n");
+            let name = self.local_name(dest)?;
+            let mutability = if self.local_binding_needs_mut(dest) {
+                "mut "
+            } else {
+                ""
+            };
+            if matches!(
+                self.mir.types.get(local.ty),
+                Some(Type::Future(_) | Type::Function(_))
+            ) {
+                out.push_str(&format!(
+                    "            let {mutability}{name} = __smelt_value;\n"
+                ));
+            } else {
+                out.push_str(&format!(
+                    "            let {mutability}{name}: {} = __smelt_value;\n",
+                    self.type_text_with_impl_trait(local.ty, false)?
+                ));
+            }
+            self.mark_local_declared(dest);
+            self.emit_block(self.block(target)?, out)?;
+            out.push_str("        }\n");
+            out.push_str("        Err(__smelt_panic) => {\n");
+            out.push_str("            let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() { message.clone() } else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() { (*message).to_owned() } else { \"JavaScript exception\".to_owned() };\n");
+            if let Some(exception_local) = handler.exception_local {
+                let exception_name = self.local_name(exception_local)?;
+                let exception_decl = self.local_decl(exception_local)?;
+                let value = match self.mir.types.get(exception_decl.ty) {
+                    Some(Type::String) => "__smelt_error".to_owned(),
+                    Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error)".to_owned(),
+                    _ => self.default_value(exception_decl.ty)?,
+                };
+                out.push_str(&format!("            let {exception_name} = {value};\n"));
+                self.mark_local_declared(exception_local);
+            }
+            self.emit_block(self.block(handler.catch_block)?, out)?;
+            out.push_str("        }\n");
+            out.push_str("    }\n");
+            return Ok(());
         };
         let source_ty = self.call_source_ty(callee)?;
-        out.push_str(&format!("    match {raw_call} {{\n"));
-        out.push_str("        Ok(__smelt_value) => {\n");
+        out.push_str(&format!(
+            "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n"
+        ));
+        out.push_str("        Ok(Ok(__smelt_value)) => {\n");
         let value_text = self.rendered_value_as_type_text("__smelt_value", source_ty, local.ty)?;
         let name = self.local_name(dest)?;
         let mutability = if self.local_binding_needs_mut(dest) {
@@ -600,13 +666,28 @@ impl FunctionEmitter<'_> {
         self.mark_local_declared(dest);
         self.emit_block(self.block(target)?, out)?;
         out.push_str("        }\n");
-        out.push_str("        Err(__smelt_error) => {\n");
+        out.push_str("        Ok(Err(__smelt_error)) => {\n");
         if let Some(exception_local) = handler.exception_local {
             let exception_name = self.local_name(exception_local)?;
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
                 Some(Type::String) => "__smelt_error.to_string()".to_owned(),
                 Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error.to_string())".to_owned(),
+                _ => self.default_value(exception_decl.ty)?,
+            };
+            out.push_str(&format!("            let {exception_name} = {value};\n"));
+            self.mark_local_declared(exception_local);
+        }
+        self.emit_block(self.block(handler.catch_block)?, out)?;
+        out.push_str("        }\n");
+        out.push_str("        Err(__smelt_panic) => {\n");
+        out.push_str("            let __smelt_error = if let Some(message) = __smelt_panic.downcast_ref::<String>() { message.clone() } else if let Some(message) = __smelt_panic.downcast_ref::<&'static str>() { (*message).to_owned() } else { \"JavaScript exception\".to_owned() };\n");
+        if let Some(exception_local) = handler.exception_local {
+            let exception_name = self.local_name(exception_local)?;
+            let exception_decl = self.local_decl(exception_local)?;
+            let value = match self.mir.types.get(exception_decl.ty) {
+                Some(Type::String) => "__smelt_error".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error)".to_owned(),
                 _ => self.default_value(exception_decl.ty)?,
             };
             out.push_str(&format!("            let {exception_name} = {value};\n"));

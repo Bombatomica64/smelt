@@ -347,27 +347,79 @@ impl ModuleBuilder<'_> {
             });
             param_tys.push(unknown);
         }
-        let result = closure_body.push_expr(Expr {
-            kind: ExprKind::Literal(Literal::None),
-            ty: return_ty,
-            span,
-        });
+        let projection = match member.property.name.as_str() {
+            "keys" if arity == 1 => Some(DictProjectionOp::Keys),
+            "values" if arity == 1 => Some(DictProjectionOp::Values),
+            "entries" if arity == 1 => Some(DictProjectionOp::Entries),
+            _ => None,
+        };
+        let result = if let Some(op) = projection {
+            let string_ty = self.ctx.krate.types.intern(Type::String);
+            let dict_ty = self.ctx.krate.types.intern(Type::Dict(string_ty, unknown));
+            let argument_local = params.first().map_or_else(
+                || {
+                    closure_body.push_local(LocalDecl {
+                        name: Some(self.intern_source_name("arg0")),
+                        ty: unknown,
+                        mutable: false,
+                        span,
+                    })
+                },
+                |param| param.local,
+            );
+            let argument = closure_body.push_expr(Expr {
+                kind: ExprKind::Local(argument_local),
+                ty: unknown,
+                span,
+            });
+            let dict = closure_body.push_expr(Expr {
+                kind: ExprKind::UnknownCast {
+                    value: argument,
+                    target: dict_ty,
+                },
+                ty: dict_ty,
+                span,
+            });
+            let ty = match op {
+                DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(string_ty)),
+                DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(unknown)),
+                DictProjectionOp::Entries => {
+                    let entry_ty = self
+                        .ctx
+                        .krate
+                        .types
+                        .intern(Type::Tuple(vec![string_ty, unknown]));
+                    self.ctx.krate.types.intern(Type::List(entry_ty))
+                }
+            };
+            closure_body.push_expr(Expr {
+                kind: ExprKind::DictProjection { op, dict },
+                ty,
+                span,
+            })
+        } else {
+            closure_body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::None),
+                ty: return_ty,
+                span,
+            })
+        };
         closure_body.push_stmt(Stmt::Return(Some(result)));
         let body = self.ctx.krate.push_body(closure_body);
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: param_tys,
             rest: None,
             required_params: None,
-return_ty,
+            return_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         outer_body.push_expr(Expr {
             kind: ExprKind::Closure(smelt_hir::ClosureExpr {
                 params,
-            rest: None,
+                rest: None,
                 required_params: None,
-return_ty,
+                return_ty,
                 captures: Vec::new(),
                 body,
                 callback_body: None,

@@ -12,7 +12,7 @@ fn main() {
     let mut _smelt_tmp_1: Counter = Counter::new(4.0);
     counter = _smelt_tmp_1.clone();
     let _smelt_tmp_2: f64 = counter.inc(3.0);
-    let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
+    let _ = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl Counter {

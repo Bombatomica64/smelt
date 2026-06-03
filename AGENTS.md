@@ -38,6 +38,12 @@ do not block useful mappings only because source spelling is erased internally; 
 WE DO NOT DO SPECIAL CASES FOR CODE, everything must lower through general rules, except test functions
 qualified type references must preserve or resolve the full alias path instead of blindly turning `Namespace.Member` into `Class(Member)`
 
+## SmeltUnknown boundaries
+do not use `SmeltUnknown` as the default internal ABI for values that still have useful static shape
+prefer concrete Rust types first, then scoped Rust generics/type parameters, then downstream specialization; use tagged `SmeltUnknown` only for real dynamic boundaries such as source `unknown`, erased interop, JSON/plugin values, or values that are inspected through runtime narrowing
+when a TypeScript `unknown` spelling is only type-level helper plumbing, preserve or recover the concrete/generic shape instead of routing normal data flow through runtime tags
+new `SmeltUnknown` conversions should be explicit boundary adapters (`IntoSmeltUnknown`, checked casts, guards), not a way to make ordinary generated Rust type-check
+
 ## NEVERS
 
 NEVER reject a feature without asking me first, it doesn't matter how hard it is

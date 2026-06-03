@@ -59,7 +59,7 @@ test("adds numbers", () => {
         )
     );
     assert!(source.contains("1.0 + 1.0"));
-    assert!(source.contains("!= 2.0"));
+    assert!(source.contains("lhs.is_nan() && rhs.is_nan()"));
     assert!(source.contains("return Ok(());"));
 }
 

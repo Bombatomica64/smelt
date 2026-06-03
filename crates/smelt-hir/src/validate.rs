@@ -282,7 +282,7 @@ fn validate_callback_expr(
         CallbackExprKind::Unary { operand, .. } => {
             validate_callback_expr(body_idx, body, operand, errors);
         }
-        CallbackExprKind::UnknownIs { value, .. } => {
+        CallbackExprKind::UnknownIs { value, .. } | CallbackExprKind::TypeofValue { value } => {
             validate_callback_expr(body_idx, body, value, errors);
         }
         CallbackExprKind::Binary { lhs, rhs, .. } => {

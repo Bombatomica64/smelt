@@ -1078,6 +1078,7 @@ return_ty,
             | CallbackExprKind::AssignCapture { .. }
             | CallbackExprKind::HasField { .. }
             | CallbackExprKind::FieldTruthy { .. }
+            | CallbackExprKind::TypeofValue { .. }
             | CallbackExprKind::UnknownIs { .. } => Err(SmeltError::unsupported(
                 span,
                 "this callback default expression is not lowered at call sites yet",
@@ -1316,6 +1317,9 @@ return_ty,
             CallbackExprKind::UnknownIs { value, .. } => {
                 self.collect_callback_captures(value, body, captures);
             }
+            CallbackExprKind::TypeofValue { value } => {
+                self.collect_callback_captures(value, body, captures);
+            }
             CallbackExprKind::Conditional {
                 cond,
                 then_expr,
@@ -1331,7 +1335,35 @@ return_ty,
                     self.collect_callback_captures(&arg.expr, body, captures);
                 }
             }
-            CallbackExprKind::MethodCall { receiver, args, .. } => {
+            CallbackExprKind::MethodCall {
+                receiver,
+                method,
+                args,
+            } => {
+                if self
+                    .ctx
+                    .krate
+                    .symbols
+                    .get(*method)
+                    .is_some_and(|name| matches!(name, "push" | "pop" | "shift" | "unshift" | "splice"))
+                    && let CallbackExprKind::Capture(local) = receiver.kind
+                    && let Some(local_decl) = usize::try_from(local.0)
+                        .ok()
+                        .and_then(|index| body.locals.get(index))
+                {
+                    captures.insert(
+                        local,
+                        ClosureCapture {
+                            source_local: local,
+                            body_local: None,
+                            symbol: local_decl
+                                .name
+                                .unwrap_or_else(|| self.ctx.krate.symbols.intern("__capture")),
+                            ty: local_decl.ty,
+                            mode: CaptureMode::ByMut,
+                        },
+                    );
+                }
                 self.collect_callback_captures(receiver, body, captures);
                 for arg in args {
                     self.collect_callback_captures(&arg.expr, body, captures);
@@ -2876,6 +2908,7 @@ return_ty,
                 Self::callback_expr_contains_throw(lhs) || Self::callback_expr_contains_throw(rhs)
             }
             CallbackExprKind::UnknownIs { value, .. } => Self::callback_expr_contains_throw(value),
+            CallbackExprKind::TypeofValue { value } => Self::callback_expr_contains_throw(value),
             CallbackExprKind::Conditional {
                 cond,
                 then_expr,
@@ -5131,10 +5164,19 @@ return_ty,
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         let operand = self.callback_expression(&unary.argument, params, body)?;
+        let ty = self.ctx.krate.types.intern(Type::String);
+        if self.typeof_type_name(operand.ty).is_none() {
+            return Ok(CallbackExpr {
+                kind: CallbackExprKind::TypeofValue {
+                    value: Box::new(operand),
+                },
+                ty,
+            });
+        }
         let kind = self.typeof_type_name(operand.ty).unwrap_or("object");
         Ok(CallbackExpr {
             kind: CallbackExprKind::Literal(Literal::String(kind.to_owned())),
-            ty: self.ctx.krate.types.intern(Type::String),
+            ty,
         })
     }
 

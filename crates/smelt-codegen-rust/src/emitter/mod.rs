@@ -13,8 +13,8 @@ use literals::operand_local;
 use smelt_hir::{FileId, Span, Symbol, Type, TypeId};
 use smelt_mir::{
     BasicBlock, BuiltinFn, Callee, Constant, FuncId, HirOrigin, LocalDecl, LocalId, LocalKind, Mir,
-    MirClosure, MirField, MirFunction, MirListSpliceItem, Operand, Place, Rvalue, Statement,
-    Terminator,
+    MirClass, MirClosure, MirField, MirFunction, MirListSpliceItem, Operand, Place, Rvalue,
+    Statement, Terminator,
 };
 use std::{
     cell::RefCell,
@@ -395,23 +395,45 @@ fn statement_erases_callback_param(
         .and_then(|dest_index| function.locals.get(dest_index))
         .map(|decl| decl.ty);
     let function_erases_return = type_erases_values(mir, function.return_ty);
+    let closure_defs = closure_definitions(function).ok();
     match statement_value {
         Rvalue::Dict(entries) => {
             (function_erases_return || dest_ty.is_some_and(|ty| type_erases_values(mir, ty)))
-                && entries
-                    .iter()
-                    .any(|(_, entry_value)| operand_local(entry_value) == Some(local))
+                && entries.iter().any(|(_, entry_value)| {
+                    operand_refs_callback_param_or_capturing_closure(
+                        mir,
+                        function,
+                        entry_value,
+                        local,
+                        closure_defs.as_ref(),
+                    )
+                })
         }
         Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
             (function_erases_return || dest_ty.is_some_and(|ty| type_erases_values(mir, ty)))
-                && items.iter().any(|item| operand_local(item) == Some(local))
+                && items.iter().any(|item| {
+                    operand_refs_callback_param_or_capturing_closure(
+                        mir,
+                        function,
+                        item,
+                        local,
+                        closure_defs.as_ref(),
+                    )
+                })
         }
         Rvalue::ClosureCall { args, .. } => {
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
-                && args.iter().any(|arg| operand_local(arg) == Some(local))
+                && args.iter().any(|arg| {
+                    operand_refs_callback_param_or_capturing_closure(
+                        mir,
+                        function,
+                        arg,
+                        local,
+                        closure_defs.as_ref(),
+                    )
+                })
         }
         Rvalue::CallableObjectAssign { callable, props } => {
-            let closure_defs = closure_definitions(function).ok();
             dest_ty.is_some_and(|ty| type_erases_values(mir, ty))
                 && (operand_local(callable) == Some(local)
                     || operand_local(callable)
@@ -443,6 +465,31 @@ fn statement_erases_callback_param(
         }
         _ => false,
     }
+}
+
+/// Return whether an erased operand is a callback parameter or a closure capturing it.
+fn operand_refs_callback_param_or_capturing_closure(
+    mir: &Mir,
+    function: &MirFunction,
+    operand: &Operand,
+    local: LocalId,
+    closure_defs: Option<&HashMap<LocalId, smelt_mir::ClosureId>>,
+) -> bool {
+    if operand_local(operand) == Some(local) {
+        return true;
+    }
+    operand_local(operand)
+        .and_then(|operand_local| closure_source_for_local(function, operand_local, closure_defs))
+        .and_then(|closure_id| {
+            mir.closures
+                .get(id_index(closure_id.0, "closure index does not fit usize").ok()?)
+        })
+        .is_some_and(|closure| {
+            closure
+                .captures
+                .iter()
+                .any(|capture| capture.source_local == local)
+        })
 }
 
 /// Resolve a local through simple copy aliases to the closure assigned to it.

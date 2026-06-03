@@ -3,5 +3,5 @@
 
 fn main() {
     let message: String = "hello smelt".to_owned();
-    let _smelt_tmp_1: () = { println!("{}", message.clone()); };
+    let _ = { println!("{}", message.clone()); };
 }

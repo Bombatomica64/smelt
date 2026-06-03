@@ -7,6 +7,7 @@ use ::std::hash::Hash;
 pub struct SmeltRecord<K, V> {
     id: usize,
     values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<K, V>>>,
+    order: ::std::rc::Rc<::std::cell::RefCell<Vec<K>>>,
 }
 
 thread_local! {
@@ -37,7 +38,7 @@ fn smelt_restore_function_origin<T: Clone + 'static>(function: &::std::rc::Rc<dy
 }
 
 impl<K, V> Clone for SmeltRecord<K, V> {
-    fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } }
+    fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } }
 }
 
 trait SmeltOwnedOptionCloned<T> {
@@ -49,30 +50,31 @@ impl<T> SmeltOwnedOptionCloned<T> for Option<T> {
     fn cloned(self) -> Option<T> { self }
 }
 
-impl<K: Eq + ::std::hash::Hash, V> SmeltRecord<K, V> {
-    fn new() -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())) } }
-    fn with_id(id: usize, values: ::std::collections::HashMap<K, V>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
+impl<K: Eq + ::std::hash::Hash + Clone, V> SmeltRecord<K, V> {
+    fn new() -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }
+    fn with_id(id: usize, values: ::std::collections::HashMap<K, V>) -> Self { let order = values.keys().cloned().collect::<Vec<_>>(); Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }
+    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) }; record.extend(iter); record }
     fn len(&self) -> usize { self.values.borrow().len() }
     fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { self.values.borrow().contains_key(key) }
-    fn insert(&self, key: K, value: V) -> Option<V> { self.values.borrow_mut().insert(key, value) }
-    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { self.values.borrow_mut().remove(key) }
+    fn insert(&self, key: K, value: V) -> Option<V> { if !self.values.borrow().contains_key(&key) { self.order.borrow_mut().push(key.clone()); } self.values.borrow_mut().insert(key, value) }
+    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { let removed = self.values.borrow_mut().remove(key); if removed.is_some() { self.order.borrow_mut().retain(|existing| <K as ::std::borrow::Borrow<Q>>::borrow(existing) != key); } removed }
     fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized, V: Clone { self.values.borrow().get(key).cloned() }
-    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where K: Clone, V: Clone { self.values.borrow().iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> ::std::vec::IntoIter<K> where K: Clone { self.values.borrow().keys().cloned().collect::<Vec<_>>().into_iter() }
-    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.values.borrow().values().cloned().collect::<Vec<_>>().into_iter() }
-    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { self.values.borrow_mut().extend(iter); }
+    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone()))).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> ::std::vec::IntoIter<K> { self.order.borrow().clone().into_iter() }
+    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect::<Vec<_>>().into_iter() }
+    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }
 }
 
-impl<K: Eq + ::std::hash::Hash, V> Default for SmeltRecord<K, V> {
+impl<K: Eq + ::std::hash::Hash + Clone, V> Default for SmeltRecord<K, V> {
     fn default() -> Self { Self::new() }
 }
 
-impl<K: Eq + ::std::hash::Hash, V, const N: usize> From<[(K, V); N]> for SmeltRecord<K, V> {
-    fn from(values: [(K, V); N]) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::from(values))) } }
+impl<K: Eq + ::std::hash::Hash + Clone, V, const N: usize> From<[(K, V); N]> for SmeltRecord<K, V> {
+    fn from(values: [(K, V); N]) -> Self { values.into_iter().collect() }
 }
 
-impl<K: Eq + ::std::hash::Hash, V> ::std::iter::FromIterator<(K, V)> for SmeltRecord<K, V> {
-    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(iter.into_iter().collect())) } }
+impl<K: Eq + ::std::hash::Hash + Clone, V> ::std::iter::FromIterator<(K, V)> for SmeltRecord<K, V> {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { let record = Self::new(); record.extend(iter); record }
 }
 
 impl<K: Eq + ::std::hash::Hash + Clone, V: Clone> IntoIterator for SmeltRecord<K, V> {
@@ -151,21 +153,22 @@ impl SmeltJsKeyEq for f64 { fn same_js_key(&self, other: &Self) -> bool { (self.
 pub struct SmeltObject {
     id: usize,
     values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>>>,
+    order: ::std::rc::Rc<::std::cell::RefCell<Vec<String>>>,
 }
 
-impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }
+impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } } }
 impl SmeltObject {
-    fn new(values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    fn with_id(id: usize, values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }
-    fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, values: record.values } }
+    fn new(values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }
+    fn with_id(id: usize, values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }
+    fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, values: record.values, order: record.order } }
     fn len(&self) -> usize { self.values.borrow().len() }
     fn contains_key(&self, key: &str) -> bool { self.values.borrow().contains_key(key) }
     fn get(&self, key: &str) -> Option<SmeltUnknown> { self.values.borrow().get(key).cloned() }
-    fn insert(&self, key: String, value: SmeltUnknown) -> Option<SmeltUnknown> { self.values.borrow_mut().insert(key, value) }
-    fn remove(&self, key: &str) -> Option<SmeltUnknown> { self.values.borrow_mut().remove(key) }
-    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { self.values.borrow().iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>().into_iter() }
-    fn keys(&self) -> Vec<String> { self.values.borrow().keys().cloned().collect() }
-    fn values(&self) -> Vec<SmeltUnknown> { self.values.borrow().values().cloned().collect() }
+    fn insert(&self, key: String, value: SmeltUnknown) -> Option<SmeltUnknown> { if !self.values.borrow().contains_key(&key) { self.order.borrow_mut().push(key.clone()); } self.values.borrow_mut().insert(key, value) }
+    fn remove(&self, key: &str) -> Option<SmeltUnknown> { let removed = self.values.borrow_mut().remove(key); if removed.is_some() { self.order.borrow_mut().retain(|existing| existing != key); } removed }
+    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone()))).collect::<Vec<_>>().into_iter() }
+    fn keys(&self) -> Vec<String> { self.order.borrow().clone() }
+    fn values(&self) -> Vec<SmeltUnknown> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect() }
 }
 
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
@@ -479,6 +482,40 @@ impl IntoSmeltUnknown for () {
     }
 }
 
+pub trait SmeltFromUnknown {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self;
+}
+
+impl SmeltFromUnknown for SmeltUnknown {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        value
+    }
+}
+
+impl SmeltFromUnknown for bool {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        match value { SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }
+    }
+}
+
+impl SmeltFromUnknown for f64 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }
+    }
+}
+
+impl SmeltFromUnknown for i64 {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }
+    }
+}
+
+impl SmeltFromUnknown for String {
+    fn smelt_from_unknown(value: SmeltUnknown) -> Self {
+        match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }
+    }
+}
+
 trait SmeltIntoF64 {
     fn smelt_into_f64(self) -> f64;
 }
@@ -718,10 +755,10 @@ fn main() {
     score = _smelt_tmp_11.clone();
     _smelt_tmp_12 = present.clone().as_ref().map(|_smelt_value| _smelt_value.label());
     label = _smelt_tmp_12.clone();
-    let _smelt_tmp_13: () = { println!("{:?}", name.clone()); };
-    let _smelt_tmp_14: () = { println!("{:?}", absent_name.clone()); };
-    let _smelt_tmp_15: () = { println!("{:?}", score.clone()); };
-    let _smelt_tmp_16: () = { println!("{:?}", label.clone()); };
+    let _ = { println!("{:?}", name.clone()); };
+    let _ = { println!("{:?}", absent_name.clone()); };
+    let _ = { println!("{:?}", score.clone()); };
+    let _ = { println!("{:?}", label.clone()); };
 }
 
 impl User {

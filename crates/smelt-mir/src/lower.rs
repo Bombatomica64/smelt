@@ -4566,6 +4566,9 @@ fn callback_expr_can_throw(expr: &smelt_hir::CallbackExpr) -> bool {
         | CallbackExprKind::FieldTruthy { receiver, .. }
         | CallbackExprKind::UnknownIs {
             value: receiver, ..
+        }
+        | CallbackExprKind::TypeofValue {
+            value: receiver, ..
         } => callback_expr_can_throw(receiver),
         CallbackExprKind::FunctionTableLookup { key, .. } => callback_expr_can_throw(key),
         CallbackExprKind::HasDynamicField { receiver, field } => {

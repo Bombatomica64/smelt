@@ -235,6 +235,9 @@ fn assigned_callback_locals(callback: &smelt_hir::CallbackExpr, locals: &mut Has
         smelt_hir::CallbackExprKind::UnknownIs { value, .. } => {
             assigned_callback_locals(value, locals);
         }
+        smelt_hir::CallbackExprKind::TypeofValue { value } => {
+            assigned_callback_locals(value, locals);
+        }
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             assigned_callback_locals(lhs, locals);
             assigned_callback_locals(rhs, locals);

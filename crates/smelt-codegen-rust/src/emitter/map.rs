@@ -373,10 +373,18 @@ impl FunctionEmitter<'_> {
         let target_text = self.operand_text(target)?;
         let mut steps = vec![format!("let mut assigned = {target_text}.clone();")];
         for source in sources {
-            if self.operand_ty(source)? != target_ty {
+            let source_ty = self.operand_ty(source)?;
+            let source_text = if source_ty == target_ty {
+                self.operand_text(source)?
+            } else if matches!(
+                self.mir.types.get(source_ty),
+                Some(Type::Unknown | Type::TypeParam { .. })
+            ) {
+                let value_text = self.operand_text(source)?;
+                self.rendered_value_as_type_text(&value_text, source_ty, target_ty)?
+            } else {
                 continue;
-            }
-            let source_text = self.operand_text(source)?;
+            };
             steps.push(format!(
                 "assigned.extend({source_text}.iter().map(|(key, value)| (key.clone(), value.clone())));"
             ));

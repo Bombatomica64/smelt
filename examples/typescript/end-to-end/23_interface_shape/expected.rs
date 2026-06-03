@@ -16,7 +16,7 @@ fn main() {
     let mut user: User;
     let mut _smelt_tmp_1: User = User::new("Ada".to_owned());
     user = _smelt_tmp_1.clone();
-    let _smelt_tmp_2: () = { println!("{}", user.name.clone()); };
+    let _ = { println!("{}", user.name.clone()); };
 }
 
 impl User {

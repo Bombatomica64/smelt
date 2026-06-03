@@ -12,6 +12,18 @@ members = [
     "crates/smelt-cli",
     "crates/smelt-gui",
 ]
+default-members = [
+    "crates/smelt-frontend-ts",
+    "crates/smelt-frontend-py",
+    "crates/smelt-hir",
+    "crates/smelt-mir",
+    "crates/smelt-codegen-rust",
+    "crates/smelt-stdlib",
+    "crates/smelt-asyncio",
+    "crates/smelt-runtime",
+    "crates/smelt-test",
+    "crates/smelt-cli",
+]
 resolver = "2"
 
 [workspace.package]
@@ -93,7 +105,7 @@ missing_docs_in_private_items  = "warn"
 # Naming / API surface
 exhaustive_enums               = "warn"   # forces callers to handle new variants
 exhaustive_structs             = "warn"
-multiple_inherent_impl         = "deny"
+multiple_inherent_impl         = "allow"  # focused lowering/codegen modules intentionally split impl blocks
 pub_without_shorthand          = "deny"
 
 # Miscellaneous code quality

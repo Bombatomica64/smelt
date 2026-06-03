@@ -136,6 +136,7 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
             callback_has_param(lhs, target) || callback_has_param(rhs, target)
         }
         smelt_hir::CallbackExprKind::UnknownIs { value, .. } => callback_has_param(value, target),
+        smelt_hir::CallbackExprKind::TypeofValue { value } => callback_has_param(value, target),
         smelt_hir::CallbackExprKind::Conditional {
             cond,
             then_expr,
@@ -202,6 +203,7 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
             callback_has_capture(lhs) || callback_has_capture(rhs)
         }
         smelt_hir::CallbackExprKind::UnknownIs { value, .. } => callback_has_capture(value),
+        smelt_hir::CallbackExprKind::TypeofValue { value } => callback_has_capture(value),
         smelt_hir::CallbackExprKind::Conditional {
             cond,
             then_expr,

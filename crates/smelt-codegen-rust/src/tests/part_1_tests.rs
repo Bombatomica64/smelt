@@ -8,7 +8,7 @@ fn emits_main_with_console_log() {
 
     assert!(source.contains("fn main() {"));
     assert!(source.contains("let count: f64 = 42.0;"));
-    assert!(source.contains("let _smelt_tmp_1: () = { println!(\"{}\", count.clone()); };"));
+    assert!(source.contains("let _ = { println!(\"{}\", count.clone()); };"));
 }
 
 #[test]

@@ -122,6 +122,16 @@ impl FunctionEmitter<'_> {
             Err(_) if matches!(op, smelt_hir::ListCallbackOp::Map) => {
                 return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
             }
+            Err(_) if matches!(op, smelt_hir::ListCallbackOp::ForEach) => {
+                return self.list_for_each_closure_text(
+                    list, list_ty, element_ty, callback, dest_ty,
+                );
+            }
+            Err(_) if matches!(op, smelt_hir::ListCallbackOp::FlatMap) => {
+                return self.list_flat_map_closure_text(
+                    list, list_ty, element_ty, callback, dest_ty,
+                );
+            }
             Err(_) => return Ok("Default::default()".to_owned()),
         };
         let list_text = if matches!(self.mir.types.get(element_ty), Some(Type::Function(_))) {
@@ -142,6 +152,24 @@ impl FunctionEmitter<'_> {
             )
         {
             return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
+        }
+        if raw_callback_text == "Default::default()"
+            && matches!(op, smelt_hir::ListCallbackOp::ForEach)
+            && matches!(
+                self.mir.types.get(self.operand_ty(callback)?),
+                Some(Type::Function(_))
+            )
+        {
+            return self.list_for_each_closure_text(list, list_ty, element_ty, callback, dest_ty);
+        }
+        if raw_callback_text == "Default::default()"
+            && matches!(op, smelt_hir::ListCallbackOp::FlatMap)
+            && matches!(
+                self.mir.types.get(self.operand_ty(callback)?),
+                Some(Type::Function(_))
+            )
+        {
+            return self.list_flat_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
         }
         let callback_text = if raw_callback_text == "Default::default()"
             && matches!(
@@ -457,6 +485,9 @@ impl FunctionEmitter<'_> {
             | CallbackExprKind::FieldTruthy { receiver, .. }
             | CallbackExprKind::UnknownIs {
                 value: receiver, ..
+            }
+            | CallbackExprKind::TypeofValue {
+                value: receiver, ..
             } => self.callback_expr_calls_throwing_function(receiver),
             CallbackExprKind::DynamicIndex { receiver, index }
             | CallbackExprKind::HasDynamicField {
@@ -534,7 +565,7 @@ impl FunctionEmitter<'_> {
         let list_text = self.operand_text(list)?;
         let closure_text = match self.closure_operand_text_for_declared_type(callback) {
             Ok(closure_text) => closure_text,
-            Err(_) => return Ok("Default::default()".to_owned()),
+            Err(_) => self.operand_text(callback)?,
         };
         let item_text =
             self.rendered_value_as_type_text("item.clone()", element_ty, item_param_ty)?;
@@ -568,6 +599,145 @@ impl FunctionEmitter<'_> {
             self.rendered_value_as_type_text(&call_text, function_ty.return_ty, *dest_item_ty)?;
         Ok(format!(
             "{{ let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone(); smelt_array.iter().enumerate().map(|(index, item)| {{ {value_text} }}).collect::<Vec<_>>() }}"
+        ))
+    }
+
+    /// Emits `Array.forEach` for function callbacks without inline callback trees.
+    fn list_for_each_closure_text(
+        &self,
+        list: &Operand,
+        list_ty: TypeId,
+        element_ty: TypeId,
+        callback: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        if dest_ty != self.none_ty {
+            return Err(EmitError::new("array forEach destination must be none"));
+        }
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
+        else {
+            return Ok("Default::default()".to_owned());
+        };
+        let Some(item_param_ty) = function_ty.params.first().copied() else {
+            return Ok("Default::default()".to_owned());
+        };
+        let list_text = self.operand_text(list)?;
+        let closure_text = match self.closure_operand_text_for_declared_type(callback) {
+            Ok(closure_text) => closure_text,
+            Err(_) => self.operand_text(callback)?,
+        };
+        let item_text =
+            self.rendered_value_as_type_text("item.clone()", element_ty, item_param_ty)?;
+        let mut call_args = vec![item_text];
+        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
+            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                self.type_id(Type::Int)?
+            } else {
+                self.type_id(Type::Float)?
+            };
+            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                "index as i64"
+            } else {
+                "index as f64"
+            };
+            call_args.push(self.rendered_value_as_type_text(
+                index_value,
+                index_source_ty,
+                index_param_ty,
+            )?);
+        }
+        if let Some(array_param_ty) = function_ty.params.get(2).copied() {
+            call_args.push(self.rendered_value_as_type_text(
+                "smelt_array.clone()",
+                list_ty,
+                array_param_ty,
+            )?);
+        }
+        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        Ok(format!(
+            "{{ let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone(); smelt_array.iter().enumerate().for_each(|(index, item)| {{ let _ = {call_text}; }}); () }}"
+        ))
+    }
+
+    /// Emits `Array.flatMap` for function callbacks without inline callback trees.
+    fn list_flat_map_closure_text(
+        &self,
+        list: &Operand,
+        list_ty: TypeId,
+        element_ty: TypeId,
+        callback: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let Some(Type::List(dest_item_ty)) = self.mir.types.get(dest_ty) else {
+            return Err(EmitError::new("array flatMap destination must be a list"));
+        };
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
+        else {
+            return Ok("Default::default()".to_owned());
+        };
+        let Some(item_param_ty) = function_ty.params.first().copied() else {
+            return Ok("Default::default()".to_owned());
+        };
+        let list_text = self.operand_text(list)?;
+        let closure_text = match self.closure_operand_text_for_declared_type(callback) {
+            Ok(closure_text) => closure_text,
+            Err(_) => self.operand_text(callback)?,
+        };
+        let item_text =
+            self.rendered_value_as_type_text("item.clone()", element_ty, item_param_ty)?;
+        let mut call_args = vec![item_text];
+        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
+            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                self.type_id(Type::Int)?
+            } else {
+                self.type_id(Type::Float)?
+            };
+            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                "index as i64"
+            } else {
+                "index as f64"
+            };
+            call_args.push(self.rendered_value_as_type_text(
+                index_value,
+                index_source_ty,
+                index_param_ty,
+            )?);
+        }
+        if let Some(array_param_ty) = function_ty.params.get(2).copied() {
+            call_args.push(self.rendered_value_as_type_text(
+                "smelt_array.clone()",
+                list_ty,
+                array_param_ty,
+            )?);
+        }
+        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let flattened_text = match self.mir.types.get(function_ty.return_ty) {
+            Some(Type::List(callback_item_ty)) => {
+                let value_text =
+                    self.rendered_value_as_type_text("value", *callback_item_ty, *dest_item_ty)?;
+                format!(
+                    "smelt_result.into_iter().map(|value| {value_text}).collect::<Vec<_>>()"
+                )
+            }
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                let unknown_ty = self.type_id(Type::Unknown)?;
+                let value_text =
+                    self.rendered_value_as_type_text("value", unknown_ty, *dest_item_ty)?;
+                format!(
+                    "match smelt_result {{ SmeltUnknown::Array(values) => values.into_iter().map(|value| {value_text}).collect::<Vec<_>>(), value => vec![{value_text}] }}"
+                )
+            }
+            _ => {
+                let value_text = self.rendered_value_as_type_text(
+                    "smelt_result",
+                    function_ty.return_ty,
+                    *dest_item_ty,
+                )?;
+                format!("vec![{value_text}]")
+            }
+        };
+        Ok(format!(
+            "{{ let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone(); smelt_array.iter().enumerate().flat_map(|(index, item)| {{ let smelt_result = {call_text}; {flattened_text} }}).collect::<Vec<_>>() }}"
         ))
     }
 
@@ -2363,6 +2533,12 @@ impl FunctionEmitter<'_> {
                 let value_text = self.callback_expr_text(value, params)?;
                 self.unknown_is_text_raw(&value_text, *kind)
             }
+            smelt_hir::CallbackExprKind::TypeofValue { value } => {
+                let value_text = self.callback_expr_text(value, params)?;
+                Ok(format!(
+                    "match {value_text}.clone() {{ SmeltUnknown::Bool(_) => \"boolean\".to_owned(), SmeltUnknown::Number(_) => \"number\".to_owned(), SmeltUnknown::String(_) => \"string\".to_owned(), SmeltUnknown::Symbol(_) => \"symbol\".to_owned(), SmeltUnknown::Function(_) => \"function\".to_owned(), SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\".to_owned() }}"
+                ))
+            }
             smelt_hir::CallbackExprKind::Conditional {
                 cond,
                 then_expr,
@@ -2928,6 +3104,12 @@ impl FunctionEmitter<'_> {
                     })?;
                     let item_text =
                         self.callback_expr_as_type_text(&item.expr, *item_ty, params)?;
+                    let receiver_text =
+                        if let smelt_hir::CallbackExprKind::Capture(local) = receiver.kind {
+                            self.local_name(LocalId(local.0))?.to_owned()
+                        } else {
+                            receiver_text
+                        };
                     Ok(format!("{receiver_text}.push({item_text})"))
                 } else if method_text == "slice"
                     && matches!(self.mir.types.get(receiver.ty), Some(Type::Unknown))
@@ -3607,6 +3789,7 @@ fn callback_uses_param(
         }
         | smelt_hir::CallbackExprKind::Unary { operand: value, .. }
         | smelt_hir::CallbackExprKind::UnknownIs { value, .. }
+        | smelt_hir::CallbackExprKind::TypeofValue { value }
         | smelt_hir::CallbackExprKind::FunctionTableLookup { key: value, .. } => {
             callback_uses_param(types, value, needle)
         }

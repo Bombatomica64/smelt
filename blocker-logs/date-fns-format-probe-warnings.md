@@ -3,17 +3,17 @@
 - Cargo manifest: `/tmp/smelt_date_fns_resume_20260526/format_probe/dist/Cargo.toml`
 - Cargo check: `passed`
 - Errors: `0`
-- Warnings: `295`
+- Warnings: `300`
 
 ## Summary By Code
 
-1. **warning** `unused_mut` - 233 diagnostics
+1. **warning** `unused_mut` - 237 diagnostics
 2. **warning** `unused_assignments` - 38 diagnostics
-3. **warning** `unused_parens` - 24 diagnostics
+3. **warning** `unused_parens` - 25 diagnostics
 
 ## Groups
 
-1. **warning** `unused_mut` - 233 occurrences
+1. **warning** `unused_mut` - 237 occurrences
    - Message: variable does not need to be mutable
    - Examples:
      - `src/buildFormatLongFn_index.rs:10`
@@ -32,24 +32,24 @@
 3. **warning** `unused_parens` - 14 occurrences
    - Message: unnecessary parentheses around type
    - Examples:
-     - `src/main.rs:934`
-     - `src/main.rs:963`
-     - `src/main.rs:1073`
-     - `src/main.rs:1184`
-     - `src/main.rs:1237`
+     - `src/main.rs:1002`
+     - `src/main.rs:1031`
+     - `src/main.rs:1141`
+     - `src/main.rs:1252`
+     - `src/main.rs:1305`
 4. **warning** `unused_parens` - 10 occurrences
    - Message: unnecessary parentheses around `if` condition
    - Examples:
-     - `src/format_index.rs:108`
-     - `src/format_index.rs:110`
-     - `src/format_index.rs:114`
-     - `src/format_index.rs:114`
-     - `src/format_index.rs:114`
+     - `src/format_index.rs:310`
+     - `src/format_index.rs:312`
+     - `src/format_index.rs:316`
+     - `src/format_index.rs:316`
+     - `src/format_index.rs:316`
 5. **warning** `unused_assignments` - 2 occurrences
    - Message: value assigned to `day_period_enum_value` is never read
    - Examples:
-     - `src/main.rs:2796`
-     - `src/main.rs:2930`
+     - `src/main.rs:2873`
+     - `src/main.rs:3007`
 6. **warning** `unused_assignments` - 2 occurrences
    - Message: value assigned to `values_array` is never read
    - Examples:
@@ -63,6 +63,10 @@
    - Message: value assigned to `result` is never read
    - Examples:
      - `src/formatDistance_index.rs:21`
+9. **warning** `unused_parens` - 1 occurrence
+   - Message: unnecessary parentheses around block return value
+   - Examples:
+     - `src/format_index.rs:188`
 
 ## Cargo Stderr
 
@@ -78,12 +82,12 @@ Checking memchr v2.8.0
     Checking phf_shared v0.12.1
     Checking bit-set v0.8.0
     Checking phf v0.12.1
-    Checking chrono v0.4.44
     Checking aho-corasick v1.1.4
+    Checking chrono v0.4.44
     Checking chrono-tz v0.10.4
     Checking regex-automata v0.4.14
-    Checking regex v1.12.3
     Checking fancy-regex v0.14.0
+    Checking regex v1.12.3
     Checking date_fns_format_probe v0.1.0 (/tmp/smelt_date_fns_resume_20260526/format_probe/dist)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 02s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 19.45s
 ```

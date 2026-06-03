@@ -3,5 +3,5 @@
 
 fn main() {
     let empty: () = ();
-    let _smelt_tmp_1: () = { println!("{}", "null"); };
+    let _ = { println!("{}", "null"); };
 }

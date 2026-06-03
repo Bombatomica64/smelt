@@ -203,6 +203,98 @@ const bag: Record<string, unknown> = value as Record<string, unknown>;
 }
 
 #[test]
+fn casts_unknown_arrays_to_string_keyed_records() {
+    let source = source_for(
+        r#"
+declare const value: unknown;
+const bag: Record<string, unknown> = value as Record<string, unknown>;
+const first = bag["0"];
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect()"
+        ),
+        "{source}"
+    );
+}
+
+#[test]
+fn preserves_order_when_casting_unknown_objects_to_records() {
+    let source = source_for(
+        r#"
+declare const value: unknown;
+const bag: Record<string, unknown> = value as Record<string, unknown>;
+const entries = Object.entries(bag);
+"#,
+    );
+
+    assert!(
+        source.contains("fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>"),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter())"
+        ),
+        "{source}"
+    );
+}
+
+#[test]
+fn preserves_unknown_elements_when_casting_to_erased_type_level_helpers() {
+    let source = source_for(
+        r#"
+import type { Simplify } from "type-fest";
+
+type Entry<T> = Simplify<T>;
+
+declare const value: unknown;
+const entries = value as Entry<string>[];
+"#,
+    );
+
+    assert!(
+        source.contains("values.into_iter().map(|value| value).collect::<Vec<_>>()"),
+        "erased helper items should preserve unknown values instead of defaulting: {source}"
+    );
+    assert!(
+        !source.contains("values.into_iter().map(|value| Default::default()).collect::<Vec<_>>()"),
+        "erased helper items should not be replaced with defaults: {source}"
+    );
+}
+
+#[test]
+fn emits_first_class_object_entries_as_real_projection() {
+    let source = source_for(
+        r#"
+declare function purry(fn: (value: unknown) => unknown, args: readonly unknown[]): unknown;
+
+export function entries(...args: readonly unknown[]): unknown {
+  return purry(Object.entries, args);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRecord::with_id_from_entries"),
+        "Object.entries callback should cast its argument through record projection: {source}"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::Array(_smelt_tmp_2.clone().into_iter().map(|value| SmeltUnknown::Array"
+        ),
+        "Object.entries callback should return entry arrays, not a null placeholder: {source}"
+    );
+    assert!(
+        !source
+            .contains("::std::rc::Rc::new(|closure_arg_0: SmeltUnknown| {\n    SmeltUnknown::Null"),
+        "Object.entries callback should not lower to the static-member placeholder closure: {source}"
+    );
+}
+
+#[test]
 fn keeps_vitest_assertions_inside_catch_blocks() {
     let source = source_for(
         r#"
@@ -405,7 +497,7 @@ export function run(formatLong: FormatLong): string {
     );
 
     assert!(
-        source.contains("(format_long.date)({ let smelt_record_map ="),
+        source.contains("(format_long.date.clone())({ let smelt_record_map ="),
         "{source}"
     );
     assert!(
@@ -654,7 +746,8 @@ function read(localize: Localize<string>): string {
     );
 
     assert!(
-        source.contains("impl<T> Default for Localize<T>"),
+        source
+            .contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> Default for Localize<T>"),
         "{source}"
     );
     assert!(
@@ -666,7 +759,8 @@ function read(localize: Localize<string>): string {
         "{source}"
     );
     assert!(
-        source.contains("impl<T> ::std::fmt::Debug for Localize<T>"),
+        source
+            .contains("impl<T: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static> ::std::fmt::Debug for Localize<T>"),
         "{source}"
     );
 }
@@ -988,6 +1082,8 @@ const copied: Boxed<number> = boxed;
     );
 
     assert!(source.contains("struct Boxed<T>"), "{source}");
+    assert!(source.contains("value: T,"), "{source}");
+    assert!(!source.contains("value: SmeltUnknown,"), "{source}");
     assert!(
         source.contains("_smelt_phantom: ::std::marker::PhantomData<(T)>,"),
         "{source}"
@@ -1422,6 +1518,165 @@ function pair(value: unknown): unknown {
     assert!(
         source
             .contains("impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B)"),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_virtual_method_slots_for_abstract_base_adapters() {
+    let source = source_for(
+        r#"
+type ParseResult<T> = { value: T };
+
+abstract class Parser<T> {
+  run(input: string): T {
+    const result = this.parse(input);
+    if (!this.validate(result.value)) {
+      return result.value;
+    }
+    return result.value;
+  }
+
+  validate(value: T): boolean {
+    return true;
+  }
+
+  abstract parse(input: string): ParseResult<T>;
+}
+
+class YearParser extends Parser<number> {
+  parse(input: string): ParseResult<number> {
+    return { value: 2017 };
+  }
+}
+
+const parsers: Record<string, Parser<any>> = { y: new YearParser() };
+
+export function read(): number {
+  return parsers["y"].run("ignored");
+}
+"#,
+    );
+
+    assert!(
+        source.contains("parse: ::std::rc::Rc<dyn Fn(String) -> SmeltUnknown>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("::std::rc::Rc::new(move |arg0: String|"),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_method_receiver.parse(arg0.clone())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(self.parse.clone())(input.clone())"),
+        "{source}"
+    );
+    assert!(!source.contains("parse: Default::default()"), "{source}");
+}
+
+#[test]
+fn binds_stored_virtual_methods_when_reerasing_base_class_values() {
+    let source = source_for(
+        r#"
+type Result<T> = { value: T };
+
+abstract class Parser<T> {
+  abstract parse(input: string): Result<T>;
+}
+
+class ForwardingParser<T> extends Parser<T> {
+  constructor(readonly delegate: Parser<T>) {
+    super();
+  }
+
+  parse(input: string): Result<T> {
+    return this.delegate.parse(input);
+  }
+}
+
+class YearParser extends Parser<number> {
+  parse(input: string): Result<number> {
+    return { value: 2017 };
+  }
+}
+
+const parser: Parser<any> = new ForwardingParser(new YearParser());
+"#,
+    );
+
+    assert!(
+        source
+            .contains("Parser { parse: { let smelt_virtual_receiver = smelt_struct_value.clone();"),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_method_receiver.parse(arg0.clone())"),
+        "{source}"
+    );
+    assert!(!source.contains("parse: Default::default()"), "{source}");
+}
+
+#[test]
+fn adapts_generic_record_fields_with_instantiated_payload_types() {
+    let source = source_for(
+        r#"
+type MatchFnResult<T> = { value: T; rest: string };
+
+declare const genericResult: MatchFnResult<unknown>;
+const numericResult = genericResult as MatchFnResult<number>;
+const value = numericResult.value;
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Number(value) => value"),
+        "{source}"
+    );
+    assert!(!source.contains("let value: SmeltUnknown"), "{source}");
+}
+
+#[test]
+fn keeps_unknown_conditionals_erased_before_string_compatible_fallbacks() {
+    let source = source_for(
+        r#"
+declare const value: unknown;
+declare const fallback: Date;
+const selected: unknown = value ? value : fallback;
+"#,
+    );
+
+    assert!(
+        source.contains("if _smelt_tmp_3.clone() { value.clone() } else { match fallback"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("selected = SmeltUnknown::String"),
+        "{source}"
+    );
+}
+
+#[test]
+fn omits_absent_optional_fields_when_erasing_structural_objects() {
+    let source = source_for(
+        r#"
+interface Flags {
+  era?: number;
+}
+
+declare const flags: Flags;
+const erased: unknown = flags;
+"#,
+    );
+
+    assert!(
+        source.contains("if let Some(value) = smelt_object_value.era.clone()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("(\"era\".to_owned(), smelt_object_value.era.clone().map_or"),
         "{source}"
     );
 }
@@ -2045,6 +2300,65 @@ const sortByImplementation = <T>(
 }
 
 #[test]
+fn emits_non_escaping_closure_that_captures_borrowed_callback_param() {
+    let source = source_for(
+        r#"
+function visit<T>(
+  data: readonly T[],
+  callback: (value: T, index: number, data: readonly T[]) => boolean,
+): number {
+  return callback(data[0]!, 0, data) ? 1 : 0;
+}
+
+function indicesSeen(
+  items: readonly unknown[],
+  predicate: (item: unknown, index: number) => boolean,
+): number[] {
+  const indices: number[] = [];
+  visit(items, (pivot, index) => {
+    indices.push(index);
+    return predicate(pivot, index);
+  });
+  return indices;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("predicate((arg0.clone()).into_smelt_unknown(), arg1.clone())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(*smelt_capture_indices.borrow_mut()).push(arg1.clone())"),
+        "captured push should mutate the outer vector storage: {source}"
+    );
+    assert!(
+        !source.contains("smelt_default_callback"),
+        "non-escaping callback parameter capture should not default: {source}"
+    );
+}
+
+#[test]
+fn emits_generic_iterable_spread_concat_through_unknown_lists() {
+    let source = source_for(
+        r#"
+function concatImplementation<T1, T2>(arr1: T1, arr2: T2): unknown[] {
+  return [...arr1 as unknown[], ...arr2 as unknown[]];
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".iter().cloned().chain("),
+        "generic iterable spread concat should not collapse to a default vector: {source}"
+    );
+    assert!(
+        !source.contains("return Default::default();"),
+        "generic iterable spread concat should preserve the unknown array values: {source}"
+    );
+}
+
+#[test]
 fn boxes_returned_function_values_even_when_mir_types_match() {
     let source = source_for(
         r#"
@@ -2461,4 +2775,85 @@ function make(parser: Parser): ValueSetter {
         ),
         "{source}"
     );
+}
+
+#[test]
+fn emits_unknown_index_assignment_as_object_mutation() {
+    let source = source_for(
+        r#"
+function build(key: unknown, value: unknown): unknown {
+  const result: unknown = {};
+  // @ts-expect-error dynamic index writes are accepted at erased object boundaries.
+  result[key] = value;
+  return result;
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Object(map)"), "{source}");
+    assert!(source.contains("map.insert(smelt_key, smelt_value)"), "{source}");
+    assert!(!source.contains("unknown is not null"), "{source}");
+}
+
+#[test]
+fn emits_callback_typeof_unknown_as_runtime_match() {
+    let source = source_for(
+        r#"
+function mapType(values: unknown[]): string[] {
+  return values.map((item) => typeof item);
+}
+"#,
+    );
+
+    assert!(source.contains("SmeltUnknown::Symbol(_) => \"symbol\""), "{source}");
+    assert!(source.contains("SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\""), "{source}");
+}
+
+#[test]
+fn emits_array_for_each_with_function_callback_parameter() {
+    let source = source_for(
+        r#"
+function visit(values: number[], callback: (value: number, index: number, data: number[]) => void): void {
+  values.forEach(callback);
+}
+"#,
+    );
+
+    assert!(source.contains(".iter().enumerate().for_each"), "{source}");
+    assert!(source.contains("(smelt_callback)"), "{source}");
+    assert!(!source.contains("Default::default()"), "{source}");
+}
+
+#[test]
+fn emits_array_flat_map_with_function_callback_parameter() {
+    let source = source_for(
+        r#"
+function expand(values: number[], callback: (value: number, index: number, data: number[]) => number[]): number[] {
+  return values.flatMap(callback);
+}
+"#,
+    );
+
+    assert!(source.contains(".iter().enumerate().flat_map"), "{source}");
+    assert!(source.contains("(smelt_callback)"), "{source}");
+    assert!(!source.contains("Default::default()"), "{source}");
+}
+
+#[test]
+fn ignores_unused_void_call_result_without_null_cast() {
+    let source = source_for(
+        r#"
+function wrapped(value: unknown): void;
+function wrapped(value: unknown): unknown {
+  return value;
+}
+
+function run(value: unknown): void {
+  wrapped(value);
+}
+"#,
+    );
+
+    assert!(source.contains("let _ = wrapped"), "{source}");
+    assert!(!source.contains("unknown is not null"), "{source}");
 }

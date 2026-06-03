@@ -1,6 +1,7 @@
 //! Unknown emission helpers.
 
 use super::*;
+use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
@@ -328,18 +329,32 @@ impl FunctionEmitter<'_> {
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = sanitize_ident(self.symbol_name(field.name)?);
-                let field_value = self.unknown_wrap_value_text(
-                    &format!("smelt_object_value.{field_name}"),
-                    field.ty,
-                )?;
-                Ok(format!("({source_name:?}.to_owned(), {field_value})"))
+                if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
+                    let field_value = self.unknown_wrap_value_text("value", *inner)?;
+                    return Ok(format!(
+                        "if let Some(value) = smelt_object_value.{field_name}.clone() {{ smelt_object_entries.insert({source_name:?}.to_owned(), {field_value}); }}"
+                    ));
+                }
+                let field_value = if let Some(value) =
+                    self.virtual_method_storage_field_text(target, target, field.name)?
+                {
+                    self.unknown_wrap_value_text(&value, field.ty)?
+                } else {
+                    self.unknown_wrap_value_text(
+                        &format!("smelt_object_value.{field_name}"),
+                        field.ty,
+                    )?
+                };
+                Ok(format!(
+                    "smelt_object_entries.insert({source_name:?}.to_owned(), {field_value});"
+                ))
             })
             .collect::<Result<Vec<_>, EmitError>>();
         self.record_conversion_stack.borrow_mut().pop();
-        let entries = entries_result?.join(", ");
+        let entries = entries_result?.join(" ");
 
         Ok(format!(
-            "{{ let smelt_object_value = {value_text}; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([{entries}]))) }}"
+            "{{ let smelt_object_value = {value_text}; let smelt_struct_value = smelt_object_value.clone(); let mut smelt_object_entries = ::std::collections::HashMap::new(); {entries} SmeltUnknown::Object(SmeltObject::new(smelt_object_entries)) }}"
         ))
     }
 
@@ -473,13 +488,13 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id(value.id, value.into_iter().collect()), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let item_text = self.unknown_cast_value_text("value", *item)?;
                 Ok(format!(
-                    "if let SmeltUnknown::Object(values) = ({text}).into_smelt_unknown() {{ SmeltRecord::with_id(values.id, values.into_iter().map(|(key, value)| (key, {item_text})).collect()) }} else {{ SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
@@ -493,6 +508,12 @@ impl FunctionEmitter<'_> {
                 }
                 Ok(format!(
                     "if let SmeltUnknown::Object(values) = {text}.clone() {{ values.into_iter().map(|(key, value)| ({key_text}, {item_text})).collect::<::std::collections::HashMap<_, _>>() }} else {{ ::std::collections::HashMap::new() }}"
+                ))
+            }
+            Some(Type::TypeParam { name }) if self.current_function_has_type_param(*name) => {
+                let param_name = RustIdent::new(self.symbol_name(*name)?).into_string();
+                Ok(format!(
+                    "<{param_name} as SmeltFromUnknown>::smelt_from_unknown(({text}).into_smelt_unknown())"
                 ))
             }
             Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
@@ -530,6 +551,12 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp" => Ok(format!(
                 "match {text}.clone() {{ SmeltUnknown::Object(value) => SmeltRegExp::new(match value.get(\"source\") {{ Some(SmeltUnknown::String(source)) => source, _ => String::new() }}, match value.get(\"flags\") {{ Some(SmeltUnknown::String(flags)) => flags, _ => String::new() }}), _ => SmeltRegExp::default() }}"
             )),
+            Some(Type::Class { .. })
+                if self.type_text_with_impl_trait(target, false)? == "SmeltUnknown" =>
+            {
+                Ok(text.to_owned())
+            }
+            Some(Type::Class { .. }) if self.is_erased_class_type(target) => Ok(text.to_owned()),
             Some(Type::Class { .. }) if self.can_extract_unknown_object_record(target) => {
                 if self.record_conversion_stack.borrow().contains(&target) {
                     return Ok("Default::default()".to_owned());
@@ -546,7 +573,7 @@ impl FunctionEmitter<'_> {
                 self.record_conversion_stack.borrow_mut().pop();
                 if let Some(adapter) = adapter_result? {
                     return Ok(format!(
-                        "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = SmeltRecord::with_id(values.id, values.into_iter().collect()); {adapter} }}, _ => Default::default() }}"
+                        "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => {{ let smelt_record_map = SmeltRecord::with_id_from_entries(values.id, values.into_iter()); {adapter} }}, _ => Default::default() }}"
                     ));
                 }
                 Ok("Default::default()".to_owned())

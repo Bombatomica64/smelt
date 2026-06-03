@@ -148,6 +148,7 @@ fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
             callback_has_capture(receiver) || callback_has_capture(field)
         }
         smelt_hir::CallbackExprKind::UnknownIs { value, .. } => callback_has_capture(value),
+        smelt_hir::CallbackExprKind::TypeofValue { value } => callback_has_capture(value),
         smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_capture(operand),
         smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
             callback_has_capture(lhs) || callback_has_capture(rhs)

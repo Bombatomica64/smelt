@@ -104,6 +104,13 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(base_ty), Some(Type::String)) {
                     return self.string_field_text(&self.local_value_text(*base)?, *field);
                 }
+                if self.storage_field_is_function(base_ty, *field) {
+                    return Ok(format!(
+                        "{}.{}.clone()",
+                        self.local_value_text(*base)?,
+                        sanitize_ident(self.symbol_name(*field)?)
+                    ));
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && let Some(method_text) = self.class_method_reference_text(
                         &self.local_value_text(*base)?,
@@ -245,7 +252,17 @@ impl FunctionEmitter<'_> {
                     )),
                 }
             }
-            Place::Field { .. } => self.place_text(place),
+            Place::Field { base, field } => {
+                let base_ty = self.local_decl(*base)?.ty;
+                if self.structural_record_fields(base_ty).is_some() {
+                    return Ok(format!(
+                        "{}.{}",
+                        self.local_mut_value_text(*base)?,
+                        sanitize_ident(self.symbol_name(*field)?)
+                    ));
+                }
+                self.place_text(place)
+            }
         }
     }
 

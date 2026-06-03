@@ -104,6 +104,25 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let left_ty = self.operand_ty(left)?;
         let right_ty = self.operand_ty(right)?;
+        let left_erased = matches!(
+            self.mir.types.get(left_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(left_ty);
+        let right_erased = matches!(
+            self.mir.types.get(right_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(right_ty);
+        if left_erased || right_erased {
+            let unknown_ty = self.type_id(Type::Unknown)?;
+            let list_ty = self.type_id(Type::List(unknown_ty))?;
+            let left_text =
+                self.rendered_value_as_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
+            let right_text =
+                self.rendered_value_as_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
+            return Ok(format!(
+                "{left_text}.iter().cloned().chain({right_text}.iter().cloned()).collect::<Vec<_>>()"
+            ));
+        }
         let (Some(Type::List(left_item)), Some(Type::List(right_item))) =
             (self.mir.types.get(left_ty), self.mir.types.get(right_ty))
         else {

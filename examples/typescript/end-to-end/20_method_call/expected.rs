@@ -13,7 +13,7 @@ fn main() {
     let mut _smelt_tmp_1: Point = Point::new(2.0, 3.0);
     p = _smelt_tmp_1.clone();
     let _smelt_tmp_2: f64 = p.sum();
-    let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
+    let _ = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl Point {

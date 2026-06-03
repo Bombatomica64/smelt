@@ -184,6 +184,15 @@ impl ModuleBuilder<'_> {
         }
         let actual_ty = self.type_param_constraint_or_self(Self::expr_ty(body, actual));
         let expected_ty = self.type_param_constraint_or_self(Self::expr_ty(body, expected));
+        if matches!(
+            self.ctx.krate.types.get(actual_ty),
+            Some(Type::Int | Type::Float)
+        ) && matches!(
+            self.ctx.krate.types.get(expected_ty),
+            Some(Type::Int | Type::Float)
+        ) {
+            return true;
+        }
         let actual_ref = self.test_to_be_identity_type(actual_ty);
         let expected_ref = self.test_to_be_identity_type(expected_ty);
         if actual_ref || expected_ref {
@@ -369,10 +378,36 @@ impl ModuleBuilder<'_> {
         }
 
         let try_block = if let Argument::ArrowFunctionExpression(arrow) = actual_arg {
+            let none_ty = self.ctx.krate.types.intern(Type::None);
+            let mut callee = self.arrow_closure_body_expr(arrow, &[], none_ty, body)?;
+            let function = FunctionType {
+                params: Vec::new(),
+                rest: None,
+                required_params: Some(0),
+                return_ty: none_ty,
+                is_async: false,
+                may_throw: true,
+            };
+            let throwing_function_ty = self
+                .ctx
+                .krate
+                .types
+                .intern(Type::Function(function));
+            callee = body.push_expr(Expr {
+                kind: ExprKind::TypeAssert { value: callee },
+                ty: throwing_function_ty,
+                span: self.span(arrow.span.start, arrow.span.end),
+            });
             let try_block = body.push_block(self.span(arrow.body.span.start, arrow.body.span.end));
-            for statement in &arrow.body.statements {
-                self.statement_in_block(statement, body, try_block)?;
-            }
+            let call_expr = body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee,
+                    args: Vec::new(),
+                },
+                ty: none_ty,
+                span: self.span(arrow.span.start, arrow.span.end),
+            });
+            body.push_stmt_to_block(try_block, Stmt::Expr(call_expr));
             try_block
         } else {
             let mut callee = self.argument(actual_arg, body)?;

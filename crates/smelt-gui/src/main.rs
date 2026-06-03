@@ -12,6 +12,9 @@
 )]
 
 mod compiler;
+mod examples;
+mod output;
+mod pipeline;
 mod theme;
 mod workspace;
 

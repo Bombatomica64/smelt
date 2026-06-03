@@ -132,6 +132,11 @@ pub enum CallbackExprKind {
         /// Unknown tag to test.
         kind: UnknownKind,
     },
+    /// Runtime JavaScript `typeof` string for an erased callback value.
+    TypeofValue {
+        /// Value whose JavaScript type name is being computed.
+        value: Box<CallbackExpr>,
+    },
     /// A conditional expression.
     Conditional {
         /// Boolean condition.

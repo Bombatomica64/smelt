@@ -626,6 +626,12 @@ impl ModuleBuilder<'_> {
                     then_ty
                 } else if matches!(self.ctx.krate.types.get(else_ty), Some(Type::Union(items)) if items.contains(&then_ty)) {
                     else_ty
+                } else if type_hint
+                    .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
+                    || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
+                    || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
+                {
+                    self.ctx.krate.types.intern(Type::Unknown)
                 } else if self.is_string_compatible_type(then_ty)
                     && (self.is_string_compatible_type(else_ty)
                         || self.union_has_string_compatible_member(else_ty))
@@ -640,12 +646,7 @@ impl ModuleBuilder<'_> {
                         .krate
                         .types
                         .intern(Type::Union(vec![then_ty, else_ty]))
-                } else if type_hint
-                    .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown))
-                    || self.ctx.krate.types.get(then_ty) == Some(&Type::Unknown)
-                    || self.ctx.krate.types.get(else_ty) == Some(&Type::Unknown)
-                    || self.type_contains_unknown(then_ty)
-                    || self.type_contains_unknown(else_ty)
+                } else if self.type_contains_unknown(then_ty) || self.type_contains_unknown(else_ty)
                 {
                     self.ctx.krate.types.intern(Type::Unknown)
                 } else if let Some(hint) = type_hint

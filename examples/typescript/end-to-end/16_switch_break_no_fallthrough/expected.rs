@@ -15,5 +15,5 @@ fn main() {
     label = "other".to_owned();
         }
     }
-    let _smelt_tmp_2: () = { println!("{}", label.clone()); };
+    let _ = { println!("{}", label.clone()); };
 }

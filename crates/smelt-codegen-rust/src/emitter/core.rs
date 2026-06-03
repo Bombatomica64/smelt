@@ -1142,7 +1142,7 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns the generated fields for a concrete class/interface storage type.
     pub(super) fn structural_record_fields(&self, ty: TypeId) -> Option<Vec<MirField>> {
-        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+        let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
             return None;
         };
         if let Some(interface) = self
@@ -1151,15 +1151,162 @@ impl<'mir> FunctionEmitter<'mir> {
             .iter()
             .find(|interface| interface.name == *name)
         {
-            return Some(crate::classes::effective_interface_fields(
-                self.mir, interface,
+            let fields = crate::classes::effective_interface_fields(self.mir, interface);
+            return Some(self.substitute_record_field_type_params(
+                &interface.type_params,
+                args,
+                fields,
             ));
         }
         self.mir
             .classes
             .iter()
             .find(|class| class.name == *name)
-            .map(|class| crate::classes::effective_class_fields(self.mir, class))
+            .map(|class| {
+                self.substitute_record_field_type_params(
+                    &class.type_params,
+                    args,
+                    crate::classes::effective_class_fields(self.mir, class),
+                )
+            })
+    }
+
+    /// Substitute concrete class/interface arguments into structural fields.
+    ///
+    /// Generated storage structs keep their Rust generic parameters, but
+    /// adapter emission usually works with an instantiated type such as
+    /// `MatchFnResult<f64>`. Field reads must therefore use the instantiated
+    /// payload type instead of the declaration-time type parameter.
+    fn substitute_record_field_type_params(
+        &self,
+        type_params: &[smelt_hir::TypeParamDef],
+        args: &[TypeId],
+        fields: Vec<MirField>,
+    ) -> Vec<MirField> {
+        let substitutions = type_params
+            .iter()
+            .zip(args.iter().copied())
+            .map(|(param, arg)| (param.name, arg))
+            .collect::<HashMap<_, _>>();
+        if substitutions.is_empty() {
+            return fields;
+        }
+        fields
+            .into_iter()
+            .map(|mut field| {
+                field.ty = self.substitute_type_params_in_type(field.ty, &substitutions);
+                field
+            })
+            .collect()
+    }
+
+    /// Substitute type parameters in a type, reusing already-interned MIR types.
+    fn substitute_type_params_in_type(
+        &self,
+        ty: TypeId,
+        substitutions: &HashMap<Symbol, TypeId>,
+    ) -> TypeId {
+        let Some(ty_kind) = self.mir.types.get(ty) else {
+            return ty;
+        };
+        match ty_kind {
+            Type::TypeParam { name } => substitutions.get(name).copied().unwrap_or(ty),
+            Type::Optional(inner) => self
+                .existing_type_id(Type::Optional(
+                    self.substitute_type_params_in_type(*inner, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::List(item) => self
+                .existing_type_id(Type::List(
+                    self.substitute_type_params_in_type(*item, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Set(item) => self
+                .existing_type_id(Type::Set(
+                    self.substitute_type_params_in_type(*item, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Future(item) => self
+                .existing_type_id(Type::Future(
+                    self.substitute_type_params_in_type(*item, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Dict(key, value) => self
+                .existing_type_id(Type::Dict(
+                    self.substitute_type_params_in_type(*key, substitutions),
+                    self.substitute_type_params_in_type(*value, substitutions),
+                ))
+                .unwrap_or(ty),
+            Type::Tuple(items) => self
+                .existing_type_id(Type::Tuple(
+                    items
+                        .iter()
+                        .map(|item| self.substitute_type_params_in_type(*item, substitutions))
+                        .collect(),
+                ))
+                .unwrap_or(ty),
+            Type::Union(items) => self
+                .existing_type_id(Type::Union(
+                    items
+                        .iter()
+                        .map(|item| self.substitute_type_params_in_type(*item, substitutions))
+                        .collect(),
+                ))
+                .unwrap_or(ty),
+            Type::Class { name, args } => self
+                .existing_type_id(Type::Class {
+                    name: *name,
+                    args: args
+                        .iter()
+                        .map(|arg| self.substitute_type_params_in_type(*arg, substitutions))
+                        .collect(),
+                })
+                .unwrap_or(ty),
+            Type::Function(function) => self
+                .existing_type_id(Type::Function(FunctionType {
+                    params: function
+                        .params
+                        .iter()
+                        .map(|param| self.substitute_type_params_in_type(*param, substitutions))
+                        .collect(),
+                    rest: function.rest,
+                    required_params: function.required_params,
+                    return_ty: self
+                        .substitute_type_params_in_type(function.return_ty, substitutions),
+                    is_async: function.is_async,
+                    may_throw: function.may_throw,
+                }))
+                .unwrap_or(ty),
+            _ => ty,
+        }
+    }
+
+    /// Find the ID of an already interned type.
+    fn existing_type_id(&self, ty: Type) -> Option<TypeId> {
+        self.mir
+            .types
+            .all()
+            .iter()
+            .position(|candidate| *candidate == ty)
+            .and_then(|index| u32::try_from(index).ok())
+            .map(TypeId)
+    }
+
+    /// Returns true when a generated storage field is itself a callable value.
+    ///
+    /// Callable fields must be read from the struct before method-reference
+    /// fallback runs; otherwise abstract virtual slots such as `this.parse`
+    /// are erased into placeholder method references instead of dispatching
+    /// through the concrete adapter-bound closure.
+    pub(super) fn storage_field_is_function(&self, ty: TypeId, field: Symbol) -> bool {
+        self.structural_record_fields(ty)
+            .and_then(|fields| {
+                fields
+                    .into_iter()
+                    .find(|candidate| candidate.name == field)
+                    .map(|candidate| candidate.ty)
+            })
+            .is_some_and(|field_ty| matches!(self.mir.types.get(field_ty), Some(Type::Function(_))))
     }
 
     /// Returns whether a generated storage type is an interface-shaped record.
@@ -1231,6 +1378,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 })
                 .cloned();
             if source_field.is_none()
+                && !self.is_virtual_method_storage_field(target, target_field.name)
                 && !matches!(self.mir.types.get(target_field.ty), Some(Type::Optional(_)))
             {
                 return None;
@@ -1267,7 +1415,11 @@ impl<'mir> FunctionEmitter<'mir> {
         let mut field_text = Vec::new();
         for (source_field_match, target_field) in adapted_fields {
             let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
-            let value = if let Some(source_field) = source_field_match {
+            let value = if let Some(value) =
+                self.virtual_method_storage_field_text(source, target, target_field.name)?
+            {
+                value
+            } else if let Some(source_field) = source_field_match {
                 let source_field_name = sanitize_ident(self.symbol_name(source_field.name)?);
                 let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
                 self.rendered_value_as_type_text(&source_value, source_field.ty, target_field.ty)?
@@ -1283,6 +1435,294 @@ impl<'mir> FunctionEmitter<'mir> {
             "{{ let smelt_struct_value = {value_text}.clone(); {target_name} {{ {} }} }}",
             field_text.join(", ")
         )))
+    }
+
+    /// Returns true when `field` is a callable slot that represents a class method.
+    ///
+    /// Abstract/base classes store virtual method members as function fields so
+    /// structurally adapted subclass values can keep overriding behavior after
+    /// they are viewed through the base class type.
+    fn is_virtual_method_storage_field(&self, ty: TypeId, field: Symbol) -> bool {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return false;
+        };
+        let Some(class) = self.mir.classes.iter().find(|class| class.name == *name) else {
+            return false;
+        };
+        class
+            .abstract_methods
+            .iter()
+            .any(|method| method.name == field)
+            || class.methods.iter().any(|method_id| {
+                self.function_by_id(*method_id).is_some_and(|function| {
+                    matches!(
+                        function.origin,
+                        HirOrigin::ClassMethod { method, .. } if method == field
+                    )
+                })
+            })
+    }
+
+    /// Emits a bound closure for a virtual method storage field when possible.
+    ///
+    /// The closure captures the concrete source value and dispatches to the
+    /// source class implementation. This preserves JavaScript/TypeScript
+    /// overridable method behavior for base-typed structural storage such as
+    /// `Record<string, Parser<any>>`.
+    pub(super) fn virtual_method_storage_field_text(
+        &self,
+        source: TypeId,
+        target: TypeId,
+        method: Symbol,
+    ) -> Result<Option<String>, EmitError> {
+        if !self.is_virtual_method_storage_field(target, method) {
+            return Ok(None);
+        }
+        let Some(Type::Function(function_ty)) = self
+            .structural_record_fields(target)
+            .and_then(|fields| fields.into_iter().find(|field| field.name == method))
+            .and_then(|field| self.mir.types.get(field.ty))
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        let direct_source_function = self
+            .class_for_type(source)
+            .and_then(|class| self.find_direct_class_method_function(class.name, method));
+        let inherited_source_function = self
+            .class_for_type(source)
+            .and_then(|class| self.find_class_method_function(class.name, method));
+        let dispatches_to_source_field =
+            inherited_source_function.is_none() && self.storage_field_is_function(source, method);
+        if dispatches_to_source_field {
+            let params = function_ty
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    Ok(format!(
+                        "arg{index}: {}",
+                        self.type_text_with_impl_trait(*param, false)?
+                    ))
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
+            let args = function_ty
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    self.rendered_value_as_type_text(&format!("arg{index}.clone()"), *param, *param)
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
+            let method_name = sanitize_ident(self.symbol_name(method)?);
+            let call = if args.is_empty() {
+                format!("(smelt_method_receiver.{method_name}.clone())()")
+            } else {
+                format!("(smelt_method_receiver.{method_name}.clone())({args})")
+            };
+            let body = self.rendered_value_as_type_text(
+                &call,
+                function_ty.return_ty,
+                function_ty.return_ty,
+            )?;
+            let return_ty = if function_ty.may_throw {
+                format!(
+                    "Result<{}, Box<dyn std::error::Error>>",
+                    self.type_text_with_impl_trait(function_ty.return_ty, false)?
+                )
+            } else {
+                self.type_text_with_impl_trait(function_ty.return_ty, false)?
+            };
+            let body = if function_ty.may_throw {
+                format!("Ok::<_, Box<dyn std::error::Error>>({body})")
+            } else {
+                body
+            };
+            return Ok(Some(format!(
+                "{{ let smelt_virtual_receiver = smelt_struct_value.clone(); ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_method_receiver = smelt_virtual_receiver.clone(); {body} }}) }}"
+            )));
+        }
+        let Some(source_function) = direct_source_function
+            .or(inherited_source_function)
+            .or_else(|| {
+                self.class_for_type(target)
+                    .and_then(|class| self.find_class_method_function(class.name, method))
+            })
+        else {
+            return Ok(Some(
+                self.default_value(
+                    self.mir
+                        .types
+                        .all()
+                        .iter()
+                        .position(|ty| *ty == Type::Function(function_ty.clone()))
+                        .and_then(|index| u32::try_from(index).ok())
+                        .map(TypeId)
+                        .ok_or_else(|| EmitError::new("virtual method field type is missing"))?,
+                )?,
+            ));
+        };
+        let params = function_ty
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                Ok(format!(
+                    "arg{index}: {}",
+                    self.type_text_with_impl_trait(*param, false)?
+                ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        let source_arity = if dispatches_to_source_field {
+            function_ty.params.len()
+        } else {
+            source_function.params.len().saturating_sub(1)
+        };
+        let args = function_ty
+            .params
+            .iter()
+            .take(source_arity)
+            .enumerate()
+            .map(|(index, target_param)| {
+                let source_param = if dispatches_to_source_field {
+                    *target_param
+                } else {
+                    source_function
+                        .params
+                        .get(index.saturating_add(1))
+                        .and_then(|param| self.function_local_decl(source_function, *param).ok())
+                        .map_or(*target_param, |decl| decl.ty)
+                };
+                self.rendered_value_as_type_text(
+                    &format!("arg{index}.clone()"),
+                    *target_param,
+                    source_param,
+                )
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        let method_name = sanitize_ident(self.symbol_name(method)?);
+        let receiver_mut = if method_mutates_this(source_function) {
+            "mut "
+        } else {
+            ""
+        };
+        let receiver_value = if direct_source_function.is_some() || dispatches_to_source_field {
+            "smelt_struct_value.clone()".to_owned()
+        } else {
+            let target_ty = self.type_text_with_impl_trait(target, false)?;
+            format!("<{target_ty} as Default>::default()")
+        };
+        let call = if dispatches_to_source_field {
+            if args.is_empty() {
+                format!("(smelt_method_receiver.{method_name}.clone())()")
+            } else {
+                format!("(smelt_method_receiver.{method_name}.clone())({args})")
+            }
+        } else if args.is_empty() {
+            format!("smelt_method_receiver.{method_name}()")
+        } else {
+            format!("smelt_method_receiver.{method_name}({args})")
+        };
+        let source_can_throw = !dispatches_to_source_field && source_function.can_throw;
+        let source_return_ty = if dispatches_to_source_field {
+            function_ty.return_ty
+        } else {
+            source_function.return_ty
+        };
+        let call = if source_can_throw && function_ty.may_throw {
+            call
+        } else if source_can_throw {
+            format!("{call}.unwrap_or_else(|_| Default::default())")
+        } else {
+            call
+        };
+        let body =
+            self.rendered_value_as_type_text(&call, source_return_ty, function_ty.return_ty)?;
+        let return_ty = if function_ty.may_throw {
+            format!(
+                "Result<{}, Box<dyn std::error::Error>>",
+                self.type_text_with_impl_trait(function_ty.return_ty, false)?
+            )
+        } else {
+            self.type_text_with_impl_trait(function_ty.return_ty, false)?
+        };
+        let body = if function_ty.may_throw && !source_can_throw {
+            format!("Ok::<_, Box<dyn std::error::Error>>({body})")
+        } else {
+            body
+        };
+        Ok(Some(format!(
+            "{{ let smelt_virtual_receiver = {receiver_value}; ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = smelt_virtual_receiver.clone(); {body} }}) }}"
+        )))
+    }
+
+    /// Return the MIR class described by a class type.
+    fn class_for_type(&self, ty: TypeId) -> Option<&MirClass> {
+        let Some(Type::Class { name, .. }) = self.mir.types.get(ty) else {
+            return None;
+        };
+        self.mir.classes.iter().find(|class| class.name == *name)
+    }
+
+    /// Find a concrete method implementation on a class or its base chain.
+    fn find_class_method_function(
+        &self,
+        class_name: Symbol,
+        method: Symbol,
+    ) -> Option<&MirFunction> {
+        let class = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == class_name)?;
+        for method_id in &class.methods {
+            let Some(function) = self.function_by_id(*method_id) else {
+                continue;
+            };
+            if matches!(
+                function.origin,
+                HirOrigin::ClassMethod { method: function_method, .. }
+                    if function_method == method
+            ) {
+                return Some(function);
+            }
+        }
+        class
+            .base
+            .and_then(|base| self.find_class_method_function(base, method))
+    }
+
+    /// Find a concrete method implementation declared directly on a class.
+    fn find_direct_class_method_function(
+        &self,
+        class_name: Symbol,
+        method: Symbol,
+    ) -> Option<&MirFunction> {
+        let class = self
+            .mir
+            .classes
+            .iter()
+            .find(|class| class.name == class_name)?;
+        class.methods.iter().find_map(|method_id| {
+            let function = self.function_by_id(*method_id)?;
+            matches!(
+                function.origin,
+                HirOrigin::ClassMethod { method: function_method, .. }
+                    if function_method == method
+            )
+            .then_some(function)
+        })
+    }
+
+    /// Resolve a MIR function by stable function id.
+    fn function_by_id(&self, function_id: FuncId) -> Option<&MirFunction> {
+        id_index(function_id.0, "function index does not fit usize")
+            .ok()
+            .and_then(|index| self.mir.functions.get(index))
     }
 
     /// Emits a map-to-record adapter for object literals that were first
@@ -1657,7 +2097,53 @@ impl<'mir> FunctionEmitter<'mir> {
         .type_text_with_impl_trait(ty, false)
     }
 
+    /// Converts a type ID to Rust text while preserving the provided type
+    /// parameters as real Rust generics.
+    ///
+    /// This is used for class and interface storage emission, where MIR has
+    /// already retained the declaring type parameter list. Other contexts keep
+    /// falling back to `SmeltUnknown` for type parameters until function-level
+    /// generic declarations are represented in MIR.
+    pub(crate) fn type_text_for_with_scoped_type_params(
+        mir: &Mir,
+        context: &EmitContext,
+        ty: TypeId,
+        scoped_type_params: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
+        FunctionEmitter {
+            mir,
+            context,
+            function: mir
+                .functions
+                .first()
+                .ok_or_else(|| EmitError::new("MIR has no functions"))?,
+            names: HashMap::new(),
+            mutable_locals: HashSet::new(),
+            declared_locals: RefCell::new(HashSet::new()),
+            predeclared_locals: HashSet::new(),
+            termination_cache: RefCell::new(HashMap::new()),
+            loop_exit_cache: RefCell::new(HashMap::new()),
+            borrowed_callback_names: HashSet::new(),
+            record_conversion_stack: RefCell::new(Vec::new()),
+            none_ty: ty,
+            unknown_local: LocalDecl {
+                ty,
+                kind: LocalKind::Temp,
+                span: Span {
+                    file: FileId(0),
+                    start: 0,
+                    end: 0,
+                },
+            },
+        }
+        .type_text_with_scoped_type_params(ty, false, scoped_type_params)
+    }
+
     /// Converts a type ID to a Rust default expression using an existing context.
+    #[expect(
+        dead_code,
+        reason = "kept for non-generic storage default callers outside the current parse work"
+    )]
     pub(crate) fn default_value_for_with_context(
         mir: &Mir,
         context: &EmitContext,
@@ -1690,6 +2176,42 @@ impl<'mir> FunctionEmitter<'mir> {
             },
         }
         .default_value(ty)
+    }
+
+    /// Converts a type ID to a default expression with scoped type parameters.
+    pub(crate) fn default_value_for_with_scoped_type_params(
+        mir: &Mir,
+        context: &EmitContext,
+        ty: TypeId,
+        scoped_type_params: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
+        FunctionEmitter {
+            mir,
+            context,
+            function: mir
+                .functions
+                .first()
+                .ok_or_else(|| EmitError::new("MIR has no functions"))?,
+            names: HashMap::new(),
+            mutable_locals: HashSet::new(),
+            declared_locals: RefCell::new(HashSet::new()),
+            predeclared_locals: HashSet::new(),
+            termination_cache: RefCell::new(HashMap::new()),
+            loop_exit_cache: RefCell::new(HashMap::new()),
+            borrowed_callback_names: HashSet::new(),
+            record_conversion_stack: RefCell::new(Vec::new()),
+            none_ty: ty,
+            unknown_local: LocalDecl {
+                ty,
+                kind: LocalKind::Temp,
+                span: Span {
+                    file: FileId(0),
+                    start: 0,
+                    end: 0,
+                },
+            },
+        }
+        .default_value_with_scoped_type_params(ty, scoped_type_params)
     }
 
     /// Emits a basic block's statements and terminator.
@@ -1733,6 +2255,11 @@ impl<'mir> FunctionEmitter<'mir> {
             && !matches!(self.mir.types.get(target), Some(Type::Function(_)))
         {
             return self.operand_text(operand);
+        }
+        if let Some(Type::TypeParam { name }) = self.mir.types.get(target)
+            && self.current_function_has_type_param(*name)
+        {
+            return self.unknown_cast_text(operand, target);
         }
         if matches!(
             self.mir.types.get(target),
@@ -2561,7 +3088,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
             )
         {
-            return self.unknown_cast_value_text(&format!("{value_text}.value.clone()"), target);
+            let value_ty = self.match_fn_result_value_type(source)?.unwrap_or_else(|| {
+                self.type_id(Type::Unknown)
+                    .expect("SmeltUnknown type must be interned")
+            });
+            return self.rendered_value_as_type_text(
+                &format!("{value_text}.value.clone()"),
+                value_ty,
+                target,
+            );
         }
         if self.mir.types.get(source) == Some(&Type::None) {
             return self.default_value(target);
@@ -2589,6 +3124,14 @@ impl<'mir> FunctionEmitter<'mir> {
             && self.mir.types.get(source) == Some(&Type::String)
         {
             return Ok(format!("{value_text}.parse::<f64>().unwrap_or(0.0)"));
+        }
+        if self.mir.types.get(target) == Some(&Type::String)
+            && matches!(
+                self.mir.types.get(source),
+                Some(Type::Bool | Type::Int | Type::Float)
+            )
+        {
+            return Ok(format!("{value_text}.to_string()"));
         }
         if matches!(
             self.mir.types.get(target),
@@ -2965,7 +3508,11 @@ impl<'mir> FunctionEmitter<'mir> {
         let return_text = if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
             && !source_returns_future
         {
-            format!("{{ {call_value}; () }}")
+            if target_function.may_throw {
+                format!("{{ {call_value}; Ok::<(), Box<dyn std::error::Error>>(()) }}")
+            } else {
+                format!("{{ {call_value}; () }}")
+            }
         } else if target_function.may_throw
             && source_returns_future
             && !source_async_output_may_throw
@@ -3258,7 +3805,11 @@ impl<'mir> FunctionEmitter<'mir> {
         let return_text = if self.mir.types.get(target_function.return_ty) == Some(&Type::None)
             && !source_returns_future
         {
-            format!("{{ {call_value}; () }}")
+            if target_function.may_throw {
+                format!("{{ {call_value}; Ok::<(), Box<dyn std::error::Error>>(()) }}")
+            } else {
+                format!("{{ {call_value}; () }}")
+            }
         } else if target_function.may_throw
             && source_returns_future
             && !source_async_output_may_throw
@@ -3681,6 +4232,25 @@ impl<'mir> FunctionEmitter<'mir> {
             self.mir.types.get(ty),
             Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
         ))
+    }
+
+    /// Return the generic payload type carried by a `MatchFnResult<T>` value.
+    ///
+    /// Older generated code erased this field through `SmeltUnknown`, but
+    /// date-fns parser matches instantiate it with concrete payloads such as
+    /// `String`. Preserving the payload type avoids emitting unknown-pattern
+    /// casts against concrete Rust values.
+    pub(super) fn match_fn_result_value_type(
+        &self,
+        ty: TypeId,
+    ) -> Result<Option<TypeId>, EmitError> {
+        let Some(Type::Class { name, args }) = self.mir.types.get(ty) else {
+            return Ok(None);
+        };
+        if self.symbol_name(*name)? != "MatchFnResult" {
+            return Ok(None);
+        }
+        Ok(args.first().copied())
     }
 
     /// Gets the original source spelling of a symbol when runtime object keys

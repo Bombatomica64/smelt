@@ -130,7 +130,8 @@ fn callback_needs_regex(callback: &CallbackExpr, mir: &Mir) -> bool {
         CallbackExprKind::FunctionTableLookup { key, .. } => callback_needs_regex(key, mir),
         CallbackExprKind::AssignCapture { value, .. }
         | CallbackExprKind::Unary { operand: value, .. }
-        | CallbackExprKind::UnknownIs { value, .. } => callback_needs_regex(value, mir),
+        | CallbackExprKind::UnknownIs { value, .. }
+        | CallbackExprKind::TypeofValue { value } => callback_needs_regex(value, mir),
         CallbackExprKind::ListLit(items) => {
             items.iter().any(|item| callback_needs_regex(item, mir))
         }

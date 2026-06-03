@@ -11,5 +11,5 @@ fn main() {
     let _smelt_tmp_4: bool = !(blocked.clone());
     let _smelt_tmp_5: bool = if _smelt_tmp_4.clone() { ready.clone() } else { false };
     let _smelt_tmp_6: bool = if _smelt_tmp_5.clone() { ready.clone() } else { false };
-    let _smelt_tmp_7: () = { println!("{} {}", _smelt_tmp_6.clone(), value.clone()); };
+    let _ = { println!("{} {}", _smelt_tmp_6.clone(), value.clone()); };
 }

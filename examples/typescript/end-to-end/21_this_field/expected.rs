@@ -13,7 +13,7 @@ fn main() {
     let mut _smelt_tmp_1: User = User::new("Ada".to_owned(), "Lovelace".to_owned());
     user = _smelt_tmp_1.clone();
     let _smelt_tmp_2: String = user.label();
-    let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
+    let _ = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl User {

@@ -357,6 +357,53 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_resolves_typescript_reexported_object_alias_imports() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src/_lib/defaultLocale"))?;
+    fs::create_dir_all(project_path.join("src/locale/en-US"))?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "ts-reexport-object-alias"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "ts_reexport_object_alias"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/locale/en-US/index.ts"),
+        "export const enUS = { code: \"en-US\" };\n",
+    )?;
+    fs::write(
+        project_path.join("src/_lib/defaultLocale/index.ts"),
+        "export { enUS as defaultLocale } from \"../../locale/en-US/index.ts\";\n",
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "import { defaultLocale } from \"./_lib/defaultLocale/index.ts\";\n\
+console.log(defaultLocale.code);\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let actual_stdout = cargo_run_manifest(&project_path.join("dist/Cargo.toml"))?;
+    ensure_eq(&actual_stdout, &"en-US\n".to_owned(), "unexpected stdout")?;
+
+    Ok(())
+}
+
+#[test]
 fn build_resolves_typescript_namespace_imports() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

@@ -1,8 +1,13 @@
-//! Compiler bridge — wraps the Smelt pipeline for dual-source transpilation.
+//! Compiler bridge — runs the full Smelt pipeline on two in-memory source
+//! files (TypeScript + Python) and reports a structured [`CompileReport`].
 //!
-//! Lowers TypeScript first (as `lib.ts`), then Python (as `main.py`), into a
+//! TypeScript is lowered first (as `lib.ts`), then Python (as `main.py`), into a
 //! single shared HIR crate so that cross-language imports like
-//! `from lib import add` work exactly as in manifest-driven CLI builds.
+//! `from lib import add` resolve exactly as in manifest-driven CLI builds. The
+//! report captures the generated Rust source on success, a readable list of
+//! diagnostics on failure, and a per-stage pass/fail/skip trace of the pipeline.
+
+use std::time::{Duration, Instant};
 
 use smelt_hir::FileId;
 
@@ -12,159 +17,255 @@ pub(super) const TS_PATH: &str = "src/lib.ts";
 /// Virtual path for the Python source file.
 pub(super) const PY_PATH: &str = "src/main.py";
 
-/// Compilation result.
+/// Ordered list of pipeline stage names, used to pad skipped stages on failure.
+const STAGE_NAMES: [&str; 6] = [
+    "TypeScript lowering",
+    "Python lowering",
+    "MIR lowering",
+    "MIR optimize",
+    "MIR validate",
+    "Rust codegen",
+];
+
+/// Outcome of a single pipeline stage.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum StageStatus {
+    /// Stage ran and succeeded.
+    Passed,
+    /// Stage ran and failed (the cause is in [`CompileReport::diagnostics`]).
+    Failed,
+    /// Stage was not reached (an earlier stage failed) or had no input.
+    Skipped,
+}
+
+/// A single named pipeline stage and its outcome.
 #[derive(Debug, Clone)]
-pub(super) enum CompileResult {
-    /// Generated Rust source code.
-    Ok(String),
-    /// One or more errors.
-    Err(String),
+pub(super) struct PipelineStageReport {
+    /// Human-readable stage name.
+    pub(super) name: &'static str,
+    /// Whether the stage passed, failed, or was skipped.
+    pub(super) status: StageStatus,
 }
 
-/// Runs the full Smelt pipeline on two in-memory source files (TS + Python),
-/// lowering them into a single shared HIR crate so exports are visible across
-/// languages.
-pub(super) fn compile(ts_source: &str, py_source: &str) -> CompileResult {
-    let ts_has_content = !ts_source.trim().is_empty();
-    let py_has_content = !py_source.trim().is_empty();
+/// One readable diagnostic message, attributed to the stage that produced it.
+#[derive(Debug, Clone)]
+pub(super) struct DiagnosticMessage {
+    /// Pipeline stage that emitted this diagnostic.
+    pub(super) stage: &'static str,
+    /// The error text.
+    pub(super) message: String,
+}
 
-    if !ts_has_content && !py_has_content {
-        return CompileResult::Err("Both editors are empty.".to_owned());
+/// Structured result of a single compilation.
+#[derive(Debug, Clone)]
+pub(super) struct CompileReport {
+    /// Generated Rust source, present only on success.
+    pub(super) rust_source: Option<String>,
+    /// Readable diagnostics, one per underlying compiler error.
+    pub(super) diagnostics: Vec<DiagnosticMessage>,
+    /// Per-stage pass/fail/skip trace.
+    pub(super) stages: Vec<PipelineStageReport>,
+    /// Wall-clock duration of the whole compilation.
+    pub(super) duration: Duration,
+    /// Whether the compilation produced Rust output.
+    pub(super) ok: bool,
+}
+
+impl CompileReport {
+    /// Returns the generated Rust source, or an empty string if compilation
+    /// failed. Convenient for populating the read-only output editor.
+    pub(super) fn rust_or_empty(&self) -> String {
+        self.rust_source.clone().unwrap_or_default()
     }
 
-    let krate = match lower_combined(ts_source, ts_has_content, py_source, py_has_content) {
-        Ok(k) => k,
-        Err(msg) => return CompileResult::Err(msg),
-    };
-
-    let mut mir = match smelt_mir::lower_hir(&krate) {
-        Ok(mir) => mir,
-        Err(errors) => {
-            let msg = errors
-                .iter()
-                .map(|e| format!("{e:?}"))
-                .collect::<Vec<_>>()
-                .join("\n");
-            return CompileResult::Err(format!("MIR lowering failed:\n{msg}"));
-        }
-    };
-
-    smelt_mir::opt::optimize(&mut mir);
-
-    let validation_errors = smelt_mir::validate(&mir);
-    if !validation_errors.is_empty() {
-        let msg = validation_errors
+    /// Returns the name of the first failing stage, if any.
+    pub(super) fn failing_stage(&self) -> Option<&'static str> {
+        self.stages
             .iter()
-            .map(|e| format!("{e:?}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        return CompileResult::Err(format!("MIR validation failed:\n{msg}"));
-    }
-
-    match smelt_codegen_rust::emit_source(&mir) {
-        Ok(rust) => CompileResult::Ok(rust),
-        Err(e) => CompileResult::Err(format!("Codegen failed: {e}")),
+            .find(|s| s.status == StageStatus::Failed)
+            .map(|s| s.name)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// Runs the full pipeline and returns a structured [`CompileReport`].
+///
+/// Stages are recorded as they run so the UI can show exactly where a failing
+/// compilation stopped. The two source languages are merged into one HIR crate
+/// before MIR lowering, so a single Rust program is emitted with one entrypoint.
+#[expect(clippy::too_many_lines, reason = "linear stage-by-stage pipeline driver")]
+pub(super) fn compile_report(ts_source: &str, py_source: &str) -> CompileReport {
+    let start = Instant::now();
+    let mut stages: Vec<PipelineStageReport> = Vec::with_capacity(STAGE_NAMES.len());
+    let mut diagnostics: Vec<DiagnosticMessage> = Vec::new();
 
-    #[test]
-    fn ts_only_compiles() {
-        let ts = "let x: number = 42;\nconsole.log(x);\n";
-        let result = compile(ts, "");
-        match &result {
-            CompileResult::Ok(rust) => assert!(
-                rust.contains("fn main"),
-                "expected fn main in output: {rust}"
-            ),
-            CompileResult::Err(e) => panic!("TS-only compile failed: {e}"),
-        }
+    let ts_has = !ts_source.trim().is_empty();
+    let py_has = !py_source.trim().is_empty();
+
+    if !ts_has && !py_has {
+        diagnostics.push(DiagnosticMessage {
+            stage: "input",
+            message: "Both editors are empty — add TypeScript or Python source to compile."
+                .to_owned(),
+        });
+        return bail(stages, diagnostics, 0, start);
     }
 
-    #[test]
-    fn cross_import_compiles() {
-        let ts = "export function add(a: number, b: number): number {\n    return a + b;\n}\n";
-        let py = "from lib import add\n\nresult: float = add(2.0, 3.0)\nprint(result)\n";
-        let result = compile(ts, py);
-        match &result {
-            CompileResult::Ok(rust) => {
-                assert!(rust.contains("fn main"), "expected fn main: {rust}");
-                assert!(rust.contains("println!"), "expected println: {rust}");
-            }
-            CompileResult::Err(e) => panic!("Cross-import compile failed: {e}"),
-        }
-    }
-
-    #[test]
-    fn cross_import_emits_one_rust_main() {
-        let ts = "export function add(a: number, b: number): number {\n    return a + b;\n}\n";
-        let py = "from lib import add\n\nresult: float = add(2.0, 3.0)\nprint(result)\n";
-        let result = compile(ts, py);
-        match &result {
-            CompileResult::Ok(rust) => {
-                assert_eq!(
-                    rust.matches("fn main(").count(),
-                    1,
-                    "expected one Rust entrypoint: {rust}"
-                );
-                assert!(
-                    rust.contains("fn lib()"),
-                    "expected TS module body to be renamed away from main: {rust}"
-                );
-            }
-            CompileResult::Err(e) => panic!("Cross-import compile failed: {e}"),
-        }
-    }
-}
-
-/// Lower TS then Python into one shared HIR crate, mirroring the CLI's
-/// `lower_ordered_manifest_sources` flow. Passes the path so that
-/// `from lib import X` resolves the TS module by its file stem.
-fn lower_combined(
-    ts_source: &str,
-    ts_has_content: bool,
-    py_source: &str,
-    py_has_content: bool,
-) -> Result<smelt_hir::Crate, String> {
+    // ── Stage 1: TypeScript lowering ────────────────────────────────
     let mut ts_ctx = smelt_frontend_ts::HirCtx::new();
-
-    if ts_has_content {
-        let module =
-            smelt_frontend_ts::to_hir_with_path(ts_source, FileId(0), TS_PATH, &mut ts_ctx)
-                .map_err(|errors| {
-                    errors
-                        .iter()
-                        .map(|e| format!("{e:?}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })?;
-        if py_has_content {
-            rename_module(&mut ts_ctx.krate, module, "lib");
+    if ts_has {
+        match smelt_frontend_ts::to_hir_with_path(ts_source, FileId(0), TS_PATH, &mut ts_ctx) {
+            Ok(module) => {
+                // Rename the TS module body away from `main` so the Python
+                // entrypoint owns `fn main` when both languages are present.
+                if py_has {
+                    rename_module(&mut ts_ctx.krate, module, "lib");
+                }
+                stages.push(passed(0));
+            }
+            Err(errors) => {
+                push_debug_diags(&mut diagnostics, STAGE_NAMES[0], errors);
+                stages.push(failed(0));
+                return bail(stages, diagnostics, 1, start);
+            }
         }
+    } else {
+        stages.push(skipped(0));
     }
 
-    if py_has_content {
+    // ── Stage 2: Python lowering ────────────────────────────────────
+    let krate = if py_has {
         let mut py_ctx = smelt_frontend_py::HirCtx {
             krate: ts_ctx.krate,
             module_namespaces: std::collections::HashMap::new(),
             enum_members: std::collections::HashMap::new(),
         };
-        let module =
-            smelt_frontend_py::to_hir_with_path(py_source, FileId(1), PY_PATH, &mut py_ctx)
-                .map_err(|errors| {
-                    errors
-                        .iter()
-                        .map(|e| format!("{e:?}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                })?;
-        rename_module(&mut py_ctx.krate, module, "main");
-        Ok(py_ctx.krate)
+        match smelt_frontend_py::to_hir_with_path(py_source, FileId(1), PY_PATH, &mut py_ctx) {
+            Ok(module) => {
+                rename_module(&mut py_ctx.krate, module, "main");
+                stages.push(passed(1));
+                py_ctx.krate
+            }
+            Err(errors) => {
+                push_debug_diags(&mut diagnostics, STAGE_NAMES[1], errors);
+                stages.push(failed(1));
+                return bail(stages, diagnostics, 2, start);
+            }
+        }
     } else {
-        Ok(ts_ctx.krate)
+        stages.push(skipped(1));
+        ts_ctx.krate
+    };
+
+    // ── Stage 3: MIR lowering ───────────────────────────────────────
+    let mut mir = match smelt_mir::lower_hir(&krate) {
+        Ok(mir) => {
+            stages.push(passed(2));
+            mir
+        }
+        Err(errors) => {
+            push_debug_diags(&mut diagnostics, STAGE_NAMES[2], errors);
+            stages.push(failed(2));
+            return bail(stages, diagnostics, 3, start);
+        }
+    };
+
+    // ── Stage 4: MIR optimize ───────────────────────────────────────
+    smelt_mir::opt::optimize(&mut mir);
+    stages.push(passed(3));
+
+    // ── Stage 5: MIR validate ───────────────────────────────────────
+    let validation_errors = smelt_mir::validate(&mir);
+    if validation_errors.is_empty() {
+        stages.push(passed(4));
+    } else {
+        push_debug_diags(&mut diagnostics, STAGE_NAMES[4], validation_errors);
+        stages.push(failed(4));
+        return bail(stages, diagnostics, 5, start);
+    }
+
+    // ── Stage 6: Rust codegen ───────────────────────────────────────
+    match smelt_codegen_rust::emit_source(&mir) {
+        Ok(rust) => {
+            stages.push(passed(5));
+            CompileReport {
+                rust_source: Some(rust),
+                diagnostics,
+                stages,
+                duration: start.elapsed(),
+                ok: true,
+            }
+        }
+        Err(e) => {
+            diagnostics.push(DiagnosticMessage {
+                stage: STAGE_NAMES[5],
+                message: format!("{e}"),
+            });
+            stages.push(failed(5));
+            bail(stages, diagnostics, 6, start)
+        }
+    }
+}
+
+/// Builds a passed stage report for the stage at `index`.
+const fn passed(index: usize) -> PipelineStageReport {
+    PipelineStageReport {
+        name: STAGE_NAMES[index],
+        status: StageStatus::Passed,
+    }
+}
+
+/// Builds a failed stage report for the stage at `index`.
+const fn failed(index: usize) -> PipelineStageReport {
+    PipelineStageReport {
+        name: STAGE_NAMES[index],
+        status: StageStatus::Failed,
+    }
+}
+
+/// Builds a skipped stage report for the stage at `index`.
+const fn skipped(index: usize) -> PipelineStageReport {
+    PipelineStageReport {
+        name: STAGE_NAMES[index],
+        status: StageStatus::Skipped,
+    }
+}
+
+/// Finalizes a failed compilation, padding any not-yet-reached stages (from
+/// `next_index` onward) as skipped so the pipeline view stays complete.
+fn bail(
+    mut stages: Vec<PipelineStageReport>,
+    diagnostics: Vec<DiagnosticMessage>,
+    next_index: usize,
+    start: Instant,
+) -> CompileReport {
+    for name in STAGE_NAMES.iter().skip(next_index) {
+        stages.push(PipelineStageReport {
+            name,
+            status: StageStatus::Skipped,
+        });
+    }
+    CompileReport {
+        rust_source: None,
+        diagnostics,
+        stages,
+        duration: start.elapsed(),
+        ok: false,
+    }
+}
+
+/// Appends one diagnostic per error, formatted via `Debug`, attributed to
+/// `stage`. Splitting the underlying error vector into separate messages keeps
+/// the diagnostics view readable instead of one large blob.
+fn push_debug_diags<E: std::fmt::Debug>(
+    diagnostics: &mut Vec<DiagnosticMessage>,
+    stage: &'static str,
+    errors: impl IntoIterator<Item = E>,
+) {
+    for error in errors {
+        diagnostics.push(DiagnosticMessage {
+            stage,
+            message: format!("{error:?}"),
+        });
     }
 }
 
@@ -174,5 +275,68 @@ fn rename_module(krate: &mut smelt_hir::Crate, module_id: smelt_hir::ModuleId, n
         && let Some(module) = krate.modules.get_mut(index)
     {
         name.clone_into(&mut module.name);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::examples;
+
+    #[test]
+    fn ts_only_compiles() {
+        let report = compile_report("let x: number = 42;\nconsole.log(x);\n", "");
+        assert!(report.ok, "TS-only compile failed: {:?}", report.diagnostics);
+        let rust = report.rust_source.expect("rust output");
+        assert!(rust.contains("fn main"), "expected fn main: {rust}");
+    }
+
+    #[test]
+    fn cross_import_compiles_with_one_main() {
+        let ts = "export function add(a: number, b: number): number {\n    return a + b;\n}\n";
+        let py = "from lib import add\n\nresult: float = add(2.0, 3.0)\nprint(result)\n";
+        let report = compile_report(ts, py);
+        assert!(report.ok, "cross-import failed: {:?}", report.diagnostics);
+        let rust = report.rust_source.expect("rust output");
+        assert_eq!(
+            rust.matches("fn main(").count(),
+            1,
+            "expected exactly one entrypoint: {rust}"
+        );
+    }
+
+    #[test]
+    fn empty_input_reports_readable_diagnostic() {
+        let report = compile_report("", "   \n");
+        assert!(!report.ok);
+        assert!(
+            report.diagnostics.iter().any(|d| d.message.contains("empty")),
+            "expected an empty-input diagnostic: {:?}",
+            report.diagnostics
+        );
+    }
+
+    #[test]
+    fn failure_marks_a_stage() {
+        // Deliberately broken TypeScript should fail at the first stage.
+        let report = compile_report("function (((", "");
+        assert!(!report.ok);
+        assert!(
+            report.failing_stage().is_some(),
+            "expected a failing stage to be marked: {:?}",
+            report.stages
+        );
+    }
+
+    #[test]
+    fn every_showcase_example_compiles() {
+        for example in examples::EXAMPLES {
+            let report = compile_report(example.ts_source, example.py_source);
+            assert!(
+                report.ok,
+                "showcase example `{}` failed to compile: {:?}",
+                example.id, report.diagnostics
+            );
+        }
     }
 }

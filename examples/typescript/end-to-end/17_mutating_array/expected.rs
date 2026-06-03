@@ -7,5 +7,5 @@ fn main() {
     { let index = { let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }; if index >= xs.len() { xs.resize(index.saturating_add(1), 0.0); } xs[index] = 5.0; }
     let _smelt_tmp_2: f64 = xs.get({ let len = xs.len() as i64; let index = 0.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone() + xs.get({ let len = xs.len() as i64; let index = 1.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone();
     let _smelt_tmp_3: f64 = _smelt_tmp_2.clone() + xs.get({ let len = xs.len() as i64; let index = 2.0 as i64; let normalized = if index < 0 { len + index } else { index }; usize::try_from(normalized).expect("negative index out of bounds") }).cloned().unwrap_or(0.0).clone();
-    let _smelt_tmp_4: () = { println!("{}", _smelt_tmp_3.clone()); };
+    let _ = { println!("{}", _smelt_tmp_3.clone()); };
 }

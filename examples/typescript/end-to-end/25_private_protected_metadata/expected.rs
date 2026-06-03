@@ -13,7 +13,7 @@ fn main() {
     let mut _smelt_tmp_1: Secret = Secret::new("s".to_owned(), 1.0);
     secret = _smelt_tmp_1.clone();
     let _smelt_tmp_2: String = secret.reveal();
-    let _smelt_tmp_3: () = { println!("{}", _smelt_tmp_2.clone()); };
+    let _ = { println!("{}", _smelt_tmp_2.clone()); };
 }
 
 impl Secret {

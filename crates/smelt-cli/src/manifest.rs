@@ -240,9 +240,12 @@ impl DependencyCollector {
         else {
             return self.resolve_workspace_package_import(importer_path, import);
         };
-        self.resolve_barrel_import_targets(&candidate, import)
-            .or_else(|| Some(vec![candidate.canonicalize().ok()?]))
-            .ok_or_else(|| "failed to canonicalize TypeScript import candidate".into())
+        let canonical_candidate = candidate.canonicalize()?;
+        if let Some(mut targets) = self.resolve_barrel_import_targets(&candidate, import) {
+            prepend_unique_dependency(&mut targets, canonical_candidate);
+            return Ok(targets);
+        }
+        Ok(vec![canonical_candidate])
     }
 
     /// Resolve a bare package import through workspace package metadata.
@@ -273,9 +276,12 @@ impl DependencyCollector {
             names: import.names.clone(),
             python_relative_level: None,
         };
-        self.resolve_barrel_import_targets(&entry, &workspace_import)
-            .or_else(|| Some(vec![entry.canonicalize().ok()?]))
-            .ok_or_else(|| "failed to canonicalize workspace package import candidate".into())
+        let canonical_entry = entry.canonicalize()?;
+        if let Some(mut targets) = self.resolve_barrel_import_targets(&entry, &workspace_import) {
+            prepend_unique_dependency(&mut targets, canonical_entry);
+            return Ok(targets);
+        }
+        Ok(vec![canonical_entry])
     }
 
     /// Resolves named imports from an `index.ts` barrel to their source files.
@@ -311,6 +317,23 @@ impl DependencyCollector {
         }
         Some(targets)
     }
+}
+
+/// Keeps a barrel module in the dependency graph before its selected targets.
+///
+/// Named barrel imports are resolved to concrete target modules to avoid pulling
+/// in an entire package. The barrel still has to be lowered because renamed
+/// re-exports, such as `export { enUS as defaultLocale }`, define the public
+/// alias that importers reference.
+fn prepend_unique_dependency(dependencies: &mut Vec<PathBuf>, dependency: PathBuf) {
+    let dependency_key = normalize_path_key(&dependency);
+    if dependencies
+        .iter()
+        .any(|existing| normalize_path_key(existing) == dependency_key)
+    {
+        return;
+    }
+    dependencies.insert(0, dependency);
 }
 
 /// Builds the filesystem base path for a Python import using AST relative levels.

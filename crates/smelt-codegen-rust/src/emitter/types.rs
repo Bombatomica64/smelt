@@ -1,6 +1,7 @@
 //! Types emission helpers.
 
 use super::*;
+use crate::rust::RustIdent;
 
 impl FunctionEmitter<'_> {
     /// Converts a primitive source-language cast operation to Rust text.
@@ -453,6 +454,53 @@ impl FunctionEmitter<'_> {
         ty: TypeId,
         allow_impl_trait: bool,
     ) -> Result<String, EmitError> {
+        self.type_text_with_scoped_type_params(
+            ty,
+            allow_impl_trait,
+            &self.current_function_type_params(),
+        )
+    }
+
+    /// Return type parameters declared by the current class function scope.
+    ///
+    /// MIR does not model free-function generics yet, but class constructors
+    /// and methods are emitted inside `impl<T> Class<T>` blocks. Their
+    /// signatures must therefore keep class type parameters instead of erasing
+    /// them to `SmeltUnknown`.
+    pub(super) fn current_function_has_type_param(&self, param: Symbol) -> bool {
+        self.current_function_type_params().contains(&param)
+    }
+
+    /// Return type parameters declared by the current class function scope.
+    fn current_function_type_params(&self) -> HashSet<Symbol> {
+        let class_name = match self.function.origin {
+            HirOrigin::ClassConstructor { class, .. } | HirOrigin::ClassMethod { class, .. } => {
+                class
+            }
+            HirOrigin::Body(_) => return HashSet::new(),
+        };
+        self.mir
+            .classes
+            .iter()
+            .find(|class| class.name == class_name)
+            .map(|class| class.type_params.iter().map(|param| param.name).collect())
+            .unwrap_or_default()
+    }
+
+    /// Convert a type ID to Rust while preserving type parameters declared by
+    /// the current storage item.
+    ///
+    /// Function-level generics are not represented in MIR yet, so unscoped type
+    /// parameters still lower to `SmeltUnknown`. Class and interface storage,
+    /// however, already declares Rust generic parameters; those positions should
+    /// keep the generic shape instead of erasing fields to the runtime unknown
+    /// carrier.
+    pub(super) fn type_text_with_scoped_type_params(
+        &self,
+        ty: TypeId,
+        allow_impl_trait: bool,
+        scoped_type_params: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
         let resolved_ty = self
             .mir
             .types
@@ -465,6 +513,9 @@ impl FunctionEmitter<'_> {
             Type::String => Ok("String".to_owned()),
             Type::Unknown => Ok("SmeltUnknown".to_owned()),
             Type::Never => Ok("SmeltUnknown".to_owned()),
+            Type::TypeParam { name } if scoped_type_params.contains(name) => self
+                .symbol_name(*name)
+                .map(|param_name| RustIdent::new(param_name).into_string()),
             Type::TypeParam { .. } => Ok("SmeltUnknown".to_owned()),
             Type::Class { name, args } => {
                 if self.symbol_name(*name)? == "RegExp" {
@@ -485,7 +536,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     let arg_text = args
                         .iter()
-                        .map(|arg| self.type_text_with_impl_trait(*arg, false))
+                        .map(|arg| {
+                            self.type_text_with_scoped_type_params(*arg, false, scoped_type_params)
+                        })
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     Ok(format!("{type_name}<{arg_text}>"))
@@ -494,34 +547,36 @@ impl FunctionEmitter<'_> {
             Type::None => Ok("()".to_owned()),
             Type::List(item) => Ok(format!(
                 "Vec<{}>",
-                self.type_text_with_impl_trait(*item, false)?
+                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
             Type::Set(item) if self.type_is_hash_set_key_safe(*item) => Ok(format!(
                 "::std::collections::HashSet<{}>",
-                self.type_text_with_impl_trait(*item, false)?
+                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
             Type::Set(item) => Ok(format!(
                 "Vec<{}>",
-                self.type_text_with_impl_trait(*item, false)?
+                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
             Type::Dict(key, value) if self.dict_uses_smelt_record(*key) => Ok(format!(
                 "SmeltRecord<String, {}>",
-                self.type_text_with_impl_trait(*value, false)?
+                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
             )),
             Type::Dict(key, value) if self.dict_uses_js_key_map(*key) => Ok(format!(
                 "SmeltJsMap<{}, {}>",
-                self.type_text_with_impl_trait(*key, false)?,
-                self.type_text_with_impl_trait(*value, false)?
+                self.type_text_with_scoped_type_params(*key, false, scoped_type_params)?,
+                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
             )),
             Type::Dict(key, value) => Ok(format!(
                 "::std::collections::HashMap<{}, {}>",
-                self.type_text_with_impl_trait(*key, false)?,
-                self.type_text_with_impl_trait(*value, false)?
+                self.type_text_with_scoped_type_params(*key, false, scoped_type_params)?,
+                self.type_text_with_scoped_type_params(*value, false, scoped_type_params)?
             )),
             Type::Tuple(items) => {
                 let items_text = items
                     .iter()
-                    .map(|item| self.type_text_with_impl_trait(*item, false))
+                    .map(|item| {
+                        self.type_text_with_scoped_type_params(*item, false, scoped_type_params)
+                    })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 if items.len() == 1 {
@@ -532,7 +587,11 @@ impl FunctionEmitter<'_> {
             }
             Type::Optional(item) => Ok(format!(
                 "Option<{}>",
-                self.type_text_with_impl_trait(self.flatten_optional_inner(*item), false)?
+                self.type_text_with_scoped_type_params(
+                    self.flatten_optional_inner(*item),
+                    false,
+                    scoped_type_params,
+                )?
             )),
             Type::Union(_) => Ok("SmeltUnknown".to_owned()),
             Type::Function(function) => {
@@ -542,7 +601,9 @@ impl FunctionEmitter<'_> {
                 let params = function
                     .params
                     .iter()
-                    .map(|param| self.type_text_with_impl_trait(*param, false))
+                    .map(|param| {
+                        self.type_text_with_scoped_type_params(*param, false, scoped_type_params)
+                    })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 let return_ty = if function.may_throw
@@ -550,14 +611,21 @@ impl FunctionEmitter<'_> {
                 {
                     format!(
                         "::std::pin::Pin<Box<dyn ::std::future::Future<Output = Result<{}, Box<dyn std::error::Error>>>>>",
-                        self.type_text_with_impl_trait(*item, false)?
+                        self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
                     )
                 } else if function.may_throw {
-                    let inner_return_ty =
-                        self.type_text_with_impl_trait(function.return_ty, false)?;
+                    let inner_return_ty = self.type_text_with_scoped_type_params(
+                        function.return_ty,
+                        false,
+                        scoped_type_params,
+                    )?;
                     format!("Result<{inner_return_ty}, Box<dyn std::error::Error>>")
                 } else {
-                    self.type_text_with_impl_trait(function.return_ty, false)?
+                    self.type_text_with_scoped_type_params(
+                        function.return_ty,
+                        false,
+                        scoped_type_params,
+                    )?
                 };
                 if allow_impl_trait {
                     Ok(format!("impl Fn({params}) -> {return_ty}"))
@@ -567,7 +635,7 @@ impl FunctionEmitter<'_> {
             }
             Type::Future(item) => Ok(format!(
                 "::std::pin::Pin<Box<dyn ::std::future::Future<Output = {}>>>",
-                self.type_text_with_impl_trait(*item, false)?
+                self.type_text_with_scoped_type_params(*item, false, scoped_type_params)?
             )),
         }
     }
@@ -626,6 +694,9 @@ impl FunctionEmitter<'_> {
                 } else {
                     Ok(format!("({items_text})"))
                 }
+            }
+            Type::TypeParam { name } if self.current_function_has_type_param(*name) => {
+                Ok("Default::default()".to_owned())
             }
             Type::TypeParam { .. } | Type::Union(_) => Ok("SmeltUnknown::Null".to_owned()),
             Type::Class { name, .. } if self.symbol_name(*name)? == "RegExp" => {
@@ -686,6 +757,93 @@ impl FunctionEmitter<'_> {
                 self.default_value(*item)?,
                 self.type_text_with_impl_trait(ty, false)?
             )),
+        }
+    }
+
+    /// Gets a default value while preserving explicitly scoped type parameters.
+    pub(super) fn default_value_with_scoped_type_params(
+        &self,
+        ty: TypeId,
+        scoped_type_params: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
+        match self
+            .mir
+            .types
+            .get(ty)
+            .ok_or_else(|| EmitError::new("MIR references an unknown type"))?
+        {
+            Type::TypeParam { name } if scoped_type_params.contains(name) => {
+                Ok("Default::default()".to_owned())
+            }
+            Type::Optional(inner) => Ok(format!(
+                "None::<{}>",
+                self.type_text_with_scoped_type_params(
+                    self.flatten_optional_inner(*inner),
+                    false,
+                    scoped_type_params,
+                )?
+            )),
+            Type::Function(function) => {
+                let params = function
+                    .params
+                    .iter()
+                    .enumerate()
+                    .map(|(index, param)| {
+                        Ok(format!(
+                            "arg{index}: {}",
+                            self.type_text_with_scoped_type_params(
+                                *param,
+                                false,
+                                scoped_type_params,
+                            )?
+                        ))
+                    })
+                    .collect::<Result<Vec<_>, EmitError>>()?
+                    .join(", ");
+                let return_ty = if function.may_throw {
+                    format!(
+                        "Result<{}, Box<dyn std::error::Error>>",
+                        self.type_text_with_scoped_type_params(
+                            function.return_ty,
+                            false,
+                            scoped_type_params,
+                        )?
+                    )
+                } else {
+                    self.type_text_with_scoped_type_params(
+                        function.return_ty,
+                        false,
+                        scoped_type_params,
+                    )?
+                };
+                let return_value = self.default_value_with_scoped_type_params(
+                    function.return_ty,
+                    scoped_type_params,
+                )?;
+                let body = if function.may_throw {
+                    format!("Ok::<_, Box<dyn std::error::Error>>({return_value})")
+                } else {
+                    return_value
+                };
+                Ok(format!(
+                    "{{ let smelt_default_callback: ::std::rc::Rc<dyn Fn({}) -> {}> = ::std::rc::Rc::new(move |{}| -> {} {{ {} }}); smelt_default_callback }}",
+                    function
+                        .params
+                        .iter()
+                        .map(|param| self.type_text_with_scoped_type_params(
+                            *param,
+                            false,
+                            scoped_type_params,
+                        ))
+                        .collect::<Result<Vec<_>, EmitError>>()?
+                        .join(", "),
+                    return_ty,
+                    params,
+                    return_ty,
+                    body
+                ))
+            }
+            _ => self.default_value(ty),
         }
     }
 

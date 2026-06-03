@@ -70,6 +70,33 @@ pub(crate) fn interface_type_params_text(
     Ok(format!("<{}>", params.join(", ")))
 }
 
+/// Render bounded generic parameters for interface impl blocks.
+pub(crate) fn interface_impl_generics_text(
+    mir: &Mir,
+    interface: &MirInterface,
+) -> Result<String, EmitError> {
+    if interface.type_params.is_empty() {
+        return Ok(String::new());
+    }
+    let params = interface
+        .type_params
+        .iter()
+        .map(|param| {
+            mir.symbols
+                .get(param.name)
+                .map(|name| {
+                    format!(
+                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                        RustIdent::new(name).into_string()
+                    )
+                })
+                .ok_or_else(|| EmitError::new("interface type parameter has unknown symbol"))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!("<{params}>"))
+}
+
 /// Render the generic argument suffix for a class, such as `<T>`.
 ///
 /// This mirrors [`class_type_params_text`] for places where the generated Rust
@@ -83,7 +110,26 @@ pub(crate) fn class_type_args_text(mir: &Mir, class: &MirClass) -> Result<String
 /// The helper is intentionally separate from struct rendering because impl
 /// blocks are the first place bounds may be introduced as class codegen grows.
 pub(crate) fn class_impl_generics_text(mir: &Mir, class: &MirClass) -> Result<String, EmitError> {
-    class_type_params_text(mir, class)
+    if class.type_params.is_empty() {
+        return Ok(String::new());
+    }
+    let params = class
+        .type_params
+        .iter()
+        .map(|param| {
+            mir.symbols
+                .get(param.name)
+                .map(|name| {
+                    format!(
+                        "{}: Clone + Default + IntoSmeltUnknown + SmeltFromUnknown + 'static",
+                        RustIdent::new(name).into_string()
+                    )
+                })
+                .ok_or_else(|| EmitError::new("class type parameter has unknown symbol"))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .join(", ");
+    Ok(format!("<{params}>"))
 }
 
 /// Render the Rust trait name for a class inheritance surface.

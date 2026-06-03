@@ -210,12 +210,11 @@ impl FunctionEmitter<'_> {
                 };
                 let minute = value_texts.get(1).map_or("date.minute()", String::as_str);
                 let second = value_texts.get(2).map_or("date.second()", String::as_str);
-                let nano = value_texts.get(3).map_or_else(
-                    || "date.nanosecond()".to_owned(),
-                    |milli| format!("({milli} as u32) * 1_000_000"),
-                );
+                let milli = value_texts
+                    .get(3)
+                    .map_or("date.timestamp_subsec_millis() as f64", String::as_str);
                 format!(
-                    "date.with_hour({hour} as u32).and_then(|date| date.with_minute({minute} as u32)).and_then(|date| date.with_second({second} as u32)).and_then(|date| date.with_nanosecond({nano}))"
+                    "chrono::NaiveDate::from_ymd_opt(date.year(), date.month(), date.day()).and_then(|base| base.and_hms_milli_opt(0, 0, 0, 0)).map(|base| base + chrono::Duration::milliseconds((({hour} as i64) * 3_600_000) + (({minute} as i64) * 60_000) + (({second} as i64) * 1_000) + ({milli} as i64))).map(|date| date.and_utc())"
                 )
             }
             smelt_hir::DatePart::Minute => {
@@ -223,24 +222,22 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("Date.setMinutes requires a minute value"));
                 };
                 let second = value_texts.get(1).map_or("date.second()", String::as_str);
-                let nano = value_texts.get(2).map_or_else(
-                    || "date.nanosecond()".to_owned(),
-                    |milli| format!("({milli} as u32) * 1_000_000"),
-                );
+                let milli = value_texts
+                    .get(2)
+                    .map_or("date.timestamp_subsec_millis() as f64", String::as_str);
                 format!(
-                    "date.with_minute({minute} as u32).and_then(|date| date.with_second({second} as u32)).and_then(|date| date.with_nanosecond({nano}))"
+                    "chrono::NaiveDate::from_ymd_opt(date.year(), date.month(), date.day()).and_then(|base| base.and_hms_milli_opt(date.hour(), 0, 0, 0)).map(|base| base + chrono::Duration::milliseconds((({minute} as i64) * 60_000) + (({second} as i64) * 1_000) + ({milli} as i64))).map(|date| date.and_utc())"
                 )
             }
             smelt_hir::DatePart::Second => {
                 let Some(second) = value_texts.first() else {
                     return Err(EmitError::new("Date.setSeconds requires a second value"));
                 };
-                let nano = value_texts.get(1).map_or_else(
-                    || "date.nanosecond()".to_owned(),
-                    |milli| format!("({milli} as u32) * 1_000_000"),
-                );
+                let milli = value_texts
+                    .get(1)
+                    .map_or("date.timestamp_subsec_millis() as f64", String::as_str);
                 format!(
-                    "date.with_second({second} as u32).and_then(|date| date.with_nanosecond({nano}))"
+                    "chrono::NaiveDate::from_ymd_opt(date.year(), date.month(), date.day()).and_then(|base| base.and_hms_milli_opt(date.hour(), date.minute(), 0, 0)).map(|base| base + chrono::Duration::milliseconds((({second} as i64) * 1_000) + ({milli} as i64))).map(|date| date.and_utc())"
                 )
             }
             smelt_hir::DatePart::Millisecond => {
@@ -249,7 +246,9 @@ impl FunctionEmitter<'_> {
                         "Date.setMilliseconds requires a millisecond value",
                     ));
                 };
-                format!("date.with_nanosecond(({milli} as u32) * 1_000_000)")
+                format!(
+                    "chrono::NaiveDate::from_ymd_opt(date.year(), date.month(), date.day()).and_then(|base| base.and_hms_milli_opt(date.hour(), date.minute(), date.second(), 0)).map(|base| base + chrono::Duration::milliseconds({milli} as i64)).map(|date| date.and_utc())"
+                )
             }
         };
         Ok(format!(

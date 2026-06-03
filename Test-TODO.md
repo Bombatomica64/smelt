@@ -729,11 +729,43 @@ Follow-up on 2026-05-27:
   concrete `Parser` and `Setter` instances are stored through base-class collection types.
   Generated base records retain fields but lose overriding `parse`, `validate`, and `set`
   behavior, causing valid token parses to return invalid dates.
-- Rebuilding the `format/test.ts` canary in the shared tree now compiles but executes at
-  `59 / 108` passing (`49` failing), including long-format optional-value panics. This is a
-  regression from the prior `108 / 108` measurement and occurs alongside concurrent
-  structural/options and overload work; it is not treated as validation of the parse or
-  logical-assignment fixes until that shared-tree regression is reconciled.
+- The temporary `format/test.ts` canary regression was traced to manifest barrel dependency
+  closure skipping the re-exporting `index.ts` for renamed value exports such as
+  `defaultLocale`. Keeping the barrel source alongside its selected concrete targets restores
+  the canary to `108 / 108`.
+
+Follow-up on 2026-05-30:
+
+- The `format/test.ts` canary was rebuilt from
+  `/tmp/smelt_date_fns_resume_20260526/format_probe/Smelt.toml` and passes all `108 / 108`
+  generated tests again. Grouped diagnostics are in
+  `blocker-logs/date-fns-format-probe-warnings.md` with `0` errors and `300` warnings.
+- Full-suite refresh through `smelt rust-test-report --build-manifest
+  /tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` is currently blocked before generated
+  Rust by the concurrent overload-selection failure in
+  `pkgs/core/src/formatDistance/index.ts` (`normalizeDates` overload selection).
+- Running the already-generated full crate without rebuilding hit `/tmp` exhaustion before
+  test execution. Temporary generated Cargo target directories under `/tmp` were removed to
+  recover space; source probes and repository files were left intact.
+- The isolated `parse/test.ts` probe was rebuilt and remeasured in
+  `blocker-logs/date-fns-parse-current.md`: generated `cargo check` passes with `0` errors
+  and `311` warnings, and native execution remains `38 / 247` passing (`209` failing).
+- Focused instrumentation of `test_parse_calendar_year_numeric` shows
+  `parse("2017", "y", referenceDate)` returns a Date object whose timestamp payload is `NaN`
+  while the expected payload is `1483228800000`. The broad parse blocker is still abstract
+  base-class dispatch: `Record<string, Parser<any>>` stores concrete parser instances through
+  the abstract `Parser` shape, and generated storage preserves fields but not overriding
+  `parse`, `validate`, and `set` methods used by `Parser.run`.
+- Focused `eachHourOfInterval` was rebuilt after making generated `Date.setHours`,
+  `setMinutes`, `setSeconds`, and `setMilliseconds` use duration arithmetic so overflowing
+  time fields progress like JavaScript instead of being rejected by `chrono::with_*`.
+  The isolated probe terminates under a 30s guard and still reports `16 / 21` passing; the
+  remaining failures are assertion mismatches in normalization, option-step, and timezone
+  context behavior. Grouped diagnostics: `blocker-logs/date-fns-each-hour-current.md`.
+- The already-generated full crate still times out with the `eachHourOfInterval` filter when
+  run without rebuilding; because a fresh full build is currently blocked by the concurrent
+  overload-selection work in `formatDistance/index.ts`, that full-crate timeout should be
+  rechecked from fresh output after the overload branch settles.
 
 #### date-fns Compatibility Probe: 2026-05-11
 

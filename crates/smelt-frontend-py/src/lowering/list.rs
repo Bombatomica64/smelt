@@ -488,6 +488,9 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::UnknownIs { value, .. } => {
                 self.collect_callback_captures(value, body, captures);
             }
+            CallbackExprKind::TypeofValue { value } => {
+                self.collect_callback_captures(value, body, captures);
+            }
             CallbackExprKind::Binary { lhs, rhs, .. } => {
                 self.collect_callback_captures(lhs, body, captures);
                 self.collect_callback_captures(rhs, body, captures);

@@ -1088,8 +1088,78 @@ impl ModuleBuilder<'_> {
         };
         let receiver_ty = self.optional_receiver_inner_type(Self::expr_ty(body, receiver));
         let method = self.intern_source_name(member.property.name.as_str());
+        if matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, callee)),
+            Some(Type::Function(_))
+        ) && self.receiver_has_callable_storage_field(receiver_ty, method)
+        {
+            return false;
+        }
         self.resolve_method(receiver_ty, method, member.span)
             .is_ok_and(|(_, item)| item.0 != u32::MAX)
+    }
+
+    /// Return true when a class or inherited base explicitly stores a callable
+    /// field for the member. These fields model virtual dispatch slots and
+    /// must be invoked as closures instead of direct class methods.
+    fn receiver_has_callable_storage_field(
+        &mut self,
+        receiver_ty: smelt_hir::TypeId,
+        field: smelt_hir::Symbol,
+    ) -> bool {
+        let Some(Type::Class { name, args }) = self.ctx.krate.types.get(receiver_ty).cloned()
+        else {
+            return false;
+        };
+        let class_name = self
+            .ctx
+            .krate
+            .names
+            .get(name)
+            .or_else(|| self.ctx.krate.symbols.get(name))
+            .map(str::to_owned);
+        if class_name
+            .as_deref()
+            .and_then(|name| self.class_fields.get(name))
+            .and_then(|fields| fields.iter().find(|item| item.name == field))
+            .is_some_and(|item| matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_))))
+        {
+            return true;
+        }
+        let Some((base, base_args)) = self
+            .class_by_symbol(name)
+            .and_then(|class| class.base.map(|base| (base, class.base_args.clone())))
+            .or_else(|| {
+                class_name
+                    .as_deref()
+                    .and_then(|name| self.class_bases.get(name).cloned())
+            })
+        else {
+            return false;
+        };
+        let substitutions = self
+            .type_argument_substitution(
+                &self
+                    .class_by_symbol(name)
+                    .map(|class| class.type_params.clone())
+                    .unwrap_or_default(),
+                &args,
+                self.span(0, 0),
+            )
+            .ok();
+        let base_args = if let Some(substitutions) = substitutions {
+            base_args
+                .into_iter()
+                .map(|arg| self.substitute_type_params(arg, &substitutions))
+                .collect()
+        } else {
+            base_args
+        };
+        let base_ty = self.ctx.krate.types.intern(Type::Class {
+            name: base,
+            args: base_args,
+        });
+        self.receiver_has_callable_storage_field(base_ty, field)
     }
 
     /// Lower Promise/Future `.then(...)` and `.catch(...)` continuation calls.

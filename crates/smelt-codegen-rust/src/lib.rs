@@ -71,7 +71,11 @@
     )
 )]
 
-use std::{collections::HashMap, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    path::Path,
+};
 
 use smelt_hir::{AsyncOp, BodyId, Type, TypeId};
 use smelt_mir::{HirOrigin, Mir, MirFunction, Rvalue, Statement};
@@ -86,7 +90,7 @@ mod emitter;
 use classes::{
     class_impl_generics_text, class_name_text, class_type_args_text, class_type_params_text,
     effective_class_fields, effective_interface_fields, inherited_trait_methods,
-    interface_type_params_text,
+    interface_impl_generics_text, interface_type_params_text,
 };
 use emitter::{EmitContext, FunctionEmitter};
 use rust::{CodeWriter, RustIdent};
@@ -250,6 +254,22 @@ fn needs_timer_helpers(mir: &Mir) -> bool {
 /// Returns a string containing the complete source code for the MIR, including
 /// struct definitions, free functions, and impl blocks for methods.
 pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
+    emit_source_with_free_function_router(mir, |_function, _context, source| Ok(Some(source)))
+}
+
+/// Emits Rust source code while allowing callers to route free functions.
+///
+/// The router receives each already-emitted free function exactly once. Returning
+/// `Some(source)` keeps the function in the crate root; returning `None` lets the
+/// caller store it elsewhere, such as in source-shaped sibling modules.
+fn emit_source_with_free_function_router(
+    mir: &Mir,
+    mut route_free_function: impl FnMut(
+        &MirFunction,
+        &EmitContext,
+        String,
+    ) -> Result<Option<String>, EmitError>,
+) -> Result<String, EmitError> {
     let mut writer = CodeWriter::new();
     let context = EmitContext::new(mir)?;
     let needs_serde_json =
@@ -314,6 +334,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         writer.line(
             "    values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<K, V>>>,",
         );
+        writer.line("    order: ::std::rc::Rc<::std::cell::RefCell<Vec<K>>>,");
         writer.line("}");
         writer.blank_line();
         writer.line("thread_local! {");
@@ -345,7 +366,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         writer.blank_line();
         writer.line("impl<K, V> Clone for SmeltRecord<K, V> {");
         writer.line(
-            "    fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } }",
+            "    fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } }",
         );
         writer.line("}");
         writer.blank_line();
@@ -358,30 +379,31 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         writer.line("    fn cloned(self) -> Option<T> { self }");
         writer.line("}");
         writer.blank_line();
-        writer.line("impl<K: Eq + ::std::hash::Hash, V> SmeltRecord<K, V> {");
-        writer.line("    fn new() -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())) } }");
-        writer.line("    fn with_id(id: usize, values: ::std::collections::HashMap<K, V>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }");
+        writer.line("impl<K: Eq + ::std::hash::Hash + Clone, V> SmeltRecord<K, V> {");
+        writer.line("    fn new() -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) } }");
+        writer.line("    fn with_id(id: usize, values: ::std::collections::HashMap<K, V>) -> Self { let order = values.keys().cloned().collect::<Vec<_>>(); Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }");
+        writer.line("    fn with_id_from_entries<I: IntoIterator<Item = (K, V)>>(id: usize, iter: I) -> Self { let record = Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::new())), order: ::std::rc::Rc::new(::std::cell::RefCell::new(Vec::new())) }; record.extend(iter); record }");
         writer.line("    fn len(&self) -> usize { self.values.borrow().len() }");
         writer.line("    fn contains_key<Q>(&self, key: &Q) -> bool where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { self.values.borrow().contains_key(key) }");
-        writer.line("    fn insert(&self, key: K, value: V) -> Option<V> { self.values.borrow_mut().insert(key, value) }");
-        writer.line("    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { self.values.borrow_mut().remove(key) }");
+        writer.line("    fn insert(&self, key: K, value: V) -> Option<V> { if !self.values.borrow().contains_key(&key) { self.order.borrow_mut().push(key.clone()); } self.values.borrow_mut().insert(key, value) }");
+        writer.line("    fn remove<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized { let removed = self.values.borrow_mut().remove(key); if removed.is_some() { self.order.borrow_mut().retain(|existing| <K as ::std::borrow::Borrow<Q>>::borrow(existing) != key); } removed }");
         writer.line("    fn get<Q>(&self, key: &Q) -> Option<V> where K: ::std::borrow::Borrow<Q>, Q: Eq + ::std::hash::Hash + ?Sized, V: Clone { self.values.borrow().get(key).cloned() }");
-        writer.line("    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where K: Clone, V: Clone { self.values.borrow().iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>().into_iter() }");
-        writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> where K: Clone { self.values.borrow().keys().cloned().collect::<Vec<_>>().into_iter() }");
-        writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { self.values.borrow().values().cloned().collect::<Vec<_>>().into_iter() }");
-        writer.line("    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { self.values.borrow_mut().extend(iter); }");
+        writer.line("    fn iter(&self) -> ::std::vec::IntoIter<(K, V)> where V: Clone { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone()))).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn keys(&self) -> ::std::vec::IntoIter<K> { self.order.borrow().clone().into_iter() }");
+        writer.line("    fn values(&self) -> ::std::vec::IntoIter<V> where V: Clone { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn extend<I: IntoIterator<Item = (K, V)>>(&self, iter: I) { for (key, value) in iter { self.insert(key, value); } }");
         writer.line("}");
         writer.blank_line();
-        writer.line("impl<K: Eq + ::std::hash::Hash, V> Default for SmeltRecord<K, V> {");
+        writer.line("impl<K: Eq + ::std::hash::Hash + Clone, V> Default for SmeltRecord<K, V> {");
         writer.line("    fn default() -> Self { Self::new() }");
         writer.line("}");
         writer.blank_line();
-        writer.line("impl<K: Eq + ::std::hash::Hash, V, const N: usize> From<[(K, V); N]> for SmeltRecord<K, V> {");
-        writer.line("    fn from(values: [(K, V); N]) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(::std::collections::HashMap::from(values))) } }");
+        writer.line("impl<K: Eq + ::std::hash::Hash + Clone, V, const N: usize> From<[(K, V); N]> for SmeltRecord<K, V> {");
+        writer.line("    fn from(values: [(K, V); N]) -> Self { values.into_iter().collect() }");
         writer.line("}");
         writer.blank_line();
-        writer.line("impl<K: Eq + ::std::hash::Hash, V> ::std::iter::FromIterator<(K, V)> for SmeltRecord<K, V> {");
-        writer.line("    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(iter.into_iter().collect())) } }");
+        writer.line("impl<K: Eq + ::std::hash::Hash + Clone, V> ::std::iter::FromIterator<(K, V)> for SmeltRecord<K, V> {");
+        writer.line("    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self { let record = Self::new(); record.extend(iter); record }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl<K: Eq + ::std::hash::Hash + Clone, V: Clone> IntoIterator for SmeltRecord<K, V> {");
@@ -466,23 +488,22 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         writer.line("pub struct SmeltObject {");
         writer.line("    id: usize,");
         writer.line("    values: ::std::rc::Rc<::std::cell::RefCell<::std::collections::HashMap<String, SmeltUnknown>>>,");
+        writer.line("    order: ::std::rc::Rc<::std::cell::RefCell<Vec<String>>>,");
         writer.line("}");
         writer.blank_line();
-        writer.line("impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone() } } }");
+        writer.line("impl Clone for SmeltObject { fn clone(&self) -> Self { Self { id: self.id, values: self.values.clone(), order: self.order.clone() } } }");
         writer.line("impl SmeltObject {");
-        writer.line("    fn new(values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }");
-        writer.line("    fn with_id(id: usize, values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)) } }");
-        writer.line("    fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, values: record.values } }");
+        writer.line("    fn new(values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id: smelt_next_object_id(), values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }");
+        writer.line("    fn with_id(id: usize, values: ::std::collections::HashMap<String, SmeltUnknown>) -> Self { let mut order = values.keys().cloned().collect::<Vec<_>>(); order.sort(); Self { id, values: ::std::rc::Rc::new(::std::cell::RefCell::new(values)), order: ::std::rc::Rc::new(::std::cell::RefCell::new(order)) } }");
+        writer.line("    fn from_unknown_record(record: SmeltRecord<String, SmeltUnknown>) -> Self { Self { id: record.id, values: record.values, order: record.order } }");
         writer.line("    fn len(&self) -> usize { self.values.borrow().len() }");
         writer.line("    fn contains_key(&self, key: &str) -> bool { self.values.borrow().contains_key(key) }");
         writer.line("    fn get(&self, key: &str) -> Option<SmeltUnknown> { self.values.borrow().get(key).cloned() }");
-        writer.line("    fn insert(&self, key: String, value: SmeltUnknown) -> Option<SmeltUnknown> { self.values.borrow_mut().insert(key, value) }");
-        writer.line("    fn remove(&self, key: &str) -> Option<SmeltUnknown> { self.values.borrow_mut().remove(key) }");
-        writer.line("    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { self.values.borrow().iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>().into_iter() }");
-        writer.line(
-            "    fn keys(&self) -> Vec<String> { self.values.borrow().keys().cloned().collect() }",
-        );
-        writer.line("    fn values(&self) -> Vec<SmeltUnknown> { self.values.borrow().values().cloned().collect() }");
+        writer.line("    fn insert(&self, key: String, value: SmeltUnknown) -> Option<SmeltUnknown> { if !self.values.borrow().contains_key(&key) { self.order.borrow_mut().push(key.clone()); } self.values.borrow_mut().insert(key, value) }");
+        writer.line("    fn remove(&self, key: &str) -> Option<SmeltUnknown> { let removed = self.values.borrow_mut().remove(key); if removed.is_some() { self.order.borrow_mut().retain(|existing| existing != key); } removed }");
+        writer.line("    fn iter(&self) -> ::std::vec::IntoIter<(String, SmeltUnknown)> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).map(|value| (key.clone(), value.clone()))).collect::<Vec<_>>().into_iter() }");
+        writer.line("    fn keys(&self) -> Vec<String> { self.order.borrow().clone() }");
+        writer.line("    fn values(&self) -> Vec<SmeltUnknown> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect() }");
         writer.line("}");
         writer.blank_line();
         writer.line("impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }");
@@ -929,6 +950,55 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             });
         });
         writer.blank_line();
+        writer.block("pub trait SmeltFromUnknown", |trait_writer| {
+            trait_writer.line("fn smelt_from_unknown(value: SmeltUnknown) -> Self;");
+        });
+        writer.blank_line();
+        writer.block("impl SmeltFromUnknown for SmeltUnknown", |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("value");
+                },
+            );
+        });
+        writer.blank_line();
+        writer.block("impl SmeltFromUnknown for bool", |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("match value { SmeltUnknown::Null => false, SmeltUnknown::Bool(value) => value, SmeltUnknown::Number(value) => value != 0.0 && !value.is_nan(), SmeltUnknown::String(value) => !value.is_empty(), SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) | SmeltUnknown::Function(_) => true }");
+                },
+            );
+        });
+        writer.blank_line();
+        writer.block("impl SmeltFromUnknown for f64", |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN), SmeltUnknown::Bool(value) => if value { 1.0 } else { 0.0 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }");
+                },
+            );
+        });
+        writer.blank_line();
+        writer.block("impl SmeltFromUnknown for i64", |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("match value { SmeltUnknown::Number(value) => value as i64, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value as i64, _ => 0_i64 }, SmeltUnknown::String(value) => value.parse::<f64>().unwrap_or(f64::NAN) as i64, SmeltUnknown::Bool(value) => if value { 1_i64 } else { 0_i64 }, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => 0_i64 }");
+                },
+            );
+        });
+        writer.blank_line();
+        writer.block("impl SmeltFromUnknown for String", |impl_writer| {
+            impl_writer.block(
+                "fn smelt_from_unknown(value: SmeltUnknown) -> Self",
+                |fn_writer| {
+                    fn_writer.line("match value { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }");
+                },
+            );
+        });
+        writer.blank_line();
         writer.block("trait SmeltIntoF64", |trait_writer| {
             trait_writer.line("fn smelt_into_f64(self) -> f64;");
         });
@@ -1048,7 +1118,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
         }
     }
 
-    let mut emitted_class_names = std::collections::HashSet::new();
+    let mut emitted_class_names = HashSet::new();
     for interface in &mir.interfaces {
         let name = RustIdent::new(
             mir.symbols
@@ -1060,6 +1130,7 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             continue;
         }
         let type_params = interface_type_params_text(mir, interface)?;
+        let impl_generics = interface_impl_generics_text(mir, interface)?;
         let fields = effective_interface_fields(mir, interface);
         let has_function_field = fields
             .iter()
@@ -1083,6 +1154,11 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
+        let scoped_type_params = interface
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect::<HashSet<_>>();
         writer.block(format!("struct {name}{type_params}"), |block_writer| {
             for field in &fields {
                 let field_name = RustIdent::new(
@@ -1092,8 +1168,13 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                         .unwrap_or("field"),
                 )
                 .into_string();
-                let field_ty = FunctionEmitter::type_text_for_with_context(mir, &context, field.ty)
-                    .unwrap_or_else(|_| "SmeltUnknown".to_owned());
+                let field_ty = FunctionEmitter::type_text_for_with_scoped_type_params(
+                    mir,
+                    &context,
+                    field.ty,
+                    &scoped_type_params,
+                )
+                .unwrap_or_else(|_| "SmeltUnknown".to_owned());
                 block_writer.line(format!("{field_name}: {field_ty},"));
             }
             if !interface.type_params.is_empty() {
@@ -1108,19 +1189,20 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                 mir,
                 &context,
                 &name,
-                &type_params,
+                &impl_generics,
                 &type_params,
                 &fields,
                 &phantom_args,
+                &scoped_type_params,
             )?;
-            emit_debug_impl_for_storage_type(&mut writer, &name, &type_params, &type_params);
+            emit_debug_impl_for_storage_type(&mut writer, &name, &impl_generics, &type_params);
         }
         if needs_unknown {
             emit_record_into_smelt_unknown_impl(
                 &mut writer,
                 mir,
                 &name,
-                &type_params,
+                &impl_generics,
                 &type_params,
                 &fields,
             )?;
@@ -1250,9 +1332,15 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
             continue;
         }
         let type_params = class_type_params_text(mir, class)?;
+        let impl_generics = class_impl_generics_text(mir, class)?;
         let _inherited_trait_methods = inherited_trait_methods(mir, class);
         let mut field_lines = Vec::new();
         let fields = effective_class_fields(mir, class);
+        let scoped_type_params = class
+            .type_params
+            .iter()
+            .map(|param| param.name)
+            .collect::<HashSet<_>>();
         let has_function_field = fields
             .iter()
             .any(|field| type_contains_function(mir, field.ty));
@@ -1272,7 +1360,12 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                         .get(field.name)
                         .ok_or_else(|| EmitError::new("field has unknown symbol"))?
                 ),
-                FunctionEmitter::type_text_for_with_context(mir, &context, field.ty)?
+                FunctionEmitter::type_text_for_with_scoped_type_params(
+                    mir,
+                    &context,
+                    field.ty,
+                    &scoped_type_params,
+                )?
             ));
         }
         if !class.type_params.is_empty() {
@@ -1313,19 +1406,20 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
                 mir,
                 &context,
                 &name,
-                &type_params,
+                &impl_generics,
                 &type_params,
                 &fields,
                 &phantom_args,
+                &scoped_type_params,
             )?;
-            emit_debug_impl_for_storage_type(&mut writer, &name, &type_params, &type_params);
+            emit_debug_impl_for_storage_type(&mut writer, &name, &impl_generics, &type_params);
         }
         if needs_unknown {
             emit_record_into_smelt_unknown_impl(
                 &mut writer,
                 mir,
                 &name,
-                &type_params,
+                &impl_generics,
                 &type_params,
                 &fields,
             )?;
@@ -1335,21 +1429,30 @@ pub fn emit_source(mir: &Mir) -> Result<String, EmitError> {
 
     let mut out = writer.finish();
 
-    for (idx, function) in mir.functions.iter().enumerate() {
+    let mut has_emitted_root_function = false;
+    for function in &mir.functions {
         if matches!(
             function.origin,
             HirOrigin::ClassConstructor { .. } | HirOrigin::ClassMethod { .. }
         ) {
             continue;
         }
-        if idx > 0 || !mir.classes.is_empty() {
+        let mut emitter = FunctionEmitter::new(mir, &context, function)?;
+        let mut emitted_function_source = String::new();
+        emitter.emit(&mut emitted_function_source)?;
+        let routed_function_source =
+            route_free_function(function, &context, emitted_function_source)?;
+        let Some(root_function_source) = routed_function_source else {
+            continue;
+        };
+        if has_emitted_root_function || !mir.classes.is_empty() {
             out.push('\n');
         }
-        let mut emitter = FunctionEmitter::new(mir, &context, function)?;
-        emitter.emit(&mut out)?;
+        out.push_str(&root_function_source);
+        has_emitted_root_function = true;
     }
 
-    let mut emitted_impl_names = std::collections::HashSet::new();
+    let mut emitted_impl_names = HashSet::new();
     for class in &mir.classes {
         let name = class_name_text(mir, class)?;
         if !emitted_impl_names.insert(name.clone()) {
@@ -1418,39 +1521,31 @@ fn emit_mapped_sources(
     krate: &smelt_hir::Crate,
     modules: &[(String, smelt_hir::ModuleId)],
 ) -> Result<MappedSources, EmitError> {
-    let mut root = emit_source(mir)?;
     let body_modules = body_module_names(krate, modules);
-    let context = EmitContext::new(mir)?;
     let mut module_chunks = HashMap::<String, Vec<String>>::new();
     let mut module_paths = HashMap::<String, String>::new();
 
-    for function in &mir.functions {
-        let HirOrigin::Body(body) = function.origin else {
-            continue;
-        };
-        if is_root_main_function(mir, function, context.none_ty) {
-            continue;
-        }
-        let Some(module_info) = body_modules.get(&body).cloned() else {
-            continue;
-        };
-        let module_name = module_info.name;
-        module_paths
-            .entry(module_name.clone())
-            .or_insert(module_info.source_path);
-        let mut emitted = String::new();
-        FunctionEmitter::new(mir, &context, function)?.emit(&mut emitted)?;
-        if let Some(position) = root.find(&emitted) {
-            let end_position = position
-                .checked_add(emitted.len())
-                .ok_or_else(|| EmitError::new("function source range overflowed"))?;
-            root.replace_range(position..end_position, "");
+    let mut root =
+        emit_source_with_free_function_router(mir, |function, context, function_source| {
+            let HirOrigin::Body(body) = function.origin else {
+                return Ok(Some(function_source));
+            };
+            if is_root_main_function(mir, function, context.none_ty) {
+                return Ok(Some(function_source));
+            }
+            let Some(module_info) = body_modules.get(&body).cloned() else {
+                return Ok(Some(function_source));
+            };
+            let module_name = module_info.name;
+            module_paths
+                .entry(module_name.clone())
+                .or_insert(module_info.source_path);
             module_chunks
                 .entry(module_name)
                 .or_default()
-                .push(publicize_free_function(emitted));
-        }
-    }
+                .push(publicize_free_function(function_source));
+            Ok(None)
+        })?;
 
     let mut module_names = module_chunks.keys().cloned().collect::<Vec<_>>();
     module_names.sort();
@@ -1465,7 +1560,7 @@ fn emit_mapped_sources(
         .collect::<Vec<_>>()
         .join("\n");
     if !declarations.is_empty() {
-        root = insert_after_crate_header(root, &format!("{declarations}\n\n"));
+        root = insert_after_crate_header(root, &format!("{declarations}\n\n\n"));
     }
 
     let mapped_modules = module_names
@@ -1649,6 +1744,7 @@ fn emit_default_impl_for_storage_type(
     type_args: &str,
     fields: &[smelt_mir::MirField],
     phantom_args: &str,
+    scoped_type_params: &HashSet<smelt_hir::Symbol>,
 ) -> Result<(), EmitError> {
     writer.block(
         format!("impl{impl_generics} Default for {name}{type_args}"),
@@ -1660,8 +1756,13 @@ fn emit_default_impl_for_storage_type(
                             RustIdent::new(mir.symbols.get(field.name).unwrap_or("field"))
                                 .into_string();
                         let default_value =
-                            FunctionEmitter::default_value_for_with_context(mir, context, field.ty)
-                                .unwrap_or_else(|_| "Default::default()".to_owned());
+                            FunctionEmitter::default_value_for_with_scoped_type_params(
+                                mir,
+                                context,
+                                field.ty,
+                                scoped_type_params,
+                            )
+                            .unwrap_or_else(|_| "Default::default()".to_owned());
                         self_writer.line(format!("{field_name}: {default_value},"));
                     }
                     if !phantom_args.is_empty() {

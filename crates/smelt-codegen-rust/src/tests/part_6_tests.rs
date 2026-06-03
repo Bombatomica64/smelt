@@ -251,7 +251,7 @@ fail();
     assert!(source.contains("fn fail() -> Result<(), Box<dyn std::error::Error>> {"));
     assert!(source.contains("return Err(std::io::Error::new("));
     assert!(source.contains("fn main() -> Result<(), Box<dyn std::error::Error>> {"));
-    assert!(source.contains("let _smelt_tmp_0: () = fail()?;"));
+    assert!(source.contains("let _ = fail()?;"));
     assert!(source.contains("return Ok(());"));
 }
 
@@ -414,4 +414,26 @@ export function keepInvalid(): string {
         "{source}"
     );
     assert!(source.contains("\"Invalid Date\".to_owned()"), "{source}");
+}
+
+#[test]
+fn emits_overflowing_time_setters_as_duration_arithmetic() {
+    let source = source_for(
+        r#"
+export function nextHour(): number {
+  const date = new Date(2020, 0, 1, 23, 30, 0, 0);
+  return date.setHours(date.getHours() + 1);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("chrono::Duration::milliseconds"),
+        "{source}"
+    );
+    assert!(source.contains("* 3_600_000"), "{source}");
+    assert!(
+        !source.contains("with_hour"),
+        "setHours must preserve JavaScript overflow semantics: {source}"
+    );
 }

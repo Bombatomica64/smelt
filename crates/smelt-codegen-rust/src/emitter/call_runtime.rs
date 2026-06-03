@@ -632,6 +632,7 @@ impl FunctionEmitter<'_> {
                                 )
                                 .unwrap_or(false)
                     })
+                    && (closure.escapes || !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))))
                 {
                     return self.default_value(dest_ty);
                 }
@@ -2237,6 +2238,12 @@ impl FunctionEmitter<'_> {
             && self.symbol_name(*name)? == "RegExp"
         {
             return self.regexp_field_text(receiver_text, field);
+        }
+        if self.storage_field_is_function(receiver_ty, field) {
+            return Ok(format!(
+                "{receiver_text}.{}.clone()",
+                sanitize_ident(self.symbol_name(field)?)
+            ));
         }
         let Some(Type::Class { name, .. }) = self.mir.types.get(receiver_ty) else {
             return Err(EmitError::new(
