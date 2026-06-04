@@ -456,6 +456,12 @@ impl ModuleBuilder<'_> {
                     .ok_or_else(|| SmeltError::unsupported(span, "callback capture is missing"))?,
             ),
             CallbackExprKind::Literal(literal) => ExprKind::Literal(literal.clone()),
+            CallbackExprKind::ListLit(items) => ExprKind::ListLit(
+                items
+                    .iter()
+                    .map(|item| self.callback_expr_to_body_expr(item, params, capture_locals, body))
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
             CallbackExprKind::Field { receiver, field } => ExprKind::Field {
                 receiver: self.callback_expr_to_body_expr(
                     receiver,
