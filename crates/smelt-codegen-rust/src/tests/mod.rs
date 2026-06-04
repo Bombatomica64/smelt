@@ -61,3 +61,4 @@ mod part_4_tests;
 mod part_5_tests;
 mod part_6_tests;
 mod part_7_tests;
+mod snapshot_tests;
