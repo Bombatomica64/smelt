@@ -589,7 +589,7 @@ const hits = values.filter((value) => selected.has(value));
     );
 
     assert!(
-        source.contains(".iter().any(|value| *value == item)"),
+        source.contains(".iter().any(|value| *value == closure_arg_0.clone())"),
         "{source}"
     );
 }

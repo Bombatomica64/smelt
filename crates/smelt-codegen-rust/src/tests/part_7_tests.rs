@@ -2568,7 +2568,10 @@ function range(start: number, length: number, step: number): number[] {
 
     assert!(source.contains("array_from_length"), "{source}");
     assert!(source.contains("(0..array_from_length).map"), "{source}");
-    assert!(source.contains("let index = index as f64"), "{source}");
+    assert!(
+        source.contains("(smelt_callback)(SmeltUnknown::Null, index as f64)"),
+        "{source}"
+    );
 }
 
 #[test]
