@@ -53,43 +53,13 @@ impl ModuleBuilder<'_> {
         if let Some(error) = self.unsupported_object_collection_call(call) {
             return Err(error);
         }
-        if let Some(expr) = self.promise_static_call(call, body)? {
+        if let Some(expr) = self.exact_stdlib_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.promise_continuation_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.timer_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.fetch_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.primitive_cast_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.symbol_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_abs_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_round_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_extrema_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_hypot_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.number_predicate_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.number_parse_float_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.number_parse_int_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.number_to_string_call(call, body)? {
@@ -102,27 +72,6 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.commonjs_require_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_unary_func_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_random_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_pow_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.math_atan2_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_is_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_from_entries_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.object_get_prototype_of_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.object_metadata_mutation_call(call, body)? {
@@ -159,18 +108,6 @@ impl ModuleBuilder<'_> {
             return Ok(expr);
         }
         if let Some(expr) = self.set_projection_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.array_is_array_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.array_from_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.json_stringify_call(call, body)? {
-            return Ok(expr);
-        }
-        if let Some(expr) = self.json_parse_call(call, body)? {
             return Ok(expr);
         }
         if let Some(expr) = self.regexp_test_call(call, body)? {
@@ -1726,6 +1663,92 @@ impl ModuleBuilder<'_> {
             | (Some(Type::Never), _) => true,
             _ => false,
         }
+    }
+
+    /// Route exact global and static namespace calls through shared recognition metadata.
+    ///
+    /// Receiver-, shape-, plugin-, and test-framework-dependent handlers remain
+    /// in `call_expression` because they require semantic inspection and ordered
+    /// overlap resolution rather than exact source-name recognition.
+    fn exact_stdlib_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Some(rule) = stdlib_dispatch::call_rule(call) else {
+            return Ok(None);
+        };
+        match rule {
+            RuleId::TsStructuredClone => self.structured_clone_call(call, body),
+            RuleId::TsPromiseStatic => self.promise_static_call(call, body),
+            RuleId::TsFetch => self.fetch_call(call, body),
+            RuleId::TsPrimitiveCast => self.primitive_cast_call(call, body),
+            RuleId::TsSymbol => self.symbol_call(call, body),
+            RuleId::TsMathNumeric => self.exact_math_numeric_call(call, body),
+            RuleId::TsMathRandom => self.math_random_call(call, body),
+            RuleId::TsNumberPredicate => self.number_predicate_call(call, body),
+            RuleId::TsNumberParseFloat => self.number_parse_float_call(call, body),
+            RuleId::TsNumberParseInt => self.number_parse_int_call(call, body),
+            RuleId::TsObjectStatic => self.exact_object_static_call(call, body),
+            RuleId::TsArrayStatic => self.exact_array_static_call(call, body),
+            RuleId::TsJsonStringify => self.json_stringify_call(call, body),
+            RuleId::TsJsonParse => self.json_parse_call(call, body),
+            _ => Ok(None),
+        }
+    }
+
+    /// Preserve the established ordering among exact deterministic `Math.*` handlers.
+    fn exact_math_numeric_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.math_abs_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.math_round_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.math_extrema_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.math_hypot_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.math_unary_func_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.math_pow_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        self.math_atan2_call(call, body)
+    }
+
+    /// Preserve the established ordering among exact static `Object.*` handlers.
+    fn exact_object_static_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.object_is_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.object_from_entries_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        self.object_get_prototype_of_call(call, body)
+    }
+
+    /// Preserve the established ordering among exact static `Array.*` handlers.
+    fn exact_array_static_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if let Some(expr) = self.array_is_array_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        self.array_from_call(call, body)
     }
 
     /// Return whether an overload has the same source-level argument count as a call.
