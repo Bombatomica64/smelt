@@ -3340,3 +3340,62 @@ function run(value: unknown): void {
     assert!(source.contains("let _ = wrapped"), "{source}");
     assert!(!source.contains("unknown is not null"), "{source}");
 }
+
+#[test]
+fn emits_non_destructive_object_getter_reads() {
+    let source = source_for(
+        r#"
+function makeCounter(): { readonly value: number } {
+  let value = 0;
+  return {
+    get value() {
+      value += 1;
+      return value;
+    },
+  };
+}
+
+const counter = makeCounter();
+const first = counter.value;
+const second = counter.value;
+"#,
+    );
+
+    assert!(
+        source.contains("match getter.get(\"__smelt_get\")"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("getter.remove(\"__smelt_get\")"),
+        "{source}"
+    );
+}
+
+#[test]
+fn resets_virtual_timers_at_generated_test_start() {
+    let source = source_for(
+        r#"
+import { test } from "vitest";
+
+test("timer isolation", () => {
+  setTimeout(() => {}, 10);
+});
+"#,
+    );
+
+    assert!(source.contains("fn smelt_reset_timers()"), "{source}");
+    assert!(source.contains("    smelt_reset_timers();"), "{source}");
+}
+
+#[test]
+fn drains_virtual_timers_before_async_sleep_can_change_threads() {
+    let source = source_for(
+        r#"
+setTimeout(() => {}, 10);
+"#,
+    );
+
+    let drain = source.find("    smelt_drain_due_timers();").unwrap();
+    let yield_now = source.find("    tokio::task::yield_now().await;").unwrap();
+    assert!(drain < yield_now, "{source}");
+}

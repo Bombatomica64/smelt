@@ -49,6 +49,8 @@ pub(crate) struct EmitContext {
     pub(crate) none_ty: TypeId,
     /// Whether emitted native tests must isolate mutable `Date.now()` mock state.
     needs_date_now_runtime: bool,
+    /// Whether emitted native tests must isolate virtual timer runtime state.
+    needs_timer_helpers: bool,
     /// Rust function names keyed by MIR function ID.
     function_names: HashMap<FuncId, String>,
     /// Emitted parameter types keyed by Rust function name.
@@ -144,6 +146,7 @@ impl EmitContext {
         Ok(Self {
             none_ty,
             needs_date_now_runtime: crate::stdlib::needs_date_now_runtime(mir),
+            needs_timer_helpers: crate::needs_timer_helpers(mir),
             function_names,
             function_param_types,
             function_return_types,

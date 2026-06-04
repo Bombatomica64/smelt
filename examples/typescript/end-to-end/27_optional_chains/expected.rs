@@ -222,7 +222,7 @@ impl Clone for SmeltUnknown {
 
 fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {
     match map.get(field).unwrap_or(SmeltUnknown::Null) {
-        SmeltUnknown::Object(mut getter) if getter.contains_key("__smelt_get") => match getter.remove("__smelt_get") {
+        SmeltUnknown::Object(getter) if getter.contains_key("__smelt_get") => match getter.get("__smelt_get") {
             Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!("{}", error)),
             _ => SmeltUnknown::Null,
         },

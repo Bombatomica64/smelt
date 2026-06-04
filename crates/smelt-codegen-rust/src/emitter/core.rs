@@ -158,6 +158,9 @@ impl<'mir> FunctionEmitter<'mir> {
         if self.function.is_test && self.context.needs_date_now_runtime {
             out.push_str("    SMELT_DATE_NOW.with(|value| value.set(None));\n");
         }
+        if self.function.is_test && self.context.needs_timer_helpers {
+            out.push_str("    smelt_reset_timers();\n");
+        }
         self.emit_mutable_local_preludes(out)?;
         self.emit_block(self.entry_block()?, out)?;
         if !self.block_eventually_terminates(self.function.entry, &mut HashSet::new())?

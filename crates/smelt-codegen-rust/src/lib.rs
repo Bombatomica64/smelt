@@ -583,7 +583,7 @@ fn emit_source_with_free_function_router(
         writer.blank_line();
         writer.line("fn smelt_get_object_field(map: &SmeltObject, field: &str) -> SmeltUnknown {");
         writer.line("    match map.get(field).unwrap_or(SmeltUnknown::Null) {");
-        writer.line("        SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {");
+        writer.line("        SmeltUnknown::Object(getter) if getter.contains_key(\"__smelt_get\") => match getter.get(\"__smelt_get\") {");
         writer.line("            Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{}\", error)),");
         writer.line("            _ => SmeltUnknown::Null,");
         writer.line("        },");
@@ -691,6 +691,12 @@ fn emit_source_with_free_function_router(
             writer.line("    static SMELT_TIMERS: ::std::cell::RefCell<Vec<SmeltTimer>> = const { ::std::cell::RefCell::new(Vec::new()) };");
             writer.line("}");
             writer.blank_line();
+            writer.line("fn smelt_reset_timers() {");
+            writer.line("    SMELT_NEXT_TIMER_ID.with(|next| next.set(1));");
+            writer.line("    SMELT_TIMER_NOW_MS.with(|now| now.set(0));");
+            writer.line("    SMELT_TIMERS.with(|timers| timers.borrow_mut().clear());");
+            writer.line("}");
+            writer.blank_line();
             writer.line("fn smelt_set_timeout(callback: ::std::rc::Rc<::std::cell::RefCell<dyn FnMut() -> Result<(), Box<dyn std::error::Error>>>>, delay_ms: f64) -> SmeltUnknown {");
             writer.line("    let id = SMELT_NEXT_TIMER_ID.with(|next| { let id = next.get(); next.set(id.saturating_add(1)); id });");
             writer.line("    let delay_ms = if delay_ms.is_finite() && delay_ms > 0.0 { delay_ms as u64 } else { 0 };");
@@ -734,8 +740,8 @@ fn emit_source_with_free_function_router(
             writer.line(
                 "    SMELT_TIMER_NOW_MS.with(|now| now.set(now.get().saturating_add(delay_ms)));",
             );
-            writer.line("    tokio::task::yield_now().await;");
             writer.line("    smelt_drain_due_timers();");
+            writer.line("    tokio::task::yield_now().await;");
             writer.line("}");
             writer.blank_line();
         }
