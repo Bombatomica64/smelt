@@ -534,8 +534,7 @@ const entries = values.entries();
     assert!(source.contains("fn smelt_flat_values"));
     assert!(source.contains("smelt_flat_depth"));
     assert!(source.contains(".iter().enumerate().flat_map("));
-    assert!(source.contains(".iter().enumerate().rev().find("));
-    assert!(source.contains(".iter().enumerate().rposition("));
+    assert!(source.contains(".iter().enumerate().rev().find_map("));
     assert!(source.contains("(0.."));
     assert!(source.contains(".iter().cloned().enumerate().map(|(idx, item)|"));
 }

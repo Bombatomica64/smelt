@@ -771,7 +771,7 @@ const arrays = values.map((value, index, array) => array);
             body.exprs.iter().any(|expr| matches!(
                 &expr.kind,
                 ExprKind::ListCallback { op, callback, .. }
-                    if *op == expected && closure_callback_has_param(body, *callback, 1)
+                    if *op == expected && closure_callback_has_param(&ctx, body, *callback, 1)
             )),
             "missing callback index param for {expected:?}"
         );
@@ -803,7 +803,7 @@ const arrays = values.map((value, index, array) => array);
                 op: ListCallbackOp::Map,
                 callback,
                 ..
-            } if closure_callback_has_param(body, *callback, 2)
+            } if closure_callback_has_param(&ctx, body, *callback, 2)
         )),
         "missing callback array param"
     );

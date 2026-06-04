@@ -203,7 +203,7 @@ const doubled = rows.map(({ value }) => value * 2);
     );
 
     assert!(
-        source.contains(".get(\"value\").unwrap_or(0.0)"),
+        source.contains(".get(&\"value\".to_owned()).expect(\"missing field\")"),
         "{source}"
     );
 }
@@ -389,17 +389,16 @@ const noInitial = values.reduce((acc, value, index) => acc + value + index);
     );
 
     assert!(source.contains(".iter().enumerate().map(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().filter(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().find(|(index, item)|"));
-    assert!(source.contains(".iter().enumerate().position(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().filter_map(|(index, item)|"));
+    assert!(source.contains(".iter().enumerate().find_map(|(index, item)|"));
     assert!(source.contains(".iter().enumerate().any(|(index, item)|"));
     assert!(source.contains(".iter().enumerate().all(|(index, item)|"));
     assert!(source.matches("loop {").count() >= 2);
     assert!(source.contains(".iter().enumerate().fold("));
     assert!(source.contains("reduce of empty array with no initial value"));
     assert!(source.contains(".collect::<Vec<_>>()"));
-    assert!(source.contains(".map_or(-1.0"));
-    assert!(source.contains("(item * 2.0)"), "{source}");
+    assert!(source.contains(".unwrap_or(-1.0"));
+    assert!(source.contains("closure_arg_0.clone() * 2.0"), "{source}");
     assert!(source.contains("(item + 2.0)"));
     assert!(
         source.contains("(smelt_callback)(SmeltUnknown::Number(item.clone() as f64))"),

@@ -88,7 +88,11 @@ impl ModuleBuilder<'_> {
                 });
                 (key_ty, value_ty)
             }
-            Some(Type::Union(items)) if items.iter().all(|item| self.object_keys_compatible_type(*item)) => {
+            Some(Type::Union(items))
+                if items
+                    .iter()
+                    .all(|item| self.object_keys_compatible_type(*item)) =>
+            {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
@@ -228,7 +232,8 @@ impl ModuleBuilder<'_> {
         let item_ty = match self.ctx.krate.types.get(ty).cloned() {
             Some(Type::List(list_item_ty)) => list_item_ty,
             Some(Type::Optional(inner)) => {
-                let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned() else {
+                let Some(Type::List(list_item_ty)) = self.ctx.krate.types.get(inner).cloned()
+                else {
                     return Ok(None);
                 };
                 ty = inner;
@@ -253,7 +258,12 @@ impl ModuleBuilder<'_> {
                 if items.iter().any(|item| {
                     matches!(
                         self.ctx.krate.types.get(*item),
-                        Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                        Some(
+                            Type::List(_)
+                                | Type::Unknown
+                                | Type::TypeParam { .. }
+                                | Type::Class { .. }
+                        )
                     )
                 }) =>
             {
@@ -293,9 +303,7 @@ impl ModuleBuilder<'_> {
                 || self.erased_or_union_surface(item_ty))
         {
             body.push_expr(Expr {
-                kind: ExprKind::TypeAssert {
-                    value: right,
-                },
+                kind: ExprKind::TypeAssert { value: right },
                 ty,
                 span: self.span(right_argument.span().start, right_argument.span().end),
             })
@@ -307,9 +315,7 @@ impl ModuleBuilder<'_> {
             })
         } else if self.erased_or_union_surface(item_ty) {
             right = body.push_expr(Expr {
-                kind: ExprKind::TypeAssert {
-                    value: right,
-                },
+                kind: ExprKind::TypeAssert { value: right },
                 ty: item_ty,
                 span: self.span(right_argument.span().start, right_argument.span().end),
             });
@@ -320,9 +326,7 @@ impl ModuleBuilder<'_> {
             })
         } else if right_prefers_list && self.erased_or_union_surface(right_ty) {
             body.push_expr(Expr {
-                kind: ExprKind::TypeAssert {
-                    value: right,
-                },
+                kind: ExprKind::TypeAssert { value: right },
                 ty,
                 span: self.span(right_argument.span().start, right_argument.span().end),
             })
@@ -331,9 +335,7 @@ impl ModuleBuilder<'_> {
         {
             if self.ctx.krate.types.get(right_ty) != Some(&Type::List(item_ty)) {
                 right = body.push_expr(Expr {
-                    kind: ExprKind::TypeAssert {
-                        value: right,
-                    },
+                    kind: ExprKind::TypeAssert { value: right },
                     ty: item_ty,
                     span: self.span(right_argument.span().start, right_argument.span().end),
                 });
@@ -402,12 +404,12 @@ impl ModuleBuilder<'_> {
             )?;
             let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params: vec![list_ty],
-            rest: None,
+                rest: None,
                 required_params: None,
-                    mutable_params: Vec::new(),
-return_ty,
+                mutable_params: Vec::new(),
+                return_ty,
                 is_async: false,
-                            may_throw: false,
+                may_throw: false,
             }));
             return Ok(Some(body.push_expr(Expr {
                 kind: ExprKind::Literal(Literal::None),
@@ -767,7 +769,9 @@ return_ty,
     fn argument_is_callback_like(argument: &Argument<'_>) -> bool {
         match argument {
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_) => true,
-            Argument::TSAsExpression(as_expr) => Self::expression_is_callback_like(&as_expr.expression),
+            Argument::TSAsExpression(as_expr) => {
+                Self::expression_is_callback_like(&as_expr.expression)
+            }
             Argument::TSTypeAssertion(assertion) => {
                 Self::expression_is_callback_like(&assertion.expression)
             }
@@ -788,7 +792,9 @@ return_ty,
             Expression::ParenthesizedExpression(parenthesized) => {
                 Self::expression_is_callback_like(&parenthesized.expression)
             }
-            Expression::TSAsExpression(as_expr) => Self::expression_is_callback_like(&as_expr.expression),
+            Expression::TSAsExpression(as_expr) => {
+                Self::expression_is_callback_like(&as_expr.expression)
+            }
             Expression::TSTypeAssertion(assertion) => {
                 Self::expression_is_callback_like(&assertion.expression)
             }
@@ -861,34 +867,30 @@ return_ty,
         initial_argument: Option<&Argument<'_>>,
     ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
         let mut list_ty = Self::expr_ty(body, list);
-        let element_ty = if let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty)
-        {
-            *list_element_ty
-        } else if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(list_ty).cloned() {
-            let item_ty = self.flattened_tuple_item_type(items);
-            let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-            list = body.push_expr(Expr {
-                kind: ExprKind::TypeAssert {
-                    value: list,
-                },
-                ty: asserted_ty,
-                span: self.span(list_span_start, list_span_end),
-            });
-            list_ty = asserted_ty;
-            item_ty
-        } else {
-            let item_ty = self.ctx.krate.types.intern(Type::Unknown);
-            let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
-            list = body.push_expr(Expr {
-                kind: ExprKind::TypeAssert {
-                    value: list,
-                },
-                ty: asserted_ty,
-                span: self.span(list_span_start, list_span_end),
-            });
-            list_ty = asserted_ty;
-            item_ty
-        };
+        let element_ty =
+            if let Some(Type::List(list_element_ty)) = self.ctx.krate.types.get(list_ty) {
+                *list_element_ty
+            } else if let Some(Type::Tuple(items)) = self.ctx.krate.types.get(list_ty).cloned() {
+                let item_ty = self.flattened_tuple_item_type(items);
+                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                list = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: list },
+                    ty: asserted_ty,
+                    span: self.span(list_span_start, list_span_end),
+                });
+                list_ty = asserted_ty;
+                item_ty
+            } else {
+                let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                let asserted_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+                list = body.push_expr(Expr {
+                    kind: ExprKind::TypeAssert { value: list },
+                    ty: asserted_ty,
+                    span: self.span(list_span_start, list_span_end),
+                });
+                list_ty = asserted_ty;
+                item_ty
+            };
         let initial = if let Some(initial_argument) = initial_argument {
             Some(self.argument(initial_argument, body)?)
         } else {
@@ -900,8 +902,12 @@ return_ty,
         let callback_expr = if let Argument::ArrowFunctionExpression(arrow) = callback_argument {
             self.arrow_closure_body_expr(arrow, &callback_param_tys, accumulator_ty, body)?
         } else {
-            let callback =
-                self.callback_argument(callback_argument, &callback_param_tys, "array reduce", body)?;
+            let callback = self.callback_argument(
+                callback_argument,
+                &callback_param_tys,
+                "array reduce",
+                body,
+            )?;
             self.require_callback_ty(callback.return_ty, accumulator_ty, call, "array reduce")?;
             callback.expr
         };
@@ -989,9 +995,33 @@ return_ty,
                 }
             })
             .collect::<Vec<_>>();
-        let body_id = self.ctx.krate.push_body(closure_body);
         let captures = self.callback_captures(&callback, body);
         let may_throw = Self::callback_expr_contains_throw(&callback);
+        let callback_body = if captures.is_empty() && rest.is_none() && required_params.is_none() {
+            let param_exprs = closure_params
+                .iter()
+                .map(|param| {
+                    closure_body.push_expr(Expr {
+                        kind: ExprKind::Local(param.local),
+                        ty: param.ty,
+                        span,
+                    })
+                })
+                .collect::<Vec<_>>();
+            match self.callback_expr_to_body_expr(&callback, &param_exprs, &mut closure_body, span)
+            {
+                Ok(tail) => {
+                    if let Some(root) = closure_body.blocks.first_mut() {
+                        root.tail = Some(tail);
+                    }
+                    None
+                }
+                Err(_) => Some(callback),
+            }
+        } else {
+            Some(callback)
+        };
+        let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params: params.to_vec(),
             rest,
@@ -1009,7 +1039,7 @@ return_ty,
                 return_ty,
                 captures,
                 body: body_id,
-                callback_body: Some(callback),
+                callback_body,
                 span,
             }),
             ty: closure_ty,
@@ -1049,7 +1079,10 @@ return_ty,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         match &callback.kind {
             CallbackExprKind::Param(index) => args.get(*index).copied().ok_or_else(|| {
-                SmeltError::unsupported(span, "default argument references an unavailable parameter")
+                SmeltError::unsupported(
+                    span,
+                    "default argument references an unavailable parameter",
+                )
             }),
             CallbackExprKind::Capture(local) => Ok(body.push_expr(Expr {
                 kind: ExprKind::Local(*local),
@@ -1087,29 +1120,10 @@ return_ty,
                 span,
                 "this callback default expression is not lowered at call sites yet",
             )),
-            CallbackExprKind::Index { receiver, index } => {
-                let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
-                let index_ty = self.ctx.krate.types.intern(Type::Float);
-                let index_value = index.to_string().parse::<f64>().map_err(|err| {
-                    SmeltError::unsupported(
-                        span,
-                        format!("callback tuple index cannot be represented as a number: {err}"),
-                    )
-                })?;
-                let index_expr = body.push_expr(Expr {
-                    kind: ExprKind::Literal(Literal::Float(index_value)),
-                    ty: index_ty,
-                    span,
-                });
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Index {
-                        receiver,
-                        index: index_expr,
-                    },
-                    ty: callback.ty,
-                    span,
-                }))
-            }
+            CallbackExprKind::Index { .. } => Err(SmeltError::unsupported(
+                span,
+                "static callback indexes are not lowered into closure bodies yet",
+            )),
             CallbackExprKind::Field { receiver, field } => {
                 let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 Ok(body.push_expr(Expr {
@@ -1161,12 +1175,24 @@ return_ty,
                 args: call_args,
             } => {
                 let callee = self.callback_expr_to_body_expr(callee, args, body, span)?;
-                let call_args = self.callback_call_args_to_body_exprs(call_args, args, body, span)?;
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Call {
+                let call_args =
+                    self.callback_call_args_to_body_exprs(call_args, args, body, span)?;
+                let kind = if matches!(
+                    self.ctx.krate.types.get(Self::expr_ty(body, callee)),
+                    Some(Type::Function(_))
+                ) {
+                    ExprKind::ClosureCall {
                         callee,
                         args: call_args,
-                    },
+                    }
+                } else {
+                    ExprKind::Call {
+                        callee,
+                        args: call_args,
+                    }
+                };
+                Ok(body.push_expr(Expr {
+                    kind,
                     ty: callback.ty,
                     span,
                 }))
@@ -1177,7 +1203,8 @@ return_ty,
                 args: call_args,
             } => {
                 let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
-                let call_args = self.callback_call_args_to_body_exprs(call_args, args, body, span)?;
+                let call_args =
+                    self.callback_call_args_to_body_exprs(call_args, args, body, span)?;
                 if self.ctx.krate.symbols.get(*method) == Some("has")
                     && call_args.len() == 1
                     && matches!(
@@ -1197,15 +1224,10 @@ return_ty,
                         span,
                     }));
                 }
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Method {
-                        receiver,
-                        method: *method,
-                        args: call_args,
-                    },
-                    ty: callback.ty,
+                Err(SmeltError::unsupported(
                     span,
-                }))
+                    "callback methods are not lowered into closure bodies yet",
+                ))
             }
         }
     }
@@ -1344,13 +1366,9 @@ return_ty,
                 method,
                 args,
             } => {
-                if self
-                    .ctx
-                    .krate
-                    .symbols
-                    .get(*method)
-                    .is_some_and(|name| matches!(name, "push" | "pop" | "shift" | "unshift" | "splice"))
-                    && let CallbackExprKind::Capture(local) = receiver.kind
+                if self.ctx.krate.symbols.get(*method).is_some_and(|name| {
+                    matches!(name, "push" | "pop" | "shift" | "unshift" | "splice")
+                }) && let CallbackExprKind::Capture(local) = receiver.kind
                     && let Some(local_decl) = usize::try_from(local.0)
                         .ok()
                         .and_then(|index| body.locals.get(index))
@@ -1376,7 +1394,9 @@ return_ty,
             CallbackExprKind::FunctionTableLookup { key, .. } => {
                 self.collect_callback_captures(key, body, captures);
             }
-            CallbackExprKind::Param(_) | CallbackExprKind::Function(_) | CallbackExprKind::Literal(_) => {}
+            CallbackExprKind::Param(_)
+            | CallbackExprKind::Function(_)
+            | CallbackExprKind::Literal(_) => {}
         }
     }
 
@@ -1483,8 +1503,7 @@ return_ty,
                     });
                 }
             }
-            if let Argument::StaticMemberExpression(_member) = argument
-            {
+            if let Argument::StaticMemberExpression(_member) = argument {
                 return Ok(self.opaque_member_callback(expected_param_tys));
             }
             return Err(SmeltError::unsupported(
@@ -1661,11 +1680,9 @@ return_ty,
                 expected_param_tys,
                 body,
             )?)),
-            Argument::TSSatisfiesExpression(satisfies) => Ok(Some(self.arrow_callback_expression(
-                &satisfies.expression,
-                expected_param_tys,
-                body,
-            )?)),
+            Argument::TSSatisfiesExpression(satisfies) => Ok(Some(
+                self.arrow_callback_expression(&satisfies.expression, expected_param_tys, body)?,
+            )),
             Argument::TSNonNullExpression(non_null) => Ok(Some(self.arrow_callback_expression(
                 &non_null.expression,
                 expected_param_tys,
@@ -1695,19 +1712,15 @@ return_ty,
             Expression::FunctionExpression(function) => {
                 self.function_callback_from_params(function, expected_param_tys, body)
             }
-            Expression::ParenthesizedExpression(parenthesized) => self.arrow_callback_expression(
-                &parenthesized.expression,
-                expected_param_tys,
-                body,
-            ),
+            Expression::ParenthesizedExpression(parenthesized) => {
+                self.arrow_callback_expression(&parenthesized.expression, expected_param_tys, body)
+            }
             Expression::TSAsExpression(as_expr) => {
                 self.arrow_callback_expression(&as_expr.expression, expected_param_tys, body)
             }
-            Expression::TSSatisfiesExpression(satisfies) => self.arrow_callback_expression(
-                &satisfies.expression,
-                expected_param_tys,
-                body,
-            ),
+            Expression::TSSatisfiesExpression(satisfies) => {
+                self.arrow_callback_expression(&satisfies.expression, expected_param_tys, body)
+            }
             Expression::TSNonNullExpression(non_null) => {
                 self.arrow_callback_expression(&non_null.expression, expected_param_tys, body)
             }
@@ -1728,10 +1741,10 @@ return_ty,
             params: expected_param_tys.to_vec(),
             rest: None,
             required_params: None,
-                    mutable_params: Vec::new(),
-return_ty: unknown_ty,
+            mutable_params: Vec::new(),
+            return_ty: unknown_ty,
             is_async: false,
-                            may_throw: false,
+            may_throw: false,
         }));
         let args = expected_param_tys
             .iter()
@@ -1780,7 +1793,8 @@ return_ty: unknown_ty,
                 "async callbacks need closure-body lowering",
             ));
         }
-        if function.params.rest.is_some() || function.params.items.len() > expected_param_tys.len() {
+        if function.params.rest.is_some() || function.params.items.len() > expected_param_tys.len()
+        {
             return Err(SmeltError::unsupported(
                 self.span(function.span.start, function.span.end),
                 "array callback parameter count is not supported for this method",
@@ -1954,40 +1968,41 @@ return_ty: unknown_ty,
                     ));
                 }
                 let cond = self.callback_truthy_expression(&if_stmt.test, params, body)?;
-                let then_expr = match self.callback_terminating_statement(&if_stmt.consequent, params, body) {
-                    Ok(expr) => expr,
-                    Err(error) if !rest.is_empty() => {
-                        drop(error);
-                        let side_effect = self.callback_side_effect_statement(
-                            &if_stmt.consequent,
-                            params,
-                            body,
-                        )?;
-                        let none_ty = self.ctx.krate.types.intern(Type::None);
-                        let none_expr = CallbackExpr {
-                            kind: CallbackExprKind::Literal(Literal::None),
-                            ty: none_ty,
-                        };
-                        let guarded_effect = CallbackExpr {
-                            kind: CallbackExprKind::Conditional {
-                                cond: Box::new(cond),
-                                then_expr: Box::new(side_effect),
-                                else_expr: Box::new(none_expr),
-                            },
-                            ty: none_ty,
-                        };
-                        let result = self.callback_block_expression(rest, params, body)?;
-                        let result_ty = result.ty;
-                        return Ok(CallbackExpr {
-                            kind: CallbackExprKind::Sequence {
-                                effects: vec![guarded_effect],
-                                result: Box::new(result),
-                            },
-                            ty: result_ty,
-                        });
-                    }
-                    Err(error) => return Err(error),
-                };
+                let then_expr =
+                    match self.callback_terminating_statement(&if_stmt.consequent, params, body) {
+                        Ok(expr) => expr,
+                        Err(error) if !rest.is_empty() => {
+                            drop(error);
+                            let side_effect = self.callback_side_effect_statement(
+                                &if_stmt.consequent,
+                                params,
+                                body,
+                            )?;
+                            let none_ty = self.ctx.krate.types.intern(Type::None);
+                            let none_expr = CallbackExpr {
+                                kind: CallbackExprKind::Literal(Literal::None),
+                                ty: none_ty,
+                            };
+                            let guarded_effect = CallbackExpr {
+                                kind: CallbackExprKind::Conditional {
+                                    cond: Box::new(cond),
+                                    then_expr: Box::new(side_effect),
+                                    else_expr: Box::new(none_expr),
+                                },
+                                ty: none_ty,
+                            };
+                            let result = self.callback_block_expression(rest, params, body)?;
+                            let result_ty = result.ty;
+                            return Ok(CallbackExpr {
+                                kind: CallbackExprKind::Sequence {
+                                    effects: vec![guarded_effect],
+                                    result: Box::new(result),
+                                },
+                                ty: result_ty,
+                            });
+                        }
+                        Err(error) => return Err(error),
+                    };
                 let else_expr = self.callback_block_expression(rest, params, body)?;
                 let (then_expr, else_expr, ty) = self.callback_unify_conditional_exprs(
                     then_expr,
@@ -2062,7 +2077,9 @@ return_ty: unknown_ty,
     ) -> Result<CallbackExpr, SmeltError> {
         let none_ty = self.ctx.krate.types.intern(Type::None);
         match side_effect_statement {
-            Statement::ExpressionStatement(expr_stmt) => self.callback_expression(&expr_stmt.expression, params, body),
+            Statement::ExpressionStatement(expr_stmt) => {
+                self.callback_expression(&expr_stmt.expression, params, body)
+            }
             Statement::BlockStatement(block) => {
                 let mut effects = Vec::new();
                 for block_statement in &block.body {
@@ -2070,9 +2087,11 @@ return_ty: unknown_ty,
                         Statement::ExpressionStatement(expr_stmt) => {
                             self.callback_expression(&expr_stmt.expression, params, body)?
                         }
-                        Statement::ThrowStatement(throw_stmt) => {
-                            self.callback_throw_expression(Some(&throw_stmt.argument), params, body)?
-                        }
+                        Statement::ThrowStatement(throw_stmt) => self.callback_throw_expression(
+                            Some(&throw_stmt.argument),
+                            params,
+                            body,
+                        )?,
                         _ => {
                             return Err(SmeltError::unsupported(
                                 self.span(block_statement.span().start, block_statement.span().end),
@@ -2111,7 +2130,9 @@ return_ty: unknown_ty,
         body: &Body,
     ) -> Result<CallbackExpr, SmeltError> {
         match statement {
-            Statement::BlockStatement(block) => self.callback_block_expression(&block.body, params, body),
+            Statement::BlockStatement(block) => {
+                self.callback_block_expression(&block.body, params, body)
+            }
             Statement::ReturnStatement(return_stmt) => {
                 let value = return_stmt.argument.as_ref().ok_or_else(|| {
                     SmeltError::unsupported(
@@ -2499,8 +2520,7 @@ return_ty: unknown_ty,
                 .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
                 .transpose()?
                 .or_else(|| {
-                    contextual_function
-                        .and_then(|function| function.params.get(index).copied())
+                    contextual_function.and_then(|function| function.params.get(index).copied())
                 });
             let ty = match (&param.pattern, ty) {
                 (_, Some(ty)) => ty,
@@ -2571,9 +2591,12 @@ return_ty: unknown_ty,
         arrow: &oxc::ast::ast::ArrowFunctionExpression<'_>,
         index: usize,
     ) -> smelt_hir::TypeId {
-        let Some(param_name) = arrow.params.items.get(index).and_then(|param| {
-            Self::simple_binding_pattern_name(&param.pattern)
-        }) else {
+        let Some(param_name) = arrow
+            .params
+            .items
+            .get(index)
+            .and_then(|param| Self::simple_binding_pattern_name(&param.pattern))
+        else {
             return self.ctx.krate.types.intern(Type::Unknown);
         };
         if self.arrow_param_used_as_number(arrow, param_name) {
@@ -2840,10 +2863,7 @@ return_ty: unknown_ty,
         } else {
             self.predeclare_local_function_declarations(&arrow.body.statements, &mut closure_body)
                 .and_then(|()| {
-                    self.predeclare_local_arrow_callbacks(
-                        &arrow.body.statements,
-                        &mut closure_body,
-                    )
+                    self.predeclare_local_arrow_callbacks(&arrow.body.statements, &mut closure_body)
                 })
         };
         let lowering_result = if let Err(error) = predeclare_result {
@@ -2857,7 +2877,7 @@ return_ty: unknown_ty,
                             if infer_expression_return {
                                 actual_return_ty = Self::expr_ty(&closure_body, value);
                             }
-                        closure_body.push_stmt(Stmt::Return(Some(value)));
+                            closure_body.push_stmt(Stmt::Return(Some(value)));
                         })
                 }
                 Err(error) => Err(error),
@@ -2944,7 +2964,9 @@ return_ty: unknown_ty,
                         .iter()
                         .any(|arg| Self::callback_expr_contains_throw(&arg.expr))
             }
-            CallbackExprKind::ListLit(items) => items.iter().any(Self::callback_expr_contains_throw),
+            CallbackExprKind::ListLit(items) => {
+                items.iter().any(Self::callback_expr_contains_throw)
+            }
             CallbackExprKind::DictLit(entries) => entries
                 .iter()
                 .any(|(_, value)| Self::callback_expr_contains_throw(value)),
@@ -3021,7 +3043,9 @@ return_ty: unknown_ty,
                     || else_block
                         .is_some_and(|block| Self::block_contains_uncaught_throw(body, block))
             }
-            Stmt::While { body: loop_body, .. }
+            Stmt::While {
+                body: loop_body, ..
+            }
             | Stmt::WhileUpdate {
                 body: loop_body, ..
             }
@@ -3031,8 +3055,7 @@ return_ty: unknown_ty,
             Stmt::Match { arms, default, .. } => {
                 arms.iter()
                     .any(|arm| Self::block_contains_uncaught_throw(body, arm.body))
-                    || default
-                        .is_some_and(|block| Self::block_contains_uncaught_throw(body, block))
+                    || default.is_some_and(|block| Self::block_contains_uncaught_throw(body, block))
             }
             Stmt::TryCatch {
                 body: try_body,
@@ -3078,56 +3101,67 @@ return_ty: unknown_ty,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
         self.push_type_parameter_scope(arrow.type_parameters.as_deref())?;
         let result = (|| {
-        let contextual_function = type_hint.and_then(|hint| {
-            let function_hint = self.function_member_type(hint).unwrap_or(hint);
-            if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
-                Some(function.clone())
-            } else {
-                None
-            }
-        });
-        let params = self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
-        let explicit_return_ty = arrow
-            .return_type
-            .as_ref()
-            .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
-            .transpose()?;
-        if !arrow.r#async
-            && let Ok(callback) = self.arrow_callback_from_params(arrow, &params, body)
-        {
-            let return_ty = explicit_return_ty.unwrap_or(callback.ty);
-            if !self.type_assignable_to(callback.ty, return_ty) {
-                return Err(SmeltError::unsupported(
-                    self.span(arrow.span.start, arrow.span.end),
-                    "arrow expression return type does not match its annotation",
+            let contextual_function = type_hint.and_then(|hint| {
+                let function_hint = self.function_member_type(hint).unwrap_or(hint);
+                if let Some(Type::Function(function)) = self.ctx.krate.types.get(function_hint) {
+                    Some(function.clone())
+                } else {
+                    None
+                }
+            });
+            let params =
+                self.arrow_callback_param_types_with_hint(arrow, contextual_function.as_ref())?;
+            let explicit_return_ty = arrow
+                .return_type
+                .as_ref()
+                .map(|annotation| self.ts_type_to_hir(&annotation.type_annotation))
+                .transpose()?;
+            if !arrow.r#async
+                && let Ok(callback) = self.arrow_callback_from_params(arrow, &params, body)
+            {
+                let return_ty = explicit_return_ty.unwrap_or(callback.ty);
+                if !self.type_assignable_to(callback.ty, return_ty) {
+                    return Err(SmeltError::unsupported(
+                        self.span(arrow.span.start, arrow.span.end),
+                        "arrow expression return type does not match its annotation",
+                    ));
+                }
+                let span = self.span(arrow.span.start, arrow.span.end);
+                let rest = arrow
+                    .params
+                    .rest
+                    .as_ref()
+                    .map(|_| arrow.params.items.len())
+                    .or_else(|| {
+                        contextual_function
+                            .as_ref()
+                            .and_then(|function| function.rest)
+                    });
+                return Ok(self.callback_expr_to_closure_with_return_ty(
+                    return_ty,
+                    callback,
+                    &params,
+                    rest,
+                    contextual_function
+                        .as_ref()
+                        .and_then(|function| function.required_params),
+                    span,
+                    body,
                 ));
             }
-            let span = self.span(arrow.span.start, arrow.span.end);
-            let rest = arrow
-                .params
-                .rest
-                .as_ref()
-                .map(|_| arrow.params.items.len())
-                .or_else(|| contextual_function.as_ref().and_then(|function| function.rest));
-            return Ok(self.callback_expr_to_closure_with_return_ty(
-                return_ty,
-                callback,
-                &params,
-                rest,
-                contextual_function
-                    .as_ref()
-                    .and_then(|function| function.required_params),
-                span,
-                body,
-            ));
-        }
-        let mut return_ty = explicit_return_ty
-            .or_else(|| contextual_function.as_ref().map(|function| function.return_ty))
-            .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-        if arrow.r#async && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_))) {
-            return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
-        }
-        self.arrow_closure_body_expr(arrow, &params, return_ty, body)
+            let mut return_ty = explicit_return_ty
+                .or_else(|| {
+                    contextual_function
+                        .as_ref()
+                        .map(|function| function.return_ty)
+                })
+                .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+            if arrow.r#async
+                && !matches!(self.ctx.krate.types.get(return_ty), Some(Type::Future(_)))
+            {
+                return_ty = self.ctx.krate.types.intern(Type::Future(return_ty));
+            }
+            self.arrow_closure_body_expr(arrow, &params, return_ty, body)
         })();
         self.pop_type_parameter_scope();
         result
@@ -3229,8 +3263,16 @@ return_ty: unknown_ty,
             }
             Expression::ConditionalExpression(conditional) => {
                 self.collect_expression_capture_names(&conditional.test, param_names, captures);
-                self.collect_expression_capture_names(&conditional.consequent, param_names, captures);
-                self.collect_expression_capture_names(&conditional.alternate, param_names, captures);
+                self.collect_expression_capture_names(
+                    &conditional.consequent,
+                    param_names,
+                    captures,
+                );
+                self.collect_expression_capture_names(
+                    &conditional.alternate,
+                    param_names,
+                    captures,
+                );
             }
             Expression::TemplateLiteral(template) => {
                 for template_expression in &template.expressions {
@@ -3312,11 +3354,12 @@ return_ty: unknown_ty,
                     self.collect_expression_capture_names(&call.callee, param_names, captures);
                     for arg in &call.arguments {
                         match arg {
-                            Argument::SpreadElement(spread) => self.collect_expression_capture_names(
-                                &spread.argument,
-                                param_names,
-                                captures,
-                            ),
+                            Argument::SpreadElement(spread) => self
+                                .collect_expression_capture_names(
+                                    &spread.argument,
+                                    param_names,
+                                    captures,
+                                ),
                             other => {
                                 if let Some(arg_expression) = other.as_expression() {
                                     self.collect_expression_capture_names(
@@ -3334,7 +3377,11 @@ return_ty: unknown_ty,
                 }
                 ChainElement::ComputedMemberExpression(member) => {
                     self.collect_expression_capture_names(&member.object, param_names, captures);
-                    self.collect_expression_capture_names(&member.expression, param_names, captures);
+                    self.collect_expression_capture_names(
+                        &member.expression,
+                        param_names,
+                        captures,
+                    );
                 }
                 ChainElement::TSNonNullExpression(non_null) => {
                     self.collect_expression_capture_names(
@@ -3482,7 +3529,8 @@ return_ty: unknown_ty,
         if let Argument::Identifier(identifier) = argument {
             if let Some(local) = self.locals.get(identifier.name.as_str()).copied() {
                 let local_ty = Self::local_ty(body, local);
-                if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned() {
+                if let Some(Type::Function(function)) = self.ctx.krate.types.get(local_ty).cloned()
+                {
                     let expr = self.identifier_expression(
                         identifier.name.as_str(),
                         identifier.span.start,
@@ -3500,7 +3548,10 @@ return_ty: unknown_ty,
                 let Item::Function(function) = self.item_ref(item) else {
                     return Err(SmeltError::unsupported(
                         span,
-                        format!("{context} callback item `{}` is not a function", identifier.name),
+                        format!(
+                            "{context} callback item `{}` is not a function",
+                            identifier.name
+                        ),
                     ));
                 };
                 if function.params.is_empty() || function.params.len() > expected_param_tys.len() {
@@ -3521,9 +3572,8 @@ return_ty: unknown_ty,
             if matches!(
                 identifier.name.as_str(),
                 "Boolean" | "String" | "isEmpty" | "isArray" | "isString" | "isObject" | "trim"
-            )
-                && (matches!(identifier.name.as_str(), "Boolean" | "String")
-                    || self.value_imports.contains(identifier.name.as_str()))
+            ) && (matches!(identifier.name.as_str(), "Boolean" | "String")
+                || self.value_imports.contains(identifier.name.as_str()))
             {
                 let param_ty = expected_param_tys
                     .first()
@@ -3536,12 +3586,12 @@ return_ty: unknown_ty,
                 };
                 let function_ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
                     params: vec![param_ty],
-            rest: None,
+                    rest: None,
                     required_params: None,
                     mutable_params: Vec::new(),
-return_ty,
+                    return_ty,
                     is_async: false,
-                            may_throw: false,
+                    may_throw: false,
                 }));
                 let expr = body.push_expr(Expr {
                     kind: ExprKind::Literal(Literal::None),
@@ -3553,7 +3603,10 @@ return_ty,
             let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned() else {
                 return Err(SmeltError::unsupported(
                     self.span(identifier.span.start, identifier.span.end),
-                    format!("{context} local callback `{}` is not defined", identifier.name),
+                    format!(
+                        "{context} local callback `{}` is not defined",
+                        identifier.name
+                    ),
                 ));
             };
             if callback.params.is_empty() || callback.params.len() > expected_param_tys.len() {
@@ -3595,8 +3648,12 @@ return_ty,
             Argument::ArrowFunctionExpression(_) | Argument::FunctionExpression(_)
         ) {
             let direct_expr = self.argument(argument, body)?;
-            if let Some(Type::Function(function)) =
-                self.ctx.krate.types.get(Self::expr_ty(body, direct_expr)).cloned()
+            if let Some(Type::Function(function)) = self
+                .ctx
+                .krate
+                .types
+                .get(Self::expr_ty(body, direct_expr))
+                .cloned()
             {
                 return Ok(ClosureCallback {
                     expr: direct_expr,
@@ -3649,7 +3706,8 @@ return_ty,
                 let Argument::ArrowFunctionExpression(arrow) = argument else {
                     return Err(error);
                 };
-                let expr = self.arrow_closure_body_expr(arrow, expected_param_tys, bool_ty, body)?;
+                let expr =
+                    self.arrow_closure_body_expr(arrow, expected_param_tys, bool_ty, body)?;
                 Ok(ClosureCallback {
                     expr,
                     return_ty: bool_ty,
@@ -3722,9 +3780,8 @@ return_ty,
                     ty: bool_ty,
                 })
             }
-            kind
-                if self.is_nullishable_type(callback.ty)
-                    || self.type_is_truthy_condition_surface(callback.ty) =>
+            kind if self.is_nullishable_type(callback.ty)
+                || self.type_is_truthy_condition_surface(callback.ty) =>
             {
                 let none_ty = self.ctx.krate.types.intern(Type::None);
                 Ok(CallbackExpr {
@@ -3767,16 +3824,17 @@ return_ty,
                 let Argument::ArrowFunctionExpression(arrow) = argument else {
                     return Err(error);
                 };
-                let expr =
-                    self.arrow_closure_body_expr(arrow, expected_param_tys, fallback_return_ty, body)?;
+                let expr = self.arrow_closure_body_expr(
+                    arrow,
+                    expected_param_tys,
+                    fallback_return_ty,
+                    body,
+                )?;
                 let return_ty = match self.ctx.krate.types.get(Self::expr_ty(body, expr)) {
                     Some(Type::Function(function)) => function.return_ty,
                     _ => fallback_return_ty,
                 };
-                Ok(ClosureCallback {
-                    expr,
-                    return_ty,
-                })
+                Ok(ClosureCallback { expr, return_ty })
             }
             Err(error) => Err(error),
         }
@@ -3785,12 +3843,16 @@ return_ty,
     /// Return whether compact callback lowering should retry as a normal closure.
     fn should_fallback_to_closure_body_for_callback(error: &SmeltError) -> bool {
         error.message == "callback expression kind is not supported yet"
-            || error.message == "callback expression statements must be followed by a return or throw"
+            || error.message
+                == "callback expression statements must be followed by a return or throw"
             || error.message == "callback side-effect blocks only support expression statements"
-            || error.message == "callback side-effect blocks only support expression and throw statements"
+            || error.message
+                == "callback side-effect blocks only support expression and throw statements"
             || error.message == "callback block declarations require simple bindings"
             || error.message == "async callbacks need closure-body lowering"
-            || error.message.starts_with("unresolved callback identifier `")
+            || error
+                .message
+                .starts_with("unresolved callback identifier `")
             || error
                 .message
                 .contains("resolves outside the current callback body")
@@ -3867,7 +3929,12 @@ return_ty,
                         Some(function.name)
                     } else if matches!(
                         self.ctx.krate.types.get(ty),
-                        Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Class { .. })
+                        Some(
+                            Type::Function(_)
+                                | Type::Unknown
+                                | Type::TypeParam { .. }
+                                | Type::Class { .. }
+                        )
                     ) {
                         None
                     } else {
@@ -3886,9 +3953,9 @@ return_ty,
                 }
                 if !self.locals.contains_key(identifier.name.as_str())
                     && let Some((name, ty)) = self
-                    .forward_function_types
-                    .get(identifier.name.as_str())
-                    .copied()
+                        .forward_function_types
+                        .get(identifier.name.as_str())
+                        .copied()
                 {
                     return Ok(CallbackExpr {
                         kind: CallbackExprKind::Function(name),
@@ -4021,10 +4088,7 @@ return_ty,
                             } else {
                                 return Err(SmeltError::unsupported(
                                     self.span(identifier.span.start, identifier.span.end),
-                                    format!(
-                                        "unresolved callback identifier `{}`",
-                                        identifier.name
-                                    ),
+                                    format!("unresolved callback identifier `{}`", identifier.name),
                                 ));
                             }
                         }
@@ -4051,11 +4115,23 @@ return_ty,
                                 self.callback_expression(&member.object, params, body)?;
                             let index =
                                 self.callback_expression(&member.expression, params, body)?;
-                            if self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                            if self
+                                .ctx
+                                .krate
+                                .types
+                                .get(self.type_param_constraint_or_self(index.ty))
                                 != Some(&Type::Float)
-                                && self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                                && self
+                                    .ctx
+                                    .krate
+                                    .types
+                                    .get(self.type_param_constraint_or_self(index.ty))
                                     != Some(&Type::Int)
-                                && self.ctx.krate.types.get(self.type_param_constraint_or_self(index.ty))
+                                && self
+                                    .ctx
+                                    .krate
+                                    .types
+                                    .get(self.type_param_constraint_or_self(index.ty))
                                     != Some(&Type::Unknown)
                             {
                                 return Err(SmeltError::unsupported(
@@ -4081,7 +4157,11 @@ return_ty,
                                     if union_items.iter().any(|item| {
                                         matches!(
                                             self.ctx.krate.types.get(*item),
-                                            Some(Type::List(_) | Type::Unknown | Type::TypeParam { .. })
+                                            Some(
+                                                Type::List(_)
+                                                    | Type::Unknown
+                                                    | Type::TypeParam { .. }
+                                            )
                                         )
                                     }) =>
                                 {
@@ -4185,8 +4265,7 @@ return_ty,
                     ty: self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)),
                 })
             }
-            Expression::NewExpression(new_expr)
-                if matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp") =>
+            Expression::NewExpression(new_expr) if matches!(&new_expr.callee, Expression::Identifier(callee) if callee.name == "RegExp") =>
             {
                 let Some(first) = new_expr.arguments.first() else {
                     return Err(SmeltError::unsupported(
@@ -4231,9 +4310,11 @@ return_ty,
                     let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
                     let item_ty = match member.property.name.as_str() {
                         "keys" => string_ty,
-                        "entries" => {
-                            self.ctx.krate.types.intern(Type::Tuple(vec![string_ty, unknown_ty]))
-                        }
+                        "entries" => self
+                            .ctx
+                            .krate
+                            .types
+                            .intern(Type::Tuple(vec![string_ty, unknown_ty])),
                         _ => unknown_ty,
                     };
                     let ty = self.ctx.krate.types.intern(Type::List(item_ty));
@@ -4320,7 +4401,10 @@ return_ty,
                                         "callback console argument kind is not supported yet",
                                     ));
                                 };
-                                (self.callback_expression(arg_expression, params, body)?, false)
+                                (
+                                    self.callback_expression(arg_expression, params, body)?,
+                                    false,
+                                )
                             }
                         };
                         args.push(CallbackCallArg { expr, spread });
@@ -4367,12 +4451,16 @@ return_ty,
                         ty: self.ctx.krate.types.intern(Type::String),
                     });
                 }
-                if let Some(expr) = self.callback_regex_replace_uppercase_call(call, params, body)?
+                if let Some(expr) =
+                    self.callback_regex_replace_uppercase_call(call, params, body)?
                 {
                     return Ok(expr);
                 }
                 if let Expression::StaticMemberExpression(member) = &call.callee
-                    && matches!(member.property.name.as_str(), "trim" | "trimStart" | "trimEnd")
+                    && matches!(
+                        member.property.name.as_str(),
+                        "trim" | "trimStart" | "trimEnd"
+                    )
                     && let Some(first_arg) = call.arguments.first()
                     && let Some(argument) = first_arg.as_expression()
                 {
@@ -4390,7 +4478,10 @@ return_ty,
                     let receiver = self.callback_expression(&member.object, params, body)?;
                     if matches!(member.property.name.as_str(), "filter" | "sort")
                         && matches!(
-                            self.ctx.krate.types.get(self.type_param_constraint_or_self(receiver.ty)),
+                            self.ctx
+                                .krate
+                                .types
+                                .get(self.type_param_constraint_or_self(receiver.ty)),
                             Some(Type::List(_) | Type::Tuple(_))
                         )
                     {
@@ -4398,9 +4489,10 @@ return_ty,
                         let mut args = Vec::new();
                         for arg in &call.arguments {
                             let (expr, spread) = match arg {
-                                Argument::SpreadElement(spread) => {
-                                    (self.callback_expression(&spread.argument, params, body)?, true)
-                                }
+                                Argument::SpreadElement(spread) => (
+                                    self.callback_expression(&spread.argument, params, body)?,
+                                    true,
+                                ),
                                 other => {
                                     let Some(arg_expression) = other.as_expression() else {
                                         return Err(SmeltError::unsupported(
@@ -4408,7 +4500,10 @@ return_ty,
                                             "callback array method argument kind is not supported yet",
                                         ));
                                     };
-                                    (self.callback_expression(arg_expression, params, body)?, false)
+                                    (
+                                        self.callback_expression(arg_expression, params, body)?,
+                                        false,
+                                    )
                                 }
                             };
                             args.push(CallbackCallArg { expr, spread });
@@ -4443,7 +4538,12 @@ return_ty,
                     let return_ty = match member.property.name.as_str() {
                         "toString" => self.ctx.krate.types.intern(Type::String),
                         "match" => self.ctx.krate.types.intern(Type::Bool),
-                        "has" if matches!(self.ctx.krate.types.get(receiver.ty), Some(Type::Set(_))) => {
+                        "has"
+                            if matches!(
+                                self.ctx.krate.types.get(receiver.ty),
+                                Some(Type::Set(_))
+                            ) =>
+                        {
                             self.ctx.krate.types.intern(Type::Bool)
                         }
                         "getFullYear" | "getMonth" | "getDate" | "getHours" | "getMinutes"
@@ -4455,9 +4555,10 @@ return_ty,
                     let mut args = Vec::new();
                     for arg in &call.arguments {
                         let (expr, spread) = match arg {
-                            Argument::SpreadElement(spread) => {
-                                (self.callback_expression(&spread.argument, params, body)?, true)
-                            }
+                            Argument::SpreadElement(spread) => (
+                                self.callback_expression(&spread.argument, params, body)?,
+                                true,
+                            ),
                             other => {
                                 let Some(arg_expression) = other.as_expression() else {
                                     return Err(SmeltError::unsupported(
@@ -4465,7 +4566,10 @@ return_ty,
                                         "callback method argument kind is not supported yet",
                                     ));
                                 };
-                                (self.callback_expression(arg_expression, params, body)?, false)
+                                (
+                                    self.callback_expression(arg_expression, params, body)?,
+                                    false,
+                                )
                             }
                         };
                         args.push(CallbackCallArg { expr, spread });
@@ -4490,9 +4594,10 @@ return_ty,
                 let mut args = Vec::new();
                 for arg in &call.arguments {
                     let (expr, spread) = match arg {
-                        Argument::SpreadElement(spread) => {
-                            (self.callback_expression(&spread.argument, params, body)?, true)
-                        }
+                        Argument::SpreadElement(spread) => (
+                            self.callback_expression(&spread.argument, params, body)?,
+                            true,
+                        ),
                         other => {
                             let Some(arg_expression) = other.as_expression() else {
                                 return Err(SmeltError::unsupported(
@@ -4500,7 +4605,10 @@ return_ty,
                                     "callback call argument kind is not supported yet",
                                 ));
                             };
-                            (self.callback_expression(arg_expression, params, body)?, false)
+                            (
+                                self.callback_expression(arg_expression, params, body)?,
+                                false,
+                            )
                         }
                     };
                     args.push(CallbackCallArg { expr, spread });
@@ -4535,8 +4643,10 @@ return_ty,
             }
             Expression::ComputedMemberExpression(member) => {
                 if let Expression::Identifier(receiver_ident) = &member.object
-                    && let Some(namespace) =
-                        self.object_namespaces.get(receiver_ident.name.as_str()).cloned()
+                    && let Some(namespace) = self
+                        .object_namespaces
+                        .get(receiver_ident.name.as_str())
+                        .cloned()
                 {
                     let key = self.callback_expression(&member.expression, params, body)?;
                     if self.ctx.krate.types.get(key.ty) != Some(&Type::String) {
@@ -4590,40 +4700,38 @@ return_ty,
                             "callback computed access index must be a non-negative integer",
                         ));
                     }
-                    let index_usize =
-                        index
-                            .value
-                            .to_string()
-                            .parse::<usize>()
-                            .map_err(|err| {
+                    let index_usize = index.value.to_string().parse::<usize>().map_err(|err| {
+                        SmeltError::unsupported(
+                            self.span(index.span.start, index.span.end),
+                            format!("callback computed access index is invalid: {err}"),
+                        )
+                    })?;
+                    let item_ty = match self
+                        .ctx
+                        .krate
+                        .types
+                        .get(self.type_param_constraint_or_self(receiver.ty))
+                    {
+                        Some(Type::Tuple(items)) => {
+                            items.get(index_usize).copied().ok_or_else(|| {
                                 SmeltError::unsupported(
-                                    self.span(index.span.start, index.span.end),
-                                    format!("callback computed access index is invalid: {err}"),
-                                )
-                            })?;
-                    let item_ty =
-                        match self.ctx.krate.types.get(self.type_param_constraint_or_self(receiver.ty))
-                        {
-                            Some(Type::Tuple(items)) => {
-                                items.get(index_usize).copied().ok_or_else(|| {
-                                    SmeltError::unsupported(
-                                        self.span(member.span.start, member.span.end),
-                                        "callback tuple index is out of bounds",
-                                    )
-                                })?
-                            }
-                            Some(Type::List(item_ty)) => *item_ty,
-                            Some(Type::String) => self.ctx.krate.types.intern(Type::String),
-                            Some(Type::Unknown | Type::TypeParam { .. }) => {
-                                self.ctx.krate.types.intern(Type::Unknown)
-                            }
-                            _ => {
-                                return Err(SmeltError::unsupported(
                                     self.span(member.span.start, member.span.end),
-                                    "callback computed access receiver must be a tuple, array, or string",
-                                ));
-                            }
-                        };
+                                    "callback tuple index is out of bounds",
+                                )
+                            })?
+                        }
+                        Some(Type::List(item_ty)) => *item_ty,
+                        Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+                        Some(Type::Unknown | Type::TypeParam { .. }) => {
+                            self.ctx.krate.types.intern(Type::Unknown)
+                        }
+                        _ => {
+                            return Err(SmeltError::unsupported(
+                                self.span(member.span.start, member.span.end),
+                                "callback computed access receiver must be a tuple, array, or string",
+                            ));
+                        }
+                    };
                     return Ok(CallbackExpr {
                         kind: CallbackExprKind::Index {
                             receiver: Box::new(receiver),
@@ -4643,10 +4751,14 @@ return_ty,
                     || self.erased_or_union_surface(index_ty))
                     && matches!(
                         self.ctx.krate.types.get(receiver_ty),
-                        Some(Type::Dict(_, _) | Type::Class { .. } | Type::Unknown | Type::TypeParam { .. })
+                        Some(
+                            Type::Dict(_, _)
+                                | Type::Class { .. }
+                                | Type::Unknown
+                                | Type::TypeParam { .. }
+                        )
                     );
-                if !numeric_index && !string_key_index
-                {
+                if !numeric_index && !string_key_index {
                     return Err(SmeltError::unsupported(
                         self.span(member.expression.span().start, member.expression.span().end),
                         "callback dynamic computed access index must be numeric or a string record key",
@@ -4663,7 +4775,12 @@ return_ty,
                         if items.iter().any(|item| {
                             matches!(
                                 self.ctx.krate.types.get(*item),
-                                Some(Type::List(_) | Type::Dict(_, _) | Type::Unknown | Type::TypeParam { .. })
+                                Some(
+                                    Type::List(_)
+                                        | Type::Dict(_, _)
+                                        | Type::Unknown
+                                        | Type::TypeParam { .. }
+                                )
                             )
                         }) =>
                     {
@@ -4681,10 +4798,8 @@ return_ty,
             }
             Expression::ConditionalExpression(conditional) => {
                 let cond = self.callback_truthy_expression(&conditional.test, params, body)?;
-                let then_params = self.callback_params_with_guard_narrowing(
-                    params,
-                    &conditional.test,
-                );
+                let then_params =
+                    self.callback_params_with_guard_narrowing(params, &conditional.test);
                 let then_expr =
                     self.callback_expression(&conditional.consequent, &then_params, body)?;
                 let else_expr = self.callback_expression(&conditional.alternate, params, body)?;
@@ -4784,9 +4899,7 @@ return_ty,
                     other => {
                         return Err(SmeltError::unsupported(
                             self.span(assign.span.start, assign.span.end),
-                            format!(
-                                "callback assignment operator is not supported yet: {other:?}"
-                            ),
+                            format!("callback assignment operator is not supported yet: {other:?}"),
                         ));
                     }
                 };
@@ -4887,7 +5000,8 @@ return_ty,
                 }
                 if binary.operator == BinaryOperator::In {
                     if let Expression::Identifier(receiver_ident) = &binary.right
-                        && let Some(namespace) = self.object_namespaces.get(receiver_ident.name.as_str())
+                        && let Some(namespace) =
+                            self.object_namespaces.get(receiver_ident.name.as_str())
                     {
                         let case_keys = namespace.keys().cloned().collect::<Vec<_>>();
                         let key = self.callback_expression(&binary.left, params, body)?;
@@ -4898,8 +5012,10 @@ return_ty,
                         );
                     }
                     if let Expression::Identifier(receiver_ident) = &binary.right
-                        && let Some(object_const) =
-                            self.const_objects.get(receiver_ident.name.as_str()).cloned()
+                        && let Some(object_const) = self
+                            .const_objects
+                            .get(receiver_ident.name.as_str())
+                            .cloned()
                     {
                         let case_keys = object_const
                             .entries
@@ -5092,8 +5208,10 @@ return_ty,
         if member.property.name != "replace" {
             return Ok(None);
         }
-        let [Argument::RegExpLiteral(pattern), Argument::ArrowFunctionExpression(replacement)] =
-            call.arguments.as_slice()
+        let [
+            Argument::RegExpLiteral(pattern),
+            Argument::ArrowFunctionExpression(replacement),
+        ] = call.arguments.as_slice()
         else {
             return Ok(None);
         };
@@ -5574,7 +5692,10 @@ return_ty,
         }
         let list = self.expression(&member.object, body)?;
         let source_ty = Self::expr_ty(body, list);
-        if !matches!(self.ctx.krate.types.get(source_ty), Some(Type::TypeParam { .. })) {
+        if !matches!(
+            self.ctx.krate.types.get(source_ty),
+            Some(Type::TypeParam { .. })
+        ) {
             return Ok(None);
         }
         let list_ty = self.type_param_constraint_or_self(source_ty);

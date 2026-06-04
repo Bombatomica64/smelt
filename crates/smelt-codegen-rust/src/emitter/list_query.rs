@@ -120,18 +120,10 @@ impl FunctionEmitter<'_> {
         let element_ty = *list_element_ty;
         let callback_body = match self.closure_callback_body(callback) {
             Ok(callback_body) => callback_body,
-            Err(_) if matches!(op, smelt_hir::ListCallbackOp::Map) => {
-                return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
-            }
-            Err(_) if matches!(op, smelt_hir::ListCallbackOp::ForEach) => {
+            Err(_) => {
                 return self
-                    .list_for_each_closure_text(list, list_ty, element_ty, callback, dest_ty);
+                    .list_callback_closure_text(op, list, list_ty, element_ty, callback, dest_ty);
             }
-            Err(_) if matches!(op, smelt_hir::ListCallbackOp::FlatMap) => {
-                return self
-                    .list_flat_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
-            }
-            Err(_) => return Ok("Default::default()".to_owned()),
         };
         let list_text = if matches!(self.mir.types.get(element_ty), Some(Type::Function(_))) {
             match list {
@@ -390,6 +382,141 @@ impl FunctionEmitter<'_> {
                     "{list_text}.iter().enumerate().flat_map({closure}).collect::<Vec<_>>()"
                 ))
             }
+        }
+    }
+
+    /// Emits a list callback operation through a normal MIR closure body.
+    fn list_callback_closure_text(
+        &self,
+        op: smelt_hir::ListCallbackOp,
+        list: &Operand,
+        list_ty: TypeId,
+        element_ty: TypeId,
+        callback: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        match op {
+            smelt_hir::ListCallbackOp::Map => {
+                return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
+            }
+            smelt_hir::ListCallbackOp::ForEach => {
+                return self
+                    .list_for_each_closure_text(list, list_ty, element_ty, callback, dest_ty);
+            }
+            smelt_hir::ListCallbackOp::FlatMap => {
+                return self
+                    .list_flat_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
+            }
+            _ => {}
+        }
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
+        else {
+            return Ok("Default::default()".to_owned());
+        };
+        let Some(item_param_ty) = function_ty.params.first().copied() else {
+            return Ok("Default::default()".to_owned());
+        };
+        if self.mir.types.get(function_ty.return_ty) != Some(&Type::Bool) {
+            return Err(EmitError::new(
+                "array predicate callback must return boolean",
+            ));
+        }
+        let list_text = self.operand_text(list)?;
+        let closure_text = match self.closure_operand_text_for_declared_type(callback) {
+            Ok(closure_text) => closure_text,
+            Err(_) => self.operand_text(callback)?,
+        };
+        let item_text = self.value_at_type_text("item.clone()", element_ty, item_param_ty)?;
+        let mut call_args = vec![item_text];
+        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
+            let index_source_ty = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                self.type_id(Type::Int)?
+            } else {
+                self.type_id(Type::Float)?
+            };
+            let index_value = if self.mir.types.get(index_param_ty) == Some(&Type::Int) {
+                "index as i64"
+            } else {
+                "index as f64"
+            };
+            call_args.push(self.value_at_type_text(
+                index_value,
+                index_source_ty,
+                index_param_ty,
+            )?);
+        }
+        if let Some(array_param_ty) = function_ty.params.get(2).copied() {
+            call_args.push(self.value_at_type_text(
+                "smelt_array.clone()",
+                list_ty,
+                array_param_ty,
+            )?);
+        }
+        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let prefix = format!(
+            "let mut smelt_callback = {closure_text}; let smelt_array = {list_text}.clone();"
+        );
+        match op {
+            smelt_hir::ListCallbackOp::Filter => {
+                if dest_ty != list_ty {
+                    return Err(EmitError::new(
+                        "array filter destination must match the receiver list type",
+                    ));
+                }
+                Ok(format!(
+                    "{{ {prefix} smelt_array.iter().enumerate().filter_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}).collect::<Vec<_>>() }}"
+                ))
+            }
+            smelt_hir::ListCallbackOp::Find | smelt_hir::ListCallbackOp::FindLast => {
+                if self.mir.types.get(dest_ty) != Some(&Type::Optional(element_ty)) {
+                    return Err(EmitError::new(
+                        "array find destination must be optional element type",
+                    ));
+                }
+                let direction = if matches!(op, smelt_hir::ListCallbackOp::FindLast) {
+                    ".rev()"
+                } else {
+                    ""
+                };
+                Ok(format!(
+                    "{{ {prefix} smelt_array.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(item.clone()) }} else {{ None }}) }}"
+                ))
+            }
+            smelt_hir::ListCallbackOp::FindIndex | smelt_hir::ListCallbackOp::FindLastIndex => {
+                if self.mir.types.get(dest_ty) != Some(&Type::Float) {
+                    return Err(EmitError::new(
+                        "array findIndex destination must be a number",
+                    ));
+                }
+                let direction = if matches!(op, smelt_hir::ListCallbackOp::FindLastIndex) {
+                    ".rev()"
+                } else {
+                    ""
+                };
+                Ok(format!(
+                    "{{ {prefix} smelt_array.iter().enumerate(){direction}.find_map(|(index, item)| if {call_text} {{ Some(index as f64) }} else {{ None }}).unwrap_or(-1.0) }}"
+                ))
+            }
+            smelt_hir::ListCallbackOp::Some | smelt_hir::ListCallbackOp::Every => {
+                if self.mir.types.get(dest_ty) != Some(&Type::Bool) {
+                    return Err(EmitError::new(
+                        "array predicate destination must be boolean",
+                    ));
+                }
+                let method = if matches!(op, smelt_hir::ListCallbackOp::Some) {
+                    "any"
+                } else {
+                    "all"
+                };
+                Ok(format!(
+                    "{{ {prefix} smelt_array.iter().enumerate().{method}(|(index, item)| {call_text}) }}"
+                ))
+            }
+            smelt_hir::ListCallbackOp::Map
+            | smelt_hir::ListCallbackOp::ForEach
+            | smelt_hir::ListCallbackOp::FlatMap => Err(EmitError::new(
+                "list callback operation should have been handled before predicate emission",
+            )),
         }
     }
 

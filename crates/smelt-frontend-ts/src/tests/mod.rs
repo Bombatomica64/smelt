@@ -159,12 +159,31 @@ fn callback_has_param(callback: &smelt_hir::CallbackExpr, target: usize) -> bool
 
 /// Return whether a closure expression's callback body references a parameter index.
 fn closure_callback_has_param(
+    ctx: &HirCtx,
     body: &smelt_hir::Body,
     callback: smelt_hir::ExprId,
     target: usize,
 ) -> bool {
-    closure_callback_body(body, callback)
-        .is_some_and(|callback| callback_has_param(callback, target))
+    if let Some(callback) = closure_callback_body(body, callback) {
+        return callback_has_param(callback, target);
+    }
+    let Some(ExprKind::Closure(closure)) =
+        body.exprs.get(callback.0 as usize).map(|expr| &expr.kind)
+    else {
+        return false;
+    };
+    let Some(param) = closure.params.get(target) else {
+        return false;
+    };
+    ctx.krate
+        .bodies
+        .get(closure.body.0 as usize)
+        .is_some_and(|closure_body| {
+            closure_body
+                .exprs
+                .iter()
+                .any(|expr| matches!(expr.kind, ExprKind::Local(local) if local == param.local))
+        })
 }
 
 /// Return whether a lowered callback captures an enclosing local.
