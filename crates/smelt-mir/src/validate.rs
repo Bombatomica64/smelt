@@ -202,6 +202,620 @@ fn validate_function(mir: &Mir, function: &MirFunction, errors: &mut Vec<Validat
     validate_definite_assignment(mir, function, errors);
 }
 
+impl Rvalue {
+    /// Visit every operand read by this rvalue in evaluation order.
+    pub fn for_each_operand(&self, mut visit: impl FnMut(&Operand)) {
+        match self {
+            Self::Use(operand) => visit(operand),
+            Self::List(items) | Self::Set(items) | Self::Tuple(items) => {
+                for item in items {
+                    visit(item);
+                }
+            }
+            Self::Dict(entries) => {
+                for (key, entry_value) in entries {
+                    visit(key);
+                    visit(entry_value);
+                }
+            }
+            Self::Closure { captures, .. } => {
+                for capture in captures {
+                    visit(capture);
+                }
+            }
+            Self::ClosureCall { callee, args } => {
+                visit(callee);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::ClosureCallSpread { callee, args } => {
+                visit(callee);
+                visit(args);
+            }
+            Self::Binary { lhs, rhs, .. } => {
+                visit(lhs);
+                visit(rhs);
+            }
+            Self::Conditional {
+                cond,
+                then_operand,
+                else_operand,
+            } => {
+                visit(cond);
+                visit(then_operand);
+                visit(else_operand);
+            }
+            Self::OptionalField { receiver, .. } => {
+                visit(receiver);
+            }
+            Self::OptionalIndex { receiver, index } => {
+                visit(receiver);
+                visit(index);
+            }
+            Self::OptionalMethod { receiver, args, .. } => {
+                visit(receiver);
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::OptionalCoalesce { optional, fallback } => {
+                visit(optional);
+                visit(fallback);
+            }
+            Self::InstanceOf { value: operand, .. } => {
+                visit(operand);
+            }
+            Self::UnknownIs {
+                value: unknown_value,
+                ..
+            } => {
+                visit(unknown_value);
+            }
+            Self::UnknownCast {
+                value: unknown_value,
+                ..
+            } => {
+                visit(unknown_value);
+            }
+            Self::StringContains { haystack, needle } => {
+                visit(haystack);
+                visit(needle);
+            }
+            Self::StringAffix {
+                haystack, needle, ..
+            }
+            | Self::StringSearch {
+                haystack,
+                needle,
+                from_index: None,
+                ..
+            } => {
+                visit(haystack);
+                visit(needle);
+            }
+            Self::StringSearch {
+                haystack,
+                needle,
+                from_index: Some(from_index),
+                ..
+            } => {
+                visit(haystack);
+                visit(needle);
+                visit(from_index);
+            }
+            Self::StringReplace {
+                haystack,
+                pattern,
+                replacement,
+                ..
+            } => {
+                visit(haystack);
+                visit(pattern);
+                visit(replacement);
+            }
+            Self::StringRemoveAffix {
+                haystack, affix, ..
+            } => {
+                visit(haystack);
+                visit(affix);
+            }
+            Self::StringRepeat { operand, count } => {
+                visit(operand);
+                visit(count);
+            }
+            Self::StringPad {
+                operand,
+                target_len,
+                pad,
+                ..
+            } => {
+                visit(operand);
+                visit(target_len);
+                visit(pad);
+            }
+            Self::StringCharAt { operand, index } => {
+                visit(operand);
+                visit(index);
+            }
+            Self::StringCharCodeAt { operand, index } => {
+                visit(operand);
+                visit(index);
+            }
+            Self::StringSlice {
+                operand,
+                start,
+                end,
+            } => {
+                visit(operand);
+                if let Some(operand) = start.as_ref() {
+                    visit(operand);
+                }
+                if let Some(operand) = end.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::ListContains { list, item } => {
+                visit(list);
+                visit(item);
+            }
+            Self::SetContains { set, item } => {
+                visit(set);
+                visit(item);
+            }
+            Self::SetDisjoint { left, right } => {
+                visit(left);
+                visit(right);
+            }
+            Self::SetRelation { left, right, .. } => {
+                visit(left);
+                visit(right);
+            }
+            Self::SetAdd { set, item } | Self::SetRemove { set, item, .. } => {
+                visit(set);
+                visit(item);
+            }
+            Self::SetClear { set } | Self::SetCopy { set } => {
+                visit(set);
+            }
+            Self::ListToSet { list } => {
+                visit(list);
+            }
+            Self::ListPairsToDict { list } => {
+                visit(list);
+            }
+            Self::SetBinary { left, right, .. } => {
+                visit(left);
+                visit(right);
+            }
+            Self::SetProjection { set, .. } => {
+                visit(set);
+            }
+            Self::ListConcat { left, right } => {
+                visit(left);
+                visit(right);
+            }
+            Self::ListSearch { list, item, .. } => {
+                visit(list);
+                visit(item);
+            }
+            Self::ListCallback { list, callback, .. } => {
+                visit(list);
+                visit(callback);
+            }
+            Self::ListFromLength { length } => {
+                visit(length);
+            }
+            Self::ListFromLengthMap { length, callback } => {
+                visit(length);
+                visit(callback);
+            }
+            Self::ListReduce {
+                list,
+                initial,
+                callback,
+            } => {
+                visit(list);
+                if let Some(operand) = initial.as_ref() {
+                    visit(operand);
+                }
+                visit(callback);
+            }
+            Self::ListSlice { list, start, end } => {
+                visit(list);
+                if let Some(operand) = start.as_ref() {
+                    visit(operand);
+                }
+                if let Some(operand) = end.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::ListSplice {
+                list,
+                start,
+                delete_count,
+                items,
+                ..
+            } => {
+                visit(list);
+                visit(start);
+                if let Some(operand) = delete_count.as_ref() {
+                    visit(operand);
+                }
+                for item in items {
+                    visit(&item.value);
+                }
+            }
+            Self::ListFill {
+                list,
+                value: fill_value,
+                start,
+                end,
+            } => {
+                visit(list);
+                visit(fill_value);
+                if let Some(operand) = start.as_ref() {
+                    visit(operand);
+                }
+                if let Some(operand) = end.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::ListCopyWithin {
+                list,
+                target,
+                start,
+                end,
+            } => {
+                visit(list);
+                visit(target);
+                visit(start);
+                if let Some(operand) = end.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::ListWith {
+                list,
+                index,
+                value: replacement,
+            } => {
+                visit(list);
+                visit(index);
+                visit(replacement);
+            }
+            Self::ListFlat { list, depth } => {
+                visit(list);
+                if let Some(operand) = depth.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::ListProjection { list, .. } => {
+                visit(list);
+            }
+            Self::ListPush { list, item } => {
+                visit(list);
+                visit(item);
+            }
+            Self::ListExtend { list, other } => {
+                visit(list);
+                visit(other);
+            }
+            Self::ListInsert { list, index, item } => {
+                visit(list);
+                visit(index);
+                visit(item);
+            }
+            Self::ListUnshift { list, items } => {
+                visit(list);
+                for item in items {
+                    visit(item);
+                }
+            }
+            Self::ListReverse { list } => {
+                visit(list);
+            }
+            Self::ListClear { list } => {
+                visit(list);
+            }
+            Self::ListCopy { list } => {
+                visit(list);
+            }
+            Self::TupleToList { tuple } | Self::TupleToSet { tuple } => {
+                visit(tuple);
+            }
+            Self::ListToTuple { list } => {
+                visit(list);
+            }
+            Self::ListCount { list, item } => {
+                visit(list);
+                visit(item);
+            }
+            Self::ListSum { list }
+            | Self::ListBoolFold { list, .. }
+            | Self::ListSorted { list }
+            | Self::ListReversed { list }
+            | Self::ListEnumerate { list } => {
+                visit(list);
+            }
+            Self::ListZip { left, right } => {
+                visit(left);
+                visit(right);
+            }
+            Self::ListRange { start, end, step } => {
+                visit(start);
+                visit(end);
+                visit(step);
+            }
+            Self::ListRandomChoice { list } => {
+                visit(list);
+            }
+            Self::ListIndex { list, item } => {
+                visit(list);
+                visit(item);
+            }
+            Self::ListRemove { list, item } => {
+                visit(list);
+                visit(item);
+            }
+            Self::ListSort { list, .. } => {
+                visit(list);
+            }
+            Self::ListPop { list } => {
+                visit(list);
+            }
+            Self::ListShift { list } => {
+                visit(list);
+            }
+            Self::ListNext { list } => {
+                visit(list);
+            }
+            Self::IteratorDone { result } | Self::IteratorValue { result } => {
+                visit(result);
+            }
+            Self::TupleContains { tuple, item } => {
+                visit(tuple);
+                visit(item);
+            }
+            Self::TupleIndex { tuple, .. } | Self::TupleSlice { tuple, .. } => {
+                visit(tuple);
+            }
+            Self::DictContainsKey { dict, key } => {
+                visit(dict);
+                visit(key);
+            }
+            Self::DictSet {
+                dict,
+                key,
+                value: dict_value,
+            } => {
+                visit(dict);
+                visit(key);
+                visit(dict_value);
+            }
+            Self::DictRemoveKey { dict, key } => {
+                visit(dict);
+                visit(key);
+            }
+            Self::DictGet { dict, key, default } => {
+                visit(dict);
+                visit(key);
+                if let Some(operand) = default.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::DictSetDefault { dict, key, default } => {
+                visit(dict);
+                visit(key);
+                visit(default);
+            }
+            Self::DictClear { dict } => {
+                visit(dict);
+            }
+            Self::DictPop { dict, key, default } => {
+                visit(dict);
+                visit(key);
+                if let Some(operand) = default.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::DictUpdate { dict, other } => {
+                visit(dict);
+                visit(other);
+            }
+            Self::DictAssign { target, sources } => {
+                visit(target);
+                for source in sources {
+                    visit(source);
+                }
+            }
+            Self::CallableObjectAssign { callable, props } => {
+                visit(callable);
+                for (_, value) in props {
+                    visit(value);
+                }
+            }
+            Self::DictCopy { dict } => {
+                visit(dict);
+            }
+            Self::DictProjection { dict, .. } => {
+                visit(dict);
+            }
+            Self::StringSplit {
+                haystack,
+                separator,
+                limit,
+            } => {
+                visit(haystack);
+                visit(separator);
+                if let Some(operand) = limit.as_ref() {
+                    visit(operand);
+                }
+            }
+            Self::StringChars { haystack } => {
+                visit(haystack);
+            }
+            Self::StringJoin { items, separator } => {
+                visit(items);
+                visit(separator);
+            }
+            Self::JsonStringify { value: json_value } => {
+                visit(json_value);
+            }
+            Self::JsonParse { text } => {
+                visit(text);
+            }
+            Self::RegexIsMatch {
+                pattern, haystack, ..
+            } => {
+                visit(pattern);
+                visit(haystack);
+            }
+            Self::RegexReplace {
+                pattern,
+                haystack,
+                replacement,
+                ..
+            } => {
+                visit(pattern);
+                visit(haystack);
+                visit(replacement);
+            }
+            Self::RegexReplaceCallback {
+                pattern,
+                haystack,
+                callback,
+                ..
+            } => {
+                visit(pattern);
+                visit(haystack);
+                visit(callback);
+            }
+            Self::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
+                visit(pattern);
+                visit(haystack);
+            }
+            Self::RegexSplit { pattern, haystack } => {
+                visit(pattern);
+                visit(haystack);
+            }
+            Self::RegexFind { pattern, haystack } => {
+                visit(pattern);
+                visit(haystack);
+            }
+            Self::RegexExec { regex, haystack } => {
+                visit(regex);
+                visit(haystack);
+            }
+            Self::RegexMatchAll { regex, haystack } => {
+                visit(regex);
+                visit(haystack);
+            }
+            Self::HttpGetText { url } => {
+                visit(url);
+            }
+            Self::DateNow => {}
+            Self::DateResetNow => {}
+            Self::DateSetNow { timestamp } => {
+                visit(timestamp);
+            }
+            Self::DateTimezoneOffset | Self::DateResetTimezoneOffset => {}
+            Self::DateSetTimezoneOffset { offset } => {
+                visit(offset);
+            }
+            Self::DateTimezoneContext { timezone } => {
+                visit(timezone);
+            }
+            Self::DateToIsoString { timestamp_ms } => {
+                visit(timestamp_ms);
+            }
+            Self::DateToString { timestamp_ms } => {
+                visit(timestamp_ms);
+            }
+            Self::DateFromParts { parts } => {
+                for part in parts {
+                    visit(part);
+                }
+            }
+            Self::DateFromValue { value: date_value } => {
+                visit(date_value);
+            }
+            Self::DateGetPart { timestamp_ms, .. } => {
+                visit(timestamp_ms);
+            }
+            Self::DateSetPart {
+                timestamp_ms,
+                values,
+                ..
+            } => {
+                visit(timestamp_ms);
+                for value in values {
+                    visit(value);
+                }
+            }
+            Self::UrlField { url, .. } => visit(url),
+            Self::FileReadText { path } => visit(path),
+            Self::FileWriteText { path, text } => {
+                visit(path);
+                visit(text);
+            }
+            Self::NumericExtrema { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::NumericHypot { args } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::NumericPow { base, exponent } => {
+                visit(base);
+                visit(exponent);
+            }
+            Self::NumericAtan2 { y, x } => {
+                visit(y);
+                visit(x);
+            }
+            Self::NumericRandom => {}
+            Self::NumericRandomInt { start, end } => {
+                visit(start);
+                visit(end);
+            }
+            Self::NumericToStringRadix { operand, radix } => {
+                visit(operand);
+                visit(radix);
+            }
+            Self::PrimitiveCast { operand, .. } => visit(operand),
+            Self::Unary { operand, .. } => visit(operand),
+            Self::Struct { fields, .. } => {
+                for (_, field_value) in fields {
+                    visit(field_value);
+                }
+            }
+            Self::ExternalClassInstance { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+            Self::Len(operand)
+            | Self::NumericAbs(operand)
+            | Self::NumericRound { operand, .. }
+            | Self::NumericPredicate { operand, .. }
+            | Self::NumericUnaryFunc { operand, .. }
+            | Self::StringCase { operand, .. }
+            | Self::StringNormalize { operand, .. }
+            | Self::StringTrim { operand, .. }
+            | Self::StringPredicate { operand, .. }
+            | Self::Await(operand) => visit(operand),
+            Self::AsyncOp { args, .. } => {
+                for arg in args {
+                    visit(arg);
+                }
+            }
+        }
+    }
+}
+
 /// Validate that IDs referenced by an rvalue point to existing MIR entities.
 fn validate_rvalue_exists(
     mir: &Mir,
@@ -209,597 +823,19 @@ fn validate_rvalue_exists(
     value: &Rvalue,
     errors: &mut Vec<ValidationError>,
 ) {
-    match value {
-        Rvalue::Use(operand) => validate_operand_exists(function, operand, errors),
-        Rvalue::List(items) | Rvalue::Set(items) | Rvalue::Tuple(items) => {
-            for item in items {
-                validate_operand_exists(function, item, errors);
-            }
-        }
-        Rvalue::Dict(entries) => {
-            for (key, entry_value) in entries {
-                validate_operand_exists(function, key, errors);
-                validate_operand_exists(function, entry_value, errors);
-            }
-        }
-        Rvalue::Closure { id, captures } => {
-            if mir
-                .closures
-                .get(usize::try_from(id.0).unwrap_or(usize::MAX))
-                .is_none()
-            {
-                errors.push(ValidationError {
-                    message: format!("closure rvalue references unknown closure {id:?}"),
-                });
-            }
-            for capture in captures {
-                validate_operand_exists(function, capture, errors);
-            }
-        }
-        Rvalue::ClosureCall { callee, args } => {
-            validate_operand_exists(function, callee, errors);
-            for arg in args {
-                validate_operand_exists(function, arg, errors);
-            }
-        }
-        Rvalue::ClosureCallSpread { callee, args } => {
-            validate_operand_exists(function, callee, errors);
-            validate_operand_exists(function, args, errors);
-        }
-        Rvalue::Binary { lhs, rhs, .. } => {
-            validate_operand_exists(function, lhs, errors);
-            validate_operand_exists(function, rhs, errors);
-        }
-        Rvalue::Conditional {
-            cond,
-            then_operand,
-            else_operand,
-        } => {
-            validate_operand_exists(function, cond, errors);
-            validate_operand_exists(function, then_operand, errors);
-            validate_operand_exists(function, else_operand, errors);
-        }
-        Rvalue::OptionalField { receiver, .. } => {
-            validate_operand_exists(function, receiver, errors);
-        }
-        Rvalue::OptionalIndex { receiver, index } => {
-            validate_operand_exists(function, receiver, errors);
-            validate_operand_exists(function, index, errors);
-        }
-        Rvalue::OptionalMethod { receiver, args, .. } => {
-            validate_operand_exists(function, receiver, errors);
-            for arg in args {
-                validate_operand_exists(function, arg, errors);
-            }
-        }
-        Rvalue::OptionalCoalesce { optional, fallback } => {
-            validate_operand_exists(function, optional, errors);
-            validate_operand_exists(function, fallback, errors);
-        }
-        Rvalue::InstanceOf { value: operand, .. } => {
-            validate_operand_exists(function, operand, errors);
-        }
-        Rvalue::UnknownIs {
-            value: unknown_value,
-            ..
-        } => {
-            validate_operand_exists(function, unknown_value, errors);
-        }
-        Rvalue::UnknownCast {
-            value: unknown_value,
-            target,
-        } => {
-            validate_operand_exists(function, unknown_value, errors);
-            validate_type(mir, *target, errors);
-        }
-        Rvalue::StringContains { haystack, needle } => {
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, needle, errors);
-        }
-        Rvalue::StringAffix {
-            haystack, needle, ..
-        }
-        | Rvalue::StringSearch {
-            haystack,
-            needle,
-            from_index: None,
-            ..
-        } => {
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, needle, errors);
-        }
-        Rvalue::StringSearch {
-            haystack,
-            needle,
-            from_index: Some(from_index),
-            ..
-        } => {
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, needle, errors);
-            validate_operand_exists(function, from_index, errors);
-        }
-        Rvalue::StringReplace {
-            haystack,
-            pattern,
-            replacement,
-            ..
-        } => {
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, pattern, errors);
-            validate_operand_exists(function, replacement, errors);
-        }
-        Rvalue::StringRemoveAffix {
-            haystack, affix, ..
-        } => {
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, affix, errors);
-        }
-        Rvalue::StringRepeat { operand, count } => {
-            validate_operand_exists(function, operand, errors);
-            validate_operand_exists(function, count, errors);
-        }
-        Rvalue::StringPad {
-            operand,
-            target_len,
-            pad,
-            ..
-        } => {
-            validate_operand_exists(function, operand, errors);
-            validate_operand_exists(function, target_len, errors);
-            validate_operand_exists(function, pad, errors);
-        }
-        Rvalue::StringCharAt { operand, index } => {
-            validate_operand_exists(function, operand, errors);
-            validate_operand_exists(function, index, errors);
-        }
-        Rvalue::StringCharCodeAt { operand, index } => {
-            validate_operand_exists(function, operand, errors);
-            validate_operand_exists(function, index, errors);
-        }
-        Rvalue::StringSlice {
-            operand,
-            start,
-            end,
-        } => {
-            validate_operand_exists(function, operand, errors);
-            validate_optional_operand_exists(function, start.as_ref(), errors);
-            validate_optional_operand_exists(function, end.as_ref(), errors);
-        }
-        Rvalue::ListContains { list, item } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::SetContains { set, item } => {
-            validate_operand_exists(function, set, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::SetDisjoint { left, right } => {
-            validate_operand_exists(function, left, errors);
-            validate_operand_exists(function, right, errors);
-        }
-        Rvalue::SetRelation { left, right, .. } => {
-            validate_operand_exists(function, left, errors);
-            validate_operand_exists(function, right, errors);
-        }
-        Rvalue::SetAdd { set, item } | Rvalue::SetRemove { set, item, .. } => {
-            validate_operand_exists(function, set, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::SetClear { set } | Rvalue::SetCopy { set } => {
-            validate_operand_exists(function, set, errors);
-        }
-        Rvalue::ListToSet { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListPairsToDict { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::SetBinary { left, right, .. } => {
-            validate_operand_exists(function, left, errors);
-            validate_operand_exists(function, right, errors);
-        }
-        Rvalue::SetProjection { set, .. } => {
-            validate_operand_exists(function, set, errors);
-        }
-        Rvalue::ListConcat { left, right } => {
-            validate_operand_exists(function, left, errors);
-            validate_operand_exists(function, right, errors);
-        }
-        Rvalue::ListSearch { list, item, .. } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::ListCallback { list, callback, .. } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, callback, errors);
-        }
-        Rvalue::ListFromLength { length } => {
-            validate_operand_exists(function, length, errors);
-        }
-        Rvalue::ListFromLengthMap { length, callback } => {
-            validate_operand_exists(function, length, errors);
-            validate_operand_exists(function, callback, errors);
-        }
-        Rvalue::ListReduce {
-            list,
-            initial,
-            callback,
-        } => {
-            validate_operand_exists(function, list, errors);
-            validate_optional_operand_exists(function, initial.as_ref(), errors);
-            validate_operand_exists(function, callback, errors);
-        }
-        Rvalue::ListSlice { list, start, end } => {
-            validate_operand_exists(function, list, errors);
-            validate_optional_operand_exists(function, start.as_ref(), errors);
-            validate_optional_operand_exists(function, end.as_ref(), errors);
-        }
-        Rvalue::ListSplice {
-            list,
-            start,
-            delete_count,
-            items,
-            ..
-        } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, start, errors);
-            validate_optional_operand_exists(function, delete_count.as_ref(), errors);
-            for item in items {
-                validate_operand_exists(function, &item.value, errors);
-            }
-        }
-        Rvalue::ListFill {
-            list,
-            value: fill_value,
-            start,
-            end,
-        } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, fill_value, errors);
-            validate_optional_operand_exists(function, start.as_ref(), errors);
-            validate_optional_operand_exists(function, end.as_ref(), errors);
-        }
-        Rvalue::ListCopyWithin {
-            list,
-            target,
-            start,
-            end,
-        } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, target, errors);
-            validate_operand_exists(function, start, errors);
-            validate_optional_operand_exists(function, end.as_ref(), errors);
-        }
-        Rvalue::ListWith {
-            list,
-            index,
-            value: replacement,
-        } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, index, errors);
-            validate_operand_exists(function, replacement, errors);
-        }
-        Rvalue::ListFlat { list, depth } => {
-            validate_operand_exists(function, list, errors);
-            validate_optional_operand_exists(function, depth.as_ref(), errors);
-        }
-        Rvalue::ListProjection { list, .. } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListPush { list, item } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::ListExtend { list, other } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, other, errors);
-        }
-        Rvalue::ListInsert { list, index, item } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, index, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::ListUnshift { list, items } => {
-            validate_operand_exists(function, list, errors);
-            for item in items {
-                validate_operand_exists(function, item, errors);
-            }
-        }
-        Rvalue::ListReverse { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListClear { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListCopy { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::TupleToList { tuple } | Rvalue::TupleToSet { tuple } => {
-            validate_operand_exists(function, tuple, errors);
-        }
-        Rvalue::ListToTuple { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListCount { list, item } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::ListSum { list }
-        | Rvalue::ListBoolFold { list, .. }
-        | Rvalue::ListSorted { list }
-        | Rvalue::ListReversed { list }
-        | Rvalue::ListEnumerate { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListZip { left, right } => {
-            validate_operand_exists(function, left, errors);
-            validate_operand_exists(function, right, errors);
-        }
-        Rvalue::ListRange { start, end, step } => {
-            validate_operand_exists(function, start, errors);
-            validate_operand_exists(function, end, errors);
-            validate_operand_exists(function, step, errors);
-        }
-        Rvalue::ListRandomChoice { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListIndex { list, item } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::ListRemove { list, item } => {
-            validate_operand_exists(function, list, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::ListSort { list, .. } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListPop { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListShift { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::ListNext { list } => {
-            validate_operand_exists(function, list, errors);
-        }
-        Rvalue::IteratorDone { result } | Rvalue::IteratorValue { result } => {
-            validate_operand_exists(function, result, errors);
-        }
-        Rvalue::TupleContains { tuple, item } => {
-            validate_operand_exists(function, tuple, errors);
-            validate_operand_exists(function, item, errors);
-        }
-        Rvalue::TupleIndex { tuple, .. } | Rvalue::TupleSlice { tuple, .. } => {
-            validate_operand_exists(function, tuple, errors);
-        }
-        Rvalue::DictContainsKey { dict, key } => {
-            validate_operand_exists(function, dict, errors);
-            validate_operand_exists(function, key, errors);
-        }
-        Rvalue::DictSet {
-            dict,
-            key,
-            value: dict_value,
-        } => {
-            validate_operand_exists(function, dict, errors);
-            validate_operand_exists(function, key, errors);
-            validate_operand_exists(function, dict_value, errors);
-        }
-        Rvalue::DictRemoveKey { dict, key } => {
-            validate_operand_exists(function, dict, errors);
-            validate_operand_exists(function, key, errors);
-        }
-        Rvalue::DictGet { dict, key, default } => {
-            validate_operand_exists(function, dict, errors);
-            validate_operand_exists(function, key, errors);
-            validate_optional_operand_exists(function, default.as_ref(), errors);
-        }
-        Rvalue::DictSetDefault { dict, key, default } => {
-            validate_operand_exists(function, dict, errors);
-            validate_operand_exists(function, key, errors);
-            validate_operand_exists(function, default, errors);
-        }
-        Rvalue::DictClear { dict } => {
-            validate_operand_exists(function, dict, errors);
-        }
-        Rvalue::DictPop { dict, key, default } => {
-            validate_operand_exists(function, dict, errors);
-            validate_operand_exists(function, key, errors);
-            validate_optional_operand_exists(function, default.as_ref(), errors);
-        }
-        Rvalue::DictUpdate { dict, other } => {
-            validate_operand_exists(function, dict, errors);
-            validate_operand_exists(function, other, errors);
-        }
-        Rvalue::DictAssign { target, sources } => {
-            validate_operand_exists(function, target, errors);
-            for source in sources {
-                validate_operand_exists(function, source, errors);
-            }
-        }
-        Rvalue::CallableObjectAssign { callable, props } => {
-            validate_operand_exists(function, callable, errors);
-            for (_, value) in props {
-                validate_operand_exists(function, value, errors);
-            }
-        }
-        Rvalue::DictCopy { dict } => {
-            validate_operand_exists(function, dict, errors);
-        }
-        Rvalue::DictProjection { dict, .. } => {
-            validate_operand_exists(function, dict, errors);
-        }
-        Rvalue::StringSplit {
-            haystack,
-            separator,
-            limit,
-        } => {
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, separator, errors);
-            validate_optional_operand_exists(function, limit.as_ref(), errors);
-        }
-        Rvalue::StringChars { haystack } => {
-            validate_operand_exists(function, haystack, errors);
-        }
-        Rvalue::StringJoin { items, separator } => {
-            validate_operand_exists(function, items, errors);
-            validate_operand_exists(function, separator, errors);
-        }
-        Rvalue::JsonStringify { value: json_value } => {
-            validate_operand_exists(function, json_value, errors);
-        }
-        Rvalue::JsonParse { text } => {
-            validate_operand_exists(function, text, errors);
-        }
-        Rvalue::RegexIsMatch {
-            pattern, haystack, ..
-        } => {
-            validate_operand_exists(function, pattern, errors);
-            validate_operand_exists(function, haystack, errors);
-        }
-        Rvalue::RegexReplace {
-            pattern,
-            haystack,
-            replacement,
-            ..
-        } => {
-            validate_operand_exists(function, pattern, errors);
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, replacement, errors);
-        }
-        Rvalue::RegexReplaceCallback {
-            pattern,
-            haystack,
-            callback,
-            ..
-        } => {
-            validate_operand_exists(function, pattern, errors);
-            validate_operand_exists(function, haystack, errors);
-            validate_operand_exists(function, callback, errors);
-        }
-        Rvalue::RegexReplaceFirstMatchUppercase { pattern, haystack } => {
-            validate_operand_exists(function, pattern, errors);
-            validate_operand_exists(function, haystack, errors);
-        }
-        Rvalue::RegexSplit { pattern, haystack } => {
-            validate_operand_exists(function, pattern, errors);
-            validate_operand_exists(function, haystack, errors);
-        }
-        Rvalue::RegexFind { pattern, haystack } => {
-            validate_operand_exists(function, pattern, errors);
-            validate_operand_exists(function, haystack, errors);
-        }
-        Rvalue::RegexExec { regex, haystack } => {
-            validate_operand_exists(function, regex, errors);
-            validate_operand_exists(function, haystack, errors);
-        }
-        Rvalue::RegexMatchAll { regex, haystack } => {
-            validate_operand_exists(function, regex, errors);
-            validate_operand_exists(function, haystack, errors);
-        }
-        Rvalue::HttpGetText { url } => {
-            validate_operand_exists(function, url, errors);
-        }
-        Rvalue::DateNow => {}
-        Rvalue::DateResetNow => {}
-        Rvalue::DateSetNow { timestamp } => {
-            validate_operand_exists(function, timestamp, errors);
-        }
-        Rvalue::DateTimezoneOffset | Rvalue::DateResetTimezoneOffset => {}
-        Rvalue::DateSetTimezoneOffset { offset } => {
-            validate_operand_exists(function, offset, errors);
-        }
-        Rvalue::DateTimezoneContext { timezone } => {
-            validate_operand_exists(function, timezone, errors);
-        }
-        Rvalue::DateToIsoString { timestamp_ms } => {
-            validate_operand_exists(function, timestamp_ms, errors);
-        }
-        Rvalue::DateToString { timestamp_ms } => {
-            validate_operand_exists(function, timestamp_ms, errors);
-        }
-        Rvalue::DateFromParts { parts } => {
-            for part in parts {
-                validate_operand_exists(function, part, errors);
-            }
-        }
-        Rvalue::DateFromValue { value: date_value } => {
-            validate_operand_exists(function, date_value, errors);
-        }
-        Rvalue::DateGetPart { timestamp_ms, .. } => {
-            validate_operand_exists(function, timestamp_ms, errors);
-        }
-        Rvalue::DateSetPart {
-            timestamp_ms,
-            values,
-            ..
-        } => {
-            validate_operand_exists(function, timestamp_ms, errors);
-            for value in values {
-                validate_operand_exists(function, value, errors);
-            }
-        }
-        Rvalue::UrlField { url, .. } => validate_operand_exists(function, url, errors),
-        Rvalue::FileReadText { path } => validate_operand_exists(function, path, errors),
-        Rvalue::FileWriteText { path, text } => {
-            validate_operand_exists(function, path, errors);
-            validate_operand_exists(function, text, errors);
-        }
-        Rvalue::NumericExtrema { args, .. } => {
-            for arg in args {
-                validate_operand_exists(function, arg, errors);
-            }
-        }
-        Rvalue::NumericHypot { args } => {
-            for arg in args {
-                validate_operand_exists(function, arg, errors);
-            }
-        }
-        Rvalue::NumericPow { base, exponent } => {
-            validate_operand_exists(function, base, errors);
-            validate_operand_exists(function, exponent, errors);
-        }
-        Rvalue::NumericAtan2 { y, x } => {
-            validate_operand_exists(function, y, errors);
-            validate_operand_exists(function, x, errors);
-        }
-        Rvalue::NumericRandom => {}
-        Rvalue::NumericRandomInt { start, end } => {
-            validate_operand_exists(function, start, errors);
-            validate_operand_exists(function, end, errors);
-        }
-        Rvalue::NumericToStringRadix { operand, radix } => {
-            validate_operand_exists(function, operand, errors);
-            validate_operand_exists(function, radix, errors);
-        }
-        Rvalue::PrimitiveCast { operand, .. } => validate_operand_exists(function, operand, errors),
-        Rvalue::Unary { operand, .. } => validate_operand_exists(function, operand, errors),
-        Rvalue::Struct { fields, .. } => {
-            for (_, field_value) in fields {
-                validate_operand_exists(function, field_value, errors);
-            }
-        }
-        Rvalue::ExternalClassInstance { args, .. } => {
-            for arg in args {
-                validate_operand_exists(function, arg, errors);
-            }
-        }
-        Rvalue::Len(operand)
-        | Rvalue::NumericAbs(operand)
-        | Rvalue::NumericRound { operand, .. }
-        | Rvalue::NumericPredicate { operand, .. }
-        | Rvalue::NumericUnaryFunc { operand, .. }
-        | Rvalue::StringCase { operand, .. }
-        | Rvalue::StringNormalize { operand, .. }
-        | Rvalue::StringTrim { operand, .. }
-        | Rvalue::StringPredicate { operand, .. }
-        | Rvalue::Await(operand) => validate_operand_exists(function, operand, errors),
-        Rvalue::AsyncOp { args, .. } => {
-            for arg in args {
-                validate_operand_exists(function, arg, errors);
-            }
-        }
+    value.for_each_operand(|operand| validate_operand_exists(function, operand, errors));
+    if let Rvalue::Closure { id, .. } = value
+        && mir
+            .closures
+            .get(usize::try_from(id.0).unwrap_or(usize::MAX))
+            .is_none()
+    {
+        errors.push(ValidationError {
+            message: format!("closure rvalue references unknown closure {id:?}"),
+        });
+    }
+    if let Rvalue::UnknownCast { target, .. } = value {
+        validate_type(mir, *target, errors);
     }
 }
 
@@ -814,17 +850,6 @@ fn validate_operand_exists(
             validate_place_exists(function, place, errors);
         }
         Operand::Const(_) => {}
-    }
-}
-
-/// Validate that an optional operand points to existing MIR entities when present.
-fn validate_optional_operand_exists(
-    function: &MirFunction,
-    maybe_operand: Option<&Operand>,
-    errors: &mut Vec<ValidationError>,
-) {
-    if let Some(inner) = maybe_operand {
-        validate_operand_exists(function, inner, errors);
     }
 }
 
