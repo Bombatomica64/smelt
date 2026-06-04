@@ -209,6 +209,7 @@ impl ModuleBuilder<'_> {
         let key_ty = key_type;
         let value_ty = value_type;
         let ty = match op {
+            DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
@@ -578,10 +579,20 @@ return_ty,
                     })));
                 }
                 Some(Type::List(entry_ty)) => {
-                    if let Some((key_ty, value_ty)) = self.entries_tuple_item_types(entry_ty) {
-                        let ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+                    if let Some((_key_ty, value_ty)) = self.entries_tuple_item_types(entry_ty) {
+                        let string_ty = self.ctx.krate.types.intern(Type::String);
+                        let ty = self.ctx.krate.types.intern(Type::Dict(string_ty, value_ty));
+                        let unknown = self.ctx.krate.types.intern(Type::Unknown);
+                        let entries = body.push_expr(Expr {
+                            kind: ExprKind::TypeAssert { value },
+                            ty: unknown,
+                            span: self.span(call.span.start, call.span.end),
+                        });
                         return Ok(Some(body.push_expr(Expr {
-                            kind: ExprKind::DictLit(Vec::new()),
+                            kind: ExprKind::DictProjection {
+                                op: DictProjectionOp::FromEntries,
+                                dict: entries,
+                            },
                             ty,
                             span: self.span(call.span.start, call.span.end),
                         })));

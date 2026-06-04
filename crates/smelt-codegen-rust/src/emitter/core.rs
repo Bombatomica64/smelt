@@ -718,6 +718,7 @@ impl<'mir> FunctionEmitter<'mir> {
             | Rvalue::ListSort { list, .. }
             | Rvalue::ListPop { list }
             | Rvalue::ListShift { list }
+            | Rvalue::ListNext { list }
             | Rvalue::SetAdd { set: list, .. }
             | Rvalue::SetRemove { set: list, .. }
             | Rvalue::SetClear { set: list }
@@ -815,37 +816,158 @@ impl<'mir> FunctionEmitter<'mir> {
                         },
                     ..
                 } if *candidate == local => true,
-                Statement::Assign { value, .. } => self.rvalue_mutates_local(value, local),
+                Statement::Assign { value, .. } => {
+                    self.rvalue_mutates_local(value, local)
+                        || self.rvalue_forwards_local_to_mutable_callback(function, value, local)
+                }
                 _ => false,
             }) {
                 return true;
             }
-            if let Some(Terminator::Call {
-                callee: Callee::Static(function_id),
-                args,
-                ..
-            }) = &block.terminator
-            {
-                return args.iter().enumerate().any(|(index, arg)| {
-                    operand_local(arg) == Some(local)
-                        && self
-                            .mir
-                            .functions
-                            .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
-                            .and_then(|callee| {
-                                callee.params.get(index).map(|param| {
-                                    self.parameter_needs_mutable_reference_in_seen(
-                                        callee, *param, seen,
-                                    )
+            if let Some(Terminator::Call { callee, args, .. }) = &block.terminator {
+                return match callee {
+                    Callee::Static(function_id) => args.iter().enumerate().any(|(index, arg)| {
+                        Self::operand_originates_from_local(function, arg, local, &mut Vec::new())
+                            && self
+                                .mir
+                                .functions
+                                .get(usize::try_from(function_id.0).unwrap_or(usize::MAX))
+                                .and_then(|called_function| {
+                                    called_function.params.get(index).map(|param| {
+                                        self.parameter_needs_mutable_reference_in_seen(
+                                            called_function,
+                                            *param,
+                                            seen,
+                                        )
+                                    })
                                 })
+                                .unwrap_or(false)
+                    }),
+                    Callee::Indirect(operand) => {
+                        let callee_ty = match operand {
+                            Operand::Copy(Place::Local(callee_local))
+                            | Operand::Move(Place::Local(callee_local)) => self
+                                .function_local_decl(function, *callee_local)
+                                .ok()
+                                .map(|decl| decl.ty),
+                            Operand::Copy(Place::Field { base, field })
+                            | Operand::Move(Place::Field { base, field }) => self
+                                .function_local_decl(function, *base)
+                                .ok()
+                                .and_then(|decl| self.structural_record_fields(decl.ty))
+                                .and_then(|fields| {
+                                    fields
+                                        .into_iter()
+                                        .find(|candidate| candidate.name == *field)
+                                        .map(|candidate| candidate.ty)
+                                }),
+                            _ => None,
+                        };
+                        let function_ty = callee_ty.and_then(|ty| self.mir.types.get(ty)).and_then(
+                            |ty| match ty {
+                                Type::Function(function_ty) => Some(function_ty),
+                                _ => None,
+                            },
+                        );
+                        function_ty.is_some_and(|callback_ty| {
+                            args.iter().enumerate().any(|(index, arg)| {
+                                Self::operand_originates_from_local(
+                                    function,
+                                    arg,
+                                    local,
+                                    &mut Vec::new(),
+                                ) && callback_ty.mutable_params.contains(&index)
                             })
-                            .unwrap_or(false)
-                });
+                        })
+                    }
+                    Callee::Builtin(_) => false,
+                };
             }
             false
         });
         seen.pop();
         needs_reference
+    }
+
+    /// Return whether an rvalue forwards a parameter into a mutable callback slot.
+    fn rvalue_forwards_local_to_mutable_callback(
+        &self,
+        function: &MirFunction,
+        value: &Rvalue,
+        local: LocalId,
+    ) -> bool {
+        let Rvalue::ClosureCall { callee, args } = value else {
+            return false;
+        };
+        let callee_ty = match callee {
+            Operand::Copy(Place::Local(callee_local))
+            | Operand::Move(Place::Local(callee_local)) => self
+                .function_local_decl(function, *callee_local)
+                .ok()
+                .map(|decl| decl.ty),
+            Operand::Copy(Place::Field { base, field })
+            | Operand::Move(Place::Field { base, field }) => self
+                .function_local_decl(function, *base)
+                .ok()
+                .and_then(|decl| self.structural_record_fields(decl.ty))
+                .and_then(|fields| {
+                    fields
+                        .into_iter()
+                        .find(|candidate| candidate.name == *field)
+                        .map(|candidate| candidate.ty)
+                }),
+            _ => None,
+        };
+        let Some(function_ty) = callee_ty
+            .and_then(|ty| self.mir.types.get(ty))
+            .and_then(|ty| match ty {
+                Type::Function(function_ty) => Some(function_ty),
+                _ => None,
+            })
+        else {
+            return false;
+        };
+        args.iter().enumerate().any(|(index, arg)| {
+            function_ty.mutable_params.contains(&index)
+                && Self::operand_originates_from_local(function, arg, local, &mut Vec::new())
+        })
+    }
+
+    /// Return whether an operand is the parameter itself or a temporary copy of it.
+    ///
+    /// MIR introduces copy temporaries before calls. Mutation-ABI analysis must
+    /// follow those aliases so forwarding a shared object into a mutable
+    /// callback still borrows the original caller-visible value.
+    fn operand_originates_from_local(
+        function: &MirFunction,
+        operand: &Operand,
+        origin: LocalId,
+        seen: &mut Vec<LocalId>,
+    ) -> bool {
+        let Some(local) = operand_local(operand) else {
+            return false;
+        };
+        if local == origin {
+            return true;
+        }
+        if seen.contains(&local) {
+            return false;
+        }
+        seen.push(local);
+        let result = function.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    Statement::Assign {
+                        dest,
+                        value: Rvalue::Use(source),
+                    } if *dest == local
+                        && Self::operand_originates_from_local(function, source, origin, seen)
+                )
+            })
+        });
+        seen.pop();
+        result
     }
 
     /// Renders an argument for a mutable-reference collection parameter.
@@ -1532,6 +1654,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
                 .join(", ");
+            let param_types = function_ty
+                .params
+                .iter()
+                .enumerate()
+                .map(|(index, param)| {
+                    self.function_type_param_text(&function_ty, index, *param, &HashSet::new())
+                })
+                .collect::<Result<Vec<_>, EmitError>>()?
+                .join(", ");
             let args = function_ty
                 .params
                 .iter()
@@ -1574,7 +1705,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 body
             };
             return Ok(Some(format!(
-                "{{ let smelt_virtual_receiver = smelt_struct_value.clone(); ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_method_receiver = smelt_virtual_receiver.clone(); {wrapped_body} }}) }}"
+                "{{ let smelt_virtual_receiver = smelt_struct_value.clone(); let smelt_virtual_method: ::std::rc::Rc<dyn Fn({param_types}) -> {return_ty}> = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_method_receiver = smelt_virtual_receiver.clone(); {wrapped_body} }}); smelt_virtual_method }}"
             )));
         }
         let Some(source_function) = direct_source_function
@@ -1606,6 +1737,15 @@ impl<'mir> FunctionEmitter<'mir> {
                     "arg{index}: {}",
                     self.function_type_param_text(&function_ty, index, *param, &HashSet::new())?
                 ))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        let param_types = function_ty
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, param)| {
+                self.function_type_param_text(&function_ty, index, *param, &HashSet::new())
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
@@ -1718,7 +1858,7 @@ impl<'mir> FunctionEmitter<'mir> {
             format!("{} ", arg_preludes.join(" "))
         };
         Ok(Some(format!(
-            "{{ let smelt_virtual_receiver = {receiver_value}; ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = smelt_virtual_receiver.clone(); {prelude}{wrapped_body} }}) }}"
+            "{{ let smelt_virtual_receiver = {receiver_value}; let smelt_virtual_method: ::std::rc::Rc<dyn Fn({param_types}) -> {return_ty}> = ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = smelt_virtual_receiver.clone(); {prelude}{wrapped_body} }}); smelt_virtual_method }}"
         )))
     }
 
@@ -1943,6 +2083,10 @@ impl<'mir> FunctionEmitter<'mir> {
 
     /// Returns whether a non-callback dictionary value can populate a field.
     fn can_render_non_function_dict_value_as(&self, source: TypeId, target: TypeId) -> bool {
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            return self.can_render_non_function_dict_value_as(source, *inner)
+                || matches!(self.mir.types.get(source), Some(Type::None));
+        }
         source == target
             || self.structural_record_adapter_available(source, target)
             || self.string_dict_record_adapter_available(source, target)

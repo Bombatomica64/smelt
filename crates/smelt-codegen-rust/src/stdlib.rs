@@ -31,7 +31,7 @@ pub(crate) fn backend_dependencies(mir: &Mir) -> Vec<BackendDependency> {
     if any_rvalue_needs(mir, rvalue_needs_chrono) || needs_unknown_type(mir) {
         deps.push(BackendDependency::Chrono);
     }
-    if any_rvalue_needs(mir, rvalue_needs_chrono_tz) {
+    if any_rvalue_needs(mir, rvalue_needs_chrono_tz) || needs_unknown_type(mir) {
         deps.push(BackendDependency::ChronoTz);
     }
     if any_rvalue_needs(mir, rvalue_needs_url) {

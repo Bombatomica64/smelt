@@ -929,6 +929,18 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::ListPop { list } => self.list_pop_text(list, dest_ty),
             Rvalue::ListShift { list } => self.list_shift_text(list, dest_ty),
+            Rvalue::ListNext { list } => self.list_next_text(list, dest_ty),
+            Rvalue::IteratorDone { result } => {
+                Ok(format!("{}.is_none()", self.operand_text(result)?))
+            }
+            Rvalue::IteratorValue { result } => {
+                let text = self.operand_text(result)?;
+                if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
+                    self.unknown_wrap_value_text(&text, self.operand_ty(result)?)
+                } else {
+                    self.operand_as_type_text(result, dest_ty)
+                }
+            }
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
             Rvalue::TupleIndex { tuple, index } => self.tuple_index_text(tuple, *index, dest_ty),
             Rvalue::TupleSlice { tuple, start, end } => {
@@ -998,7 +1010,7 @@ impl FunctionEmitter<'_> {
                 self.default_value(dest_ty)?
             )),
             Rvalue::DateTimezoneContext { timezone } => Ok(format!(
-                "{{ let smelt_timezone: chrono_tz::Tz = {}.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}; SmeltUnknown::Number(if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}) }}) }}",
+                "{{ let smelt_timezone_name = {}; let smelt_timezone: chrono_tz::Tz = smelt_timezone_name.parse().expect(\"invalid IANA time zone\"); ::std::rc::Rc::new(move |value: SmeltUnknown| -> SmeltUnknown {{ let timestamp_ms = match value {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}; let local_timestamp_ms = if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map_or(f64::NAN, |date| date.with_timezone(&smelt_timezone).naive_local().and_utc().timestamp_millis() as f64) }} else {{ f64::NAN }}; SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_date\".to_owned(), SmeltUnknown::Number(local_timestamp_ms)), (\"__smelt_timezone\".to_owned(), SmeltUnknown::String(smelt_timezone_name.clone()))]))) }}) }}",
                 self.operand_text(timezone)?
             )),
             Rvalue::DateToIsoString { timestamp_ms } => self.date_to_iso_string_text(timestamp_ms),
@@ -1020,7 +1032,7 @@ impl FunctionEmitter<'_> {
                 values,
             } => {
                 let text = self.date_set_part_text(*part, timestamp_ms, values)?;
-                self.date_timestamp_result_text(&text, dest_ty)
+                self.date_timestamp_result_preserving_receiver_text(&text, dest_ty, timestamp_ms)
             }
             Rvalue::UrlField { field, url } => self.url_field_text(*field, url),
             Rvalue::FileReadText { path } => self.file_read_text(path),

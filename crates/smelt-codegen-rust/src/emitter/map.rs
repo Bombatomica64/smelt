@@ -437,6 +437,9 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
         ) {
             return match op {
+                smelt_hir::DictProjectionOp::FromEntries => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
+                )),
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
                     "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys(), _ => Vec::new() }}"
                 )),
@@ -455,6 +458,9 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("dict projection receiver must be a dict"));
         }
         match op {
+            smelt_hir::DictProjectionOp::FromEntries => {
+                Err(EmitError::new("fromEntries receiver must be erased"))
+            }
             smelt_hir::DictProjectionOp::Keys => {
                 if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
                     && (self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty))

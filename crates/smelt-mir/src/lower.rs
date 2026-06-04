@@ -1075,6 +1075,9 @@ fn mark_local_escaping_closures(
         | Rvalue::ListSort { .. }
         | Rvalue::ListPop { .. }
         | Rvalue::ListShift { .. }
+        | Rvalue::ListNext { .. }
+        | Rvalue::IteratorDone { .. }
+        | Rvalue::IteratorValue { .. }
         | Rvalue::TupleContains { .. }
         | Rvalue::TupleIndex { .. }
         | Rvalue::TupleSlice { .. }
@@ -3338,6 +3341,37 @@ impl<'hir> LoweringCtx<'hir> {
                 });
                 Operand::Copy(Place::Local(dest))
             }
+            ExprKind::ListNext { list } => {
+                let list_operand = self.lower_expr(*list)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::ListNext { list: list_operand },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::IteratorDone { result } => {
+                let result_operand = self.lower_expr(*result)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::IteratorDone {
+                        result: result_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::IteratorValue { result } => {
+                let result_operand = self.lower_expr(*result)?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::IteratorValue {
+                        result: result_operand,
+                    },
+                });
+                Operand::Copy(Place::Local(dest))
+            }
             ExprKind::TupleContains { tuple, item } => {
                 let tuple_operand = self.lower_expr(*tuple)?;
                 let item_operand = self.lower_expr(*item)?;
@@ -4335,6 +4369,9 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::ListSort { .. }
             | ExprKind::ListPop { .. }
             | ExprKind::ListShift { .. }
+            | ExprKind::ListNext { .. }
+            | ExprKind::IteratorDone { .. }
+            | ExprKind::IteratorValue { .. }
             | ExprKind::TupleContains { .. }
             | ExprKind::TupleIndex { .. }
             | ExprKind::TupleSlice { .. }

@@ -31,6 +31,7 @@ impl ModuleBuilder<'_> {
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
         let ty = match op {
+            DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
@@ -104,6 +105,7 @@ impl ModuleBuilder<'_> {
             _ => return Ok(None),
         };
         let ty = match op {
+            DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {

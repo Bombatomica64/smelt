@@ -133,6 +133,7 @@ pub(super) fn assigned_locals(mir: &Mir, function: &MirFunction) -> HashSet<Loca
                     | Rvalue::ListSort { list, .. }
                     | Rvalue::ListPop { list }
                     | Rvalue::ListShift { list }
+                    | Rvalue::ListNext { list }
                     | Rvalue::SetAdd { set: list, .. }
                     | Rvalue::SetRemove { set: list, .. }
                     | Rvalue::SetClear { set: list }

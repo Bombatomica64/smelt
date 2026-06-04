@@ -321,6 +321,19 @@ impl SmeltUnknown {
     }
     /// Return JavaScript Date.toISOString output for erased Date-compatible values.
     pub fn to_iso_string(&self) -> String {
+        if let Self::Object(value) = self {
+            if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get("__smelt_date"), value.get("__smelt_timezone")) {
+                if let (Some(mut local), Ok(timezone)) = (chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.naive_utc()), timezone_name.parse::<chrono_tz::Tz>()) {
+                    loop {
+                        match chrono::TimeZone::from_local_datetime(&timezone, &local) {
+                            chrono::LocalResult::Single(date) => return date.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
+                            chrono::LocalResult::Ambiguous(first, _) => return first.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),
+                            chrono::LocalResult::None => local += chrono::Duration::minutes(1),
+                        }
+                    }
+                }
+            }
+        }
         let timestamp_ms = match self {
             Self::Number(value) => *value,
             Self::Object(value) => match value.get("__smelt_date") { Some(Self::Number(value)) => value, _ => f64::NAN },
@@ -344,7 +357,11 @@ impl SmeltUnknown {
         let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };
         match self {
             Self::String(pattern) => regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(&haystack)),
-            Self::Object(map) => map.get("source").and_then(|value| match value { Self::String(pattern) => Some(pattern), _ => None }).is_some_and(|pattern| regex::Regex::new(&pattern).is_ok_and(|regex| regex.is_match(&haystack))),
+            Self::Object(map) => {
+                let Some(Self::String(source)) = map.get("source") else { return false; };
+                let flags = match map.get("flags") { Some(Self::String(flags)) => flags.clone(), _ => String::new() };
+                SmeltRegExp::new(source.clone(), flags).test(&haystack)
+            }
             _ => false,
         }
     }

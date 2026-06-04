@@ -26,7 +26,7 @@ const cleanedByLiteral = "a  b".replace(/\s+/, "-");
 "#,
     );
     assert!(ts_source.contains("chrono::Utc::now().timestamp_millis()"));
-    assert!(ts_source.contains("chrono::DateTime::<chrono::Utc>::from_timestamp_millis"));
+    assert!(ts_source.contains(".to_iso_string()"));
     assert!(ts_source.contains("url::Url::parse"));
     assert!(ts_source.contains("format!(\"{}:{}\", host, port)"));
     assert!(ts_source.contains("replace_all"));
@@ -132,7 +132,58 @@ const context = tz("Pacific/Midway");
         source.contains("with_timezone(&smelt_timezone)"),
         "{source}"
     );
+    assert!(
+        source.contains("\"__smelt_timezone\".to_owned()"),
+        "{source}"
+    );
     assert!(manifest.contains("chrono-tz = \"0.10\""), "{manifest}");
+}
+
+#[test]
+fn preserves_timezone_context_for_iso_output_and_dst_gaps() {
+    let source = source_for(
+        r#"
+import { tz } from "@date-fns/tz";
+declare const value: unknown;
+const inNewYork = tz("America/New_York");
+const result = inNewYork(value);
+const iso = result.toISOString();
+"#,
+    );
+
+    assert!(
+        source.contains("\"__smelt_timezone\".to_owned()"),
+        "{source}"
+    );
+    assert!(
+        source.contains("chrono::TimeZone::from_local_datetime(&timezone, &local)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("local += chrono::Duration::minutes(1)"),
+        "{source}"
+    );
+}
+
+#[test]
+fn preserves_erased_date_metadata_across_setters() {
+    let source = source_for(
+        r#"
+declare const value: unknown;
+const date = new Date(value);
+date.setFullYear(2024);
+const iso = date.toISOString();
+"#,
+    );
+
+    assert!(
+        source.contains("if key != \"__smelt_date\""),
+        "Date setters must preserve metadata from erased Date receivers: {source}"
+    );
+    assert!(
+        source.contains("result.insert(key, value)"),
+        "Date metadata must be copied onto the replacement timestamp object: {source}"
+    );
 }
 
 #[test]
@@ -291,6 +342,54 @@ export function entries(...args: readonly unknown[]): unknown {
         !source
             .contains("::std::rc::Rc::new(|closure_arg_0: SmeltUnknown| {\n    SmeltUnknown::Null"),
         "Object.entries callback should not lower to the static-member placeholder closure: {source}"
+    );
+}
+
+#[test]
+fn emits_first_class_object_from_entries_as_real_conversion() {
+    let source = source_for(
+        r#"
+declare function purry(fn: (value: unknown) => unknown, args: readonly unknown[]): unknown;
+
+export function fromEntries(...args: readonly unknown[]): unknown {
+  return purry(Object.fromEntries, args);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("collect::<SmeltRecord<String, SmeltUnknown>>()"),
+        "Object.fromEntries callback should collect entry arrays into a record: {source}"
+    );
+    assert!(
+        !source
+            .contains("::std::rc::Rc::new(|closure_arg_0: SmeltUnknown| {\n    SmeltUnknown::Null"),
+        "Object.fromEntries callback should not lower to the static-member placeholder closure: {source}"
+    );
+}
+
+#[test]
+fn emits_array_iterator_next_as_typed_option() {
+    let source = source_for(
+        r#"
+export function firstEntry(values: string[]): string | undefined {
+  const iterator = values.entries();
+  const result = iterator.next();
+  if ("done" in result && result.done) {
+    return undefined;
+  }
+  return result.value[1];
+}
+"#,
+    );
+
+    assert!(
+        source.contains("if iterator.is_empty() { None } else { Some(iterator.remove(0)) }"),
+        "iterator next should consume into a typed Option: {source}"
+    );
+    assert!(
+        source.contains("result.clone().is_none()"),
+        "iterator done should inspect the typed Option: {source}"
     );
 }
 
@@ -1057,6 +1156,40 @@ function run(setter: Setter): number {
     assert!(
         source.contains("(setter.set.clone())(&mut flags)"),
         "{source}"
+    );
+}
+
+#[test]
+fn preserves_mutable_structural_parameters_forwarded_to_callbacks() {
+    let source = source_for(
+        r#"
+interface Flags {
+  era?: number;
+}
+
+interface Setter {
+  set: (flags: Flags) => number | [number, Flags];
+}
+
+function forward(flags: Flags, setter: Setter): number | [number, Flags] {
+  return setter.set(flags);
+}
+
+function run(setter: Setter): number {
+  const flags: Flags = {};
+  forward(flags, setter);
+  return flags.era!;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn forward(mut flags: &mut Flags"),
+        "forwarding into a mutable callback must preserve the caller's object: {source}"
+    );
+    assert!(
+        source.contains("(setter.set.clone())(flags)"),
+        "the forwarded callback must receive the existing mutable reference: {source}"
     );
 }
 
@@ -2275,6 +2408,50 @@ const result = useLocale({ locale: customLocale });
 }
 
 #[test]
+fn adapts_shorter_callbacks_returning_records_to_optional_interface_results() {
+    let source = source_for(
+        r#"
+interface MatchResult {
+  value: number;
+  rest: string;
+}
+
+interface Match {
+  era: (text: string, options?: unknown) => MatchResult | null;
+}
+
+interface Locale {
+  match: Match;
+}
+
+interface ParseOptions {
+  locale?: Locale;
+}
+
+function useOptions(options?: ParseOptions): MatchResult | null {
+  return options?.locale?.match.era("BC") ?? null;
+}
+
+const customLocale = {
+  match: {
+    era: () => ({ value: 0, rest: " works" }),
+  },
+};
+
+const result = useOptions({ locale: customLocale });
+"#,
+    );
+
+    assert!(source.contains("let smelt_adapted:"), "{source}");
+    assert!(source.contains("(smelt_callback)()"), "{source}");
+    assert!(
+        source.contains("Option<MatchResult>> = ::std::rc::Rc::new(move |arg0: String")
+            && source.contains("Some({ let smelt_record_map = (smelt_callback)().clone();"),
+        "the provided shorter callback must be adapted to the optional result field: {source}"
+    );
+}
+
+#[test]
 fn preserves_erased_date_values_when_retyping_unknown_callback_fields() {
     let source = source_for(
         r#"
@@ -2444,6 +2621,29 @@ function wrap<T>(
     assert!(
         source.contains("}, n.clone().clone())"),
         "fixed callback spread calls should keep trailing scalar arguments after spread expansion: {source}"
+    );
+}
+
+#[test]
+fn packs_rest_arguments_for_normal_closure_calls() {
+    let source = source_for(
+        r#"
+export function makeIdentity(): (first: unknown, ...rest: unknown[]) => unknown {
+  return (first: unknown) => first;
+}
+
+export function run(): unknown {
+  const identity = makeIdentity();
+  return identity("hello");
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "(identity)(SmeltUnknown::String(\"hello\".to_owned()), _smelt_tmp_2.clone())"
+        ) && source.contains("_smelt_tmp_2 = vec![];"),
+        "normal closure calls should preserve fixed arguments and pack an empty rest vector: {source}"
     );
 }
 

@@ -194,13 +194,22 @@ impl ModuleBuilder<'_> {
             TSType::TSIndexedAccessType(indexed) => self.indexed_access_type_to_hir(indexed),
             TSType::TSTypeLiteral(literal) => self.type_literal_to_hir(literal),
             TSType::TSMappedType(mapped) => {
-                let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = mapped
                     .type_annotation
                     .as_ref()
                     .map(|annotation| self.ts_type_to_hir(annotation))
                     .transpose()?
                     .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+                if let TSType::TSTypeOperatorType(operator) = &mapped.constraint
+                    && operator.operator == oxc::ast::ast::TSTypeOperatorOperator::Keyof
+                {
+                    let source_ty = self.ts_type_to_hir(&operator.type_annotation)?;
+                    let source_ty = self.type_param_constraint_or_self(source_ty);
+                    if self.mapped_key_source_is_iterable(source_ty) {
+                        return Ok(self.ctx.krate.types.intern(Type::List(value_ty)));
+                    }
+                }
+                let key_ty = self.ctx.krate.types.intern(Type::String);
                 Ok(self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty)))
             }
             TSType::TSFunctionType(function) => self.function_type_to_hir(function),
@@ -2216,6 +2225,21 @@ return_ty: function.return_ty,
         match self.ctx.krate.types.get(ty) {
             Some(Type::TypeParam { name }) => self.type_parameter_constraint(*name).unwrap_or(ty),
             _ => ty,
+        }
+    }
+
+    /// Return whether a `keyof` mapped-type source is entirely array-like.
+    fn mapped_key_source_is_iterable(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(self.type_param_constraint_or_self(ty)) {
+            Some(Type::List(_) | Type::Tuple(_) | Type::Set(_)) => true,
+            Some(Type::Union(items)) => {
+                !items.is_empty()
+                    && items
+                        .iter()
+                        .copied()
+                        .all(|item| self.mapped_key_source_is_iterable(item))
+            }
+            _ => false,
         }
     }
 

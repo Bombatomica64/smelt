@@ -593,6 +593,9 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         }
         ExprKind::ListPop { list } => format!("list_pop {}", expr_ref(*list)),
         ExprKind::ListShift { list } => format!("list_shift {}", expr_ref(*list)),
+        ExprKind::ListNext { list } => format!("list_next {}", expr_ref(*list)),
+        ExprKind::IteratorDone { result } => format!("iterator_done {}", expr_ref(*result)),
+        ExprKind::IteratorValue { result } => format!("iterator_value {}", expr_ref(*result)),
         ExprKind::TupleContains { tuple, item } => {
             format!("tuple_contains {}, {}", expr_ref(*tuple), expr_ref(*item))
         }
@@ -656,6 +659,7 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
         ExprKind::DictCopy { dict } => format!("dict_copy {}", expr_ref(*dict)),
         ExprKind::DictProjection { op, dict } => {
             let op_name = match op {
+                crate::expr::DictProjectionOp::FromEntries => "from_entries",
                 crate::expr::DictProjectionOp::Keys => "keys",
                 crate::expr::DictProjectionOp::Values => "values",
                 crate::expr::DictProjectionOp::Entries => "entries",

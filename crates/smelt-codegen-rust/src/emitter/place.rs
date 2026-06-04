@@ -71,6 +71,15 @@ impl FunctionEmitter<'_> {
                         "{base_text}.as_ref().and_then(|_smelt_value| _smelt_value.get({field_name:?}))"
                     ));
                 }
+                if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
+                    && self.symbol_source_name(*field)? == "value"
+                {
+                    let wrapped = self.unknown_wrap_value_text("value", *inner)?;
+                    return Ok(format!(
+                        "{}.clone().map_or(SmeltUnknown::Null, |value| {wrapped})",
+                        self.local_value_text(*base)?
+                    ));
+                }
                 if let Some(Type::Class { name, .. }) = self.mir.types.get(base_ty)
                     && self.symbol_name(*name)? == "RegExp"
                 {

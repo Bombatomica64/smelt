@@ -901,6 +901,9 @@ fn rvalue_text(value: &Rvalue) -> String {
         }
         Rvalue::ListPop { list } => format!("list_pop {}", operand_text(list)),
         Rvalue::ListShift { list } => format!("list_shift {}", operand_text(list)),
+        Rvalue::ListNext { list } => format!("list_next {}", operand_text(list)),
+        Rvalue::IteratorDone { result } => format!("iterator_done {}", operand_text(result)),
+        Rvalue::IteratorValue { result } => format!("iterator_value {}", operand_text(result)),
         Rvalue::TupleContains { tuple, item } => {
             format!(
                 "tuple_contains {}, {}",
@@ -987,6 +990,7 @@ fn rvalue_text(value: &Rvalue) -> String {
         Rvalue::DictCopy { dict } => format!("dict_copy {}", operand_text(dict)),
         Rvalue::DictProjection { op, dict } => {
             let op_text = match op {
+                smelt_hir::DictProjectionOp::FromEntries => "from_entries",
                 smelt_hir::DictProjectionOp::Keys => "keys",
                 smelt_hir::DictProjectionOp::Values => "values",
                 smelt_hir::DictProjectionOp::Entries => "entries",

@@ -757,6 +757,19 @@ fn emit_source_with_free_function_router(
             });
             impl_writer.line("/// Return JavaScript Date.toISOString output for erased Date-compatible values.");
             impl_writer.block("pub fn to_iso_string(&self) -> String", |fn_writer| {
+                fn_writer.line("if let Self::Object(value) = self {");
+                fn_writer.line("    if let (Some(Self::Number(timestamp_ms)), Some(Self::String(timezone_name))) = (value.get(\"__smelt_date\"), value.get(\"__smelt_timezone\")) {");
+                fn_writer.line("        if let (Some(mut local), Ok(timezone)) = (chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.naive_utc()), timezone_name.parse::<chrono_tz::Tz>()) {");
+                fn_writer.line("            loop {");
+                fn_writer.line("                match chrono::TimeZone::from_local_datetime(&timezone, &local) {");
+                fn_writer.line("                    chrono::LocalResult::Single(date) => return date.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),");
+                fn_writer.line("                    chrono::LocalResult::Ambiguous(first, _) => return first.to_rfc3339_opts(chrono::SecondsFormat::Millis, false),");
+                fn_writer.line("                    chrono::LocalResult::None => local += chrono::Duration::minutes(1),");
+                fn_writer.line("                }");
+                fn_writer.line("            }");
+                fn_writer.line("        }");
+                fn_writer.line("    }");
+                fn_writer.line("}");
                 fn_writer.line("let timestamp_ms = match self {");
                 fn_writer.line("    Self::Number(value) => *value,");
                 fn_writer.line("    Self::Object(value) => match value.get(\"__smelt_date\") { Some(Self::Number(value)) => value, _ => f64::NAN },");

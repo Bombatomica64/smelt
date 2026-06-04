@@ -2907,15 +2907,11 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
                 }
             )))
     );
-    ensure!(
-        ctx.krate
-            .bodies
+    ensure!(ctx.krate.bodies.iter().any(|body| {
+        body.exprs
             .iter()
-            .any(|body| body.exprs.iter().any(|expr| matches!(
-                expr.kind,
-                ExprKind::DictContainsKey { .. }
-            )))
-    );
+            .any(|expr| matches!(expr.kind, ExprKind::DictContainsKey { .. }))
+    }));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -3119,6 +3115,28 @@ function read(parsers: Record<string, Parser>, key: string): number {
                 )
             }))
     );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn mapped_types_over_iterable_keys_preserve_list_shape() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Mapped<T extends readonly unknown[], U> = {
+  -readonly [P in keyof T]: U;
+};
+const values: Mapped<readonly number[], string> = ["a", "b"];
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+    ensure!(body.locals.iter().any(|local| {
+        local.name.and_then(|name| ctx.krate.symbols.get(name)) == Some("values")
+            && matches!(ctx.krate.types.get(local.ty), Some(Type::List(item)) if ctx.krate.types.get(*item) == Some(&Type::String))
+    }));
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }

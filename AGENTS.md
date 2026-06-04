@@ -44,6 +44,10 @@ prefer concrete Rust types first, then scoped Rust generics/type parameters, the
 when a TypeScript `unknown` spelling is only type-level helper plumbing, preserve or recover the concrete/generic shape instead of routing normal data flow through runtime tags
 new `SmeltUnknown` conversions should be explicit boundary adapters (`IntoSmeltUnknown`, checked casts, guards), not a way to make ordinary generated Rust type-check
 
+## git
+After each feature, push a commit with the changes and a clear description of what was implemented
+git status should as clean as possible
+
 ## NEVERS
 
 NEVER reject a feature without asking me first, it doesn't matter how hard it is

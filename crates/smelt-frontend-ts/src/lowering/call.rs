@@ -363,10 +363,10 @@ impl ModuleBuilder<'_> {
             if member.property.name == "next" && call.arguments.is_empty() {
                 let receiver = self.expression(&member.object, body)?;
                 let receiver_ty = Self::expr_ty(body, receiver);
-                if matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_))) {
-                    let ty = self.ctx.krate.types.intern(Type::Unknown);
+                if let Some(Type::List(item_ty)) = self.ctx.krate.types.get(receiver_ty) {
+                    let ty = self.ctx.krate.types.intern(Type::Optional(*item_ty));
                     return Ok(body.push_expr(Expr {
-                        kind: ExprKind::TypeAssert { value: receiver },
+                        kind: ExprKind::ListNext { list: receiver },
                         ty,
                         span: self.span(call.span.start, call.span.end),
                     }));
@@ -2340,21 +2340,16 @@ impl ModuleBuilder<'_> {
             .as_ref()
             .and_then(|callback| callback.rest)
             .or_else(|| {
-                if self.call_has_spread_arguments_or_source_spread(call) {
-                    function.rest.and_then(|index| {
-                        let param =
-                            self.type_param_constraint_or_self(*function.params.get(index)?);
-                        match self.ctx.krate.types.get(param) {
-                            Some(Type::List(item_ty)) => Some(RestParam {
-                                index,
-                                item_ty: *item_ty,
-                            }),
-                            _ => None,
-                        }
-                    })
-                } else {
-                    None
-                }
+                function.rest.and_then(|index| {
+                    let param = self.type_param_constraint_or_self(*function.params.get(index)?);
+                    match self.ctx.krate.types.get(param) {
+                        Some(Type::List(item_ty)) => Some(RestParam {
+                            index,
+                            item_ty: *item_ty,
+                        }),
+                        _ => None,
+                    }
+                })
             });
         let fixed_param_count = rest.map_or(function.params.len(), |rest| rest.index);
         if rest.is_some() && self.call_has_spread_arguments_or_source_spread(call) {

@@ -23,6 +23,45 @@ impl FunctionEmitter<'_> {
                 ));
             }
         };
+        if let Operand::Copy(Place::Field { base, field })
+        | Operand::Move(Place::Field { base, field }) = list
+            && matches!(
+                self.mir.types.get(self.local_decl(*base)?.ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            )
+        {
+            let base_text = self.local_mut_value_text(*base)?;
+            let field_name = self.symbol_name(*field)?;
+            let item_text = self.operand_as_type_text(item, *item_ty)?;
+            let result = if returns_length {
+                "smelt_list.len() as f64"
+            } else {
+                "()"
+            };
+            return Ok(format!(
+                "{{ let mut smelt_list = match {base_text}.clone() {{ SmeltUnknown::Object(map) => match smelt_get_object_field(&map, \"{field_name}\") {{ SmeltUnknown::Array(values) => values.into_vec(), _ => Vec::new() }}, _ => Vec::new() }}; smelt_list.push(({item_text}).into_smelt_unknown()); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array(smelt_list.into()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(::std::collections::HashMap::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
+            ));
+        }
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
+            && let Some((base, field)) = self.list_field_alias_origin(*local)
+            && (matches!(
+                self.mir.types.get(self.local_decl(base)?.ty),
+                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+            ) || self.is_erased_class_type(self.local_decl(base)?.ty))
+        {
+            let list_text = self.local_mut_value_text(*local)?;
+            let base_text = self.local_mut_value_text(base)?;
+            let field_name = self.symbol_name(field)?;
+            let item_text = self.operand_as_type_text(item, *item_ty)?;
+            let result = if returns_length {
+                format!("{list_text}.len() as f64")
+            } else {
+                "()".to_owned()
+            };
+            return Ok(format!(
+                "{{ {list_text}.push({item_text}); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(::std::collections::HashMap::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
+            ));
+        }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
             return Err(EmitError::new(
                 "list push receiver must be a mutable local for now",
@@ -37,6 +76,51 @@ impl FunctionEmitter<'_> {
         } else {
             Ok(format!("{{ {list_text}.push({item_text}); () }}"))
         }
+    }
+
+    /// Find the dynamic object field whose array value initialized a local alias.
+    fn list_field_alias_origin(&self, local: LocalId) -> Option<(LocalId, Symbol)> {
+        self.list_field_alias_origin_inner(local, &mut HashSet::new())
+    }
+
+    /// Follow simple local copies until reaching the dynamic object field read.
+    fn list_field_alias_origin_inner(
+        &self,
+        local: LocalId,
+        seen: &mut HashSet<LocalId>,
+    ) -> Option<(LocalId, Symbol)> {
+        if !seen.insert(local) {
+            return None;
+        }
+        let mut origin = None;
+        for block in &self.function.blocks {
+            for statement in &block.statements {
+                let Statement::Assign {
+                    dest,
+                    value: Rvalue::Use(source),
+                } = statement
+                else {
+                    continue;
+                };
+                if *dest == local {
+                    if origin.is_some() {
+                        return None;
+                    }
+                    origin = match source {
+                        Operand::Copy(Place::Field { base, field })
+                        | Operand::Move(Place::Field { base, field }) => Some((*base, *field)),
+                        Operand::Copy(Place::Local(source_local))
+                        | Operand::Move(Place::Local(source_local)) => {
+                            self.list_field_alias_origin_inner(*source_local, seen)
+                        }
+                        Operand::Copy(Place::Index { .. })
+                        | Operand::Move(Place::Index { .. })
+                        | Operand::Const(_) => None,
+                    };
+                }
+            }
+        }
+        origin
     }
 
     /// Converts a list extend operation to Rust text.
@@ -252,6 +336,31 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new(
                 "list shift receiver must be a mutable local for now",
             ));
+        };
+        let list_text = self.local_mut_value_text(*local)?;
+        Ok(format!(
+            "if {list_text}.is_empty() {{ None }} else {{ Some({list_text}.remove(0)) }}"
+        ))
+    }
+
+    /// Converts JavaScript iterator `next()` over a lowered list to Rust text.
+    pub(super) fn list_next_text(
+        &self,
+        list: &Operand,
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let list_ty = self.operand_ty(list)?;
+        let Some(Type::List(item_ty)) = self.mir.types.get(list_ty) else {
+            return Err(EmitError::new("list next receiver must be a list"));
+        };
+        if !matches!(self.mir.types.get(dest_ty), Some(Type::Optional(inner)) if *inner == *item_ty)
+        {
+            return Err(EmitError::new(
+                "list next destination must be an optional item",
+            ));
+        }
+        let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
+            return Err(EmitError::new("list next receiver must be a mutable local"));
         };
         let list_text = self.local_mut_value_text(*local)?;
         Ok(format!(

@@ -32,6 +32,7 @@ impl ModuleBuilder<'_> {
         let key_ty = *key_type;
         let value_ty = *value_type;
         let ty = match op {
+            DictProjectionOp::FromEntries => return Ok(None),
             DictProjectionOp::Keys => self.intern_type(Type::List(key_ty)),
             DictProjectionOp::Values => self.intern_type(Type::List(value_ty)),
             DictProjectionOp::Entries => {

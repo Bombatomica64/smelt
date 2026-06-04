@@ -266,6 +266,8 @@ pub enum UrlField {
 /// A directly lowered dictionary projection operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DictProjectionOp {
+    /// Build a dictionary from key-value entry arrays.
+    FromEntries,
     /// Project dictionary keys.
     Keys,
     /// Project dictionary values.

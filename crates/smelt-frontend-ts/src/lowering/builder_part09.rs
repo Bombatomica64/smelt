@@ -1492,10 +1492,11 @@ impl ModuleBuilder<'_> {
                 ));
             }
             let receiver = self.expression(&member.object, body)?;
-            let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
             let ty = self.ctx.krate.types.intern(Type::String);
             return Ok(Some(body.push_expr(Expr {
-                kind: ExprKind::DateToIsoString { timestamp_ms },
+                kind: ExprKind::DateToIsoString {
+                    timestamp_ms: receiver,
+                },
                 ty,
                 span: self.span(call.span.start, call.span.end),
             })));
@@ -1635,7 +1636,6 @@ impl ModuleBuilder<'_> {
             ));
         }
         let receiver = self.expression(&member.object, body)?;
-        let timestamp_ms = self.date_receiver_timestamp(receiver, member, body)?;
         let mut values = Vec::with_capacity(call.arguments.len());
         for argument in &call.arguments {
             let mut value = self.argument(argument, body)?;
@@ -1662,11 +1662,11 @@ impl ModuleBuilder<'_> {
             }
             values.push(value);
         }
-        let ty = Self::expr_ty(body, timestamp_ms);
+        let ty = Self::expr_ty(body, receiver);
         let value = body.push_expr(Expr {
             kind: ExprKind::DateSetPart {
                 part,
-                timestamp_ms,
+                timestamp_ms: receiver,
                 values,
             },
             ty,

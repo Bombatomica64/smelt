@@ -560,6 +560,12 @@ fn validate_rvalue_exists(
         Rvalue::ListShift { list } => {
             validate_operand_exists(function, list, errors);
         }
+        Rvalue::ListNext { list } => {
+            validate_operand_exists(function, list, errors);
+        }
+        Rvalue::IteratorDone { result } | Rvalue::IteratorValue { result } => {
+            validate_operand_exists(function, result, errors);
+        }
         Rvalue::TupleContains { tuple, item } => {
             validate_operand_exists(function, tuple, errors);
             validate_operand_exists(function, item, errors);
@@ -1408,6 +1414,12 @@ fn validate_rvalue(
         }
         Rvalue::ListShift { list } => {
             validate_operand(mir, function, definitions, list, errors);
+        }
+        Rvalue::ListNext { list } => {
+            validate_operand(mir, function, definitions, list, errors);
+        }
+        Rvalue::IteratorDone { result } | Rvalue::IteratorValue { result } => {
+            validate_operand(mir, function, definitions, result, errors);
         }
         Rvalue::TupleContains { tuple, item } => {
             validate_operand(mir, function, definitions, tuple, errors);

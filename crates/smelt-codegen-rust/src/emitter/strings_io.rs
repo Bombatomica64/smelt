@@ -27,11 +27,48 @@ impl FunctionEmitter<'_> {
         }
     }
 
+    /// Wrap a replacement timestamp while preserving metadata from an erased Date receiver.
+    ///
+    /// Date subclasses and context-backed dates carry behavior through fields on
+    /// their erased object representation. JavaScript setters mutate that same
+    /// Date kind, so rebuilding only `__smelt_date` would incorrectly discard
+    /// timezone and subclass metadata.
+    pub(super) fn date_timestamp_result_preserving_receiver_text(
+        &self,
+        text: &str,
+        dest_ty: TypeId,
+        receiver: &Operand,
+    ) -> Result<String, EmitError> {
+        let result_text = self.date_timestamp_result_text(text, dest_ty)?;
+        if !(self.is_erased_class_type(dest_ty)
+            || matches!(
+                self.mir.types.get(dest_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ))
+        {
+            return Ok(result_text);
+        }
+        let receiver_text = self.operand_text(receiver)?;
+        Ok(format!(
+            "{{ let smelt_date_result = {result_text}; if let (SmeltUnknown::Object(result), SmeltUnknown::Object(receiver)) = (&smelt_date_result, {receiver_text}) {{ for (key, value) in receiver.iter() {{ if key != \"__smelt_date\" {{ result.insert(key, value); }} }} }} smelt_date_result }}"
+        ))
+    }
+
     /// Converts a timestamp in milliseconds to an RFC 3339 timestamp string.
     pub(super) fn date_to_iso_string_text(
         &self,
         timestamp_ms: &Operand,
     ) -> Result<String, EmitError> {
+        let ty = self.operand_ty(timestamp_ms)?;
+        let value_text = self.operand_text(timestamp_ms)?;
+        if self.is_erased_class_type(ty)
+            || matches!(
+                self.mir.types.get(ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Never | Type::Union(_))
+            )
+        {
+            return Ok(format!("({value_text}).to_iso_string()"));
+        }
         let timestamp_text = self.date_timestamp_text(timestamp_ms)?;
         Ok(format!(
             "{{ let timestamp_ms = ({timestamp_text}) as f64; if timestamp_ms.is_finite() {{ chrono::DateTime::<chrono::Utc>::from_timestamp_millis(timestamp_ms as i64).map(|date| date.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_else(|| \"Invalid Date\".to_owned()) }} else {{ \"Invalid Date\".to_owned() }} }}"

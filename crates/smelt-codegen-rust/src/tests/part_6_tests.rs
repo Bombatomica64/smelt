@@ -441,7 +441,7 @@ export function keepInvalid(): string {
         source.contains("timestamp_ms == i64::MIN as f64 { f64::NAN }"),
         "{source}"
     );
-    assert!(source.contains("\"Invalid Date\".to_owned()"), "{source}");
+    assert!(source.contains(".to_iso_string()"), "{source}");
 }
 
 #[test]

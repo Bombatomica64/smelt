@@ -252,6 +252,31 @@ impl ModuleBuilder<'_> {
                 span: self.span(member.span.start, member.span.end),
             }));
         }
+        if let Some(Type::Optional(inner)) = self.ctx.krate.types.get(receiver_ty).cloned()
+            && matches!(member.property.name.as_str(), "done" | "value")
+        {
+            let (kind, ty) = match member.property.name.as_str() {
+                "done" => (
+                    ExprKind::IteratorDone { result: receiver },
+                    self.ctx.krate.types.intern(Type::Bool),
+                ),
+                "value" => (
+                    ExprKind::IteratorValue { result: receiver },
+                    self.ctx.krate.types.intern(Type::Optional(inner)),
+                ),
+                _ => {
+                    return Err(SmeltError::unsupported(
+                        self.span(member.span.start, member.span.end),
+                        "iterator results only expose done and value",
+                    ));
+                }
+            };
+            return Ok(body.push_expr(Expr {
+                kind,
+                ty,
+                span: self.span(member.span.start, member.span.end),
+            }));
+        }
         let field_ty = self.class_field_type(access_receiver_ty, field)?;
         if optional_access {
             let ty = self.optional_chain_result_type(field_ty);
@@ -350,6 +375,7 @@ impl ModuleBuilder<'_> {
             param_tys.push(unknown);
         }
         let projection = match member.property.name.as_str() {
+            "fromEntries" if arity == 1 => Some(DictProjectionOp::FromEntries),
             "keys" if arity == 1 => Some(DictProjectionOp::Keys),
             "values" if arity == 1 => Some(DictProjectionOp::Values),
             "entries" if arity == 1 => Some(DictProjectionOp::Entries),
@@ -374,15 +400,20 @@ impl ModuleBuilder<'_> {
                 ty: unknown,
                 span,
             });
-            let dict = closure_body.push_expr(Expr {
-                kind: ExprKind::UnknownCast {
-                    value: argument,
-                    target: dict_ty,
-                },
-                ty: dict_ty,
-                span,
-            });
+            let dict = if op == DictProjectionOp::FromEntries {
+                argument
+            } else {
+                closure_body.push_expr(Expr {
+                    kind: ExprKind::UnknownCast {
+                        value: argument,
+                        target: dict_ty,
+                    },
+                    ty: dict_ty,
+                    span,
+                })
+            };
             let ty = match op {
+                DictProjectionOp::FromEntries => dict_ty,
                 DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(string_ty)),
                 DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(unknown)),
                 DictProjectionOp::Entries => {
