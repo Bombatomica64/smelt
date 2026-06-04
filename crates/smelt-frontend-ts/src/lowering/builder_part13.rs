@@ -1232,8 +1232,7 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
-            CallbackExprKind::DictLit(_)
-            | CallbackExprKind::Sequence { .. }
+            CallbackExprKind::Sequence { .. }
             | CallbackExprKind::Throw { .. }
             | CallbackExprKind::HasDynamicField { .. }
             | CallbackExprKind::Function(_)
@@ -1241,11 +1240,45 @@ impl ModuleBuilder<'_> {
             | CallbackExprKind::AssignCapture { .. }
             | CallbackExprKind::HasField { .. }
             | CallbackExprKind::FieldTruthy { .. }
-            | CallbackExprKind::TypeofValue { .. }
-            | CallbackExprKind::UnknownIs { .. } => Err(SmeltError::unsupported(
+            | CallbackExprKind::TypeofValue { .. } => Err(SmeltError::unsupported(
                 span,
                 "this callback default expression is not lowered at call sites yet",
             )),
+            CallbackExprKind::DictLit(entries) => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let entries = entries
+                    .iter()
+                    .map(|(key, value)| {
+                        let key = body.push_expr(Expr {
+                            kind: ExprKind::Literal(Literal::String(
+                                self.ctx
+                                    .krate
+                                    .symbols
+                                    .get(*key)
+                                    .unwrap_or_default()
+                                    .to_owned(),
+                            )),
+                            ty: string_ty,
+                            span,
+                        });
+                        let value = self.callback_expr_to_body_expr(value, args, body, span)?;
+                        Ok((key, value))
+                    })
+                    .collect::<Result<Vec<_>, SmeltError>>()?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::DictLit(entries),
+                    ty: callback.ty,
+                    span,
+                }))
+            }
+            CallbackExprKind::UnknownIs { value, kind } => {
+                let value = self.callback_expr_to_body_expr(value, args, body, span)?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::UnknownIs { value, kind: *kind },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
             CallbackExprKind::Index { receiver, index } => {
                 let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 let index_ty = self.ctx.krate.types.intern(Type::Int);
