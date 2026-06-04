@@ -120,6 +120,26 @@ pub enum RuleId {
     TsDateToIsoString,
     /// TypeScript `new URL(text).field`.
     TsUrlField,
+    /// TypeScript `structuredClone(value)`.
+    TsStructuredClone,
+    /// TypeScript `Promise.resolve`, `Promise.all`, `Promise.race`, or `Promise.allSettled`.
+    TsPromiseStatic,
+    /// TypeScript global primitive conversion or numeric parse call.
+    TsPrimitiveCast,
+    /// TypeScript `Symbol(...)` or `Symbol.for(...)`.
+    TsSymbol,
+    /// TypeScript deterministic numeric `Math.*` call.
+    TsMathNumeric,
+    /// TypeScript numeric `Number.*` predicate.
+    TsNumberPredicate,
+    /// TypeScript `Number.parseFloat(...)`.
+    TsNumberParseFloat,
+    /// TypeScript `Number.parseInt(...)`.
+    TsNumberParseInt,
+    /// TypeScript supported static `Object.*` call.
+    TsObjectStatic,
+    /// TypeScript supported static `Array.*` call.
+    TsArrayStatic,
     /// Python `json.dumps(value)`.
     PyJsonDumps,
     /// Python `json.loads(text)`.
@@ -167,6 +187,16 @@ impl RuleId {
             | Self::PyDateTimeNow
             | Self::PyDateTimeFromTimestamp => Some(BackendDependency::Chrono),
             Self::TsUrlField | Self::PyUrlparseField => Some(BackendDependency::Url),
+            Self::TsStructuredClone
+            | Self::TsPromiseStatic
+            | Self::TsPrimitiveCast
+            | Self::TsSymbol
+            | Self::TsMathNumeric
+            | Self::TsNumberPredicate
+            | Self::TsNumberParseFloat
+            | Self::TsNumberParseInt
+            | Self::TsObjectStatic
+            | Self::TsArrayStatic => None,
         }
     }
 
@@ -182,6 +212,16 @@ impl RuleId {
             Self::TsDateNow => "Date.now",
             Self::TsDateToIsoString => "Date.toISOString",
             Self::TsUrlField => "URL field access",
+            Self::TsStructuredClone => "structuredClone",
+            Self::TsPromiseStatic => "Promise static method",
+            Self::TsPrimitiveCast => "primitive conversion",
+            Self::TsSymbol => "Symbol",
+            Self::TsMathNumeric => "Math numeric method",
+            Self::TsNumberPredicate => "Number predicate",
+            Self::TsNumberParseFloat => "Number.parseFloat",
+            Self::TsNumberParseInt => "Number.parseInt",
+            Self::TsObjectStatic => "Object static method",
+            Self::TsArrayStatic => "Array static method",
             Self::PyJsonDumps => "json.dumps",
             Self::PyJsonLoads => "json.loads",
             Self::PyReSearch => "re.search",

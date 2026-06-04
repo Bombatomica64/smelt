@@ -12,5 +12,6 @@ smelt-hir = { path = "../smelt-hir" }
 smelt-stdlib = { path = "../smelt-stdlib" }
 
 [dev-dependencies]
+insta = "1.43"
 smelt-frontend-py = { path = "../smelt-frontend-py" }
 smelt-frontend-ts = { path = "../smelt-frontend-ts" }
