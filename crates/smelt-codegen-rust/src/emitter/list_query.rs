@@ -861,15 +861,6 @@ impl FunctionEmitter<'_> {
         callback: &Operand,
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let callback_body = match self.closure_callback_body(callback) {
-            Ok(callback_body) => callback_body,
-            Err(_) => return Ok("Default::default()".to_owned()),
-        };
-        if self.mir.types.get(dest_ty) != Some(&Type::List(callback_body.ty)) {
-            return Err(EmitError::new(
-                "Array.from mapper destination must be a list of callback results",
-            ));
-        }
         if !matches!(
             self.mir.types.get(self.operand_ty(length)?),
             Some(Type::Int | Type::Float)
@@ -877,9 +868,43 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("Array.from length must be numeric"));
         }
         let length_text = self.operand_text(length)?;
-        let callback_text = self.callback_expr_text(callback_body, &["item", "index"])?;
+        if let Ok(callback_body) = self.closure_callback_body(callback) {
+            if self.mir.types.get(dest_ty) != Some(&Type::List(callback_body.ty)) {
+                return Err(EmitError::new(
+                    "Array.from mapper destination must be a list of callback results",
+                ));
+            }
+            let callback_text = self.callback_expr_text(callback_body, &["item", "index"])?;
+            return Ok(format!(
+                "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {{ let item = SmeltUnknown::Null; let index = index as f64; {callback_text} }}).collect::<Vec<_>>() }}"
+            ));
+        }
+        let Some(Type::Function(function_ty)) = self.mir.types.get(self.operand_ty(callback)?)
+        else {
+            return Ok("Default::default()".to_owned());
+        };
+        if self.mir.types.get(dest_ty) != Some(&Type::List(function_ty.return_ty)) {
+            return Err(EmitError::new(
+                "Array.from mapper destination must be a list of callback results",
+            ));
+        }
+        let closure_text = self.closure_operand_text_for_declared_type(callback)?;
+        let unknown_ty = self.type_id(Type::Unknown)?;
+        let float_ty = self.type_id(Type::Float)?;
+        let mut call_args = Vec::new();
+        if let Some(item_param_ty) = function_ty.params.first().copied() {
+            call_args.push(self.value_at_type_text(
+                "SmeltUnknown::Null",
+                unknown_ty,
+                item_param_ty,
+            )?);
+        }
+        if let Some(index_param_ty) = function_ty.params.get(1).copied() {
+            call_args.push(self.value_at_type_text("index as f64", float_ty, index_param_ty)?);
+        }
+        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
         Ok(format!(
-            "{{ let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {{ let item = SmeltUnknown::Null; let index = index as f64; {callback_text} }}).collect::<Vec<_>>() }}"
+            "{{ let mut smelt_callback = {closure_text}; let array_from_length = ({length_text} as f64).max(0.0).floor() as usize; (0..array_from_length).map(|index| {call_text}).collect::<Vec<_>>() }}"
         ))
     }
 

@@ -4700,11 +4700,17 @@ function range(start: number, length: number, step: number): number[] {
     let _module = module(&ctx, module_id)?;
     ensure!(
         ctx.krate.bodies.iter().any(|body| {
-            body.exprs
-                .iter()
-                .any(|expr| matches!(expr.kind, ExprKind::ListFromLengthMap { .. }))
+            body.exprs.iter().any(|expr| {
+                let ExprKind::ListFromLengthMap { callback, .. } = expr.kind else {
+                    return false;
+                };
+                matches!(
+                    body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
+                    Some(ExprKind::Closure(closure)) if closure.callback_body.is_none()
+                )
+            })
         }),
-        "Array.from({{ length }}, mapper) did not lower"
+        "Array.from({{ length }}, mapper) did not lower through a normal closure body"
     );
     Ok(())
 }

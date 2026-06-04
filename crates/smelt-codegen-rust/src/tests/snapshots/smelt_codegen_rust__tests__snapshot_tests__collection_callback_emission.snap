@@ -8,8 +8,14 @@ expression: emitted
 // ... shared generated runtime prelude omitted from selective snapshot ...
 
 fn double(values: Vec<f64>) -> Vec<f64> {
-    let _smelt_tmp_1 = ::std::rc::Rc::new(|arg0: f64, arg1: i64, arg2: Vec<f64>| -> f64 { (arg0 * 2.0) });
-    let _smelt_tmp_2: Vec<f64> = values.clone().iter().enumerate().map(|(index, item)| { let item = (*item).clone(); (item * 2.0) }).collect::<Vec<_>>();
+    let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: Vec<f64>| {
+    let _smelt_tmp_3: f64 = closure_arg_0.clone() * 2.0;
+    _smelt_tmp_3.clone()
+    });
+    let _smelt_tmp_2: Vec<f64> = { let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: f64, closure_arg_1: i64, closure_arg_2: Vec<f64>| {
+    let _smelt_tmp_3: f64 = closure_arg_0.clone() * 2.0;
+    _smelt_tmp_3.clone()
+    }); let smelt_array = values.clone().clone(); smelt_array.iter().enumerate().map(|(index, item)| { (smelt_callback)(item.clone(), index as i64, smelt_array.clone()) }).collect::<Vec<_>>() };
     return _smelt_tmp_2.clone();
 }
 
