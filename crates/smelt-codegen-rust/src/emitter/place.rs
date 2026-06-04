@@ -223,6 +223,10 @@ impl FunctionEmitter<'_> {
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                         self.unknown_index_text(&self.local_value_text(*base)?, index)
                     }
+                    Some(Type::Tuple(items)) => {
+                        let tuple_index = self.tuple_index(index, items.len())?;
+                        Ok(format!("{}.{tuple_index}", self.local_value_text(*base)?))
+                    }
                     _ => Ok("SmeltUnknown::Null".to_owned()),
                 }
             }
@@ -256,8 +260,12 @@ impl FunctionEmitter<'_> {
                             self.local_mut_value_text(*base)?
                         ))
                     }
+                    Some(Type::Tuple(items)) => {
+                        let tuple_index = self.tuple_index(index, items.len())?;
+                        Ok(format!("{}.{tuple_index}", self.local_mut_value_text(*base)?))
+                    }
                     _ => Err(EmitError::new(
-                        "index assignment codegen is only implemented for lists and dicts",
+                        "index assignment codegen is only implemented for lists, dicts, and tuples",
                     )),
                 }
             }
@@ -273,6 +281,19 @@ impl FunctionEmitter<'_> {
                 self.place_text(place)
             }
         }
+    }
+
+    /// Resolves a statically known tuple index for Rust field access.
+    pub(super) fn tuple_index(&self, index: &Operand, len: usize) -> Result<usize, EmitError> {
+        let value = match index {
+            Operand::Const(Constant::Int(value)) => usize::try_from(*value).ok(),
+            _ => None,
+        }
+        .ok_or_else(|| EmitError::new("tuple index must be a non-negative constant integer"))?;
+        if value >= len {
+            return Err(EmitError::new("tuple index is out of bounds"));
+        }
+        Ok(value)
     }
 
     /// Gets the type of a place.

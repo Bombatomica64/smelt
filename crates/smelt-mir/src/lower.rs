@@ -77,6 +77,12 @@ pub struct LowerError {
 /// Function lowering output with any closures discovered inside the function body.
 type LoweredFunction = (MirFunction, Vec<MirClosure>);
 
+/// Original place and temporary local used for collection mutation writeback.
+type MutationWriteback = Option<(Place, LocalId)>;
+
+/// Lowered collection mutation receiver and its optional writeback.
+type LoweredMutationReceiver = (Operand, MutationWriteback);
+
 /// Lowers a HIR crate to MIR, or returns lowering errors if the conversion fails.
 pub fn lower_hir(krate: &smelt_hir::Crate) -> Result<Mir, Vec<LowerError>> {
     let hir_errors = smelt_hir::validate(krate);
@@ -3073,7 +3079,7 @@ impl<'hir> LoweringCtx<'hir> {
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListPush { list, item } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let item_operand = self.lower_expr(*item)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
@@ -3083,10 +3089,11 @@ impl<'hir> LoweringCtx<'hir> {
                         item: item_operand,
                     },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListExtend { list, other } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let other_operand = self.lower_expr(*other)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
@@ -3096,10 +3103,11 @@ impl<'hir> LoweringCtx<'hir> {
                         other: other_operand,
                     },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListInsert { list, index, item } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let index_operand = self.lower_expr(*index)?;
                 let item_operand = self.lower_expr(*item)?;
                 let dest = self.push_temp(expr.ty, expr.span);
@@ -3111,10 +3119,11 @@ impl<'hir> LoweringCtx<'hir> {
                         item: item_operand,
                     },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListUnshift { list, items } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let item_operands = items
                     .iter()
                     .map(|item| self.lower_expr(*item))
@@ -3127,24 +3136,27 @@ impl<'hir> LoweringCtx<'hir> {
                         items: item_operands,
                     },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListReverse { list } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListReverse { list: list_operand },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListClear { list } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListClear { list: list_operand },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListCopy { list } => {
@@ -3299,7 +3311,7 @@ impl<'hir> LoweringCtx<'hir> {
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListRemove { list, item } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let item_operand = self.lower_expr(*item)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
@@ -3309,10 +3321,11 @@ impl<'hir> LoweringCtx<'hir> {
                         item: item_operand,
                     },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListSort { list, comparator } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
@@ -3321,24 +3334,27 @@ impl<'hir> LoweringCtx<'hir> {
                         comparator: comparator.clone(),
                     },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListPop { list } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListPop { list: list_operand },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListShift { list } => {
-                let list_operand = self.lower_expr(*list)?;
+                let (list_operand, writeback) = self.lower_mutation_receiver(*list)?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,
                     value: Rvalue::ListShift { list: list_operand },
                 });
+                self.write_back_mutation_receiver(writeback)?;
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::ListNext { list } => {
@@ -4241,6 +4257,50 @@ impl<'hir> LoweringCtx<'hir> {
         })
     }
 
+    /// Lowers a mutable collection receiver and records non-local place writeback.
+    fn lower_mutation_receiver(
+        &mut self,
+        expr_id: ExprId,
+    ) -> Result<LoweredMutationReceiver, LowerError> {
+        let expr = self.hir_expr(expr_id)?.clone();
+        if !matches!(
+            expr.kind,
+            ExprKind::Field { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::TupleIndex { .. }
+                | ExprKind::TypeAssert { .. }
+                | ExprKind::UnknownCast { .. }
+        ) {
+            return Ok((self.lower_expr(expr_id)?, None));
+        }
+
+        let place = self.lower_place(expr_id)?;
+        if matches!(place, Place::Local(_)) {
+            return Ok((Operand::Copy(place), None));
+        }
+
+        let local = self.push_temp(expr.ty, expr.span);
+        self.block_mut()?.statements.push(Statement::Assign {
+            dest: local,
+            value: Rvalue::Use(Operand::Copy(place.clone())),
+        });
+        Ok((Operand::Copy(Place::Local(local)), Some((place, local))))
+    }
+
+    /// Writes a mutated temporary collection back through its original place.
+    fn write_back_mutation_receiver(
+        &mut self,
+        writeback: MutationWriteback,
+    ) -> Result<(), LowerError> {
+        if let Some((place, local)) = writeback {
+            self.block_mut()?.statements.push(Statement::AssignPlace {
+                place,
+                value: Rvalue::Use(Operand::Copy(Place::Local(local))),
+            });
+        }
+        Ok(())
+    }
+
     /// Lowers an lvalue expression to a MIR place for assignment targets.
     fn lower_place(&mut self, expr_id: ExprId) -> Result<Place, LowerError> {
         let expr = self.hir_expr(expr_id)?.clone();
@@ -4270,6 +4330,18 @@ impl<'hir> LoweringCtx<'hir> {
                 Ok(Place::Index {
                     base,
                     index: Box::new(index_operand),
+                })
+            }
+            ExprKind::TupleIndex { tuple, index } => {
+                let tuple_operand = self.lower_expr(*tuple)?;
+                let tuple_ty = self.hir_expr(*tuple)?.ty;
+                let base = self.materialize_operand_local(tuple_operand, tuple_ty, expr.span)?;
+                let tuple_index = i64::try_from(*index).map_err(|_error| {
+                    self.error("tuple index does not fit in MIR integer", Some(expr.span))
+                })?;
+                Ok(Place::Index {
+                    base,
+                    index: Box::new(Operand::Const(Constant::Int(tuple_index))),
                 })
             }
             ExprKind::TypeAssert { value } | ExprKind::UnknownCast { value, .. } => {
@@ -4373,7 +4445,6 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::IteratorDone { .. }
             | ExprKind::IteratorValue { .. }
             | ExprKind::TupleContains { .. }
-            | ExprKind::TupleIndex { .. }
             | ExprKind::TupleSlice { .. }
             | ExprKind::DictContainsKey { .. }
             | ExprKind::DictSet { .. }

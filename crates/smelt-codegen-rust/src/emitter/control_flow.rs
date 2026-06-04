@@ -336,6 +336,19 @@ impl FunctionEmitter<'_> {
                         ));
                         return Ok(());
                     }
+                    Some(Type::Tuple(items)) => {
+                        let tuple_index = self.tuple_index(index, items.len())?;
+                        let item_ty = items
+                            .get(tuple_index)
+                            .copied()
+                            .ok_or_else(|| EmitError::new("tuple index is out of bounds"))?;
+                        let rendered_value = self.rvalue_text_for_dest(value, item_ty)?;
+                        out.push_str(&format!(
+                            "    {}.{tuple_index} = {rendered_value};\n",
+                            self.local_mut_value_text(*base)?
+                        ));
+                        return Ok(());
+                    }
                     Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                         let rendered_value =
                             self.rvalue_text_for_dest(value, self.type_id(Type::Unknown)?)?;

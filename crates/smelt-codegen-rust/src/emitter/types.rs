@@ -377,7 +377,7 @@ impl FunctionEmitter<'_> {
                     _ => self.type_id(Type::Unknown),
                 }
             }
-            Place::Index { base, .. } => {
+            Place::Index { base, index } => {
                 let base_ty = self.local_decl(*base)?.ty;
                 match self.mir.types.get(base_ty) {
                     Some(Type::List(item)) => Ok(*item),
@@ -394,6 +394,13 @@ impl FunctionEmitter<'_> {
                     Some(Type::Dict(_, value)) => Ok(*value),
                     Some(Type::String) => self.type_id(Type::String),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(base_ty),
+                    Some(Type::Tuple(items)) => {
+                        let tuple_index = self.tuple_index(index, items.len())?;
+                        items
+                            .get(tuple_index)
+                            .copied()
+                            .ok_or_else(|| EmitError::new("tuple index is out of bounds"))
+                    }
                     _ => self.type_id(Type::Unknown),
                 }
             }

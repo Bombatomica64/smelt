@@ -3441,3 +3441,20 @@ function sizeOf(value: unknown): unknown {
         "{source}"
     );
 }
+
+#[test]
+fn writes_back_list_pushes_through_tuple_indexes() {
+    let source = source_for(
+        r#"
+function partitionLike(values: number[]): [number[], number[]] {
+  const result: [number[], number[]] = [[], []];
+  result[0].push(values[0]);
+  result[1].push(values[1]);
+  return result;
+}
+"#,
+    );
+
+    assert!(source.contains("result.0 ="), "{source}");
+    assert!(source.contains("result.1 ="), "{source}");
+}
