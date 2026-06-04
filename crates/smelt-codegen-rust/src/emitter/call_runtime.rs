@@ -57,7 +57,7 @@ impl FunctionEmitter<'_> {
         for field in fields {
             let field_name = sanitize_ident(self.symbol_name(field.name)?);
             let value = if let Some(entry_value) = literal_entries.get(&field_name) {
-                self.operand_as_type_text(entry_value, field.ty)?
+                self.value_at_type(entry_value, field.ty)?
             } else if matches!(self.mir.types.get(field.ty), Some(Type::Optional(_))) {
                 self.default_value(field.ty)?
             } else {
@@ -97,7 +97,7 @@ impl FunctionEmitter<'_> {
                     self.operand_text(operand)?
                 ))
             }
-            Rvalue::Use(operand) => self.operand_as_type_text(operand, dest_ty),
+            Rvalue::Use(operand) => self.value_at_type(operand, dest_ty),
             Rvalue::List(items) => {
                 if let Some(Type::Optional(inner)) = self.mir.types.get(dest_ty) {
                     if matches!(
@@ -118,12 +118,7 @@ impl FunctionEmitter<'_> {
                 {
                     let items_text = items
                         .iter()
-                        .map(|item| {
-                            self.operand_as_type_text(
-                                &self.list_literal_operand(item),
-                                self.type_id(Type::Unknown)?,
-                            )
-                        })
+                        .map(|item| self.erase(&self.list_literal_operand(item)))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     return Ok(format!("SmeltUnknown::Array(vec![{items_text}].into())"));
@@ -131,9 +126,7 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) {
                     let items_text = items
                         .iter()
-                        .map(|item| {
-                            self.operand_as_type_text(&self.list_literal_operand(item), *item_ty)
-                        })
+                        .map(|item| self.value_at_type(&self.list_literal_operand(item), *item_ty))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     return Ok(format!("vec![{items_text}]"));
@@ -162,7 +155,7 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|item| {
                         if let Some(set_item_ty) = item_ty {
-                            self.operand_as_type_text(item, set_item_ty)
+                            self.value_at_type(item, set_item_ty)
                         } else {
                             self.operand_text(item)
                         }
@@ -188,11 +181,8 @@ impl FunctionEmitter<'_> {
                         .map(|(key, entry_value)| {
                             Ok(format!(
                                 "({}, {})",
-                                self.operand_as_type_text(key, self.type_id(Type::String)?)?,
-                                self.operand_as_type_text(
-                                    entry_value,
-                                    self.type_id(Type::Unknown)?
-                                )?
+                                self.value_at_type(key, self.type_id(Type::String)?)?,
+                                self.erase(entry_value)?
                             ))
                         })
                         .collect::<Result<Vec<_>, EmitError>>()?
@@ -209,7 +199,7 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .map(|(key, entry_value)| {
                         let key_text = if let Some((key_ty, _)) = dict_types {
-                            self.operand_as_type_text(key, key_ty)?
+                            self.value_at_type(key, key_ty)?
                         } else {
                             self.operand_text(key)?
                         };
@@ -218,10 +208,10 @@ impl FunctionEmitter<'_> {
                                 format!(
                                     "{{ let smelt_fn: {} = {}; smelt_fn }}",
                                     self.type_text_with_impl_trait(value_ty, false)?,
-                                    self.operand_as_type_text(entry_value, value_ty)?
+                                    self.value_at_type(entry_value, value_ty)?
                                 )
                             } else {
-                                self.operand_as_type_text(entry_value, value_ty)?
+                                self.value_at_type(entry_value, value_ty)?
                             }
                         } else {
                             self.operand_text(entry_value)?
@@ -255,7 +245,7 @@ impl FunctionEmitter<'_> {
                             let item = items.get(item_index).ok_or_else(|| {
                                 EmitError::new("tuple destination has more items than literal")
                             })?;
-                            self.operand_as_type_text(item, *target_item)
+                            self.value_at_type(item, *target_item)
                         })
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
@@ -318,9 +308,9 @@ impl FunctionEmitter<'_> {
                 {
                     return Ok(format!(
                         "{} {} {}",
-                        self.operand_as_type_text(lhs, dest_ty)?,
+                        self.value_at_type(lhs, dest_ty)?,
                         smelt_hir::bin_op_text(*op),
-                        self.operand_as_type_text(rhs, dest_ty)?
+                        self.value_at_type(rhs, dest_ty)?
                     ));
                 }
                 if matches!(*op, smelt_hir::BinOp::And | smelt_hir::BinOp::Or)
@@ -385,11 +375,7 @@ impl FunctionEmitter<'_> {
                         || self.type_contains_unknown(lhs_ty)
                         || self.type_contains_unknown(rhs_ty)
                     {
-                        let comparison = format!(
-                            "{} == {}",
-                            self.unknown_wrap_text(lhs)?,
-                            self.unknown_wrap_text(rhs)?
-                        );
+                        let comparison = format!("{} == {}", self.erase(lhs)?, self.erase(rhs)?);
                         return Ok(if *op == smelt_hir::BinOp::NotEq {
                             format!("!({comparison})")
                         } else {
@@ -435,8 +421,8 @@ impl FunctionEmitter<'_> {
             } => Ok(format!(
                 "if {} {{ {} }} else {{ {} }}",
                 self.operand_text(cond)?,
-                self.operand_as_type_text(then_operand, dest_ty)?,
-                self.operand_as_type_text(else_operand, dest_ty)?
+                self.value_at_type(then_operand, dest_ty)?,
+                self.value_at_type(else_operand, dest_ty)?
             )),
             Rvalue::OptionalField { receiver, field } => {
                 self.optional_field_text_for_dest(receiver, *field, dest_ty)
@@ -459,18 +445,18 @@ impl FunctionEmitter<'_> {
             Rvalue::UnknownIs {
                 value: unknown_value,
                 kind,
-            } => self.unknown_is_text(unknown_value, *kind),
+            } => self.tag_check(unknown_value, *kind),
             Rvalue::UnknownCast {
                 value: unknown_value,
                 target,
             } => {
                 let target_rust_ty = self.type_text_with_impl_trait(*target, false)?;
                 let cast_text = if target_rust_ty == "SmeltUnknown" {
-                    self.unknown_wrap_text(unknown_value)?
+                    self.erase(unknown_value)?
                 } else {
-                    self.unknown_cast_text(unknown_value, *target)?
+                    self.extract(unknown_value, *target)?
                 };
-                self.rendered_value_as_type_text(&cast_text, *target, dest_ty)
+                self.value_at_type_text(&cast_text, *target, dest_ty)
             }
             Rvalue::Struct { class, fields } => {
                 let class_name = sanitize_ident(self.symbol_name(*class)?);
@@ -659,10 +645,10 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(callee_ty)
                 {
                     let callee_text = self.operand_text(callee)?;
-                    let rendered_args = args
-                        .iter()
-                        .map(|arg| self.unknown_wrap_text(arg))
-                        .collect::<Result<Vec<_>, EmitError>>()?;
+                    let rendered_args =
+                        args.iter()
+                            .map(|arg| self.erase(arg))
+                            .collect::<Result<Vec<_>, EmitError>>()?;
                     let smelt_call_args = if rendered_args.len() == 1
                         && args.first().is_some_and(|arg| {
                             matches!(
@@ -689,7 +675,7 @@ impl FunctionEmitter<'_> {
                     if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                         return Ok(call_text);
                     }
-                    return self.rendered_value_as_type_text(&call_text, unknown_ty, dest_ty);
+                    return self.value_at_type_text(&call_text, unknown_ty, dest_ty);
                 }
                 if !matches!(self.mir.types.get(callee_ty), Some(Type::Function(_))) {
                     return self.default_value(dest_ty);
@@ -736,7 +722,7 @@ impl FunctionEmitter<'_> {
                             }) {
                                 self.mutable_reference_argument_text(arg, *param)?
                             } else {
-                                self.operand_as_type_text(arg, *param)?
+                                self.value_at_type(arg, *param)?
                             };
                             if self.type_text(*param)? == "Vec<SmeltUnknown>"
                                 && text
@@ -811,7 +797,7 @@ impl FunctionEmitter<'_> {
                 if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                     return Ok(format!("{{ {rendered_call_text}; () }}"));
                 }
-                self.rendered_value_as_type_text(&rendered_call_text, source_ty, dest_ty)
+                self.value_at_type_text(&rendered_call_text, source_ty, dest_ty)
             }
             Rvalue::ClosureCallSpread { callee, args } => {
                 let callee_text = self.operand_text(callee)?;
@@ -819,7 +805,7 @@ impl FunctionEmitter<'_> {
                 let args_ty = self.type_id(Type::List(unknown_ty))?;
                 let args_text = self
                     .inline_list_concat_operand_text(args)?
-                    .unwrap_or(self.operand_as_type_text(args, args_ty)?);
+                    .unwrap_or(self.value_at_type(args, args_ty)?);
                 if let Some(Type::Function(function)) = self.mir.types.get(self.operand_ty(callee)?)
                 {
                     let callee_is_erased_rest =
@@ -844,11 +830,7 @@ impl FunctionEmitter<'_> {
                     if callee_is_erased_rest && self.mir.types.get(dest_ty) == Some(&Type::None) {
                         return Ok(format!("{{ {call_text}; () }}"));
                     }
-                    return self.rendered_value_as_type_text(
-                        &call_text,
-                        function.return_ty,
-                        dest_ty,
-                    );
+                    return self.value_at_type_text(&call_text, function.return_ty, dest_ty);
                 }
                 let call_text = format!(
                     "{{ let smelt_function_value = {callee_text}.clone(); let smelt_call_args = {args_text}; let smelt_callable = match smelt_function_value {{ SmeltUnknown::Function(smelt_function) => Some(smelt_function), SmeltUnknown::Object(smelt_object) => match smelt_object.get(\"__smelt_call\") {{ Some(SmeltUnknown::Function(smelt_function)) => Some(smelt_function), _ => None }}, _ => None }}; if let Some(smelt_function) = smelt_callable {{ (smelt_function)(smelt_call_args).unwrap_or_else(|error| panic!(\"{{}}\", error)) }} else {{ SmeltUnknown::Null }} }}"
@@ -856,7 +838,7 @@ impl FunctionEmitter<'_> {
                 if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
                     return Ok(call_text);
                 }
-                self.rendered_value_as_type_text(&call_text, unknown_ty, dest_ty)
+                self.value_at_type_text(&call_text, unknown_ty, dest_ty)
             }
             Rvalue::ListCallback { op, list, callback } => {
                 self.list_callback_text(*op, list, callback, dest_ty)
@@ -936,9 +918,9 @@ impl FunctionEmitter<'_> {
             Rvalue::IteratorValue { result } => {
                 let text = self.operand_text(result)?;
                 if self.mir.types.get(dest_ty) == Some(&Type::Unknown) {
-                    self.unknown_wrap_value_text(&text, self.operand_ty(result)?)
+                    self.erase_value_text(&text, self.operand_ty(result)?)
                 } else {
-                    self.operand_as_type_text(result, dest_ty)
+                    self.value_at_type(result, dest_ty)
                 }
             }
             Rvalue::TupleContains { tuple, item } => self.tuple_contains_text(tuple, item),
@@ -1002,7 +984,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::DateSetTimezoneOffset { offset } => Ok(format!(
                 "{{ SMELT_DATE_TIMEZONE_OFFSET.with(|value| value.set({})); {} }}",
-                self.operand_as_type_text(offset, self.type_id(Type::Float)?)?,
+                self.value_at_type(offset, self.type_id(Type::Float)?)?,
                 self.default_value(dest_ty)?
             )),
             Rvalue::DateResetTimezoneOffset => Ok(format!(
@@ -1168,7 +1150,7 @@ impl FunctionEmitter<'_> {
                 "{} {} {}",
                 self.option_value_as_type_text(lhs, inner, common_ty)?,
                 smelt_hir::bin_op_text(op),
-                self.operand_as_type_text(rhs, common_ty)?
+                self.value_at_type(rhs, common_ty)?
             )));
         }
 
@@ -1180,7 +1162,7 @@ impl FunctionEmitter<'_> {
             let common_ty = self.common_numeric_type(lhs_ty, inner, dest_ty)?;
             return Ok(Some(format!(
                 "{} {} {}",
-                self.operand_as_type_text(lhs, common_ty)?,
+                self.value_at_type(lhs, common_ty)?,
                 smelt_hir::bin_op_text(op),
                 self.option_value_as_type_text(rhs, inner, common_ty)?
             )));
@@ -1233,12 +1215,12 @@ impl FunctionEmitter<'_> {
             let lhs_text = if lhs_is_erased {
                 self.operand_text(lhs)?
             } else {
-                self.unknown_wrap_text(lhs)?
+                self.erase(lhs)?
             };
             let rhs_text = if rhs_is_erased {
                 self.operand_text(rhs)?
             } else {
-                self.unknown_wrap_text(rhs)?
+                self.erase(rhs)?
             };
             if strict {
                 format!("{lhs_text}.same_js_key(&{rhs_text})")
@@ -1297,14 +1279,14 @@ impl FunctionEmitter<'_> {
             format!(
                 "{} == Some({})",
                 self.operand_text(lhs)?,
-                self.operand_as_type_text(rhs, inner)?
+                self.value_at_type(rhs, inner)?
             )
         } else if let Some(inner) = rhs_inner
             && lhs_inner.is_none()
         {
             format!(
                 "Some({}) == {}",
-                self.operand_as_type_text(lhs, inner)?,
+                self.value_at_type(lhs, inner)?,
                 self.operand_text(rhs)?
             )
         } else {
@@ -1345,9 +1327,9 @@ impl FunctionEmitter<'_> {
         let common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
         Ok(Some(format!(
             "{} {} {}",
-            self.operand_as_type_text(lhs, common_ty)?,
+            self.value_at_type(lhs, common_ty)?,
             smelt_hir::bin_op_text(op),
-            self.operand_as_type_text(rhs, common_ty)?
+            self.value_at_type(rhs, common_ty)?
         )))
     }
 
@@ -1564,21 +1546,17 @@ impl FunctionEmitter<'_> {
             format!(
                 "{} == {}",
                 self.operand_text(lhs)?,
-                self.operand_as_type_text(rhs, lhs_ty)?
+                self.value_at_type(rhs, lhs_ty)?
             )
         } else if rhs_needs_erased && !lhs_needs_erased {
             if matches!(self.mir.types.get(lhs_ty), Some(Type::Tuple(_)))
                 && matches!(self.mir.types.get(rhs_ty), Some(Type::List(_)))
             {
-                format!(
-                    "{} == {}",
-                    self.operand_as_type_text(lhs, self.type_id(Type::Unknown)?)?,
-                    self.operand_as_type_text(rhs, self.type_id(Type::Unknown)?)?
-                )
+                format!("{} == {}", self.erase(lhs)?, self.erase(rhs)?)
             } else {
                 format!(
                     "{} == {}",
-                    self.operand_as_type_text(lhs, rhs_ty)?,
+                    self.value_at_type(lhs, rhs_ty)?,
                     self.operand_text(rhs)?
                 )
             }
@@ -1703,8 +1681,8 @@ impl FunctionEmitter<'_> {
             return Ok(None);
         }
         let float_ty = self.type_id(Type::Float)?;
-        let lhs_text = self.operand_as_type_text(lhs, float_ty)?;
-        let rhs_text = self.operand_as_type_text(rhs, float_ty)?;
+        let lhs_text = self.value_at_type(lhs, float_ty)?;
+        let rhs_text = self.value_at_type(rhs, float_ty)?;
         let numeric_text = format!("{lhs_text} {} {rhs_text}", smelt_hir::bin_op_text(op));
         Ok(Some(match self.mir.types.get(dest_ty) {
             Some(Type::Int) => format!("(({numeric_text}) as f64).trunc() as i64"),
@@ -1758,7 +1736,7 @@ impl FunctionEmitter<'_> {
         target: TypeId,
     ) -> Result<String, EmitError> {
         let value = self.option_value_text(operand, inner)?;
-        self.rendered_value_as_type_text(&value, inner, target)
+        self.value_at_type_text(&value, inner, target)
     }
 
     /// Emits Rust for an optional-chain field read coerced to a destination type.
@@ -1786,12 +1764,12 @@ impl FunctionEmitter<'_> {
                         "{receiver_text}.as_ref().and_then(|_smelt_value| {mapped})"
                     ));
                 }
-                let mapped = self.rendered_value_as_type_text(&value, field_ty, *dest_inner)?;
+                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
                 return Ok(format!(
                     "{receiver_text}.as_ref().map(|_smelt_value| {mapped})"
                 ));
             }
-            let mapped = self.rendered_value_as_type_text(&value, field_ty, dest_ty)?;
+            let mapped = self.value_at_type_text(&value, field_ty, dest_ty)?;
             Ok(format!(
                 "{receiver_text}.as_ref().map_or({}, |_smelt_value| {mapped})",
                 self.default_value(dest_ty)?
@@ -1802,10 +1780,10 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Optional(field_inner)) = self.mir.types.get(field_ty) {
                     return self.optional_inner_map_text(&value, *field_inner, *dest_inner);
                 }
-                let mapped = self.rendered_value_as_type_text(&value, field_ty, *dest_inner)?;
+                let mapped = self.value_at_type_text(&value, field_ty, *dest_inner)?;
                 return Ok(format!("Some({mapped})"));
             }
-            self.rendered_value_as_type_text(&value, field_ty, dest_ty)
+            self.value_at_type_text(&value, field_ty, dest_ty)
         }
     }
 
@@ -2007,8 +1985,8 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(optional_ty)
         {
-            let optional_text = self.operand_as_type_text(optional, optional_ty)?;
-            let fallback_text = self.operand_as_type_text(fallback, optional_ty)?;
+            let optional_text = self.value_at_type(optional, optional_ty)?;
+            let fallback_text = self.value_at_type(fallback, optional_ty)?;
             let coalesced = format!(
                 "match {optional_text} {{ SmeltUnknown::Null => {fallback_text}, value => value }}"
             );
@@ -2026,7 +2004,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
             ) && !self.is_erased_class_type(dest_ty)
             {
-                return self.rendered_value_as_type_text(&coalesced, optional_ty, dest_ty);
+                return self.value_at_type_text(&coalesced, optional_ty, dest_ty);
             }
             return Ok(coalesced);
         }
@@ -2038,9 +2016,8 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(dest_ty)
                 {
                     let optional_text = self.operand_text(optional)?;
-                    let present_text =
-                        self.rendered_value_as_type_text("value", *inner, dest_ty)?;
-                    let fallback_text = self.operand_as_type_text(fallback, dest_ty)?;
+                    let present_text = self.value_at_type_text("value", *inner, dest_ty)?;
+                    let fallback_text = self.value_at_type(fallback, dest_ty)?;
                     return Ok(format!(
                         "{optional_text}.map_or_else(|| {fallback_text}, |value| {present_text})"
                     ));
@@ -2052,9 +2029,8 @@ impl FunctionEmitter<'_> {
                 ) || self.is_erased_class_type(fallback_ty)
                 {
                     let optional_text = self.operand_text(optional)?;
-                    let fallback_text = self.operand_as_type_text(fallback, fallback_ty)?;
-                    let mapped_value =
-                        self.rendered_value_as_type_text("value", fallback_ty, *inner)?;
+                    let fallback_text = self.value_at_type(fallback, fallback_ty)?;
+                    let mapped_value = self.value_at_type_text("value", fallback_ty, *inner)?;
                     let fallback_option = format!(
                         "match {fallback_text} {{ SmeltUnknown::Null => None, value => Some({mapped_value}) }}"
                     );
@@ -2069,7 +2045,7 @@ impl FunctionEmitter<'_> {
                     if dest_ty == *inner {
                         return Ok(coalesced);
                     }
-                    return self.rendered_value_as_type_text(&coalesced, *inner, dest_ty);
+                    return self.value_at_type_text(&coalesced, *inner, dest_ty);
                 }
                 if let Some(Type::Optional(fallback_inner)) = self.mir.types.get(fallback_ty)
                     && fallback_inner == inner
@@ -2084,12 +2060,12 @@ impl FunctionEmitter<'_> {
                 let coalesced = format!(
                     "{}.clone().unwrap_or({})",
                     self.operand_text(optional)?,
-                    self.operand_as_type_text(fallback, *inner)?
+                    self.value_at_type(fallback, *inner)?
                 );
                 if dest_ty == *inner {
                     Ok(coalesced)
                 } else {
-                    self.rendered_value_as_type_text(&coalesced, *inner, dest_ty)
+                    self.value_at_type_text(&coalesced, *inner, dest_ty)
                 }
             }
             Some(Type::None) => self.operand_text(fallback),
@@ -2107,7 +2083,7 @@ impl FunctionEmitter<'_> {
         if source_inner == dest_inner {
             return Ok(value_text.to_owned());
         }
-        let mapped = self.rendered_value_as_type_text("_smelt_inner", source_inner, dest_inner)?;
+        let mapped = self.value_at_type_text("_smelt_inner", source_inner, dest_inner)?;
         Ok(format!("{value_text}.map(|_smelt_inner| {mapped})"))
     }
 
@@ -2142,7 +2118,7 @@ impl FunctionEmitter<'_> {
         }
         let items = args
             .iter()
-            .map(|arg| self.operand_as_type_text(arg, *item))
+            .map(|arg| self.value_at_type(arg, *item))
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");
         Ok(Some(vec![format!("vec![{items}]")]))
@@ -2167,13 +2143,13 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(dest_ty)
         {
-            let callable_text = self.unknown_wrap_text(callable)?;
+            let callable_text = self.erase(callable)?;
             let mut entries = vec![format!(
                 "smelt_object.insert(\"__smelt_call\".to_owned(), {callable_text});"
             )];
             for (key, value) in props {
                 let key_text = self.symbol_source_name(*key)?;
-                let value_text = self.operand_as_type_text(value, self.type_id(Type::Unknown)?)?;
+                let value_text = self.erase(value)?;
                 entries.push(format!(
                     "smelt_object.insert({key_text:?}.to_owned(), {value_text});"
                 ));
@@ -2325,7 +2301,7 @@ impl FunctionEmitter<'_> {
                 let param_ty = self.function_local_decl(function, *param)?.ty;
                 let item =
                     format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
-                self.rendered_value_as_type_text(&item, unknown_ty, param_ty)
+                self.value_at_type_text(&item, unknown_ty, param_ty)
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
         let call = format!("smelt_receiver.{method_name}({})", args.join(", "));
@@ -2334,7 +2310,7 @@ impl FunctionEmitter<'_> {
         } else {
             call
         };
-        let wrapped_returned = self.unknown_wrap_value_text(&returned, function.return_ty)?;
+        let wrapped_returned = self.erase_value_text(&returned, function.return_ty)?;
         let receiver_clone = if receiver_text == "self" {
             self.self_struct_clone_text(class)?
         } else {
@@ -2476,7 +2452,7 @@ impl FunctionEmitter<'_> {
                         self.operand_ty(index)?,
                     )?
                 } else {
-                    self.operand_as_type_text(index, *key_ty)?
+                    self.value_at_type(index, *key_ty)?
                 };
                 if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
                     Ok(format!("{receiver_text}.get(&{key_text})"))
@@ -2576,7 +2552,7 @@ impl FunctionEmitter<'_> {
         let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
             self.operand_text(index)?
         } else {
-            self.operand_as_type_text(index, self.type_id(Type::Float)?)?
+            self.value_at_type(index, self.type_id(Type::Float)?)?
         };
         Ok(format!(
             "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).ok() }}"

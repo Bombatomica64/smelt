@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Architecture review — Smelt</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "loose" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .grid-paper {
+        background-image: radial-gradient(circle, #e2e8f0 1px, transparent 1px);
+        background-size: 18px 18px;
+      }
+      .mass-impl { background: repeating-linear-gradient(45deg, #cbd5e1, #cbd5e1 6px, #e2e8f0 6px, #e2e8f0 12px); }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans antialiased">
+    <main class="max-w-5xl mx-auto px-6 py-12 space-y-14">
+
+      <!-- HEADER -->
+      <header class="space-y-5">
+        <div class="flex items-baseline justify-between flex-wrap gap-3">
+          <h1 class="text-4xl font-serif tracking-tight">Architecture review — <span class="text-indigo-700">Smelt</span></h1>
+          <p class="text-sm text-slate-500 font-mono">2026-06-04 · deepening opportunities</p>
+        </div>
+        <p class="text-slate-600 max-w-3xl">
+          Smelt lowers TypeScript/Python through <span class="font-mono text-sm">frontend → HIR → MIR → codegen-rust</span>.
+          Each stage already hides behind a small interface (<span class="font-mono text-sm">to_hir</span>,
+          <span class="font-mono text-sm">lower_hir</span>, <span class="font-mono text-sm">emit_source</span>) — the stages are
+          <em>deep</em>. The friction is <em>inside</em> them: dispatch smeared across files, one boundary leaking across many
+          call sites, and the same emission logic written twice.
+        </p>
+        <!-- Legend -->
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-600 border-t border-b border-slate-200 py-3">
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-3 border-2 border-slate-700 bg-white"></span> module</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#475569" stroke-width="2" class="seam"/></svg> seam</span>
+          <span class="flex items-center gap-2"><svg width="28" height="8"><line x1="0" y1="4" x2="28" y2="4" stroke="#dc2626" stroke-width="2"/></svg> leakage</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-3 deep"></span> deep module</span>
+          <span class="flex items-center gap-2"><span class="inline-block w-5 h-3 mass-impl border border-slate-300"></span> implementation mass</span>
+        </div>
+        <!-- strength legend -->
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">Strong</span>
+          <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-medium">Worth exploring</span>
+          <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 font-medium">Speculative</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-12">
+
+        <!-- ============ CANDIDATE 1 ============ -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="px-6 pt-6 pb-4">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs font-mono">in-process</span>
+              <span class="text-xs text-slate-400 ml-auto">frontend-ts · lowering</span>
+            </div>
+            <h2 class="text-2xl font-serif">1 · A stdlib-lowering registry behind one seam</h2>
+          </div>
+
+          <!-- before/after -->
+          <div class="grid md:grid-cols-2 gap-px bg-slate-200 border-y border-slate-200">
+            <!-- BEFORE -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">Before — shallow dispatch, wide implementation</p>
+              <pre class="mermaid">
+flowchart TB
+  CE["call_expression()<br/>200-line if/else chain"]:::disp
+  CE --> H1["date_call"]
+  CE --> H2["intl_call"]
+  CE --> H3["string_replace_call"]
+  CE --> H4["map_mutation_call"]
+  CE --> H5["array_from_call"]
+  CE --> H6["lodash_*_call"]
+  H1 -.-> P10["builder_part10"]
+  H3 -.-> P10
+  H4 -.-> P12["builder_part12"]
+  H5 -.-> P14["builder_part14"]
+  H6 -.-> P13["builder_part13"]
+  classDef disp fill:#fee2e2,stroke:#dc2626,stroke-width:2px;
+  class CE disp
+              </pre>
+              <p class="text-xs text-slate-500 mt-2">One handler per stdlib call, 48+ of them, dispatched by a hand-ordered
+              chain in <span class="font-mono">call.rs</span>; the handlers themselves scattered across
+              <span class="font-mono">builder_part10–15</span>.</p>
+            </div>
+            <!-- AFTER -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">After — one table, one adapter per family</p>
+              <div class="relative grid-paper rounded-lg border-2 border-slate-800 p-4 h-[230px] flex flex-col">
+                <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">stdlib registry</div>
+                <div class="text-[11px] font-mono text-slate-600 mb-3">lookup(receiver, method) → LoweringRule</div>
+                <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+                  <div class="deep text-stone-200 rounded px-2 py-1">String rules</div>
+                  <div class="deep text-stone-200 rounded px-2 py-1">Array rules</div>
+                  <div class="deep text-stone-200 rounded px-2 py-1">Map/Set rules</div>
+                  <div class="deep text-stone-200 rounded px-2 py-1">Date/Intl rules</div>
+                  <div class="deep text-stone-200 rounded px-2 py-1">Math rules</div>
+                  <div class="deep text-stone-200 rounded px-2 py-1">lodash/fp rules</div>
+                </div>
+                <p class="text-[11px] text-slate-500 mt-auto pt-2">call_expression() = lookup + apply. New op = one table row.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 py-5 space-y-4">
+            <div class="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Problem</p>
+                <p class="text-sm text-slate-700">Adding one stdlib lowering means editing a 200-line ordered if/else and guessing which numbered part the handler belongs in — there is no index.</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Solution</p>
+                <p class="text-sm text-slate-700">A dispatch table keyed by (receiver shape, method) returning a lowering rule; one adapter per stdlib family sits behind it.</p>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Wins</p>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">leverage: one seam, N stdlib families</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">locality: a family lives in one place</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">interface shrinks; dispatch becomes data</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">test surface: rule table, not call.rs</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 font-mono">call.rs:3 · builder_part10–15 · stdlib.rs</p>
+            <div class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900">
+              <strong>Honours an existing rule:</strong> CLAUDE.md — "everything must lower through general rules, except test functions." A registry <em>is</em> the general-rule shape; per-call if-branches are the special-casing it warns against.
+            </div>
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 2 ============ -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="px-6 pt-6 pb-4">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs font-mono">in-process</span>
+              <span class="text-xs text-slate-400 ml-auto">codegen-rust · emitter</span>
+            </div>
+            <h2 class="text-2xl font-serif">2 · Concentrate the SmeltUnknown boundary into one seam</h2>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-px bg-slate-200 border-y border-slate-200">
+            <!-- BEFORE: leakage graph -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">Before — boundary leaks across call sites</p>
+              <pre class="mermaid">
+flowchart LR
+  CR["call_runtime.rs"] -->|"wrap"| U["unknown.rs"]
+  CO["core.rs<br/>operand_as_type_text"] -->|"wrap / cast"| U
+  TY["types.rs<br/>primitive_cast"] -->|"wrap"| U
+  CR -.->|"wrap"| U
+  classDef leak stroke:#dc2626,stroke-width:2px,fill:#fee2e2;
+  class CR,CO,TY leak
+              </pre>
+              <p class="text-xs text-slate-500 mt-2"><span class="font-mono">unknown_wrap_text</span> /
+              <span class="font-mono">unknown_cast_text</span> are called inline from three modules, woven through a
+              400-line <span class="font-mono">operand_as_type_text</span>.</p>
+            </div>
+            <!-- AFTER -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">After — one coercion adapter at the boundary</p>
+              <div class="relative h-[230px] flex flex-col justify-center gap-3">
+                <div class="flex justify-around text-[11px] font-mono text-slate-500">
+                  <span>call_runtime</span><span>core</span><span>types</span>
+                </div>
+                <svg width="100%" height="34" class="overflow-visible">
+                  <line x1="16%" y1="0" x2="50%" y2="30" stroke="#475569" stroke-width="1.5"/>
+                  <line x1="50%" y1="0" x2="50%" y2="30" stroke="#475569" stroke-width="1.5"/>
+                  <line x1="84%" y1="0" x2="50%" y2="30" stroke="#475569" stroke-width="1.5"/>
+                </svg>
+                <div class="deep text-stone-100 rounded-lg px-4 py-3 text-center">
+                  <div class="text-xs uppercase tracking-wider text-stone-300">coercion seam</div>
+                  <div class="font-mono text-sm mt-1">value → typed | erased</div>
+                </div>
+                <svg width="100%" height="20"><line x1="50%" y1="0" x2="50%" y2="18" stroke="#475569" stroke-width="1.5" class="seam"/></svg>
+                <div class="border-2 border-slate-300 rounded px-3 py-1.5 text-center text-xs font-mono text-slate-600 mx-auto">SmeltUnknown internals</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 py-5 space-y-4">
+            <div class="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Problem</p>
+                <p class="text-sm text-slate-700">Wrapping and casting decisions sit inline in three modules. The boundary between typed and erased values has no single seam — it leaks.</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Solution</p>
+                <p class="text-sm text-slate-700">Route every typed↔erased crossing through one coercion module: callers ask for a value at a type; the adapter decides wrap/cast/guard.</p>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Wins</p>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">locality: erasure rules in one module</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">leverage: callers stop knowing SmeltUnknown</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">test surface: the coercion interface</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 font-mono">emitter/unknown.rs · emitter/core.rs:2467 · emitter/call_runtime.rs:390 · emitter/types.rs:216</p>
+            <div class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900">
+              <strong>Honours an existing rule:</strong> CLAUDE.md — "new SmeltUnknown conversions should be explicit boundary adapters, not a way to make ordinary generated Rust type-check." This deepening makes that the only path.
+            </div>
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 3 ============ -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="px-6 pt-6 pb-4">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-xs font-medium">Strong</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs font-mono">in-process</span>
+              <span class="text-xs text-slate-400 ml-auto">codegen-rust · emitter</span>
+            </div>
+            <h2 class="text-2xl font-serif">3 · One expression emitter — stop writing it twice</h2>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-px bg-slate-200 border-y border-slate-200">
+            <!-- BEFORE: two parallel emitters -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">Before — two emitters, same job</p>
+              <div class="space-y-3 h-[230px] flex flex-col justify-center">
+                <div class="border-2 border-slate-700 rounded-lg p-3">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">core.rs</div>
+                  <div class="font-mono text-xs text-slate-700">operand_text · field · index · call</div>
+                </div>
+                <div class="text-center text-[11px] text-red-600 font-medium">⇅ duplicated logic, fixes diverge ⇅</div>
+                <div class="border-2 border-red-400 rounded-lg p-3 bg-red-50">
+                  <div class="text-[11px] uppercase tracking-wider text-red-500">list_query.rs</div>
+                  <div class="font-mono text-xs text-slate-700">callback_expr_text — ~1600 lines</div>
+                  <div class="font-mono text-[11px] text-slate-500">field · index · call · re-emits CFG in closures</div>
+                </div>
+              </div>
+              <p class="text-xs text-slate-500 mt-2">Callback bodies render expressions with their own bespoke logic instead of the core operand path.</p>
+            </div>
+            <!-- AFTER: collapse -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">After — callbacks reuse the core path</p>
+              <div class="h-[230px] flex flex-col justify-center items-center gap-3">
+                <div class="deep text-stone-100 rounded-lg px-5 py-4 text-center w-64">
+                  <div class="text-xs uppercase tracking-wider text-stone-300">expression emitter</div>
+                  <div class="font-mono text-sm mt-1">operand · field · index · call</div>
+                </div>
+                <svg width="160" height="22"><line x1="80" y1="0" x2="80" y2="20" stroke="#475569" stroke-width="1.5"/></svg>
+                <div class="flex gap-3 text-[11px] font-mono text-slate-500">
+                  <span class="border border-slate-300 rounded px-2 py-1">function body</span>
+                  <span class="border border-slate-300 rounded px-2 py-1">callback body</span>
+                </div>
+                <p class="text-[11px] text-slate-500">closures reuse the same block/terminator renderer</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 py-5 space-y-4">
+            <div class="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Problem</p>
+                <p class="text-sm text-slate-700">Callback expression emission (~1600 lines) re-implements field/index/call rendering, and closures re-emit control flow independently — a bug fixed in one path stays in the other.</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Solution</p>
+                <p class="text-sm text-slate-700">Make callback bodies lower into the same operand/expression and block emitter the main function uses, parameterised by the closure's local environment.</p>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Wins</p>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">locality: one place renders expressions</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">delete ~1600 duplicated lines</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">leverage: closures inherit every fix</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 font-mono">emitter/list_query.rs:1764 · emitter/list_query.rs:1437 · emitter/core.rs (operand_text)</p>
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 4 ============ -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="px-6 pt-6 pb-4">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs font-mono">internal seams</span>
+              <span class="text-xs text-slate-400 ml-auto">frontend-ts · lowering</span>
+            </div>
+            <h2 class="text-2xl font-serif">4 · Split ModuleBuilder by concern, not by line count</h2>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-px bg-slate-200 border-y border-slate-200">
+            <!-- BEFORE: cross-section of arbitrary parts -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">Before — 18 mechanical slices</p>
+              <div class="h-[230px] flex flex-col justify-center gap-1 text-[11px] font-mono">
+                <div class="h-6 border-l-4 border-slate-400 pl-2 flex items-center bg-slate-50">builder_part01 — bootstrap + globals</div>
+                <div class="h-6 border-l-4 border-slate-400 pl-2 flex items-center bg-slate-50">builder_part06 — test assertions</div>
+                <div class="h-6 border-l-4 border-slate-400 pl-2 flex items-center bg-slate-50">builder_part13 — 5.6k: collections+callbacks+fp</div>
+                <div class="h-6 border-l-4 border-slate-400 pl-2 flex items-center bg-slate-50">builder_part14 — arrays + binary exprs</div>
+                <div class="h-6 border-l-4 border-slate-400 pl-2 flex items-center bg-slate-50">builder_part16 — 3.4k: type lowering</div>
+                <div class="h-6 border-l-4 border-slate-400 pl-2 flex items-center bg-slate-50">… 13 more, named by number</div>
+                <p class="text-slate-500 pt-2 not-italic">Split where a file got big. A concern (callbacks) spans 5 parts.</p>
+              </div>
+            </div>
+            <!-- AFTER: thick concern bands -->
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">After — bands named by concern</p>
+              <div class="h-[230px] flex flex-col justify-center gap-2 text-xs font-mono">
+                <div class="h-10 deep text-stone-100 rounded flex items-center pl-3">expr / stmt lowering</div>
+                <div class="h-10 deep text-stone-100 rounded flex items-center pl-3">type lowering</div>
+                <div class="h-10 deep text-stone-100 rounded flex items-center pl-3">stdlib + callbacks</div>
+                <div class="h-10 deep text-stone-100 rounded flex items-center pl-3">test-framework lowering</div>
+                <p class="text-slate-500 pt-1 not-italic">Interface (to_hir) unchanged — internal seams only.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 py-5 space-y-4">
+            <div class="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Problem</p>
+                <p class="text-sm text-slate-700">One <span class="font-mono">impl ModuleBuilder</span> (98 fields) sliced across 18 numbered files by size. Finding where a concern lives means searching all 18; callback logic alone spans 5 parts.</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Solution</p>
+                <p class="text-sm text-slate-700">Regroup the impl blocks into concern-named modules (expressions, types, stdlib, test-framework). The public interface stays <span class="font-mono">to_hir</span>; these are internal seams only.</p>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Wins</p>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">locality: a concern in one file</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">AI-navigable: name says where to look</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">no interface change</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 font-mono">lowering.rs:307 · builder_part01–18.rs · call.rs</p>
+            <div class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900">
+              <strong>Mind the timing rule:</strong> CLAUDE.md — "finish active feature phases before broad codebase division refactors." Treat this as the deliberate architecture pass <em>after</em> the current phase stabilises, or do it concern-by-concern as a low-risk split. Deletion test: removing the part-files concentrates nothing — they are slices, not modules.
+            </div>
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 5 ============ -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="px-6 pt-6 pb-4">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-medium">Worth exploring</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs font-mono">test surface</span>
+              <span class="text-xs text-slate-400 ml-auto">codegen-rust · tests</span>
+            </div>
+            <h2 class="text-2xl font-serif">5 · Make emitted source the test surface</h2>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-px bg-slate-200 border-y border-slate-200">
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">Before — substring assertions</p>
+              <div class="h-[230px] flex flex-col justify-center gap-3">
+                <div class="font-mono text-[11px] bg-slate-900 text-stone-200 rounded p-3 leading-relaxed">
+                  assert!(src.contains("fn main() {"));<br/>
+                  assert!(src.contains("let count: f64"));<br/>
+                  assert!(src.contains("println!(\"{}\""));
+                </div>
+                <p class="text-xs text-slate-500">6000+ lines of <span class="font-mono">.contains()</span> across part_1–7. The seam tests cross is a guess about a fragment, not the emitted module.</p>
+              </div>
+            </div>
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">After — snapshot the whole output</p>
+              <div class="h-[230px] flex flex-col justify-center gap-3">
+                <div class="font-mono text-[11px] bg-slate-900 text-emerald-200 rounded p-3 leading-relaxed">
+                  assert_snapshot!(source_for(ts));
+                </div>
+                <div class="border-2 border-slate-300 rounded p-2 text-[11px] font-mono text-slate-600">
+                  __snapshots__/emits_main.snap<br/>
+                  <span class="text-slate-400">← reviewable full Rust module</span>
+                </div>
+                <p class="text-xs text-slate-500">The seam is the emitted source itself. Refactors update snapshots in one review, not 6000 edits.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 py-5 space-y-4">
+            <div class="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Problem</p>
+                <p class="text-sm text-slate-700">Codegen is verified by thousands of <span class="font-mono">.contains()</span> fragments. The test surface is fuzzy: it pins substrings, not the module Smelt actually emits, and reformatting cascades into mass edits.</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Solution</p>
+                <p class="text-sm text-slate-700">Adopt snapshot testing (insta) for whole-output cases; keep <span class="font-mono">.contains()</span> only where a single invariant is the point.</p>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Wins</p>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">test surface: the real emitted module</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">leverage: one review absorbs reformatting</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">regressions show full diff</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 font-mono">smelt-codegen-rust/src/tests/part_1–7_tests.rs · mod.rs (source_for)</p>
+            <div class="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-xs text-amber-900">
+              <strong>Trade-off:</strong> CLAUDE.md preserves generated-file mtimes for incremental builds — snapshots are test fixtures, not generated crate files, so they don't touch that. But a snapshot pins exact output, so genuinely-nondeterministic emission (ordering) must be sorted first.
+            </div>
+          </div>
+        </article>
+
+        <!-- ============ CANDIDATE 6 ============ -->
+        <article id="c6" class="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+          <div class="px-6 pt-6 pb-4">
+            <div class="flex items-center gap-2 mb-2 flex-wrap">
+              <span class="px-2 py-0.5 rounded bg-slate-200 text-slate-700 text-xs font-medium">Speculative</span>
+              <span class="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-xs font-mono">internal seams</span>
+              <span class="text-xs text-slate-400 ml-auto">mir · validate / lower / codegen</span>
+            </div>
+            <h2 class="text-2xl font-serif">6 · Drive MIR validation from the Rvalue algebra</h2>
+          </div>
+
+          <div class="grid md:grid-cols-2 gap-px bg-slate-200 border-y border-slate-200">
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">Before — Rvalue knowledge written three times</p>
+              <pre class="mermaid">
+flowchart TB
+  R[("Rvalue<br/>~150 variants")]
+  R --> L["lower.rs<br/>builds each variant"]
+  R --> V["validate.rs<br/>re-matches each variant<br/>(L206–1119)"]
+  R --> C["codegen call_runtime.rs<br/>re-matches each variant"]
+  classDef dup stroke:#dc2626,stroke-width:2px,fill:#fee2e2;
+  class V dup
+              </pre>
+              <p class="text-xs text-slate-500 mt-2">A new Rvalue variant must be added in three exhaustive matches; validation also folds definite-assignment into the same pass.</p>
+            </div>
+            <div class="bg-white p-5">
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-3">After — operands described once</p>
+              <div class="h-[230px] flex flex-col justify-center gap-3">
+                <div class="deep text-stone-100 rounded-lg px-4 py-3 text-center">
+                  <div class="text-xs uppercase tracking-wider text-stone-300">Rvalue::operands()</div>
+                  <div class="font-mono text-xs mt-1">one place enumerates inputs</div>
+                </div>
+                <svg width="100%" height="20"><line x1="50%" y1="0" x2="50%" y2="18" stroke="#475569" stroke-width="1.5" class="seam"/></svg>
+                <div class="flex gap-2 justify-center text-[11px] font-mono text-slate-600">
+                  <span class="border border-slate-300 rounded px-2 py-1">existence check</span>
+                  <span class="border border-slate-300 rounded px-2 py-1">definite assignment</span>
+                </div>
+                <p class="text-[11px] text-slate-500 text-center">structural validation walks operands generically; liveness is its own pass.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="px-6 py-5 space-y-4">
+            <div class="grid sm:grid-cols-2 gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Problem</p>
+                <p class="text-sm text-slate-700">Structural validation re-matches every Rvalue variant (~900 lines) duplicating shape knowledge that already exists in lowering and codegen, and definite-assignment is interleaved so it can't run independently.</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 mb-1">Solution</p>
+                <p class="text-sm text-slate-700">Give Rvalue a single operand-enumeration; let the existence check walk it generically. Separate definite-assignment into its own pass over the same enumeration.</p>
+              </div>
+            </div>
+            <div>
+              <p class="text-xs uppercase tracking-wider text-slate-400 mb-2">Wins</p>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">locality: operand shape defined once</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">new variant ⇒ fewer match sites</span>
+                <span class="px-2 py-1 rounded bg-slate-100 text-slate-700">passes become composable</span>
+              </div>
+            </div>
+            <p class="text-xs text-slate-400 font-mono">smelt-mir/src/validate.rs:206 · validate.rs:1577 · types.rs (Rvalue) · lower.rs:1915</p>
+            <div class="rounded-lg bg-slate-100 border border-slate-200 px-4 py-3 text-xs text-slate-600">
+              Speculative: an operand-walking trait is leverage only if the existence check is truly mechanical. Where validation needs variant-specific rules it still branches — measure how much of the 900 lines is genuinely generic before committing.
+            </div>
+          </div>
+        </article>
+
+      </section>
+
+      <!-- TOP RECOMMENDATION -->
+      <section id="top-recommendation">
+        <div class="rounded-2xl deep text-stone-100 p-8 shadow-lg">
+          <p class="text-xs uppercase tracking-widest text-indigo-300 mb-3">Top recommendation</p>
+          <h2 class="text-3xl font-serif mb-3">Start with <a href="#c2" class="underline decoration-indigo-400 underline-offset-4">#2 — concentrate the SmeltUnknown boundary</a>.</h2>
+          <p class="text-stone-300 max-w-3xl">
+            It is the deepening with the clearest seam, the smallest blast radius, and a project rule already pointing at it
+            ("SmeltUnknown conversions should be explicit boundary adapters"). The typed↔erased crossing is the one place
+            generated Rust most often goes wrong; pulling wrap/cast/guard behind one coercion module gives every call site the
+            same behaviour and one place to test it. It also clears the ground for <a href="#c3" class="underline decoration-indigo-400 underline-offset-4">#3</a>:
+            once expression emission shares a coercion seam, unifying the duplicated callback emitter is far less risky.
+            Keep <a href="#c1" class="underline decoration-indigo-400 underline-offset-4">#1</a> as the next deep cut and treat
+            <a href="#c4" class="underline decoration-indigo-400 underline-offset-4">#4</a> as the post-phase architecture pass the timing rule calls for.
+          </p>
+        </div>
+      </section>
+
+      <footer class="text-xs text-slate-400 pt-6 border-t border-slate-200">
+        Vocabulary: module · interface · implementation · depth · deep · shallow · seam · adapter · leverage · locality.
+        No CONTEXT.md or docs/adr/ found — domain terms taken from the codebase (HIR, MIR, ModuleBuilder, SmeltUnknown, emitter).
+      </footer>
+    </main>
+  </body>
+</html>

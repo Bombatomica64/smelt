@@ -91,7 +91,7 @@ impl FunctionEmitter<'_> {
                 };
                 Ok(format!(
                     "{{ let smelt_timer_callback = {callback_text}.clone(); smelt_set_timeout(::std::rc::Rc::new(::std::cell::RefCell::new(move || {{ {callback_call} }})), {} as f64) }}",
-                    self.operand_as_type_text(duration, self.type_id(Type::Float)?)?
+                    self.value_at_type(duration, self.type_id(Type::Float)?)?
                 ))
             }
             smelt_hir::AsyncOp::ClearTimeout => {
@@ -200,7 +200,7 @@ impl FunctionEmitter<'_> {
                                 return self.operand_text(arg);
                             };
                             let target_ty = self.function_local_decl(function, param)?.ty;
-                            self.operand_as_type_text(arg, target_ty)
+                            self.value_at_type(arg, target_ty)
                         })
                         .collect::<Result<Vec<_>, _>>()?;
                     for param in function.params.iter().skip(args.len()) {
@@ -259,7 +259,7 @@ impl FunctionEmitter<'_> {
                                 return self.operand_text(arg);
                             };
                             let target_ty = self.function_local_decl(function, param)?.ty;
-                            self.operand_as_type_text(arg, target_ty)
+                            self.value_at_type(arg, target_ty)
                         })
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
@@ -302,7 +302,7 @@ impl FunctionEmitter<'_> {
                     {
                         let items = args
                             .iter()
-                            .map(|arg| self.unknown_wrap_text(arg))
+                            .map(|arg| self.erase(arg))
                             .collect::<Result<Vec<_>, _>>()?
                             .join(", ");
                         return Ok(format!(
@@ -352,13 +352,13 @@ impl FunctionEmitter<'_> {
                         } else if self.parameter_needs_mutable_reference_in(function, param) {
                             rendered_args.push(self.mutable_reference_argument_text(arg, target_ty)?);
                         } else {
-                            rendered_args.push(self.operand_as_type_text(arg, target_ty)?);
+                            rendered_args.push(self.value_at_type(arg, target_ty)?);
                         }
                     }
                     let rest_items = args
                         .iter()
                         .skip(rest_index)
-                        .map(|arg| self.unknown_wrap_text(arg))
+                        .map(|arg| self.erase(arg))
                         .collect::<Result<Vec<_>, _>>()?
                         .join(", ");
                     rendered_args.push(format!("vec![{rest_items}]"));
@@ -423,7 +423,7 @@ impl FunctionEmitter<'_> {
                         {
                             self.default_value(target_ty)
                         } else {
-                            self.operand_as_type_text(arg, target_ty)
+                            self.value_at_type(arg, target_ty)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -571,7 +571,7 @@ impl FunctionEmitter<'_> {
                         if function.mutable_params.contains(&index) {
                             self.mutable_reference_argument_text(arg, target_ty)
                         } else {
-                            self.operand_as_type_text(arg, target_ty)
+                            self.value_at_type(arg, target_ty)
                         }
                     })
                     .collect::<Result<Vec<_>, _>>()?
@@ -649,7 +649,7 @@ impl FunctionEmitter<'_> {
             }
             _ => self.call_source_ty(callee)?,
         };
-        self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
+        self.value_at_type_text(&call_text, source_ty, dest_ty)
     }
 
     /// Converts a function call inside a Rust closure body.
@@ -666,7 +666,7 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let call_text = self.call_text(callee, args)?;
         let source_ty = self.call_source_ty(callee)?;
-        self.rendered_value_as_type_text(&call_text, source_ty, dest_ty)
+        self.value_at_type_text(&call_text, source_ty, dest_ty)
     }
 
     /// Returns the static return type of a call expression.
@@ -812,7 +812,7 @@ impl FunctionEmitter<'_> {
                 let Some(param_ty) = function.params.get(index).copied() else {
                     return self.operand_text(arg);
                 };
-                self.operand_as_type_text(arg, param_ty)
+                self.value_at_type(arg, param_ty)
             })
             .collect::<Result<Vec<_>, _>>()?
             .join(", ");

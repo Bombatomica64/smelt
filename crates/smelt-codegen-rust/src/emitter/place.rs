@@ -74,7 +74,7 @@ impl FunctionEmitter<'_> {
                 if let Some(Type::Optional(inner)) = self.mir.types.get(base_ty)
                     && self.symbol_source_name(*field)? == "value"
                 {
-                    let wrapped = self.unknown_wrap_value_text("value", *inner)?;
+                    let wrapped = self.erase_value_text("value", *inner)?;
                     return Ok(format!(
                         "{}.clone().map_or(SmeltUnknown::Null, |value| {wrapped})",
                         self.local_value_text(*base)?
@@ -180,7 +180,7 @@ impl FunctionEmitter<'_> {
                             let index_text = self.operand_text(index)?;
                             self.property_key_to_string_text(&index_text, source_key)?
                         } else {
-                            self.operand_as_type_text(index, *key_ty)?
+                            self.value_at_type(index, *key_ty)?
                         };
                         let base_text = self.local_value_text(*base)?;
                         let value_is_unknownish = matches!(
@@ -253,7 +253,7 @@ impl FunctionEmitter<'_> {
                             let index_text = self.operand_text(index)?;
                             self.property_key_to_string_text(&index_text, source_key)?
                         } else {
-                            self.operand_as_type_text(index, *key_ty)?
+                            self.value_at_type(index, *key_ty)?
                         };
                         Ok(format!(
                             "*{}.get_mut(&{key_text}).expect(\"index out of bounds\")",
@@ -262,7 +262,10 @@ impl FunctionEmitter<'_> {
                     }
                     Some(Type::Tuple(items)) => {
                         let tuple_index = self.tuple_index(index, items.len())?;
-                        Ok(format!("{}.{tuple_index}", self.local_mut_value_text(*base)?))
+                        Ok(format!(
+                            "{}.{tuple_index}",
+                            self.local_mut_value_text(*base)?
+                        ))
                     }
                     _ => Err(EmitError::new(
                         "index assignment codegen is only implemented for lists, dicts, and tuples",
@@ -312,7 +315,7 @@ impl FunctionEmitter<'_> {
         let index_text = if matches!(self.mir.types.get(index_ty), Some(Type::Int | Type::Float)) {
             self.operand_text(index)?
         } else {
-            self.operand_as_type_text(index, self.type_id(Type::Float)?)?
+            self.value_at_type(index, self.type_id(Type::Float)?)?
         };
         Ok(format!(
             "{{ let len = {len_expr} as i64; let index = {index_text} as i64; let normalized = if index < 0 {{ len + index }} else {{ index }}; usize::try_from(normalized).expect(\"negative index out of bounds\") }}"

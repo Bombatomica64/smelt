@@ -1,12 +1,715 @@
-//! Unknown emission helpers.
+//! Coercion seam: the one module where a value crosses between its static Rust
+//! type and the erased `SmeltUnknown` form. The public surface is a small set of
+//! intent-named verbs; the per-type mechanics stay private below them:
+//!
+//! - `value_at_type(op, target)` / `value_at_type_text(text, src, target)` —
+//!   coerce a value to a concrete target type (both endpoints are known and
+//!   interned). The general entry; it dispatches to erase/extract internally.
+//! - `erase(op)` / `erase_value_text(text, src)` — box a typed value into
+//!   `SmeltUnknown`. This direction is *target-free*: it must not require a
+//!   `Type::Unknown` to be interned (it often is not), so it cannot be spelled
+//!   as `value_at_type(op, <Unknown TypeId>)`.
+//! - `extract(op, target)` / `extract_value_text(text, target)` — pull a typed
+//!   value back out of `SmeltUnknown`.
+//! - `tag_check(op, kind)` — runtime narrowing (`is this tag a String?`), which
+//!   is a guard, not value coercion.
+//!
+//! See CONTEXT.md (## Coercion).
 
 use super::*;
 use crate::rust::RustIdent;
 use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
+    /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
+    /// Converts an operand to Rust text, wrapping into `SmeltUnknown` when needed.
+    pub(super) fn value_at_type(
+        &self,
+        operand: &Operand,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
+        if self.operand_ty(operand)? == target
+            && !matches!(self.mir.types.get(target), Some(Type::Function(_)))
+        {
+            return self.operand_text(operand);
+        }
+        if let Some(Type::TypeParam { name }) = self.mir.types.get(target)
+            && self.current_function_has_type_param(*name)
+        {
+            return self.extract(operand, target);
+        }
+        if matches!(
+            self.mir.types.get(target),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            return self.erase(operand);
+        }
+        if self.is_erased_class_type(target) {
+            return self.erase(operand);
+        }
+        if matches!(operand, Operand::Const(Constant::None)) {
+            return self.default_value(target);
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let value_text = self.operand_text(operand)?;
+            if self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner)) {
+                return Ok(format!("{value_text}.clone().flatten()"));
+            }
+            if source_inner == target_inner {
+                return Ok(value_text);
+            }
+            let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner)?;
+            return Ok(format!("{value_text}.map(|value| {mapped_value})"));
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Optional(_)))
+            && matches!(
+                operand,
+                Operand::Copy(Place::Field { .. }) | Operand::Move(Place::Field { .. })
+            )
+            && (matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_erased_class_type(self.operand_ty(operand)?))
+        {
+            return self.extract(operand, target);
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            let operand_ty = self.operand_ty(operand)?;
+            if matches!(self.mir.types.get(operand_ty), Some(Type::Optional(source_inner)) if matches!(self.mir.types.get(*source_inner), Some(Type::Unknown)))
+                && (matches!(
+                    self.mir.types.get(*inner),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(*inner))
+            {
+                return self.operand_text(operand);
+            }
+            if self.mir.types.get(operand_ty) == Some(&Type::None) {
+                return Ok("None".to_owned());
+            }
+            if operand_ty == *inner {
+                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+            }
+            if self.can_coerce_to_optional_inner(operand_ty, *inner) {
+                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+            }
+            if matches!(
+                self.mir.types.get(*inner),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            ) || self.is_erased_class_type(*inner)
+            {
+                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+            }
+            if matches!(self.mir.types.get(*inner), Some(Type::Function(_)))
+                && matches!(self.mir.types.get(operand_ty), Some(Type::Function(_)))
+            {
+                return Ok(format!("Some({})", self.value_at_type(operand, *inner)?));
+            }
+            if matches!(
+                self.mir.types.get(operand_ty),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_))
+            ) {
+                return Ok("None".to_owned());
+            }
+        }
+        if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(self.operand_ty(operand)?)
+        {
+            return self.extract(operand, target);
+        }
+        if let Some(adapter) = self.structural_record_adapter_text(
+            &self.operand_text(operand)?,
+            self.operand_ty(operand)?,
+            target,
+        )? {
+            return Ok(adapter);
+        }
+        if let (Some(Type::Class { .. }), Some(Type::Dict(target_key, target_value))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && let Some(adapter) = self.structural_record_to_string_dict_adapter_text(
+            &self.operand_text(operand)?,
+            self.operand_ty(operand)?,
+            *target_key,
+            *target_value,
+        )? {
+            return Ok(adapter);
+        }
+        if matches!(self.mir.types.get(target), Some(Type::String))
+            && let Some(Type::Class { name, .. }) = self.mir.types.get(self.operand_ty(operand)?)
+            && self.symbol_name(*name)? == "RegExp"
+        {
+            return Ok(format!("{}.source.clone()", self.operand_text(operand)?));
+        }
+        if self.is_match_fn_result_type(self.operand_ty(operand)?)?
+            && !matches!(
+                self.mir.types.get(target),
+                Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
+            )
+        {
+            return self.extract_value_text(
+                &format!("{}.value.clone()", self.operand_text(operand)?),
+                target,
+            );
+        }
+        if matches!(
+            self.mir.types.get(target),
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+        ) && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
+        {
+            return Ok(format!(
+                "SmeltRegExp::new({}, String::new())",
+                self.operand_text(operand)?
+            ));
+        }
+        if matches!(
+            self.mir.types.get(self.operand_ty(operand)?),
+            Some(Type::Function(_))
+        ) && !matches!(
+            self.mir.types.get(target),
+            Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) && !self.is_erased_class_type(target)
+        {
+            return self.default_value(target);
+        }
+        if self.mir.types.get(target) == Some(&Type::Float)
+            && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Int)
+        {
+            return Ok(format!("({} as f64)", self.operand_text(operand)?));
+        }
+        if self.mir.types.get(target) == Some(&Type::Int)
+            && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::Float)
+        {
+            return Ok(format!(
+                "(({} as f64).trunc() as i64)",
+                self.operand_text(operand)?
+            ));
+        }
+        if self.mir.types.get(target) == Some(&Type::Float)
+            && self.mir.types.get(self.operand_ty(operand)?) == Some(&Type::String)
+        {
+            return Ok(format!(
+                "{}.parse::<f64>().unwrap_or(0.0)",
+                self.operand_text(operand)?
+            ));
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Function(_)))
+            && matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::Function(_))
+            )
+        {
+            if let Some(adapter) = self.erased_rest_function_value_text(operand, target)? {
+                return Ok(adapter);
+            }
+            if let Some(adapter) = self.rest_vector_function_adapter_text(operand, target, false)? {
+                return Ok(adapter);
+            }
+            if let Some(adapter) = self.function_shape_adapter_text(operand, target, false)? {
+                return Ok(adapter);
+            }
+            let text = self.operand_text(operand)?;
+            if let Operand::Copy(place) | Operand::Move(place) = operand
+                && self.is_function_parameter_place(place)?
+            {
+                return self.borrowed_function_handle_text(&text, target);
+            }
+            if self.is_borrowed_callback_capture_name(&text) {
+                return self.borrowed_function_handle_text(&text, target);
+            }
+            return Ok(format!("{text}.clone()"));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
+            && *inner == target
+            && matches!(self.mir.types.get(target), Some(Type::Function(_)))
+        {
+            return Ok(format!(
+                "{}.clone().unwrap_or({})",
+                self.operand_text(operand)?,
+                self.default_value(target)?
+            ));
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
+        {
+            return Ok(format!("{}.clone().flatten()", self.operand_text(operand)?));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?)
+            && *inner == target
+        {
+            return Ok(format!(
+                "{}.clone().unwrap_or({})",
+                self.operand_text(operand)?,
+                self.default_value(target)?
+            ));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(self.operand_ty(operand)?) {
+            let value_text = self.value_at_type_text("value", *inner, target)?;
+            return Ok(format!(
+                "{}.clone().map_or({}, |value| {value_text})",
+                self.operand_text(operand)?,
+                self.default_value(target)?
+            ));
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+            return self.default_value(target);
+        }
+        if let (Some(Type::List(source_item)), Some(Type::List(target_item))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && source_item != target_item
+        {
+            let value_text = if matches!(self.mir.types.get(*source_item), Some(Type::List(_)))
+                && (matches!(
+                    self.mir.types.get(*target_item),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ) || self.is_erased_class_type(*target_item))
+            {
+                "value.into_smelt_unknown()".to_owned()
+            } else {
+                self.value_at_type_text("value", *source_item, *target_item)?
+            };
+            return Ok(format!(
+                "{}.into_iter().map(|value| {value_text}).collect::<Vec<_>>()",
+                self.operand_text(operand)?
+            ));
+        }
+        if let Some(Type::List(target_item)) = self.mir.types.get(target)
+            && matches!(
+                self.mir.types.get(*target_item),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && !matches!(
+                self.mir.types.get(self.operand_ty(operand)?),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_))
+            )
+        {
+            return Ok(format!(
+                "vec![{}]",
+                self.value_at_type(operand, *target_item)?
+            ));
+        }
+        if let (Some(Type::Dict(_, _)), Some(Type::List(target_item))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && matches!(self.mir.types.get(*target_item), Some(Type::Function(_)))
+        {
+            return Ok("Vec::new()".to_owned());
+        }
+        if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let value_text = self.value_at_type_text("value", *source_value, *target_item)?;
+            return Ok(format!(
+                "{}.into_iter().map(|(_, value)| {value_text}).collect::<Vec<_>>()",
+                self.operand_text(operand)?
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Dict(target_key, target_value))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let int_ty = self.type_id(Type::Int)?;
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                "index.to_string()".to_owned()
+            } else {
+                self.value_at_type_text("index as i64", int_ty, *target_key)?
+            };
+            let value_text = self.value_at_type_text("value", *source_item, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
+            return Ok(format!(
+                "{}.into_iter().enumerate().map(|(index, value)| ({key_text}, {value_text})).collect::<{target_text}>()",
+                self.operand_text(operand)?
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) {
+            let value_text = self.operand_text(operand)?;
+            let items_text = target_items
+                .iter()
+                .enumerate()
+                .map(|(index, target_item)| {
+                    let item = format!(
+                        "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
+                        self.default_value(*source_item)?
+                    );
+                    self.value_at_type_text(&item, *source_item, *target_item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let tuple_text = if target_items.len() == 1 {
+                format!("({items_text},)")
+            } else {
+                format!("({items_text})")
+            };
+            return Ok(format!(
+                "{{ let smelt_tuple_values = {value_text}.clone(); {tuple_text} }}"
+            ));
+        }
+        if let (
+            Some(Type::Dict(source_key, source_value)),
+            Some(Type::Dict(target_key, target_value)),
+        ) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && (source_key != target_key || source_value != target_value)
+        {
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                self.property_key_to_string_text("key", *source_key)?
+            } else {
+                self.value_at_type_text("key", *source_key, *target_key)?
+            };
+            let mapped_value_text =
+                self.value_at_type_text("value", *source_value, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
+            return Ok(format!(
+                "{}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()",
+                self.operand_text(operand)?
+            ));
+        }
+        if let (Some(Type::Dict(source_key, source_value)), Some(Type::Class { .. })) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && let Some(adapter) = self.string_dict_record_adapter_text(
+            &self.operand_text(operand)?,
+            *source_key,
+            *source_value,
+            target,
+        )? {
+            return Ok(adapter);
+        }
+        if let (Some(Type::Function(source)), Some(Type::Function(target_function))) = (
+            self.mir.types.get(self.operand_ty(operand)?),
+            self.mir.types.get(target),
+        ) && (source.params.len() < target_function.params.len()
+            || (source.may_throw || self.operand_closure_can_throw(operand)?)
+                != target_function.may_throw
+            || matches!(
+                self.mir.types.get(target_function.return_ty),
+                Some(Type::Unknown)
+            ))
+        {
+            return self
+                .function_shape_adapter_text(operand, target, false)?
+                .ok_or_else(|| EmitError::new("function adapter was unexpectedly unavailable"));
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+            return self.default_value(target);
+        }
+        self.operand_text(operand)
+    }
+
+    /// Coerces already-rendered Rust value text from a known source type to a destination type.
+    pub(super) fn value_at_type_text(
+        &self,
+        value_text: &str,
+        source: TypeId,
+        target: TypeId,
+    ) -> Result<String, EmitError> {
+        if source == target && !matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+            return Ok(value_text.to_owned());
+        }
+        if source == target && matches!(self.mir.types.get(target), Some(Type::Function(_))) {
+            if self.is_borrowed_callback_capture_name(value_text) {
+                return self.borrowed_function_handle_text(value_text, target);
+            }
+            return Ok(format!("{value_text}.clone()"));
+        }
+        if let (Some(Type::Future(source_item)), Some(Type::Future(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let awaited =
+                self.value_at_type_text("smelt_future_value", *source_item, *target_item)?;
+            return Ok(format!(
+                "Box::pin(async move {{ let smelt_future_value = {value_text}.await; {awaited} }})"
+            ));
+        }
+        if let (Some(Type::Tuple(source_items)), Some(Type::Tuple(target_items))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && source_items.len() == target_items.len()
+        {
+            let items_text = source_items
+                .iter()
+                .zip(target_items.iter())
+                .enumerate()
+                .map(|(index, (source_item, target_item))| {
+                    self.value_at_type_text(
+                        &format!("{value_text}.{index}"),
+                        *source_item,
+                        *target_item,
+                    )
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            return if target_items.len() == 1 {
+                Ok(format!("({items_text},)"))
+            } else {
+                Ok(format!("({items_text})"))
+            };
+        }
+        if matches!(self.mir.types.get(target), Some(Type::Function(_)))
+            && value_text == "Default::default()"
+        {
+            return self.default_value(target);
+        }
+        if let Some(adapter) =
+            self.rendered_function_shape_adapter_text(value_text, source, target)?
+        {
+            return Ok(adapter);
+        }
+        if let Some(adapter) = self.structural_record_adapter_text(value_text, source, target)? {
+            return Ok(adapter);
+        }
+        if matches!(
+            self.mir.types.get(target),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(target)
+        {
+            return self.erase_value_text(value_text, source);
+        }
+        if let (Some(Type::Class { .. }), Some(Type::Dict(target_key, target_value))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && let Some(adapter) = self.structural_record_to_string_dict_adapter_text(
+                value_text,
+                source,
+                *target_key,
+                *target_value,
+            )?
+        {
+            return Ok(adapter);
+        }
+        if matches!(
+            self.mir.types.get(source),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(source)
+        {
+            return self.extract_value_text(value_text, target);
+        }
+        if self.is_match_fn_result_type(source)?
+            && !matches!(
+                self.mir.types.get(target),
+                Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
+            )
+        {
+            let value_ty = match self.match_fn_result_value_type(source)? {
+                Some(value_ty) => value_ty,
+                None => self.type_id(Type::Unknown)?,
+            };
+            return self.value_at_type_text(
+                &format!("{value_text}.value.clone()"),
+                value_ty,
+                target,
+            );
+        }
+        if self.mir.types.get(source) == Some(&Type::None) {
+            return self.default_value(target);
+        }
+        if matches!(self.mir.types.get(source), Some(Type::Function(_)))
+            && !matches!(
+                self.mir.types.get(target),
+                Some(Type::Function(_) | Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && !self.is_erased_class_type(target)
+        {
+            return self.default_value(target);
+        }
+        if self.mir.types.get(target) == Some(&Type::Float)
+            && self.mir.types.get(source) == Some(&Type::Int)
+        {
+            return Ok(format!("({value_text} as f64)"));
+        }
+        if self.mir.types.get(target) == Some(&Type::Int)
+            && self.mir.types.get(source) == Some(&Type::Float)
+        {
+            return Ok(format!("(({value_text} as f64).trunc() as i64)"));
+        }
+        if self.mir.types.get(target) == Some(&Type::Float)
+            && self.mir.types.get(source) == Some(&Type::String)
+        {
+            return Ok(format!("{value_text}.parse::<f64>().unwrap_or(0.0)"));
+        }
+        if self.mir.types.get(target) == Some(&Type::String)
+            && matches!(
+                self.mir.types.get(source),
+                Some(Type::Bool | Type::Int | Type::Float)
+            )
+        {
+            return Ok(format!("{value_text}.to_string()"));
+        }
+        if matches!(
+            self.mir.types.get(target),
+            Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "RegExp"
+        ) && self.mir.types.get(source) == Some(&Type::String)
+        {
+            return Ok(format!("SmeltRegExp::new({value_text}, String::new())"));
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && self.mir.types.get(*source_inner) == Some(&Type::Optional(*target_inner))
+        {
+            return Ok(format!("{value_text}.clone().flatten()"));
+        }
+        if let (Some(Type::Optional(source_inner)), Some(Type::Optional(target_inner))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            if source_inner == target_inner {
+                return Ok(format!("{value_text}.clone()"));
+            }
+            let mapped_value = self.value_at_type_text("value", *source_inner, *target_inner)?;
+            return Ok(format!("{value_text}.clone().map(|value| {mapped_value})"));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target)
+            && matches!(
+                self.mir.types.get(source),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+        {
+            let mapped_value = self.value_at_type_text("value", source, *inner)?;
+            return Ok(format!(
+                "match {value_text}.clone() {{ SmeltUnknown::Null => None, value => Some({mapped_value}) }}"
+            ));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target)
+            && source == *inner
+        {
+            return Ok(format!("Some({value_text})"));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(target) {
+            if self.mir.types.get(source) == Some(&Type::None) {
+                return Ok("None".to_owned());
+            }
+            if self.can_coerce_to_optional_inner(source, *inner) {
+                let mapped_value = self.value_at_type_text(value_text, source, *inner)?;
+                return Ok(format!("Some({mapped_value})"));
+            }
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(source)
+            && *inner == target
+        {
+            return Ok(format!(
+                "{value_text}.clone().unwrap_or({})",
+                self.default_value(target)?
+            ));
+        }
+        if let Some(Type::Optional(inner)) = self.mir.types.get(source) {
+            let mapped_value = self.value_at_type_text("value", *inner, target)?;
+            return Ok(format!(
+                "{value_text}.clone().map_or({}, |value| {mapped_value})",
+                self.default_value(target)?
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::List(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && source_item != target_item
+        {
+            let item_text = self.value_at_type_text("value", *source_item, *target_item)?;
+            return Ok(format!(
+                "{value_text}.into_iter().map(|value| {item_text}).collect::<Vec<_>>()"
+            ));
+        }
+        if let Some(Type::List(target_item)) = self.mir.types.get(target)
+            && matches!(
+                self.mir.types.get(*target_item),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            )
+            && !matches!(
+                self.mir.types.get(source),
+                Some(Type::List(_) | Type::Dict(_, _) | Type::Set(_) | Type::Tuple(_))
+            )
+        {
+            let item_text = self.value_at_type_text(value_text, source, *target_item)?;
+            return Ok(format!("vec![{item_text}]"));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Tuple(target_items))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let items_text = target_items
+                .iter()
+                .enumerate()
+                .map(|(index, target_item)| {
+                    let item = format!(
+                        "smelt_tuple_values.get({index}).cloned().unwrap_or({})",
+                        self.default_value(*source_item)?
+                    );
+                    self.value_at_type_text(&item, *source_item, *target_item)
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .join(", ");
+            let tuple_text = if target_items.len() == 1 {
+                format!("({items_text},)")
+            } else {
+                format!("({items_text})")
+            };
+            return Ok(format!(
+                "{{ let smelt_tuple_values = {value_text}.clone(); {tuple_text} }}"
+            ));
+        }
+        if let (Some(Type::Dict(_, source_value)), Some(Type::List(target_item))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let item_text = self.value_at_type_text("value", *source_value, *target_item)?;
+            return Ok(format!(
+                "{value_text}.into_iter().map(|(_, value)| {item_text}).collect::<Vec<_>>()"
+            ));
+        }
+        if let (Some(Type::List(source_item)), Some(Type::Dict(target_key, target_value))) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+        {
+            let int_ty = self.type_id(Type::Int)?;
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                "index.to_string()".to_owned()
+            } else {
+                self.value_at_type_text("index as i64", int_ty, *target_key)?
+            };
+            let item_text = self.value_at_type_text("value", *source_item, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
+            return Ok(format!(
+                "{value_text}.into_iter().enumerate().map(|(index, value)| ({key_text}, {item_text})).collect::<{target_text}>()"
+            ));
+        }
+        if let (
+            Some(Type::Dict(source_key, source_value)),
+            Some(Type::Dict(target_key, target_value)),
+        ) = (self.mir.types.get(source), self.mir.types.get(target))
+            && (source_key != target_key || source_value != target_value)
+        {
+            let key_text = if self.mir.types.get(*target_key) == Some(&Type::String) {
+                self.property_key_to_string_text("key", *source_key)?
+            } else {
+                self.value_at_type_text("key", *source_key, *target_key)?
+            };
+            let mapped_value_text =
+                self.value_at_type_text("value", *source_value, *target_value)?;
+            let target_text = self.type_text_with_impl_trait(target, false)?;
+            return Ok(format!(
+                "{value_text}.into_iter().map(|(key, value)| ({key_text}, {mapped_value_text})).collect::<{target_text}>()"
+            ));
+        }
+        if let (Some(Type::Dict(source_key, source_value)), Some(Type::Class { .. })) =
+            (self.mir.types.get(source), self.mir.types.get(target))
+            && let Some(adapter) = self.string_dict_record_adapter_text(
+                value_text,
+                *source_key,
+                *source_value,
+                target,
+            )?
+        {
+            return Ok(adapter);
+        }
+        Ok(value_text.to_owned())
+    }
+
     /// Converts a statically typed operand into a tagged `SmeltUnknown` value.
-    pub(super) fn unknown_wrap_text(&self, operand: &Operand) -> Result<String, EmitError> {
+    pub(super) fn erase(&self, operand: &Operand) -> Result<String, EmitError> {
         let text = self.operand_text(operand)?;
         match self.mir.types.get(self.operand_ty(operand)?) {
             Some(Type::Unknown | Type::TypeParam { .. }) => Ok(text),
@@ -18,7 +721,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("SmeltUnknown::Array({text}.into())"))
             }
             Some(Type::List(item)) => {
-                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
                     "SmeltUnknown::Array({text}.into_iter().map(|value| {value_wrap}).collect())"
                 ))
@@ -32,7 +735,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
-                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                let value_wrap = self.erase_value_text("value", *item)?;
                 if self.mir.types.get(*item) == Some(&Type::Float) {
                     return Ok(format!(
                         "{{ let smelt_record = ({text}).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
@@ -44,7 +747,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(key, item)) => {
                 let key_wrap = self.property_key_to_string_text("key", *key)?;
-                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
                     "SmeltUnknown::Object(SmeltObject::new({text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
                 ))
@@ -70,14 +773,14 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, item)| {
-                        self.unknown_wrap_value_text(&format!("{text}.{index}.clone()"), *item)
+                        self.erase_value_text(&format!("{text}.{index}.clone()"), *item)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 Ok(format!("SmeltUnknown::Array(vec![{values}].into())"))
             }
             Some(Type::Optional(inner)) => {
-                let value_wrap = self.unknown_wrap_value_text("value", *inner)?;
+                let value_wrap = self.erase_value_text("value", *inner)?;
                 Ok(format!(
                     "{text}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})"
                 ))
@@ -151,7 +854,7 @@ impl FunctionEmitter<'_> {
     }
 
     /// Wrap a rendered value expression with a known static type into `SmeltUnknown`.
-    pub(super) fn unknown_wrap_value_text(
+    pub(super) fn erase_value_text(
         &self,
         value_text: &str,
         ty: TypeId,
@@ -177,7 +880,7 @@ impl FunctionEmitter<'_> {
                 Ok(format!("SmeltUnknown::Array({value_text}.into())"))
             }
             Some(Type::List(item)) => {
-                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
                     "SmeltUnknown::Array({value_text}.into_iter().map(|value| {value_wrap}).collect())"
                 ))
@@ -191,7 +894,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
-                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                let value_wrap = self.erase_value_text("value", *item)?;
                 if self.mir.types.get(*item) == Some(&Type::Float) {
                     return Ok(format!(
                         "{{ let smelt_record = ({value_text}).clone(); SmeltUnknown::Object(SmeltObject::with_id(smelt_record.id, smelt_record.iter().map(|(key, value)| (key, {value_wrap})).collect())) }}"
@@ -203,7 +906,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(key, item)) => {
                 let key_wrap = self.property_key_to_string_text("key", *key)?;
-                let value_wrap = self.unknown_wrap_value_text("value", *item)?;
+                let value_wrap = self.erase_value_text("value", *item)?;
                 Ok(format!(
                     "SmeltUnknown::Object(SmeltObject::new({value_text}.into_iter().map(|(key, value)| ({key_wrap}, {value_wrap})).collect()))"
                 ))
@@ -224,17 +927,14 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .enumerate()
                     .map(|(index, item)| {
-                        self.unknown_wrap_value_text(
-                            &format!("{value_text}.{index}.clone()"),
-                            *item,
-                        )
+                        self.erase_value_text(&format!("{value_text}.{index}.clone()"), *item)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
                 Ok(format!("SmeltUnknown::Array(vec![{values}].into())"))
             }
             Some(Type::Optional(inner)) => {
-                let value_wrap = self.unknown_wrap_value_text("value", *inner)?;
+                let value_wrap = self.erase_value_text("value", *inner)?;
                 Ok(format!(
                     "{value_text}.clone().map_or(SmeltUnknown::Null, |value| {value_wrap})"
                 ))
@@ -263,10 +963,10 @@ impl FunctionEmitter<'_> {
                     }
                 } else if function.may_throw {
                     let value =
-                        self.unknown_wrap_value_text(&format!("{call_text}?"), function.return_ty)?;
+                        self.erase_value_text(&format!("{call_text}?"), function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
                 } else {
-                    let value = self.unknown_wrap_value_text(&call_text, function.return_ty)?;
+                    let value = self.erase_value_text(&call_text, function.return_ty)?;
                     format!("Ok::<SmeltUnknown, Box<dyn std::error::Error>>({value})")
                 };
                 Ok(format!(
@@ -330,7 +1030,7 @@ impl FunctionEmitter<'_> {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = sanitize_ident(self.symbol_name(field.name)?);
                 if let Some(Type::Optional(inner)) = self.mir.types.get(field.ty) {
-                    let field_value = self.unknown_wrap_value_text("value", *inner)?;
+                    let field_value = self.erase_value_text("value", *inner)?;
                     return Ok(format!(
                         "if let Some(value) = smelt_object_value.{field_name}.clone() {{ smelt_object_entries.insert({source_name:?}.to_owned(), {field_value}); }}"
                     ));
@@ -338,9 +1038,9 @@ impl FunctionEmitter<'_> {
                 let field_value = if let Some(value) =
                     self.virtual_method_storage_field_text(target, target, field.name)?
                 {
-                    self.unknown_wrap_value_text(&value, field.ty)?
+                    self.erase_value_text(&value, field.ty)?
                 } else {
-                    self.unknown_wrap_value_text(
+                    self.erase_value_text(
                         &format!("smelt_object_value.{field_name}"),
                         field.ty,
                     )?
@@ -360,7 +1060,7 @@ impl FunctionEmitter<'_> {
 
     /// Emits a runtime tag check for `SmeltUnknown`.
     /// Emits a runtime tag check for `SmeltUnknown`.
-    pub(super) fn unknown_is_text(
+    pub(super) fn tag_check(
         &self,
         value: &Operand,
         kind: smelt_hir::UnknownKind,
@@ -373,16 +1073,16 @@ impl FunctionEmitter<'_> {
             if kind == smelt_hir::UnknownKind::Null {
                 return Ok(format!("{text}.is_none()"));
             }
-            let check = self.unknown_is_text_raw("smelt_value", kind)?;
+            let check = self.tag_check_raw("smelt_value", kind)?;
             return Ok(format!(
                 "{text}.as_ref().is_some_and(|smelt_value| {check})"
             ));
         }
-        self.unknown_is_text_raw(&text, kind)
+        self.tag_check_raw(&text, kind)
     }
 
     /// Emits a runtime tag check for already-rendered `SmeltUnknown` text.
-    pub(super) fn unknown_is_text_raw(
+    pub(super) fn tag_check_raw(
         &self,
         text: &str,
         kind: smelt_hir::UnknownKind,
@@ -412,17 +1112,13 @@ impl FunctionEmitter<'_> {
     /// the shape. Keep primitive extraction total where the source language has
     /// a defined coercion/default instead of turning those paths into generated
     /// Rust panics.
-    pub(super) fn unknown_cast_text(
-        &self,
-        value: &Operand,
-        target: TypeId,
-    ) -> Result<String, EmitError> {
+    pub(super) fn extract(&self, value: &Operand, target: TypeId) -> Result<String, EmitError> {
         let text = self.operand_text(value)?;
-        self.unknown_cast_value_text(&text, target)
+        self.extract_value_text(&text, target)
     }
 
     /// Emits checked extraction from an already-rendered `SmeltUnknown` value.
-    pub(super) fn unknown_cast_value_text(
+    pub(super) fn extract_value_text(
         &self,
         text: &str,
         target: TypeId,
@@ -478,7 +1174,7 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::List(item)) => {
-                let item_text = self.unknown_cast_value_text("value", *item)?;
+                let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
                     "if let SmeltUnknown::Array(values) = {text}.clone() {{ values.into_iter().map(|value| {item_text}).collect::<Vec<_>>() }} else {{ panic!(\"unknown is not array\") }}"
                 ))
@@ -492,15 +1188,14 @@ impl FunctionEmitter<'_> {
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
-                let item_text = self.unknown_cast_value_text("value", *item)?;
+                let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
                     "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {
-                let key_text =
-                    self.rendered_value_as_type_text("key", self.type_id(Type::String)?, *key)?;
-                let item_text = self.unknown_cast_value_text("value", *item)?;
+                let key_text = self.value_at_type_text("key", self.type_id(Type::String)?, *key)?;
+                let item_text = self.extract_value_text("value", *item)?;
                 if self.dict_uses_js_key_map(*key) {
                     return Ok(format!(
                         "if let SmeltUnknown::Object(values) = {text}.clone() {{ SmeltJsMap::from_iter(values.into_iter().map(|(key, value)| ({key_text}, {item_text}))) }} else {{ SmeltJsMap::new() }}"
@@ -519,7 +1214,7 @@ impl FunctionEmitter<'_> {
             Some(Type::TypeParam { .. }) => Ok(format!("({text}).into_smelt_unknown()")),
             Some(Type::Never | Type::Union(_)) => Ok(text.to_owned()),
             Some(Type::Optional(inner)) => {
-                let inner_text = self.unknown_cast_value_text(text, *inner)?;
+                let inner_text = self.extract_value_text(text, *inner)?;
                 Ok(format!(
                     "if matches!({text}.clone(), SmeltUnknown::Null) {{ None }} else {{ Some({inner_text}) }}"
                 ))
@@ -532,7 +1227,7 @@ impl FunctionEmitter<'_> {
                         let value = format!(
                             "smelt_tuple_values.get({index}).cloned().unwrap_or(SmeltUnknown::Null)"
                         );
-                        self.unknown_cast_value_text(&value, *item)
+                        self.extract_value_text(&value, *item)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
@@ -621,7 +1316,7 @@ impl FunctionEmitter<'_> {
                 let converted_return_text = if return_ty == "SmeltUnknown" {
                     "smelt_result".to_owned()
                 } else {
-                    self.unknown_cast_value_text("smelt_result", function.return_ty)?
+                    self.extract_value_text("smelt_result", function.return_ty)?
                 };
                 let return_text = if function.may_throw {
                     format!("Ok::<_, Box<dyn std::error::Error>>({converted_return_text})")
@@ -659,7 +1354,7 @@ impl FunctionEmitter<'_> {
                 ) {
                     "value".to_owned()
                 } else {
-                    self.unknown_wrap_value_text("value", *item_ty)?
+                    self.erase_value_text("value", *item_ty)?
                 };
                 statements.push(format!(
                     "smelt_call_args.extend(arg{index}.clone().into_iter().map(|value| {item_text}));"
@@ -670,7 +1365,7 @@ impl FunctionEmitter<'_> {
                 } else {
                     format!("arg{index}")
                 };
-                let item_text = self.unknown_wrap_value_text(&arg_text, *param_ty)?;
+                let item_text = self.erase_value_text(&arg_text, *param_ty)?;
                 statements.push(format!("smelt_call_args.push({item_text});"));
             }
         }

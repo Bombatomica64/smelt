@@ -23,6 +23,7 @@ use std::{
 
 mod call;
 mod call_runtime;
+mod coercion;
 mod control_flow;
 mod control_flow_match;
 mod core;
@@ -39,7 +40,6 @@ mod strings;
 mod strings_io;
 mod tuple;
 mod types;
-mod unknown;
 
 use literals::{assigned_locals, constant_text, hir_literal_text, method_mutates_this};
 

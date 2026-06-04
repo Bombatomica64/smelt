@@ -202,7 +202,7 @@ impl FunctionEmitter<'_> {
         };
         let dict_text = self.local_mut_value_text(*local)?;
         let key_text = self.dict_key_operand_text(key, *key_ty)?;
-        let value_text = self.operand_as_type_text(value, *value_ty)?;
+        let value_text = self.value_at_type(value, *value_ty)?;
         Ok(format!(
             "{{ {dict_text}.insert({key_text}, {value_text}); {dict_text}.clone() }}"
         ))
@@ -233,7 +233,7 @@ impl FunctionEmitter<'_> {
             let default = self.default_value(key_ty)?;
             return Ok(format!("{key_text}.clone().unwrap_or({default})"));
         }
-        self.operand_as_type_text(key, key_ty)
+        self.value_at_type(key, key_ty)
     }
 
     /// Converts a dictionary key removal operation to Rust text.
@@ -393,7 +393,7 @@ impl FunctionEmitter<'_> {
                 Some(Type::Unknown | Type::TypeParam { .. })
             ) {
                 let value_text = self.operand_text(source)?;
-                self.rendered_value_as_type_text(&value_text, source_ty, target_ty)?
+                self.value_at_type_text(&value_text, source_ty, target_ty)?
             } else {
                 continue;
             };

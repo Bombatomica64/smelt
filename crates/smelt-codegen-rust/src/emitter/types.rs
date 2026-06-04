@@ -213,7 +213,7 @@ impl FunctionEmitter<'_> {
             (_, Type::Int, _) => Ok("0_i64".to_owned()),
             (_, Type::Float, _) => Ok("0.0".to_owned()),
             (_, Type::String, _) => Ok("String::new()".to_owned()),
-            (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.unknown_wrap_text(operand),
+            (_, Type::Unknown | Type::Union(_) | Type::Never, _) => self.erase(operand),
             _ => self.default_value(dest_ty),
         }
     }

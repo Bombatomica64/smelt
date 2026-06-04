@@ -111,7 +111,7 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(list_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) {
-            let item_text = self.unknown_cast_value_text("item", *value_ty)?;
+            let item_text = self.extract_value_text("item", *value_ty)?;
             return Ok(format!(
                 "match {}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}",
                 self.operand_text(list)?

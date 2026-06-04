@@ -32,7 +32,7 @@ impl FunctionEmitter<'_> {
         {
             let base_text = self.local_mut_value_text(*base)?;
             let field_name = self.symbol_name(*field)?;
-            let item_text = self.operand_as_type_text(item, *item_ty)?;
+            let item_text = self.value_at_type(item, *item_ty)?;
             let result = if returns_length {
                 "smelt_list.len() as f64"
             } else {
@@ -52,7 +52,7 @@ impl FunctionEmitter<'_> {
             let list_text = self.local_mut_value_text(*local)?;
             let base_text = self.local_mut_value_text(base)?;
             let field_name = self.symbol_name(field)?;
-            let item_text = self.operand_as_type_text(item, *item_ty)?;
+            let item_text = self.value_at_type(item, *item_ty)?;
             let result = if returns_length {
                 format!("{list_text}.len() as f64")
             } else {
@@ -68,7 +68,7 @@ impl FunctionEmitter<'_> {
             ));
         };
         let list_text = self.local_mut_value_text(*local)?;
-        let item_text = self.operand_as_type_text(item, *item_ty)?;
+        let item_text = self.value_at_type(item, *item_ty)?;
         if returns_length {
             Ok(format!(
                 "{{ {list_text}.push({item_text}); {list_text}.len() as f64 }}"

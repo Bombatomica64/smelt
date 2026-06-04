@@ -995,9 +995,27 @@ impl ModuleBuilder<'_> {
                 }
             })
             .collect::<Vec<_>>();
-        let captures = self.callback_captures(&callback, body);
+        let mut captures = self.callback_captures(&callback, body);
         let may_throw = Self::callback_expr_contains_throw(&callback);
-        let callback_body = if captures.is_empty() && rest.is_none() && required_params.is_none() {
+        let captures_can_migrate = captures
+            .iter()
+            .all(|capture| capture.mode == CaptureMode::ByRef);
+        let mut migrated_callback = callback.clone();
+        if captures_can_migrate {
+            let mut capture_locals = HashMap::new();
+            for capture in &mut captures {
+                let local = closure_body.push_local(LocalDecl {
+                    name: Some(capture.symbol),
+                    ty: capture.ty,
+                    mutable: false,
+                    span,
+                });
+                capture.body_local = Some(local);
+                capture_locals.insert(capture.source_local, local);
+            }
+            Self::remap_callback_captures(&mut migrated_callback, &capture_locals);
+        }
+        let callback_body = if captures_can_migrate && rest.is_none() && required_params.is_none() {
             let param_exprs = closure_params
                 .iter()
                 .map(|param| {
@@ -1008,8 +1026,12 @@ impl ModuleBuilder<'_> {
                     })
                 })
                 .collect::<Vec<_>>();
-            match self.callback_expr_to_body_expr(&callback, &param_exprs, &mut closure_body, span)
-            {
+            match self.callback_expr_to_body_expr(
+                &migrated_callback,
+                &param_exprs,
+                &mut closure_body,
+                span,
+            ) {
                 Ok(tail) => {
                     if let Some(root) = closure_body.blocks.first_mut() {
                         root.tail = Some(tail);
@@ -1045,6 +1067,96 @@ impl ModuleBuilder<'_> {
             ty: closure_ty,
             span,
         })
+    }
+
+    /// Remap callback capture references to locals declared in the closure body.
+    fn remap_callback_captures(
+        callback: &mut CallbackExpr,
+        capture_locals: &HashMap<smelt_hir::LocalId, smelt_hir::LocalId>,
+    ) {
+        match &mut callback.kind {
+            CallbackExprKind::Capture(local) => {
+                if let Some(mapped) = capture_locals.get(local) {
+                    *local = *mapped;
+                }
+            }
+            CallbackExprKind::AssignCapture { value, .. } => {
+                Self::remap_callback_captures(value, capture_locals);
+            }
+            CallbackExprKind::ListLit(items) => {
+                for item in items {
+                    Self::remap_callback_captures(item, capture_locals);
+                }
+            }
+            CallbackExprKind::Sequence { effects, result } => {
+                for effect in effects {
+                    Self::remap_callback_captures(effect, capture_locals);
+                }
+                Self::remap_callback_captures(result, capture_locals);
+            }
+            CallbackExprKind::DictLit(entries) => {
+                for (_, value) in entries {
+                    Self::remap_callback_captures(value, capture_locals);
+                }
+            }
+            CallbackExprKind::Throw { message } => {
+                if let Some(message) = message {
+                    Self::remap_callback_captures(message, capture_locals);
+                }
+            }
+            CallbackExprKind::Index { receiver, .. }
+            | CallbackExprKind::Field { receiver, .. }
+            | CallbackExprKind::HasField { receiver, .. }
+            | CallbackExprKind::FieldTruthy { receiver, .. }
+            | CallbackExprKind::UnknownIs {
+                value: receiver, ..
+            }
+            | CallbackExprKind::TypeofValue { value: receiver } => {
+                Self::remap_callback_captures(receiver, capture_locals);
+            }
+            CallbackExprKind::DynamicIndex { receiver, index } => {
+                Self::remap_callback_captures(receiver, capture_locals);
+                Self::remap_callback_captures(index, capture_locals);
+            }
+            CallbackExprKind::HasDynamicField { receiver, field } => {
+                Self::remap_callback_captures(receiver, capture_locals);
+                Self::remap_callback_captures(field, capture_locals);
+            }
+            CallbackExprKind::Unary { operand, .. } => {
+                Self::remap_callback_captures(operand, capture_locals);
+            }
+            CallbackExprKind::Binary { lhs, rhs, .. } => {
+                Self::remap_callback_captures(lhs, capture_locals);
+                Self::remap_callback_captures(rhs, capture_locals);
+            }
+            CallbackExprKind::Conditional {
+                cond,
+                then_expr,
+                else_expr,
+            } => {
+                Self::remap_callback_captures(cond, capture_locals);
+                Self::remap_callback_captures(then_expr, capture_locals);
+                Self::remap_callback_captures(else_expr, capture_locals);
+            }
+            CallbackExprKind::Call { callee, args } => {
+                Self::remap_callback_captures(callee, capture_locals);
+                for arg in args {
+                    Self::remap_callback_captures(&mut arg.expr, capture_locals);
+                }
+            }
+            CallbackExprKind::MethodCall { receiver, args, .. } => {
+                Self::remap_callback_captures(receiver, capture_locals);
+                for arg in args {
+                    Self::remap_callback_captures(&mut arg.expr, capture_locals);
+                }
+            }
+            CallbackExprKind::FunctionTableLookup { key, .. } => {
+                Self::remap_callback_captures(key, capture_locals);
+            }
+            CallbackExprKind::Param(_)
+            | CallbackExprKind::Function(_)
+            | CallbackExprKind::Literal(_) => {}
+        }
     }
 
     /// Collect explicit captures from a callback expression tree.

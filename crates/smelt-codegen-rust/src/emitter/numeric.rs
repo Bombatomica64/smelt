@@ -127,7 +127,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(operand_ty)
         {
-            self.operand_as_type_text(operand, self.type_id(Type::Float)?)?
+            self.value_at_type(operand, self.type_id(Type::Float)?)?
         } else {
             return Err(EmitError::new("numeric round operand must be numeric"));
         };
@@ -173,7 +173,7 @@ impl FunctionEmitter<'_> {
             return Ok(identity.to_owned());
         };
         let render_arg = |arg: &Operand| -> Result<String, EmitError> {
-            let text = self.operand_as_type_text(arg, dest_ty)?;
+            let text = self.value_at_type(arg, dest_ty)?;
             if !dest_is_int && matches!(arg, Operand::Const(Constant::Float(_))) {
                 Ok(format!("({text} as f64)"))
             } else {
@@ -222,7 +222,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(operand_ty)
         {
-            self.operand_as_type_text(operand, self.type_id(Type::Float)?)?
+            self.value_at_type(operand, self.type_id(Type::Float)?)?
         } else {
             return Ok("false".to_owned());
         };

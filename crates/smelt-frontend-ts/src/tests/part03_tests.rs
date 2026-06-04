@@ -558,7 +558,6 @@ const repeated = word.repeat(3);
     )?;
     let module = module(&ctx, module_id)?;
     let body = module_body(&ctx, module)?;
-
     ensure!(
         body.exprs
             .iter()
@@ -933,7 +932,7 @@ fn lowers_array_callback_captures() -> Result<(), String> {
     let module_id = lower_ok(
         ts!(r#"
 const values: number[] = [1, 2, 3];
-const minimum = 1;
+const minimum = values.length;
 const filtered = values.filter(value => value > minimum);
 "#),
         &mut ctx,
@@ -942,20 +941,30 @@ const filtered = values.filter(value => value > minimum);
     let body = module_body(&ctx, module)?;
 
     ensure!(
-        body.exprs.iter().any(|expr| matches!(
-            &expr.kind,
-            ExprKind::ListCallback {
+        body.exprs.iter().any(|expr| {
+            let ExprKind::ListCallback {
                 op: ListCallbackOp::Filter,
+                callback,
                 ..
-            }
-        )),
-        "missing filter callback"
+            } = &expr.kind
+            else {
+                return false;
+            };
+            matches!(
+                body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
+                Some(ExprKind::Closure(closure))
+                    if closure.callback_body.is_none()
+                        && closure.captures.iter().all(|capture| capture.body_local.is_some())
+                        && !closure.captures.is_empty()
+            )
+        }),
+        "missing CFG-backed captured filter callback"
     );
     Ok(())
 }
 
 #[test]
-fn lowers_mutable_filter_callback_captures() -> Result<(), String> {
+fn lowers_read_only_mutable_filter_callback_captures() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
         ts!(r#"
@@ -975,9 +984,15 @@ const filtered = values.filter(value => value > minimum);
                 op: ListCallbackOp::Filter,
                 callback,
                 ..
-            } if closure_callback_has_capture(body, *callback)
+            } if matches!(
+                body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
+                Some(ExprKind::Closure(closure))
+                    if closure.callback_body.is_none()
+                        && closure.captures.iter().all(|capture| capture.body_local.is_some())
+                        && !closure.captures.is_empty()
+            )
         )),
-        "missing mutable captured filter callback"
+        "missing CFG-backed read-only mutable binding capture"
     );
     Ok(())
 }

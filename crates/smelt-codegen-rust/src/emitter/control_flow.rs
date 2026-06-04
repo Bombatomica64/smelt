@@ -317,7 +317,7 @@ impl FunctionEmitter<'_> {
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(key, item)) => {
                         let rendered_value = self.rvalue_text_for_dest(value, *item)?;
-                        let key_text = self.operand_as_type_text(index, *key)?;
+                        let key_text = self.value_at_type(index, *key)?;
                         out.push_str(&format!(
                             "    {}.insert({}, {rendered_value});\n",
                             self.local_mut_value_text(*base)?,
@@ -511,7 +511,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         out.push_str(&format!(
                             "    return Ok({});\n",
-                            self.operand_as_type_text(operand, self.function.return_ty)?
+                            self.value_at_type(operand, self.function.return_ty)?
                         ));
                     }
                 } else if self.function.return_ty == self.none_ty {
@@ -529,12 +529,12 @@ impl FunctionEmitter<'_> {
                 {
                     out.push_str(&format!(
                         "    return {};\n",
-                        self.operand_as_type_text(source, self.function.return_ty)?
+                        self.value_at_type(source, self.function.return_ty)?
                     ));
                 } else {
                     out.push_str(&format!(
                         "    return {};\n",
-                        self.operand_as_type_text(operand, self.function.return_ty)?
+                        self.value_at_type(operand, self.function.return_ty)?
                     ));
                 }
                 Ok(())
@@ -657,7 +657,7 @@ impl FunctionEmitter<'_> {
             "    match ::std::panic::catch_unwind(::std::panic::AssertUnwindSafe(|| {raw_call})) {{\n"
         ));
         out.push_str("        Ok(Ok(__smelt_value)) => {\n");
-        let value_text = self.rendered_value_as_type_text("__smelt_value", source_ty, local.ty)?;
+        let value_text = self.value_at_type_text("__smelt_value", source_ty, local.ty)?;
         let name = self.local_name(dest)?;
         let mutability = if self.local_binding_needs_mut(dest) {
             "mut "

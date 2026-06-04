@@ -115,10 +115,9 @@ impl FunctionEmitter<'_> {
         if left_erased || right_erased {
             let unknown_ty = self.type_id(Type::Unknown)?;
             let list_ty = self.type_id(Type::List(unknown_ty))?;
-            let left_text =
-                self.rendered_value_as_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
+            let left_text = self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
             let right_text =
-                self.rendered_value_as_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
+                self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
             return Ok(format!(
                 "{left_text}.iter().cloned().chain({right_text}.iter().cloned()).collect::<Vec<_>>()"
             ));
@@ -233,8 +232,7 @@ impl FunctionEmitter<'_> {
                 "{list_text}.iter().skip({start_text}).take({len_text}).cloned().collect::<Vec<_>>()"
             ));
         }
-        let item_text =
-            { self.rendered_value_as_type_text("value", *source_item_ty, *dest_item_ty)? };
+        let item_text = { self.value_at_type_text("value", *source_item_ty, *dest_item_ty)? };
         Ok(format!(
             "{list_text}.iter().skip({start_text}).take({len_text}).cloned().map(|value| {item_text}).collect::<Vec<_>>()"
         ))
@@ -249,15 +247,15 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let float_ty = self.type_id(Type::Float)?;
-        let list_text = self.operand_as_type_text(list, self.type_id(Type::Unknown)?)?;
+        let list_text = self.erase(list)?;
         let start_text = start.map_or_else(
             || Ok("0.0".to_owned()),
-            |operand| self.operand_as_type_text(operand, float_ty),
+            |operand| self.value_at_type(operand, float_ty),
         )?;
         let end_text = end.map_or_else(
             || Ok("None::<f64>".to_owned()),
             |operand| {
-                self.operand_as_type_text(operand, float_ty)
+                self.value_at_type(operand, float_ty)
                     .map(|text| format!("Some({text})"))
             },
         )?;
@@ -304,9 +302,9 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("array splice destination must be a list"));
         }
         let list_text = self.operand_text(list)?;
-        let start_text = self.operand_as_type_text(start, self.type_id(Type::Float)?)?;
+        let start_text = self.value_at_type(start, self.type_id(Type::Float)?)?;
         let delete_count_text = delete_count
-            .map(|count| self.operand_as_type_text(count, self.type_id(Type::Float)?))
+            .map(|count| self.value_at_type(count, self.type_id(Type::Float)?))
             .transpose()?
             .unwrap_or_else(|| "splice_len as f64".to_owned());
         let replacement_text = self.list_splice_replacement_text(items)?;
@@ -565,7 +563,7 @@ impl FunctionEmitter<'_> {
                             "dynamic array values destination must be a list",
                         ));
                     };
-                    let item_text = self.unknown_cast_value_text("item", *value_ty)?;
+                    let item_text = self.extract_value_text("item", *value_ty)?;
                     Ok(format!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().map(|item| {item_text}).collect::<Vec<_>>(), _ => Vec::new() }}"
                     ))
@@ -588,7 +586,7 @@ impl FunctionEmitter<'_> {
                             "dynamic array entries destination must contain an item type",
                         ));
                     };
-                    let item_text = self.unknown_cast_value_text("item", item_ty)?;
+                    let item_text = self.extract_value_text("item", item_ty)?;
                     Ok(format!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}"
                     ))

@@ -52,7 +52,7 @@ impl FunctionEmitter<'_> {
                 let unknown_value =
                     self.unknown_index_text(&self.operand_text(tuple)?, &index_operand)?;
                 let unknown_ty = self.type_id(Type::Unknown)?;
-                return self.rendered_value_as_type_text(&unknown_value, unknown_ty, dest_ty);
+                return self.value_at_type_text(&unknown_value, unknown_ty, dest_ty);
             }
             return Ok("Default::default()".to_owned());
         };

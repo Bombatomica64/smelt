@@ -13,7 +13,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
             return Ok("false".to_owned());
         };
-        let item_text = self.operand_as_type_text(item, *item_ty)?;
+        let item_text = self.value_at_type(item, *item_ty)?;
         if self.mir.types.get(*item_ty) == Some(&Type::Float) {
             return Ok(format!(
                 "{}.iter().any(|value| *value == {item_text})",
@@ -89,7 +89,7 @@ impl FunctionEmitter<'_> {
         let Some(Type::Set(item_ty)) = self.mir.types.get(set_ty) else {
             return Err(EmitError::new("set add receiver must be a set"));
         };
-        let item_text = self.operand_as_type_text(item, *item_ty)?;
+        let item_text = self.value_at_type(item, *item_ty)?;
         if self.mir.types.get(*item_ty) == Some(&Type::Float) {
             return if matches!(self.mir.types.get(dest_ty), Some(Type::None)) {
                 Ok(format!(
