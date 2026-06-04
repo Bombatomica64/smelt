@@ -2467,7 +2467,7 @@ return_ty: function.return_ty,
     fn supports_stdlib_length(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
-            Some(Type::List(_) | Type::String | Type::Tuple(_) | Type::Unknown | Type::TypeParam { .. })
+            Some(Type::List(_) | Type::String | Type::Tuple(_) | Type::TypeParam { .. })
         )
             || matches!(
                 self.ctx.krate.types.get(receiver_ty),
@@ -2485,7 +2485,7 @@ return_ty: function.return_ty,
     fn supports_stdlib_size(&self, receiver_ty: smelt_hir::TypeId) -> bool {
         matches!(
             self.ctx.krate.types.get(receiver_ty),
-            Some(Type::Dict(_, _) | Type::Set(_) | Type::Unknown | Type::TypeParam { .. })
+            Some(Type::Dict(_, _) | Type::Set(_) | Type::TypeParam { .. })
         )
     }
 

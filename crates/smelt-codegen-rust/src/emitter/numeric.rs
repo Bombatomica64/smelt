@@ -77,7 +77,7 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. }) => {
                 format!(
-                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => value.len(), _ => 0 }}"
+                    "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count(), SmeltUnknown::Array(value) => value.len(), SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value as usize, _ => 0 }}, _ => 0 }}"
                 )
             }
             _ => format!("{receiver_text}.len()"),

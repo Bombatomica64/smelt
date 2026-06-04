@@ -3399,3 +3399,45 @@ setTimeout(() => {}, 10);
     let yield_now = source.find("    tokio::task::yield_now().await;").unwrap();
     assert!(drain < yield_now, "{source}");
 }
+
+#[test]
+fn reads_narrowed_unknown_object_length_property() {
+    let source = source_for(
+        r#"
+function lengthOf(value: unknown): number {
+  if (typeof value === "object" && value !== null && "length" in value && typeof value.length === "number") {
+    return value.length;
+  }
+  return -1;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_get_object_field(&map, \"length\")"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("SmeltUnknown::Object(value) => value.len()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn preserves_unknown_size_as_dynamic_property_access() {
+    let source = source_for(
+        r#"
+function sizeOf(value: unknown): unknown {
+  if (typeof value === "object" && value !== null && "size" in value) {
+    return value.size;
+  }
+  return undefined;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_get_object_field(&map, \"size\")"),
+        "{source}"
+    );
+}

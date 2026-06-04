@@ -2025,11 +2025,11 @@ impl FunctionEmitter<'_> {
                         if field_text == "length" =>
                     {
                         Ok(format!(
-                            "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => value.len() as f64, _ => 0.0 }}"
+                            "match &{receiver_text} {{ SmeltUnknown::String(value) => value.chars().count() as f64, SmeltUnknown::Array(value) => value.len() as f64, SmeltUnknown::Object(value) => match smelt_get_object_field(value, \"length\") {{ SmeltUnknown::Number(value) => value, _ => 0.0 }}, _ => 0.0 }}"
                         ))
                     }
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
-                        "match &{receiver_text} {{ SmeltUnknown::Object(value) => match value.get({source_field_text:?}).unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(mut getter) if getter.contains_key(\"__smelt_get\") => match getter.remove(\"__smelt_get\") {{ Some(SmeltUnknown::Function(smelt_getter)) => (smelt_getter)(Vec::new()).unwrap_or_else(|error| panic!(\"{{}}\", error)), _ => SmeltUnknown::Null }}, value => value }}, _ => SmeltUnknown::Null }}"
+                        "match &{receiver_text} {{ SmeltUnknown::Object(value) => smelt_get_object_field(value, {source_field_text:?}), _ => SmeltUnknown::Null }}"
                     )),
                     Some(Type::Dict(key_ty, value_ty)) => {
                         if self.dict_uses_smelt_record(*key_ty) {
