@@ -1232,18 +1232,33 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
-            CallbackExprKind::Sequence { .. }
-            | CallbackExprKind::Throw { .. }
+            CallbackExprKind::Throw { .. }
             | CallbackExprKind::HasDynamicField { .. }
             | CallbackExprKind::Function(_)
             | CallbackExprKind::FunctionTableLookup { .. }
-            | CallbackExprKind::AssignCapture { .. }
             | CallbackExprKind::HasField { .. }
             | CallbackExprKind::FieldTruthy { .. }
             | CallbackExprKind::TypeofValue { .. } => Err(SmeltError::unsupported(
                 span,
                 "this callback default expression is not lowered at call sites yet",
             )),
+            CallbackExprKind::Sequence { effects, result } => {
+                for effect in effects {
+                    let effect = self.callback_expr_to_body_expr(effect, args, body, span)?;
+                    body.push_stmt(Stmt::Expr(effect));
+                }
+                self.callback_expr_to_body_expr(result, args, body, span)
+            }
+            CallbackExprKind::AssignCapture { target, value } => {
+                let target = body.push_expr(Expr {
+                    kind: ExprKind::Local(*target),
+                    ty: callback.ty,
+                    span,
+                });
+                let value = self.callback_expr_to_body_expr(value, args, body, span)?;
+                body.push_stmt(Stmt::Assign { target, value });
+                Ok(value)
+            }
             CallbackExprKind::DictLit(entries) => {
                 let string_ty = self.ctx.krate.types.intern(Type::String);
                 let entries = entries
