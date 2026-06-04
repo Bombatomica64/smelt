@@ -46,6 +46,7 @@ impl ModuleBuilder<'_> {
                 params: vec![string_ty],
             rest: None,
                 required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: string_ty,
                 is_async: false,
                             may_throw: false,

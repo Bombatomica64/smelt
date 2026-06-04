@@ -48,18 +48,19 @@ impl FunctionEmitter<'_> {
             return Err(EmitError::new("callback class field type requires a class"));
         };
         if let Some(class) = self.mir.classes.iter().find(|item| item.name == *name)
-            && let Some(field) = crate::classes::effective_class_fields(self.mir, class)
+            && let Some(class_field) = crate::classes::effective_class_fields(self.mir, class)
                 .into_iter()
                 .find(|item| item.name == field)
         {
-            return Ok(field.ty);
+            return Ok(class_field.ty);
         }
         if let Some(interface) = self.mir.interfaces.iter().find(|item| item.name == *name)
-            && let Some(field) = crate::classes::effective_interface_fields(self.mir, interface)
-                .into_iter()
-                .find(|item| item.name == field)
+            && let Some(interface_field) =
+                crate::classes::effective_interface_fields(self.mir, interface)
+                    .into_iter()
+                    .find(|item| item.name == field)
         {
-            return Ok(field.ty);
+            return Ok(interface_field.ty);
         }
         Err(EmitError::new("callback class field is missing"))
     }
@@ -123,14 +124,12 @@ impl FunctionEmitter<'_> {
                 return self.list_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
             }
             Err(_) if matches!(op, smelt_hir::ListCallbackOp::ForEach) => {
-                return self.list_for_each_closure_text(
-                    list, list_ty, element_ty, callback, dest_ty,
-                );
+                return self
+                    .list_for_each_closure_text(list, list_ty, element_ty, callback, dest_ty);
             }
             Err(_) if matches!(op, smelt_hir::ListCallbackOp::FlatMap) => {
-                return self.list_flat_map_closure_text(
-                    list, list_ty, element_ty, callback, dest_ty,
-                );
+                return self
+                    .list_flat_map_closure_text(list, list_ty, element_ty, callback, dest_ty);
             }
             Err(_) => return Ok("Default::default()".to_owned()),
         };
@@ -279,11 +278,11 @@ impl FunctionEmitter<'_> {
                     *dest_item_ty,
                     &["item", "index", "array"],
                 )?;
-                let closure = format!(
+                let typed_closure = format!(
                     "|(index, item)| {{ {item_binding}{index_binding}{array_binding}{callback_value} }}"
                 );
                 Ok(format!(
-                    "{list_text}.iter().enumerate().map({closure}).collect::<Vec<_>>()"
+                    "{list_text}.iter().enumerate().map({typed_closure}).collect::<Vec<_>>()"
                 ))
             }
             smelt_hir::ListCallbackOp::Filter => {
@@ -411,7 +410,7 @@ impl FunctionEmitter<'_> {
         dest_item_ty: TypeId,
     ) -> Result<String, EmitError> {
         let item_ty_text = self.type_text_with_impl_trait(dest_item_ty, false)?;
-        let callback_text = callback_text
+        let throwing_callback_text = callback_text
             .replace(".expect(\"throwing function table call failed\")", "?")
             .replace(
                 ".expect(\"throwing call failed inside non-throwing closure\")",
@@ -420,7 +419,7 @@ impl FunctionEmitter<'_> {
         let callback_value =
             self.rendered_value_as_type_text("smelt_map_value", source_item_ty, dest_item_ty)?;
         let closure = format!(
-            "|(index, item)| -> Result<{item_ty_text}, Box<dyn std::error::Error>> {{ {item_binding}{index_binding}{array_binding}let smelt_map_value = {{ {callback_text} }}; Ok::<_, Box<dyn std::error::Error>>({callback_value}) }}"
+            "|(index, item)| -> Result<{item_ty_text}, Box<dyn std::error::Error>> {{ {item_binding}{index_binding}{array_binding}let smelt_map_value = {{ {throwing_callback_text} }}; Ok::<_, Box<dyn std::error::Error>>({callback_value}) }}"
         );
         let collected = format!(
             "{list_text}.iter().enumerate().map({closure}).collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()"
@@ -532,8 +531,8 @@ impl FunctionEmitter<'_> {
             .iter()
             .find(|candidate| candidate.name == field)
             .map(|candidate| candidate.ty);
-        if let Some(field_ty) = field_ty
-            && let Some(Type::Optional(inner)) = self.mir.types.get(field_ty)
+        if let Some(structural_field_ty) = field_ty
+            && let Some(Type::Optional(inner)) = self.mir.types.get(structural_field_ty)
             && self.mir.types.get(*inner) == Some(&Type::Bool)
         {
             return Ok(format!(
@@ -715,9 +714,7 @@ impl FunctionEmitter<'_> {
             Some(Type::List(callback_item_ty)) => {
                 let value_text =
                     self.rendered_value_as_type_text("value", *callback_item_ty, *dest_item_ty)?;
-                format!(
-                    "smelt_result.into_iter().map(|value| {value_text}).collect::<Vec<_>>()"
-                )
+                format!("smelt_result.into_iter().map(|value| {value_text}).collect::<Vec<_>>()")
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
                 let unknown_ty = self.type_id(Type::Unknown)?;
@@ -938,43 +935,44 @@ impl FunctionEmitter<'_> {
         };
         let closure = self.closure_text_with_extra_params(id, extra_params, target_return_ty)?;
         if matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))) {
-            let adjusted_closure =
-                if !has_captures || closure.starts_with("move ") || closure.starts_with('{') {
-                    closure
-                } else {
-                    let source_closure = self
-                        .mir
-                        .closures
-                        .get(id_index(id.0, "closure id does not fit usize")?)
-                        .ok_or_else(|| {
-                            EmitError::new("closure rvalue references an unknown closure")
-                        })?;
-                    let mut cloned_captures = HashSet::new();
-                    let mut shared_replacements = Vec::new();
-                    let capture_prelude =
-                        source_closure
-                            .captures
-                            .iter()
-                            .filter_map(|capture| {
-                                let local = self.local_decl(capture.source_local).ok()?;
-                                if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
-                                    && matches!(local.kind, LocalKind::Param { .. })
-                                {
-                                    return None;
-                                }
-                                if !matches!(local.kind, LocalKind::Param { .. })
-                                    && !self
-                                        .declared_locals
-                                        .borrow()
-                                        .contains(&capture.source_local)
-                                {
-                                    return None;
-                                }
-                                let name = self.local_name(capture.source_local).ok()?.to_owned();
-                                if name.starts_with("(*smelt_capture_") {
-                                    return None;
-                                }
-                                cloned_captures.insert(name.clone()).then(|| {
+            let adjusted_closure = if !has_captures
+                || closure.starts_with("move ")
+                || closure.starts_with('{')
+            {
+                closure
+            } else {
+                let source_closure = self
+                    .mir
+                    .closures
+                    .get(id_index(id.0, "closure id does not fit usize")?)
+                    .ok_or_else(|| {
+                        EmitError::new("closure rvalue references an unknown closure")
+                    })?;
+                let mut cloned_captures = HashSet::new();
+                let mut shared_replacements = Vec::new();
+                let capture_prelude = source_closure
+                    .captures
+                    .iter()
+                    .filter_map(|capture| {
+                        let local = self.local_decl(capture.source_local).ok()?;
+                        if matches!(self.mir.types.get(local.ty), Some(Type::Function(_)))
+                            && matches!(local.kind, LocalKind::Param { .. })
+                        {
+                            return None;
+                        }
+                        if !matches!(local.kind, LocalKind::Param { .. })
+                            && !self
+                                .declared_locals
+                                .borrow()
+                                .contains(&capture.source_local)
+                        {
+                            return None;
+                        }
+                        let name = self.local_name(capture.source_local).ok()?.to_owned();
+                        if name.starts_with("(*smelt_capture_") {
+                            return None;
+                        }
+                        cloned_captures.insert(name.clone()).then(|| {
                             if self.closure_capture_needs_shared_access(source_closure, capture)
                                 || self.local_uses_shared_capture_storage(capture.source_local)
                             {
@@ -1006,18 +1004,18 @@ impl FunctionEmitter<'_> {
                             };
                             format!("let {mutability}{name} = {name}.clone();")
                         })
-                            })
-                            .collect::<Vec<_>>();
-                    let closure = replace_shared_capture_uses(closure, &shared_replacements);
-                    if capture_prelude.is_empty() {
-                        format!("move {closure}")
-                    } else {
-                        format!(
-                            "{{\n    {}\n    move {closure}\n}}",
-                            capture_prelude.join("\n    ")
-                        )
-                    }
-                };
+                    })
+                    .collect::<Vec<_>>();
+                let adjusted_closure = replace_shared_capture_uses(closure, &shared_replacements);
+                if capture_prelude.is_empty() {
+                    format!("move {adjusted_closure}")
+                } else {
+                    format!(
+                        "{{\n    {}\n    move {adjusted_closure}\n}}",
+                        capture_prelude.join("\n    ")
+                    )
+                }
+            };
             let callback_text = format!("::std::rc::Rc::new({adjusted_closure})");
             if let Some(Type::Function(function)) = self.mir.types.get(dest_ty)
                 && self.is_erased_unknown_rest_function(function)
@@ -1047,6 +1045,7 @@ impl FunctionEmitter<'_> {
                     params,
                     rest: source_closure.rest,
                     required_params: source_closure.required_params,
+                    mutable_params: Vec::new(),
                     return_ty: source_closure.return_ty,
                     is_async: false,
                     may_throw: source_closure.can_throw,
@@ -1423,12 +1422,12 @@ impl FunctionEmitter<'_> {
                 })
             })
             .collect::<Vec<_>>();
-        let body = replace_shared_capture_uses(body, &shared_replacements);
+        let adjusted_body = replace_shared_capture_uses(body, &shared_replacements);
         if capture_prelude.is_empty() {
-            Ok(format!("{capture_prefix}{body}"))
+            Ok(format!("{capture_prefix}{adjusted_body}"))
         } else {
             Ok(format!(
-                "{{\n    {}\n    {capture_prefix}{body}\n}}",
+                "{{\n    {}\n    {capture_prefix}{adjusted_body}\n}}",
                 capture_prelude.join("\n    ")
             ))
         }
@@ -2659,7 +2658,7 @@ impl FunctionEmitter<'_> {
                 let final_rest_param = symbol_function
                     .and_then(|function| function.rest)
                     .or_else(|| callee_function.and_then(|function| function.rest));
-                let final_rest_param = final_rest_param
+                let final_rest_param_data = final_rest_param
                     .and_then(|index| callee_params.get(index).map(|param| (index, *param)))
                     .and_then(|(index, param)| match self.mir.types.get(param) {
                         Some(Type::List(item_ty)) => Some((index, param, *item_ty)),
@@ -2673,7 +2672,7 @@ impl FunctionEmitter<'_> {
                     });
                 let mut rendered_args = if source_call_has_no_args {
                     Vec::new()
-                } else if let Some((rest_index, rest_ty, rest_item_ty)) = final_rest_param {
+                } else if let Some((rest_index, rest_ty, rest_item_ty)) = final_rest_param_data {
                     let mut rendered = Vec::new();
                     let mut rest_segments = Vec::new();
                     let mut scalar_items = Vec::new();
@@ -2790,6 +2789,84 @@ impl FunctionEmitter<'_> {
                     args.iter()
                         .map(|arg| self.callback_expr_text(&arg.expr, params))
                         .collect::<Result<Vec<_>, EmitError>>()?
+                } else if args.iter().any(|arg| arg.spread) {
+                    let mut rendered = Vec::new();
+                    let mut fixed_index = 0usize;
+                    for (arg_index, arg) in args.iter().enumerate() {
+                        if fixed_index >= callee_params.len() {
+                            break;
+                        }
+                        if arg.spread {
+                            let spread_text = self.callback_expr_text(&arg.expr, params)?;
+                            let trailing_scalar_count = args
+                                .iter()
+                                .skip(arg_index.checked_add(1).ok_or_else(|| {
+                                    EmitError::new("callback argument index overflowed")
+                                })?)
+                                .filter(|candidate_arg| !candidate_arg.spread)
+                                .count();
+                            let remaining_slots = callee_params.len().saturating_sub(fixed_index);
+                            let spread_slots =
+                                remaining_slots.saturating_sub(trailing_scalar_count);
+                            for offset in 0..spread_slots {
+                                let target_index =
+                                    fixed_index.checked_add(offset).ok_or_else(|| {
+                                        EmitError::new("spread callback argument index overflowed")
+                                    })?;
+                                let target = *callee_params.get(target_index).ok_or_else(|| {
+                                    EmitError::new("spread callback argument target is missing")
+                                })?;
+                                let item_text = format!(
+                                    "{spread_text}.get({offset}).cloned().unwrap_or(SmeltUnknown::Null)"
+                                );
+                                let unknown_ty = self.type_id(Type::Unknown)?;
+                                let mut text = self
+                                    .rendered_value_as_type_text(&item_text, unknown_ty, target)?;
+                                if call_uses_static_abi
+                                    && matches!(self.mir.types.get(target), Some(Type::Function(_)))
+                                    && text.contains("Rc<dyn Fn")
+                                    && !text.starts_with('&')
+                                {
+                                    text = format!("&*({text})");
+                                }
+                                rendered.push(text);
+                            }
+                            fixed_index =
+                                fixed_index.checked_add(spread_slots).ok_or_else(|| {
+                                    EmitError::new("spread callback argument index overflowed")
+                                })?;
+                        } else {
+                            let target = *callee_params.get(fixed_index).ok_or_else(|| {
+                                EmitError::new("fixed callback argument target is missing")
+                            })?;
+                            let mut text =
+                                self.callback_expr_as_type_text(&arg.expr, target, params)?;
+                            let rendered_owned_callback = text.contains("::std::rc::Rc<dyn Fn")
+                                && !text.starts_with("SmeltUnknown::Function")
+                                && !text.starts_with('&');
+                            if call_uses_static_abi
+                                && (matches!(self.mir.types.get(target), Some(Type::Function(_)))
+                                    || rendered_owned_callback)
+                                && !text.starts_with('&')
+                            {
+                                text = format!("&*({text})");
+                            }
+                            rendered.push(text);
+                            fixed_index = fixed_index
+                                .checked_add(1)
+                                .ok_or_else(|| EmitError::new("argument index overflowed"))?;
+                        }
+                    }
+                    while fixed_index < callee_params.len() {
+                        let target = *callee_params.get(fixed_index).ok_or_else(|| {
+                            EmitError::new("default callback argument target is missing")
+                        })?;
+                        rendered.push(self.default_value(target)?);
+                        fixed_index = fixed_index
+                            .checked_add(1)
+                            .ok_or_else(|| EmitError::new("argument index overflowed"))?;
+                    }
+                    rendered
                 } else {
                     callee_params
                         .iter()
@@ -3104,13 +3181,13 @@ impl FunctionEmitter<'_> {
                     })?;
                     let item_text =
                         self.callback_expr_as_type_text(&item.expr, *item_ty, params)?;
-                    let receiver_text =
+                    let mutable_receiver_text =
                         if let smelt_hir::CallbackExprKind::Capture(local) = receiver.kind {
                             self.local_name(LocalId(local.0))?.to_owned()
                         } else {
                             receiver_text
                         };
-                    Ok(format!("{receiver_text}.push({item_text})"))
+                    Ok(format!("{mutable_receiver_text}.push({item_text})"))
                 } else if method_text == "slice"
                     && matches!(self.mir.types.get(receiver.ty), Some(Type::Unknown))
                     && (args.len() == 1 || args.len() == 2)
@@ -3298,12 +3375,12 @@ impl FunctionEmitter<'_> {
             .map(|(case_key, function)| {
                 let function_text = self.callback_function_rust_name(*function)?;
                 let call_text = format!("{function_text}({args_text})");
-                let call_text = if self.callback_function_can_throw(*function) {
+                let checked_call_text = if self.callback_function_can_throw(*function) {
                     format!("{call_text}.expect(\"throwing function table call failed\")")
                 } else {
                     call_text
                 };
-                Ok(format!("{case_key:?} => {call_text}"))
+                Ok(format!("{case_key:?} => {checked_call_text}"))
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
@@ -3900,8 +3977,8 @@ fn replace_identifier(text: &str, source: &str, target: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut index = 0;
     while let Some(offset) = text[index..].find(source) {
-        let start = index + offset;
-        let end = start + source.len();
+        let start = index.saturating_add(offset);
+        let end = start.saturating_add(source.len());
         out.push_str(&text[index..start]);
         let before = text[..start].chars().next_back();
         let after = text[end..].chars().next();

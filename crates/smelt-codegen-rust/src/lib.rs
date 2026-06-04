@@ -785,7 +785,11 @@ fn emit_source_with_free_function_router(
                     fn_writer.line("let SmeltUnknown::String(haystack) = haystack.into_smelt_unknown() else { return false; };");
                     fn_writer.block("match self", |match_writer| {
                         match_writer.line("Self::String(pattern) => regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(&haystack)),");
-                        match_writer.line("Self::Object(map) => map.get(\"source\").and_then(|value| match value { Self::String(pattern) => Some(pattern), _ => None }).is_some_and(|pattern| regex::Regex::new(&pattern).is_ok_and(|regex| regex.is_match(&haystack))),");
+                        match_writer.line("Self::Object(map) => {");
+                        match_writer.line("    let Some(Self::String(source)) = map.get(\"source\") else { return false; };");
+                        match_writer.line("    let flags = match map.get(\"flags\") { Some(Self::String(flags)) => flags.clone(), _ => String::new() };");
+                        match_writer.line("    SmeltRegExp::new(source.clone(), flags).test(&haystack)");
+                        match_writer.line("}");
                         match_writer.line("_ => false,");
                     });
                 },

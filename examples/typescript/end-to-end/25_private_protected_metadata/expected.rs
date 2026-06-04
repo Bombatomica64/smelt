@@ -14,6 +14,7 @@ fn main() {
     secret = _smelt_tmp_1.clone();
     let _smelt_tmp_2: String = secret.reveal();
     let _ = { println!("{}", _smelt_tmp_2.clone()); };
+    return;
 }
 
 impl Secret {

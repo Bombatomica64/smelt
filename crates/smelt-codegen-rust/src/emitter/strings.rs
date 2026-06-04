@@ -96,8 +96,9 @@ impl FunctionEmitter<'_> {
         };
         let haystack_text = self.string_like_operand_text(haystack, "string search")?;
         let needle_text = self.string_like_operand_text(needle, "string search")?;
-        if let Some(from_index) = from_index {
-            let index_text = self.operand_as_type_text(from_index, self.type_id(Type::Float)?)?;
+        if let Some(from_index_operand) = from_index {
+            let index_text =
+                self.operand_as_type_text(from_index_operand, self.type_id(Type::Float)?)?;
             return match op {
                 smelt_hir::StringSearchOp::Find => Ok(format!(
                     "{{ let smelt_haystack = {haystack_text}; let smelt_needle = {needle_text}; let smelt_from = ({index_text} as i64).max(0) as usize; let smelt_prefix_bytes = smelt_haystack.char_indices().nth(smelt_from).map_or(smelt_haystack.len(), |(byte, _)| byte); smelt_haystack.get(smelt_prefix_bytes..).and_then(|suffix| suffix.find(&smelt_needle).map(|index| (smelt_prefix_bytes + index) as {cast})).unwrap_or({missing}) }}"

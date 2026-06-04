@@ -1328,8 +1328,8 @@ fn validate_rvalue(
         }
         Rvalue::ListFlat { list, depth } => {
             validate_operand(mir, function, definitions, list, errors);
-            if let Some(depth) = depth {
-                validate_operand(mir, function, definitions, depth, errors);
+            if let Some(depth_operand) = depth {
+                validate_operand(mir, function, definitions, depth_operand, errors);
             }
         }
         Rvalue::ListProjection { list, .. } => {

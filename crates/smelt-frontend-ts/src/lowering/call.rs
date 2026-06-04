@@ -645,9 +645,12 @@ impl ModuleBuilder<'_> {
                             _ => None,
                         })
                         .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
-                    let args = self.packed_spread_call_arguments(item_ty, call, body)?;
+                    let spread_args = self.packed_spread_call_arguments(item_ty, call, body)?;
                     return Ok(body.push_expr(Expr {
-                        kind: ExprKind::ClosureCallSpread { callee, args },
+                        kind: ExprKind::ClosureCallSpread {
+                            callee,
+                            args: spread_args,
+                        },
                         ty: function.return_ty,
                         span: self.span(call.span.start, call.span.end),
                     }));
@@ -829,6 +832,7 @@ impl ModuleBuilder<'_> {
                 params: params.clone(),
                 rest: rest.map(|rest| rest.index),
                 required_params: item_required_params,
+                    mutable_params: Vec::new(),
                 return_ty: implementation_return_ty,
                 is_async,
                 may_throw: false,
@@ -1025,6 +1029,7 @@ impl ModuleBuilder<'_> {
                     params,
                     rest: None,
                     required_params: None,
+                    mutable_params: Vec::new(),
                     return_ty: unknown,
                     is_async: false,
                     may_throw: false,
@@ -1120,7 +1125,7 @@ impl ModuleBuilder<'_> {
             .map(str::to_owned);
         if class_name
             .as_deref()
-            .and_then(|name| self.class_fields.get(name))
+            .and_then(|class_name| self.class_fields.get(class_name))
             .and_then(|fields| fields.iter().find(|item| item.name == field))
             .is_some_and(|item| matches!(self.ctx.krate.types.get(item.ty), Some(Type::Function(_))))
         {
@@ -1132,7 +1137,7 @@ impl ModuleBuilder<'_> {
             .or_else(|| {
                 class_name
                     .as_deref()
-                    .and_then(|name| self.class_bases.get(name).cloned())
+                    .and_then(|base_name| self.class_bases.get(base_name).cloned())
             })
         else {
             return false;
@@ -1310,6 +1315,7 @@ impl ModuleBuilder<'_> {
             params: remaining_params,
             rest: None,
             required_params: None,
+                    mutable_params: Vec::new(),
             return_ty: function.return_ty,
             is_async: function.is_async,
             may_throw: function.may_throw,
@@ -1423,11 +1429,11 @@ impl ModuleBuilder<'_> {
             ));
         }
         let description_arg = call.arguments.first();
-        let description = description_arg
+        let checked_description = description_arg
             .map(|argument| self.argument(argument, body))
             .transpose()?;
         let ty = self.ctx.krate.types.intern(Type::Unknown);
-        if let Some(description) = description
+        if let Some(description) = checked_description
             && !matches!(
                 self.ctx.krate.types.get(Self::expr_ty(body, description)),
                 Some(Type::String)
@@ -2868,6 +2874,7 @@ impl ModuleBuilder<'_> {
                 params: callback.params,
                 rest: callback.rest.map(|rest| rest.index),
                 required_params: callback.required_params,
+                    mutable_params: Vec::new(),
                 return_ty: callback.return_ty,
                 is_async: false,
                 may_throw: false,

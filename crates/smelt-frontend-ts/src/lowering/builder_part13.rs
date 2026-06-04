@@ -402,6 +402,7 @@ impl ModuleBuilder<'_> {
                 params: vec![list_ty],
             rest: None,
                 required_params: None,
+                    mutable_params: Vec::new(),
 return_ty,
                 is_async: false,
                             may_throw: false,
@@ -993,6 +994,7 @@ return_ty,
             params: params.to_vec(),
             rest,
             required_params,
+            mutable_params: Vec::new(),
             return_ty,
             is_async: false,
             may_throw,
@@ -1724,6 +1726,7 @@ return_ty,
             params: expected_param_tys.to_vec(),
             rest: None,
             required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: unknown_ty,
             is_async: false,
                             may_throw: false,
@@ -2825,8 +2828,11 @@ return_ty: unknown_ty,
         let saved_async = self.current_async;
         let saved_return_ty = self.current_return_ty;
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
+        let infer_expression_return =
+            arrow.expression && matches!(self.ctx.krate.types.get(return_ty), Some(Type::Unknown));
         self.current_async = arrow.r#async;
         self.current_return_ty = Some(return_ty);
+        let mut actual_return_ty = return_ty;
         let predeclare_result = if arrow.expression {
             Ok(())
         } else {
@@ -2842,11 +2848,16 @@ return_ty: unknown_ty,
             Err(error)
         } else if arrow.expression {
             match self.arrow_return_expression(arrow) {
-                Ok(return_expression) => self
-                    .expression_with_hint(return_expression, &mut closure_body, Some(return_ty))
-                    .map(|value| {
+                Ok(return_expression) => {
+                    let hint = (!infer_expression_return).then_some(return_ty);
+                    self.expression_with_hint(return_expression, &mut closure_body, hint)
+                        .map(|value| {
+                            if infer_expression_return {
+                                actual_return_ty = Self::expr_ty(&closure_body, value);
+                            }
                         closure_body.push_stmt(Stmt::Return(Some(value)));
-                    }),
+                        })
+                }
                 Err(error) => Err(error),
             }
         } else {
@@ -2879,7 +2890,8 @@ return_ty: unknown_ty,
             params: param_tys.to_vec(),
             rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
             required_params: None,
-return_ty,
+            mutable_params: Vec::new(),
+            return_ty: actual_return_ty,
             is_async: arrow.r#async,
             may_throw,
         }));
@@ -2888,7 +2900,7 @@ return_ty,
                 params: closure_params,
                 rest: arrow.params.rest.as_ref().map(|_| arrow.params.items.len()),
                 required_params: None,
-return_ty,
+                return_ty: actual_return_ty,
                 captures,
                 body: body_id,
                 callback_body: None,
@@ -3524,6 +3536,7 @@ return_ty,
                     params: vec![param_ty],
             rest: None,
                     required_params: None,
+                    mutable_params: Vec::new(),
 return_ty,
                     is_async: false,
                             may_throw: false,
@@ -3754,9 +3767,13 @@ return_ty,
                 };
                 let expr =
                     self.arrow_closure_body_expr(arrow, expected_param_tys, fallback_return_ty, body)?;
+                let return_ty = match self.ctx.krate.types.get(Self::expr_ty(body, expr)) {
+                    Some(Type::Function(function)) => function.return_ty,
+                    _ => fallback_return_ty,
+                };
                 Ok(ClosureCallback {
                     expr,
-                    return_ty: fallback_return_ty,
+                    return_ty,
                 })
             }
             Err(error) => Err(error),
@@ -4369,6 +4386,41 @@ return_ty,
                 }
                 if let Expression::StaticMemberExpression(member) = &call.callee {
                     let receiver = self.callback_expression(&member.object, params, body)?;
+                    if matches!(member.property.name.as_str(), "filter" | "sort")
+                        && matches!(
+                            self.ctx.krate.types.get(self.type_param_constraint_or_self(receiver.ty)),
+                            Some(Type::List(_) | Type::Tuple(_))
+                        )
+                    {
+                        let method = self.intern_source_name(member.property.name.as_str());
+                        let mut args = Vec::new();
+                        for arg in &call.arguments {
+                            let (expr, spread) = match arg {
+                                Argument::SpreadElement(spread) => {
+                                    (self.callback_expression(&spread.argument, params, body)?, true)
+                                }
+                                other => {
+                                    let Some(arg_expression) = other.as_expression() else {
+                                        return Err(SmeltError::unsupported(
+                                            self.span(other.span().start, other.span().end),
+                                            "callback array method argument kind is not supported yet",
+                                        ));
+                                    };
+                                    (self.callback_expression(arg_expression, params, body)?, false)
+                                }
+                            };
+                            args.push(CallbackCallArg { expr, spread });
+                        }
+                        let return_ty = receiver.ty;
+                        return Ok(CallbackExpr {
+                            kind: CallbackExprKind::MethodCall {
+                                receiver: Box::new(receiver),
+                                method,
+                                args,
+                            },
+                            ty: return_ty,
+                        });
+                    }
                     if matches!(member.property.name.as_str(), "map" | "flatMap")
                         && call
                             .arguments

@@ -13,6 +13,7 @@ fn main() {
     let mut _smelt_tmp_1: Point = Point::new(2.0, 3.0);
     p = _smelt_tmp_1.clone();
     let _ = { println!("{}", p.x.clone()); };
+    return;
 }
 
 impl Point {

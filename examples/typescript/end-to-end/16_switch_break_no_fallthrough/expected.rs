@@ -16,4 +16,5 @@ fn main() {
         }
     }
     let _ = { println!("{}", label.clone()); };
+    return;
 }

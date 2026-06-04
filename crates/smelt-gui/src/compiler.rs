@@ -92,7 +92,10 @@ impl CompileReport {
 /// Stages are recorded as they run so the UI can show exactly where a failing
 /// compilation stopped. The two source languages are merged into one HIR crate
 /// before MIR lowering, so a single Rust program is emitted with one entrypoint.
-#[expect(clippy::too_many_lines, reason = "linear stage-by-stage pipeline driver")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "linear stage-by-stage pipeline driver"
+)]
 pub(super) fn compile_report(ts_source: &str, py_source: &str) -> CompileReport {
     let start = Instant::now();
     let mut stages: Vec<PipelineStageReport> = Vec::with_capacity(STAGE_NAMES.len());
@@ -286,7 +289,11 @@ mod tests {
     #[test]
     fn ts_only_compiles() {
         let report = compile_report("let x: number = 42;\nconsole.log(x);\n", "");
-        assert!(report.ok, "TS-only compile failed: {:?}", report.diagnostics);
+        assert!(
+            report.ok,
+            "TS-only compile failed: {:?}",
+            report.diagnostics
+        );
         let rust = report.rust_source.expect("rust output");
         assert!(rust.contains("fn main"), "expected fn main: {rust}");
     }
@@ -310,7 +317,10 @@ mod tests {
         let report = compile_report("", "   \n");
         assert!(!report.ok);
         assert!(
-            report.diagnostics.iter().any(|d| d.message.contains("empty")),
+            report
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("empty")),
             "expected an empty-input diagnostic: {:?}",
             report.diagnostics
         );

@@ -23,4 +23,5 @@ fn main() {
     }
     }
     let _ = { println!("{}", sum.clone()); };
+    return;
 }

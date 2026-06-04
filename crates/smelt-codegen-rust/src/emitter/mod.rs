@@ -498,8 +498,8 @@ fn closure_source_for_local(
     local: LocalId,
     closure_defs: Option<&HashMap<LocalId, smelt_mir::ClosureId>>,
 ) -> Option<smelt_mir::ClosureId> {
-    let closure_defs = closure_defs?;
-    if let Some(closure_id) = closure_defs.get(&local).copied() {
+    let closure_definitions = closure_defs?;
+    if let Some(closure_id) = closure_definitions.get(&local).copied() {
         return Some(closure_id);
     }
     let mut current = local;
@@ -522,7 +522,7 @@ fn closure_source_for_local(
                 }
             })
         })?;
-        if let Some(closure_id) = closure_defs.get(&next).copied() {
+        if let Some(closure_id) = closure_definitions.get(&next).copied() {
             return Some(closure_id);
         }
         current = next;

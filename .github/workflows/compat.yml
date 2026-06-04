@@ -1,0 +1,132 @@
+name: Compatibility
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_compat:
+        description: "Run compatibility jobs and update COMPAT.md"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  compat:
+    if: ${{ github.event.inputs.run_compat == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: remeda
+            url: https://github.com/remeda/remeda.git
+            ref: 3c80f28bb394edbf89f1fc9978571dec8ed20edc
+            manifest: Smelt.toml
+            generated_manifest: dist-smelt/Cargo.toml
+    steps:
+      - name: Checkout Smelt
+        uses: actions/checkout@v6
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            target
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-compat-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Checkout compatibility repo
+        run: |
+          repo_dir="target/compat-repos/${{ matrix.name }}"
+          rm -rf "$repo_dir"
+          git clone --no-tags --filter=blob:none "${{ matrix.url }}" "$repo_dir"
+          git -C "$repo_dir" checkout "${{ matrix.ref }}"
+
+      - name: Copy Smelt fixtures
+        run: |
+          fixture_dir=".github/compat/${{ matrix.name }}"
+          repo_dir="target/compat-repos/${{ matrix.name }}"
+          if [ -d "$fixture_dir" ]; then
+            cp -R "$fixture_dir"/. "$repo_dir"/
+          fi
+
+      - name: Build and run generated Rust tests
+        id: generated-tests
+        continue-on-error: true
+        run: |
+          mkdir -p "target/compat-reports"
+          cargo run --bin smelt -- rust-test-report \
+            --build-manifest "target/compat-repos/${{ matrix.name }}/${{ matrix.manifest }}" \
+            --cargo-manifest "target/compat-repos/${{ matrix.name }}/${{ matrix.generated_manifest }}" \
+            --full \
+            --diagnostics \
+            --suppress-warnings \
+            --output "target/compat-reports/${{ matrix.name }}.md"
+
+      - name: Write compatibility metadata
+        if: always()
+        run: |
+          result_dir="target/compat-results/${{ matrix.name }}"
+          mkdir -p "$result_dir"
+          if [ -f "target/compat-reports/${{ matrix.name }}.md" ]; then
+            cp "target/compat-reports/${{ matrix.name }}.md" "$result_dir/report.md"
+          fi
+          {
+            echo "name=${{ matrix.name }}"
+            echo "url=${{ matrix.url }}"
+            echo "ref=${{ matrix.ref }}"
+            echo "run_url=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "status=${{ steps.generated-tests.outcome }}"
+          } > "$result_dir/metadata.env"
+
+      - name: Upload compatibility result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compat-${{ matrix.name }}
+          path: target/compat-results/${{ matrix.name }}
+
+  update-compat:
+    if: ${{ always() && github.event.inputs.run_compat == 'true' }}
+    needs: compat
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Smelt
+        uses: actions/checkout@v6
+
+      - name: Download compatibility results
+        uses: actions/download-artifact@v7
+        with:
+          path: target/compat-results
+          pattern: compat-*
+
+      - name: Update COMPAT.md
+        run: |
+          shopt -s nullglob
+          for metadata in target/compat-results/compat-*/metadata.env; do
+            result_dir="$(dirname "$metadata")"
+            . "$metadata"
+            python3 scripts/update_compat.py \
+              --compat COMPAT.md \
+              --name "$name" \
+              --url "$url" \
+              --ref "$ref" \
+              --run-url "$run_url" \
+              --report "$result_dir/report.md" \
+              --status "$status"
+          done
+
+      - name: Commit compatibility updates
+        uses: stefanzweifel/git-auto-commit-action@v7
+        with:
+          commit_message: "chore(ci): update compatibility report"
+          file_pattern: COMPAT.md

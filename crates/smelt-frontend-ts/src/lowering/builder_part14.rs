@@ -1001,13 +1001,16 @@ impl ModuleBuilder<'_> {
         if self.ctx.krate.types.get(optional_ty) == Some(&Type::Unknown)
             || self.type_contains_unknown(optional_ty)
         {
-            let optional = self.optionalize_index_receiver(optional, body);
-            let optional_ty = Self::expr_ty(body, optional);
-            if self.is_nullishable_type(optional_ty) {
+            let optional_receiver = self.optionalize_index_receiver(optional, body);
+            let optional_receiver_ty = Self::expr_ty(body, optional_receiver);
+            if self.is_nullishable_type(optional_receiver_ty) {
                 let fallback =
-                    self.expression_with_hint(&logical.right, body, Some(optional_ty))?;
+                    self.expression_with_hint(&logical.right, body, Some(optional_receiver_ty))?;
                 return Ok(Some(body.push_expr(Expr {
-                    kind: ExprKind::OptionalCoalesce { optional, fallback },
+                    kind: ExprKind::OptionalCoalesce {
+                        optional: optional_receiver,
+                        fallback,
+                    },
                     ty: self.ctx.krate.types.intern(Type::Unknown),
                     span: self.span(logical.span.start, logical.span.end),
                 })));
@@ -1015,7 +1018,17 @@ impl ModuleBuilder<'_> {
         }
         if !self.is_nullishable_type(optional_ty) {
             if let Some(expr) =
+                self.logical_or_unknown_fallback_expression(logical, body, optional, optional_ty)?
+            {
+                return Ok(Some(expr));
+            }
+            if let Some(expr) =
                 self.logical_or_numeric_fallback_expression(logical, body, optional, optional_ty)?
+            {
+                return Ok(Some(expr));
+            }
+            if let Some(expr) =
+                self.logical_or_object_fallback_expression(logical, body, optional, optional_ty)?
             {
                 return Ok(Some(expr));
             }
@@ -1055,19 +1068,101 @@ impl ModuleBuilder<'_> {
             || self.type_contains_unknown(fallback_ty)
         {
             self.ctx.krate.types.intern(Type::Unknown)
-        } else if self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty)
-        {
-            self.ctx.krate.types.intern(Type::String)
         } else if self.is_structural_object_surface(ty) {
             // Object values are always truthy in JavaScript; keep the selected
             // runtime value when their fallback widens the expression surface.
             self.ctx.krate.types.intern(Type::Unknown)
+        } else if self.is_string_compatible_type(ty) && self.is_string_compatible_type(fallback_ty)
+        {
+            self.ctx.krate.types.intern(Type::String)
         } else {
             return Ok(None);
         };
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::OptionalCoalesce { optional, fallback },
             ty,
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
+    /// Lower JavaScript `left || right` for object-like values without string coercion.
+    ///
+    /// Some type aliases that include `null` are represented as object surfaces
+    /// after TypeScript lowering. JavaScript still returns the selected operand
+    /// for `||`, so object-like operands must branch on runtime truthiness before
+    /// the string fallback path can treat classes as string-compatible values.
+    fn logical_or_object_fallback_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+        value: smelt_hir::ExprId,
+        value_ty: smelt_hir::TypeId,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !self.is_structural_object_surface(value_ty) {
+            return Ok(None);
+        }
+        let fallback = self.expression_with_hint(&logical.right, body, Some(value_ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        if !self.is_structural_object_surface(fallback_ty) {
+            return Ok(None);
+        }
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToBool,
+                operand: value,
+            },
+            ty: self.ctx.krate.types.intern(Type::Bool),
+            span: self.span(logical.left.span().start, logical.left.span().end),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: value,
+                else_expr: fallback,
+            },
+            ty: self.ctx.krate.types.intern(Type::Unknown),
+            span: self.span(logical.span.start, logical.span.end),
+        })))
+    }
+
+    /// Lower JavaScript `left || right` for erased values without losing the selected operand.
+    ///
+    /// Dynamic interop and imported structural callbacks can surface as
+    /// `unknown` even when the source expression returns an object-like value.
+    /// JavaScript `||` returns one of the original operands, so erased values
+    /// must branch on runtime truthiness instead of being coerced through a
+    /// string or boolean fallback representation.
+    fn logical_or_unknown_fallback_expression(
+        &mut self,
+        logical: &oxc::ast::ast::LogicalExpression<'_>,
+        body: &mut Body,
+        value: smelt_hir::ExprId,
+        value_ty: smelt_hir::TypeId,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        if !self.type_contains_unknown(value_ty) {
+            return Ok(None);
+        }
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let fallback = self.expression_with_hint(&logical.right, body, Some(unknown_ty))?;
+        let fallback_ty = Self::expr_ty(body, fallback);
+        if !self.type_contains_unknown(fallback_ty) {
+            return Ok(None);
+        }
+        let cond = body.push_expr(Expr {
+            kind: ExprKind::PrimitiveCast {
+                op: PrimitiveCastOp::ToBool,
+                operand: value,
+            },
+            ty: self.ctx.krate.types.intern(Type::Bool),
+            span: self.span(logical.left.span().start, logical.left.span().end),
+        });
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::Conditional {
+                cond,
+                then_expr: value,
+                else_expr: fallback,
+            },
+            ty: unknown_ty,
             span: self.span(logical.span.start, logical.span.end),
         })))
     }
@@ -2018,6 +2113,7 @@ impl ModuleBuilder<'_> {
                             params: Vec::new(),
                             rest: None,
                             required_params: None,
+                    mutable_params: Vec::new(),
                             return_ty: unknown_ty,
                             is_async: false,
                             may_throw: false,
@@ -2523,6 +2619,7 @@ impl ModuleBuilder<'_> {
                     params: params.iter().map(|param| param.ty).collect(),
                     rest: None,
                     required_params: None,
+                    mutable_params: Vec::new(),
                     return_ty,
                     is_async: function.r#async,
                     may_throw: false,
@@ -2788,10 +2885,13 @@ impl ModuleBuilder<'_> {
         }
         let mut needs_structural_adapter = false;
         for (key, value) in entries {
-            let ExprKind::Literal(Literal::String(key)) = &body.exprs[key.0 as usize].kind else {
+            let key_expr = body
+                .exprs
+                .get(usize::try_from(key.0).unwrap_or(usize::MAX))?;
+            let ExprKind::Literal(Literal::String(field_key)) = &key_expr.kind else {
                 return None;
             };
-            let field = self.intern_source_name(key);
+            let field = self.intern_source_name(field_key);
             let expected = self.class_field_type(candidate, field).ok()?;
             let actual = Self::expr_ty(body, *value);
             if !self.contextual_record_field_assignable(actual, expected) {

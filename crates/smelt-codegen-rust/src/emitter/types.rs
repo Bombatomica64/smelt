@@ -2,8 +2,30 @@
 
 use super::*;
 use crate::rust::RustIdent;
+use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
+    /// Render one parameter type from a function-typed value.
+    ///
+    /// `FunctionType::mutable_params` is a Rust ABI marker used for structural
+    /// method fields that must preserve JavaScript object mutation through a
+    /// callback boundary.
+    pub(super) fn function_type_param_text(
+        &self,
+        function: &FunctionType,
+        index: usize,
+        param: TypeId,
+        scoped_type_params: &HashSet<Symbol>,
+    ) -> Result<String, EmitError> {
+        let param_text =
+            self.type_text_with_scoped_type_params(param, false, scoped_type_params)?;
+        if function.mutable_params.contains(&index) {
+            Ok(format!("&mut {param_text}"))
+        } else {
+            Ok(param_text)
+        }
+    }
+
     /// Converts a primitive source-language cast operation to Rust text.
     pub(super) fn primitive_cast_text(
         &self,
@@ -421,7 +443,10 @@ impl FunctionEmitter<'_> {
             let params = function
                 .params
                 .iter()
-                .map(|param| self.type_text_with_impl_trait(*param, false))
+                .enumerate()
+                .map(|(index, param)| {
+                    self.function_type_param_text(function, index, *param, &HashSet::new())
+                })
                 .collect::<Result<Vec<_>, _>>()?
                 .join(", ");
             let return_ty = self.type_text_with_impl_trait(function.return_ty, false)?;
@@ -601,8 +626,9 @@ impl FunctionEmitter<'_> {
                 let params = function
                     .params
                     .iter()
-                    .map(|param| {
-                        self.type_text_with_scoped_type_params(*param, false, scoped_type_params)
+                    .enumerate()
+                    .map(|(index, param)| {
+                        self.function_type_param_text(function, index, *param, scoped_type_params)
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
@@ -714,7 +740,12 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.type_text_with_impl_trait(*param, false)?
+                            self.function_type_param_text(
+                                function,
+                                index,
+                                *param,
+                                &HashSet::new(),
+                            )?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -791,9 +822,10 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.type_text_with_scoped_type_params(
+                            self.function_type_param_text(
+                                function,
+                                index,
                                 *param,
-                                false,
                                 scoped_type_params,
                             )?
                         ))
@@ -830,11 +862,15 @@ impl FunctionEmitter<'_> {
                     function
                         .params
                         .iter()
-                        .map(|param| self.type_text_with_scoped_type_params(
-                            *param,
-                            false,
-                            scoped_type_params,
-                        ))
+                        .enumerate()
+                        .map(|(index, param)| {
+                            self.function_type_param_text(
+                                function,
+                                index,
+                                *param,
+                                scoped_type_params,
+                            )
+                        })
                         .collect::<Result<Vec<_>, EmitError>>()?
                         .join(", "),
                     return_ty,

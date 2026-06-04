@@ -11,13 +11,15 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let dict_ty = self.operand_ty(dict)?;
         let Some(Type::Dict(key_ty, _)) = self.mir.types.get(dict_ty) else {
-            if self.mir.types.get(dict_ty) == Some(&Type::Unknown) {
+            if self.dict_contains_key_uses_erased_object(dict_ty) {
                 let dict_text = self.operand_text(dict)?;
                 let key_text = self.operand_text(key)?;
                 let key_value = match self.mir.types.get(self.operand_ty(key)?) {
                     Some(Type::String) => key_text,
                     Some(Type::Int | Type::Float | Type::Bool) => format!("{key_text}.to_string()"),
-                    Some(Type::Unknown) => format!("{key_text}.to_string()"),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
+                        format!("{key_text}.to_string()")
+                    }
                     _ => return Ok("false".to_owned()),
                 };
                 return Ok(format!(
@@ -34,6 +36,16 @@ impl FunctionEmitter<'_> {
             self.operand_text(dict)?,
             self.operand_text(key)?
         ))
+    }
+
+    /// Return whether a dictionary containment check must inspect an erased
+    /// JavaScript object value at runtime.
+    fn dict_contains_key_uses_erased_object(&self, ty: TypeId) -> bool {
+        match self.mir.types.get(ty) {
+            Some(Type::Unknown | Type::Union(_)) => true,
+            Some(Type::TypeParam { name }) => !self.current_function_has_type_param(*name),
+            _ => false,
+        }
     }
 
     /// Converts a dictionary get operation to Rust text.

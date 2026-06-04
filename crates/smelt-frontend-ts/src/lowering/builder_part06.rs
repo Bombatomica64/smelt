@@ -384,6 +384,7 @@ impl ModuleBuilder<'_> {
                 params: Vec::new(),
                 rest: None,
                 required_params: Some(0),
+                    mutable_params: Vec::new(),
                 return_ty: none_ty,
                 is_async: false,
                 may_throw: true,
@@ -1235,6 +1236,7 @@ impl ModuleBuilder<'_> {
                             params: vec![unknown_ty],
                             rest: None,
                             required_params: None,
+                    mutable_params: Vec::new(),
                             return_ty: unknown_ty,
                             is_async: false,
                             may_throw: false,
@@ -1312,12 +1314,14 @@ impl ModuleBuilder<'_> {
             .params
             .iter()
             .map(|param| self.substitute_type_params(*param, &substitutions))
-            .collect();
+            .collect::<Vec<_>>();
         let return_ty = self.substitute_type_params(signature.return_ty, &substitutions);
+        let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: None,
             required_params: None,
+            mutable_params,
             return_ty,
             is_async: signature.is_async,
             may_throw: false,
@@ -1542,6 +1546,7 @@ impl ModuleBuilder<'_> {
                                 params: vec![unknown; arrow.params.items.len()],
                                 rest: None,
                                 required_params: None,
+                    mutable_params: Vec::new(),
                                 return_ty,
                                 is_async: arrow.r#async,
                                 may_throw: false,
@@ -1612,6 +1617,7 @@ impl ModuleBuilder<'_> {
                     params,
                     rest: None,
                     required_params: Some(required_params),
+                    mutable_params: Vec::new(),
                     return_ty,
                     is_async: function.r#async,
                     may_throw: false,
@@ -1866,6 +1872,7 @@ impl ModuleBuilder<'_> {
                 params: params.clone(),
                 rest: rest.map(|rest| rest.index),
                 required_params: Some(required_params),
+                    mutable_params: Vec::new(),
                 return_ty,
                 is_async: arrow.r#async,
                 may_throw: false,
@@ -2059,6 +2066,7 @@ impl ModuleBuilder<'_> {
                 params: param_tys.clone(),
                 rest: None,
                 required_params: None,
+                    mutable_params: Vec::new(),
                 return_ty: provisional_return_ty,
                 is_async: function.r#async,
                 may_throw: false,
@@ -2152,6 +2160,7 @@ impl ModuleBuilder<'_> {
                 params: param_tys,
                 rest: None,
                 required_params: None,
+                    mutable_params: Vec::new(),
                 return_ty,
                 is_async: function.r#async,
                 may_throw: false,
@@ -2250,6 +2259,7 @@ impl ModuleBuilder<'_> {
                     .map(|function| function.return_ty)
             })
             .unwrap_or_else(|| self.ctx.krate.types.intern(Type::Unknown));
+        let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: None,
@@ -2263,6 +2273,7 @@ impl ModuleBuilder<'_> {
                     })
                     .unwrap_or(arrow.params.items.len()),
             ),
+            mutable_params,
             return_ty,
             is_async: arrow.r#async,
             may_throw: false,

@@ -13,6 +13,7 @@ fn main() {
     counter = _smelt_tmp_1.clone();
     let _smelt_tmp_2: f64 = counter.inc(3.0);
     let _ = { println!("{}", _smelt_tmp_2.clone()); };
+    return;
 }
 
 impl Counter {

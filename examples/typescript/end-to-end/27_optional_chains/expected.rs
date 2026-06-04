@@ -759,6 +759,7 @@ fn main() {
     let _ = { println!("{:?}", absent_name.clone()); };
     let _ = { println!("{:?}", score.clone()); };
     let _ = { println!("{:?}", label.clone()); };
+    return;
 }
 
 impl User {

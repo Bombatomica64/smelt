@@ -20,4 +20,5 @@ fn main() {
     _smelt_tmp_4 = _smelt_tmp_4.clone() + 1.0;
     }
     let _ = { println!("{}", sum.clone()); };
+    return;
 }

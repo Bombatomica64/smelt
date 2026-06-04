@@ -744,6 +744,26 @@ const uniquePrioritySetters = setters
             .any(|expr| matches!(expr.kind, ExprKind::ListCallback { .. })),
         "expected nested date-fns parse callbacks to lower",
     );
+    let unique_priority_setters = body
+        .locals
+        .iter()
+        .find(|local| {
+            local.name.and_then(|symbol| ctx.krate.symbols.get(symbol))
+                == Some("unique_priority_setters")
+        })
+        .ok_or_else(|| "missing uniquePrioritySetters binding".to_owned())?;
+    let setter_item_ty = match ctx.krate.types.get(unique_priority_setters.ty) {
+        Some(Type::List(item_ty)) => *item_ty,
+        other => {
+            return Err(format!(
+                "expected uniquePrioritySetters to lower as a list, got {other:?}"
+            ));
+        }
+    };
+    ensure!(
+        !matches!(ctx.krate.types.get(setter_item_ty), Some(Type::Unknown)),
+        "expected nested filter/sort callback chain to preserve Setter element type",
+    );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
 }
@@ -2306,6 +2326,52 @@ function width(args: Args): string {
 }
 
 #[test]
+fn lowers_optional_object_logical_or_as_selected_runtime_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+type Result<T> = { value: T; rest: string } | null;
+
+function select(left: Result<number>, right: Result<number>): unknown {
+  return left || right;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToBool,
+                    ..
+                }
+            )
+        }),
+        "optional object logical fallback should branch on runtime truthiness"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "optional object logical fallback should preserve the selected object"
+    );
+    ensure!(
+        !body
+            .exprs
+            .iter()
+            .any(|expr| ctx.krate.types.get(expr.ty) == Some(&Type::String)),
+        "optional object logical fallback must not lower through string selection"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_optional_callable_logical_or_as_selected_runtime_value() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2335,6 +2401,55 @@ function select(
             .iter()
             .any(|expr| matches!(expr.kind, ExprKind::BinOp { op: BinOp::Or, .. })),
         "optional callback fallback must not collapse to a boolean expression"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_unknown_logical_or_as_selected_runtime_value() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function select(value: unknown, fallback: unknown): unknown {
+  return value || fallback;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToBool,
+                    ..
+                }
+            )
+        }),
+        "unknown logical fallback should branch on runtime truthiness"
+    );
+    ensure!(
+        body.exprs
+            .iter()
+            .any(|expr| matches!(expr.kind, ExprKind::Conditional { .. })),
+        "unknown logical fallback should preserve one selected operand"
+    );
+    ensure!(
+        !body.exprs.iter().any(|expr| {
+            matches!(
+                expr.kind,
+                ExprKind::BinOp {
+                    op: BinOp::NotEq,
+                    ..
+                }
+            )
+        }),
+        "unknown logical fallback must not use string inequality selection"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -2790,6 +2905,15 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
                     op: DictProjectionOp::Keys,
                     ..
                 }
+            )))
+    );
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::DictContainsKey { .. }
             )))
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());

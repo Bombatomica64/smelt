@@ -143,7 +143,10 @@ impl ModuleBuilder<'_> {
 
     /// Return true when an expression carries JavaScript `Date` identity despite timestamp storage.
     fn expression_is_known_date_value(&self, value: smelt_hir::ExprId, body: &Body) -> bool {
-        let Some(expr) = body.exprs.get(value.0 as usize) else {
+        let Some(expr) = body
+            .exprs
+            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+        else {
             return false;
         };
         if self.type_is_known_date_value(expr.ty) {
@@ -152,10 +155,12 @@ impl ModuleBuilder<'_> {
         match &expr.kind {
             ExprKind::DateFromParts { .. } | ExprKind::DateFromValue { .. } => true,
             ExprKind::Local(local) => self.date_value_locals.contains(local),
-            ExprKind::TypeAssert { value } => self.expression_is_known_date_value(*value, body),
+            ExprKind::TypeAssert { value: asserted_value } => {
+                self.expression_is_known_date_value(*asserted_value, body)
+            }
             ExprKind::Call { callee, .. } => body
                 .exprs
-                .get(callee.0 as usize)
+                .get(usize::try_from(callee.0).unwrap_or(usize::MAX))
                 .and_then(|callee| match callee.kind {
                     ExprKind::Item(item) => Some(item),
                     _ => None,
@@ -420,10 +425,19 @@ impl ModuleBuilder<'_> {
             return Ok(None);
         };
         let value = self.expression(value_expr, body)?;
-        let value = match &body.exprs[value.0 as usize].kind {
+        let Some(value_expression) = body
+            .exprs
+            .get(usize::try_from(value.0).unwrap_or(usize::MAX))
+        else {
+            return Ok(None);
+        };
+        let value = match &value_expression.kind {
             ExprKind::UnknownCast { value: erased, .. }
-                if matches!(body.exprs[erased.0 as usize].kind, ExprKind::Local(local)
-                    if self.ctx.krate.types.get(Self::local_ty(body, local)) == Some(&Type::Unknown)) =>
+                if body
+                    .exprs
+                    .get(usize::try_from(erased.0).unwrap_or(usize::MAX))
+                    .is_some_and(|erased_expr| matches!(erased_expr.kind, ExprKind::Local(local)
+                        if self.ctx.krate.types.get(Self::local_ty(body, local)) == Some(&Type::Unknown))) =>
             {
                 *erased
             }

@@ -246,6 +246,7 @@ impl ModuleBuilder<'_> {
                 params,
                 rest: function.rest,
                 required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: function.return_ty,
                 is_async: function.is_async,
                             may_throw: false,
@@ -955,6 +956,55 @@ return_ty: function.return_ty,
         Some(self.ctx.krate.types.intern(Type::List(element_ty)))
     }
 
+    /// Infer function parameters that represent returned structural state.
+    ///
+    /// Some TypeScript APIs model mutation by returning either a value or a
+    /// tuple containing the updated state object. When a function field has
+    /// that shape, generated Rust can pass the state parameter by `&mut`
+    /// instead of cloning it through an adapter and losing identity.
+    fn mutable_params_from_returned_tuple_state(
+        &self,
+        params: &[smelt_hir::TypeId],
+        return_ty: smelt_hir::TypeId,
+    ) -> Vec<usize> {
+        params
+            .iter()
+            .enumerate()
+            .filter_map(|(index, param)| {
+                (self.mutable_abi_param_type(*param)
+                    && self.return_type_tuple_contains(return_ty, *param))
+                .then_some(index)
+            })
+            .collect()
+    }
+
+    /// Return whether a parameter type can use Rust mutable-reference ABI.
+    fn mutable_abi_param_type(&self, ty: smelt_hir::TypeId) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Class { .. } | Type::List(_) | Type::Set(_) | Type::Dict(_, _)) => true,
+            Some(Type::Optional(inner)) => self.mutable_abi_param_type(*inner),
+            _ => false,
+        }
+    }
+
+    /// Return whether a return type has a tuple branch containing `target`.
+    fn return_type_tuple_contains(
+        &self,
+        ty: smelt_hir::TypeId,
+        target: smelt_hir::TypeId,
+    ) -> bool {
+        match self.ctx.krate.types.get(ty) {
+            Some(Type::Tuple(items)) => items.contains(&target),
+            Some(Type::Union(items)) => items
+                .iter()
+                .any(|item| self.return_type_tuple_contains(*item, target)),
+            Some(Type::Optional(inner) | Type::Future(inner)) => {
+                self.return_type_tuple_contains(*inner, target)
+            }
+            _ => false,
+        }
+    }
+
     /// Convert a TypeScript function type node into HIR callable metadata.
     fn function_type_to_hir(
         &mut self,
@@ -1005,13 +1055,15 @@ return_ty: function.return_ty,
                 params.push(rest_ty);
             }
             let return_ty = self.ts_type_to_hir(&function.return_type.type_annotation)?;
+            let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
             Ok(self.ctx.krate.types.intern(Type::Function(FunctionType {
                 params,
                 rest: rest_index,
                 required_params: None,
-return_ty,
+                mutable_params,
+                return_ty,
                 is_async: false,
-                            may_throw: false,
+                may_throw: false,
             })))
         })();
         self.pop_type_parameter_scope();
@@ -1582,14 +1634,17 @@ return_ty,
                         .get(class_name)?
                         .iter()
                         .find(|item| item.name == field)?;
-                    let params = method.params.iter().map(|param| param.ty).collect();
+                    let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+                    let mutable_params =
+                        self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
                     Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
                         params,
-            rest: None,
+                        rest: None,
                         required_params: None,
-return_ty: method.return_ty,
+                        mutable_params,
+                        return_ty: method.return_ty,
                         is_async: method.is_async,
-                            may_throw: false,
+                        may_throw: false,
                     })))
                 });
                 let interface = self.find_interface(name).cloned();
@@ -1620,15 +1675,18 @@ return_ty: method.return_ty,
                         .params
                         .iter()
                         .map(|param| self.substitute_type_params(param.ty, &substitutions))
-                        .collect();
+                        .collect::<Vec<_>>();
                     let return_ty = self.substitute_type_params(method.return_ty, &substitutions);
+                    let mutable_params =
+                        self.mutable_params_from_returned_tuple_state(&params, return_ty);
                     Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
                         params,
-            rest: None,
+                        rest: None,
                         required_params: None,
-return_ty,
+                        mutable_params,
+                        return_ty,
                         is_async: method.is_async,
-                            may_throw: false,
+                        may_throw: false,
                     })))
                 });
                 let alias_fields = self
@@ -1762,14 +1820,17 @@ return_ty,
             .map(str::to_owned)?;
         let methods = self.class_methods.get(&class_text).cloned()?;
         let method = methods.into_iter().find(|item| item.name == method_name)?;
-        let params = method.params.iter().map(|param| param.ty).collect();
+        let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+        let mutable_params =
+            self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
         Some(self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: None,
             required_params: None,
-return_ty: method.return_ty,
+            mutable_params,
+            return_ty: method.return_ty,
             is_async: method.is_async,
-                            may_throw: false,
+            may_throw: false,
         })))
     }
 
@@ -2704,6 +2765,7 @@ return_ty: method.return_ty,
             params: vec![value_ty],
             rest: None,
             required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: string_ty,
             is_async: false,
                             may_throw: false,
@@ -2786,6 +2848,7 @@ return_ty: string_ty,
             params: function.params.iter().map(|param| param.ty).collect(),
             rest: function.rest,
             required_params: function.required_params,
+                    mutable_params: Vec::new(),
             return_ty: function.return_ty,
             is_async: function.is_async,
             may_throw: false,
@@ -2946,6 +3009,7 @@ return_ty: string_ty,
                     params: vec![param_ty],
             rest: None,
                     required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: item.ty,
                     is_async: false,
                             may_throw: false,
@@ -2954,6 +3018,7 @@ return_ty: item.ty,
                     params: vec![param_ty],
             rest: None,
                     required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: item.ty,
                     is_async: false,
                             may_throw: false,
@@ -3133,7 +3198,10 @@ return_ty: function.return_ty,
             .cloned()
             .ok_or_else(|| {
                 SmeltError::unsupported(
-                    source_body.blocks[source_body.root.0 as usize].span,
+                    source_body
+                        .blocks
+                        .get(usize::try_from(source_body.root.0).unwrap_or(usize::MAX))
+                        .map_or(Span::new(FileId(0), 0, 0), |block| block.span),
                     "const expression is missing",
                 )
             })?;

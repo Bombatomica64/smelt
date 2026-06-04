@@ -14,6 +14,7 @@ fn main() {
     user = _smelt_tmp_1.clone();
     let _smelt_tmp_2: String = user.label();
     let _ = { println!("{}", _smelt_tmp_2.clone()); };
+    return;
 }
 
 impl User {

@@ -231,6 +231,11 @@ impl FunctionEmitter<'_> {
                         }
                     };
                     let method_name = sanitize_ident(self.symbol_name(method)?);
+                    if let Some(field_call) =
+                        self.call_virtual_function_field_text(receiver, &method_name, rest)?
+                    {
+                        return Ok(field_call);
+                    }
                     if method_name == "concat"
                         && rest.len() == 1
                         && matches!(
@@ -238,13 +243,19 @@ impl FunctionEmitter<'_> {
                             Some(Type::List(_))
                         )
                     {
-                        return self.list_concat_text(receiver, &rest[0]);
+                        let Some(first_rest) = rest.first() else {
+                            return Err(EmitError::new("concat receiver argument is missing"));
+                        };
+                        return self.list_concat_text(receiver, first_rest);
                     }
                     let arg_values = rest
                         .iter()
                         .enumerate()
                         .map(|(index, arg)| {
-                            let Some(param) = function.params.get(index + 1).copied() else {
+                            let Some(param_index) = index.checked_add(1) else {
+                                return Err(EmitError::new("method argument index overflowed"));
+                            };
+                            let Some(param) = function.params.get(param_index).copied() else {
                                 return self.operand_text(arg);
                             };
                             let target_ty = self.function_local_decl(function, param)?.ty;
@@ -557,7 +568,11 @@ impl FunctionEmitter<'_> {
                         let target_ty = function.params.get(index).copied().ok_or_else(|| {
                             EmitError::new("indirect call has too many arguments")
                         })?;
-                        self.operand_as_type_text(arg, target_ty)
+                        if function.mutable_params.contains(&index) {
+                            self.mutable_reference_argument_text(arg, target_ty)
+                        } else {
+                            self.operand_as_type_text(arg, target_ty)
+                        }
                     })
                     .collect::<Result<Vec<_>, _>>()?
                     .join(", ");
@@ -731,6 +746,61 @@ impl FunctionEmitter<'_> {
             _ => false,
         };
         Ok(result.to_string())
+    }
+
+    /// Render a method call through a stored callable field when the receiver's
+    /// concrete Rust representation carries virtual method slots as fields.
+    ///
+    /// Abstract/base TypeScript methods such as `Setter.validate(...)` can be
+    /// represented by generated struct fields so subclass instances can be
+    /// converted back to the base shape without losing overrides. In that ABI,
+    /// `receiver.method(args)` must call `receiver.method` as a function field
+    /// instead of the base inherent method.
+    fn call_virtual_function_field_text(
+        &self,
+        receiver: &Operand,
+        method_name: &str,
+        args: &[Operand],
+    ) -> Result<Option<String>, EmitError> {
+        let receiver_ty = self.operand_ty(receiver)?;
+        let Some(field) = self
+            .structural_record_fields(receiver_ty)
+            .into_iter()
+            .flatten()
+            .find(|field| {
+                self.symbol_name(field.name)
+                    .map(|name| sanitize_ident(name) == method_name)
+                    .unwrap_or(false)
+            })
+        else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.mir.types.get(field.ty) else {
+            return Ok(None);
+        };
+
+        let receiver_text = self.operand_text(receiver)?;
+        let rendered_args = args
+            .iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                let Some(param_ty) = function.params.get(index).copied() else {
+                    return self.operand_text(arg);
+                };
+                self.operand_as_type_text(arg, param_ty)
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let call = if rendered_args.is_empty() {
+            format!("({receiver_text}.{method_name}.clone())()")
+        } else {
+            format!("({receiver_text}.{method_name}.clone())({rendered_args})")
+        };
+        if function.may_throw {
+            Ok(Some(format!("{call}?")))
+        } else {
+            Ok(Some(call))
+        }
     }
 
     /// Return whether `source` is the same as or derives from `target`.

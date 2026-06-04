@@ -863,10 +863,16 @@ fn mark_escaping_closures(mir: &mut Mir) {
             };
             for capture in &closure.captures {
                 let before = escaping.len();
+                let Some(definitions) = closure_defs_by_function.get(function_index) else {
+                    continue;
+                };
+                let Some(local_rvalues) = local_rvalues_by_function.get(function_index) else {
+                    continue;
+                };
                 mark_local_escaping_closures(
                     capture.source_local,
-                    &closure_defs_by_function[function_index],
-                    &local_rvalues_by_function[function_index],
+                    definitions,
+                    local_rvalues,
                     &mut HashSet::new(),
                     &mut escaping,
                 );
@@ -970,7 +976,144 @@ fn mark_local_escaping_closures(
                 );
             }
         }
-        _ => {}
+        Rvalue::Binary { .. }
+        | Rvalue::Unary { .. }
+        | Rvalue::Conditional { .. }
+        | Rvalue::OptionalField { .. }
+        | Rvalue::OptionalIndex { .. }
+        | Rvalue::OptionalMethod { .. }
+        | Rvalue::OptionalCoalesce { .. }
+        | Rvalue::InstanceOf { .. }
+        | Rvalue::UnknownIs { .. }
+        | Rvalue::UnknownCast { .. }
+        | Rvalue::Struct { .. }
+        | Rvalue::ExternalClassInstance { .. }
+        | Rvalue::Len(_)
+        | Rvalue::NumericAbs(_)
+        | Rvalue::NumericRound { .. }
+        | Rvalue::NumericExtrema { .. }
+        | Rvalue::NumericHypot { .. }
+        | Rvalue::NumericPredicate { .. }
+        | Rvalue::NumericUnaryFunc { .. }
+        | Rvalue::Closure { .. }
+        | Rvalue::ClosureCall { .. }
+        | Rvalue::ClosureCallSpread { .. }
+        | Rvalue::NumericPow { .. }
+        | Rvalue::NumericAtan2 { .. }
+        | Rvalue::NumericRandom
+        | Rvalue::NumericRandomInt { .. }
+        | Rvalue::NumericToStringRadix { .. }
+        | Rvalue::PrimitiveCast { .. }
+        | Rvalue::StringCase { .. }
+        | Rvalue::StringNormalize { .. }
+        | Rvalue::StringTrim { .. }
+        | Rvalue::StringAffix { .. }
+        | Rvalue::StringSearch { .. }
+        | Rvalue::StringReplace { .. }
+        | Rvalue::StringRemoveAffix { .. }
+        | Rvalue::StringRepeat { .. }
+        | Rvalue::StringPad { .. }
+        | Rvalue::StringPredicate { .. }
+        | Rvalue::RegexIsMatch { .. }
+        | Rvalue::RegexReplace { .. }
+        | Rvalue::RegexReplaceCallback { .. }
+        | Rvalue::RegexReplaceFirstMatchUppercase { .. }
+        | Rvalue::RegexSplit { .. }
+        | Rvalue::RegexFind { .. }
+        | Rvalue::RegexExec { .. }
+        | Rvalue::RegexMatchAll { .. }
+        | Rvalue::StringCharAt { .. }
+        | Rvalue::StringCharCodeAt { .. }
+        | Rvalue::StringContains { .. }
+        | Rvalue::StringSlice { .. }
+        | Rvalue::ListContains { .. }
+        | Rvalue::SetContains { .. }
+        | Rvalue::SetDisjoint { .. }
+        | Rvalue::SetRelation { .. }
+        | Rvalue::SetAdd { .. }
+        | Rvalue::SetRemove { .. }
+        | Rvalue::SetClear { .. }
+        | Rvalue::SetCopy { .. }
+        | Rvalue::ListToSet { .. }
+        | Rvalue::ListPairsToDict { .. }
+        | Rvalue::SetBinary { .. }
+        | Rvalue::SetProjection { .. }
+        | Rvalue::ListConcat { .. }
+        | Rvalue::ListSearch { .. }
+        | Rvalue::ListCallback { .. }
+        | Rvalue::ListFromLength { .. }
+        | Rvalue::ListFromLengthMap { .. }
+        | Rvalue::ListReduce { .. }
+        | Rvalue::ListSlice { .. }
+        | Rvalue::ListSplice { .. }
+        | Rvalue::ListFill { .. }
+        | Rvalue::ListCopyWithin { .. }
+        | Rvalue::ListWith { .. }
+        | Rvalue::ListFlat { .. }
+        | Rvalue::ListProjection { .. }
+        | Rvalue::ListPush { .. }
+        | Rvalue::ListExtend { .. }
+        | Rvalue::ListInsert { .. }
+        | Rvalue::ListUnshift { .. }
+        | Rvalue::ListReverse { .. }
+        | Rvalue::ListClear { .. }
+        | Rvalue::ListCopy { .. }
+        | Rvalue::TupleToList { .. }
+        | Rvalue::ListToTuple { .. }
+        | Rvalue::TupleToSet { .. }
+        | Rvalue::ListCount { .. }
+        | Rvalue::ListSum { .. }
+        | Rvalue::ListBoolFold { .. }
+        | Rvalue::ListSorted { .. }
+        | Rvalue::ListReversed { .. }
+        | Rvalue::ListEnumerate { .. }
+        | Rvalue::ListZip { .. }
+        | Rvalue::ListRange { .. }
+        | Rvalue::ListRandomChoice { .. }
+        | Rvalue::ListIndex { .. }
+        | Rvalue::ListRemove { .. }
+        | Rvalue::ListSort { .. }
+        | Rvalue::ListPop { .. }
+        | Rvalue::ListShift { .. }
+        | Rvalue::TupleContains { .. }
+        | Rvalue::TupleIndex { .. }
+        | Rvalue::TupleSlice { .. }
+        | Rvalue::DictContainsKey { .. }
+        | Rvalue::DictSet { .. }
+        | Rvalue::DictRemoveKey { .. }
+        | Rvalue::DictGet { .. }
+        | Rvalue::DictSetDefault { .. }
+        | Rvalue::DictClear { .. }
+        | Rvalue::DictPop { .. }
+        | Rvalue::DictUpdate { .. }
+        | Rvalue::DictAssign { .. }
+        | Rvalue::CallableObjectAssign { .. }
+        | Rvalue::DictCopy { .. }
+        | Rvalue::DictProjection { .. }
+        | Rvalue::StringSplit { .. }
+        | Rvalue::StringChars { .. }
+        | Rvalue::StringJoin { .. }
+        | Rvalue::JsonStringify { .. }
+        | Rvalue::JsonParse { .. }
+        | Rvalue::HttpGetText { .. }
+        | Rvalue::DateNow
+        | Rvalue::DateSetNow { .. }
+        | Rvalue::DateResetNow
+        | Rvalue::DateTimezoneOffset
+        | Rvalue::DateSetTimezoneOffset { .. }
+        | Rvalue::DateResetTimezoneOffset
+        | Rvalue::DateTimezoneContext { .. }
+        | Rvalue::DateToIsoString { .. }
+        | Rvalue::DateToString { .. }
+        | Rvalue::DateFromParts { .. }
+        | Rvalue::DateFromValue { .. }
+        | Rvalue::DateGetPart { .. }
+        | Rvalue::DateSetPart { .. }
+        | Rvalue::UrlField { .. }
+        | Rvalue::FileReadText { .. }
+        | Rvalue::FileWriteText { .. }
+        | Rvalue::Await(_)
+        | Rvalue::AsyncOp { .. } => {}
     }
 }
 
@@ -1725,7 +1868,8 @@ impl<'hir> LoweringCtx<'hir> {
             })
             .or_else(|| {
                 let target = self.function.push_block(span);
-                if let Some(block) = self.function.blocks.get_mut(target.0 as usize) {
+                let target_index = usize::try_from(target.0).unwrap_or(usize::MAX);
+                if let Some(block) = self.function.blocks.get_mut(target_index) {
                     block.terminator = Some(Terminator::Goto(join));
                 }
                 Some(target)
@@ -2900,7 +3044,9 @@ impl<'hir> LoweringCtx<'hir> {
             }
             ExprKind::ListFlat { list, depth } => {
                 let list_operand = self.lower_expr(*list)?;
-                let depth_operand = depth.map(|depth| self.lower_expr(depth)).transpose()?;
+                let depth_operand = depth
+                    .map(|depth_expr| self.lower_expr(depth_expr))
+                    .transpose()?;
                 let dest = self.push_temp(expr.ty, expr.span);
                 self.block_mut()?.statements.push(Statement::Assign {
                     dest,

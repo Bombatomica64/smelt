@@ -507,6 +507,7 @@ impl FunctionEmitter<'_> {
                     {
                         out.push_str(&format!("    {};\n", self.operand_text(operand)?));
                     }
+                    out.push_str("    return;\n");
                 } else if self.mir.types.get(self.function.return_ty) == Some(&Type::Unknown)
                     && let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) =
                         operand

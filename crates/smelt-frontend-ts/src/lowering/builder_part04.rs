@@ -186,12 +186,16 @@ impl ModuleBuilder<'_> {
                         self.pop_type_parameter_scope();
                         let (return_ty, params) = result?;
                         if method.optional {
+                            let param_tys = params.iter().map(|param| param.ty).collect::<Vec<_>>();
+                            let mutable_params =
+                                self.mutable_params_from_returned_tuple_state(&param_tys, return_ty);
                             let function_ty = self.ctx.krate.types.intern(Type::Function(
                                 FunctionType {
-                                    params: params.iter().map(|param| param.ty).collect(),
-            rest: None,
+                                    params: param_tys,
+                                    rest: None,
                                     required_params: None,
-return_ty,
+                                    mutable_params,
+                                    return_ty,
                                     is_async: matches!(
                                         self.ctx.krate.types.get(return_ty),
                                         Some(Type::Future(_))
@@ -240,10 +244,12 @@ return_ty,
                             params.push(ty);
                         }
                         call_signatures.push(FunctionType {
+                            mutable_params: self
+                                .mutable_params_from_returned_tuple_state(&params, return_ty),
                             params,
-            rest: None,
+                            rest: None,
                             required_params: None,
-return_ty,
+                            return_ty,
                             is_async: matches!(
                                 self.ctx.krate.types.get(return_ty),
                                 Some(Type::Future(_))
@@ -421,6 +427,9 @@ return_ty,
                     if block == body.root
                         && self.module_global_assignment_statement(assign, body, block)?
                     {
+                        return Ok(());
+                    }
+                    if self.array_destructuring_assignment_statement(assign, body, block)? {
                         return Ok(());
                     }
                     let (target, value) = self.assignment_parts(assign, body)?;
@@ -1051,6 +1060,9 @@ return_ty,
         let result = match statement {
             Statement::ExpressionStatement(expr_stmt) => {
                 if let Expression::AssignmentExpression(assign) = &expr_stmt.expression {
+                    if self.array_destructuring_assignment_statement(assign, body, block)? {
+                        return Ok(());
+                    }
                     let (target, value) = self.assignment_parts(assign, body)?;
                     if let Some(local_decl) = usize::try_from(target.0)
                         .ok()

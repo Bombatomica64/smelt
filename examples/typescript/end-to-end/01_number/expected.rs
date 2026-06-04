@@ -4,4 +4,5 @@
 fn main() {
     let count: f64 = 42.0;
     let _ = { println!("{}", count.clone()); };
+    return;
 }

@@ -767,6 +767,19 @@ impl<'mir> FunctionEmitter<'mir> {
         self.parameter_needs_mutable_reference_in_seen(function, local, &mut Vec::new())
     }
 
+    /// Returns whether a parameter type carries JavaScript object identity.
+    ///
+    /// Mutating fields or indexed entries through such a parameter must update
+    /// the caller-visible value. Plain scalar parameters still remain owned
+    /// Rust values because rebinding the parameter itself does not update the
+    /// source caller's binding.
+    pub(super) fn parameter_type_has_shared_mutation_semantics(&self, ty: TypeId) -> bool {
+        self.mir.types.get(ty).is_some_and(|kind| {
+            matches!(kind, Type::List(_) | Type::Set(_) | Type::Dict(_, _))
+                || matches!(kind, Type::Class { .. })
+        })
+    }
+
     /// Returns whether a parameter needs mutable-reference ABI, tracking the
     /// active query stack so recursive forwarding does not loop forever.
     fn parameter_needs_mutable_reference_in_seen(
@@ -780,14 +793,11 @@ impl<'mir> FunctionEmitter<'mir> {
         }
         if !self
             .function_local_decl(function, local)
-            .ok()
-            .and_then(|decl| self.mir.types.get(decl.ty))
-            .is_some_and(|ty| matches!(ty, Type::List(_) | Type::Set(_) | Type::Dict(_, _)))
+            .is_ok_and(|decl| self.parameter_type_has_shared_mutation_semantics(decl.ty))
         {
             return false;
         }
-        let function_ptr: *const MirFunction = function;
-        let key = (function_ptr as usize, local);
+        let key = (std::ptr::from_ref(function).addr(), local);
         if seen.contains(&key) {
             return false;
         }
@@ -1271,6 +1281,7 @@ impl<'mir> FunctionEmitter<'mir> {
                         .collect(),
                     rest: function.rest,
                     required_params: function.required_params,
+                    mutable_params: function.mutable_params.clone(),
                     return_ty: self
                         .substitute_type_params_in_type(function.return_ty, substitutions),
                     is_async: function.is_async,
@@ -1412,6 +1423,15 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(None);
         };
         let target_name = sanitize_ident(self.symbol_name(*name)?);
+        let scoped_type_params = args
+            .iter()
+            .filter_map(|arg| match self.mir.types.get(*arg) {
+                Some(Type::TypeParam {
+                    name: type_param_name,
+                }) => Some(*type_param_name),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
         let mut field_text = Vec::new();
         for (source_field_match, target_field) in adapted_fields {
             let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
@@ -1424,7 +1444,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
                 self.rendered_value_as_type_text(&source_value, source_field.ty, target_field.ty)?
             } else {
-                self.default_value(target_field.ty)?
+                self.default_value_with_scoped_type_params(target_field.ty, &scoped_type_params)?
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -1502,7 +1522,12 @@ impl<'mir> FunctionEmitter<'mir> {
                 .map(|(index, param)| {
                     Ok(format!(
                         "arg{index}: {}",
-                        self.type_text_with_impl_trait(*param, false)?
+                        self.function_type_param_text(
+                            &function_ty,
+                            index,
+                            *param,
+                            &HashSet::new()
+                        )?
                     ))
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
@@ -1512,7 +1537,15 @@ impl<'mir> FunctionEmitter<'mir> {
                 .iter()
                 .enumerate()
                 .map(|(index, param)| {
-                    self.rendered_value_as_type_text(&format!("arg{index}.clone()"), *param, *param)
+                    if function_ty.mutable_params.contains(&index) {
+                        Ok(format!("arg{index}"))
+                    } else {
+                        self.rendered_value_as_type_text(
+                            &format!("arg{index}.clone()"),
+                            *param,
+                            *param,
+                        )
+                    }
                 })
                 .collect::<Result<Vec<_>, EmitError>>()?
                 .join(", ");
@@ -1535,13 +1568,13 @@ impl<'mir> FunctionEmitter<'mir> {
             } else {
                 self.type_text_with_impl_trait(function_ty.return_ty, false)?
             };
-            let body = if function_ty.may_throw {
+            let wrapped_body = if function_ty.may_throw {
                 format!("Ok::<_, Box<dyn std::error::Error>>({body})")
             } else {
                 body
             };
             return Ok(Some(format!(
-                "{{ let smelt_virtual_receiver = smelt_struct_value.clone(); ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_method_receiver = smelt_virtual_receiver.clone(); {body} }}) }}"
+                "{{ let smelt_virtual_receiver = smelt_struct_value.clone(); ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let smelt_method_receiver = smelt_virtual_receiver.clone(); {wrapped_body} }}) }}"
             )));
         }
         let Some(source_function) = direct_source_function
@@ -1571,7 +1604,7 @@ impl<'mir> FunctionEmitter<'mir> {
             .map(|(index, param)| {
                 Ok(format!(
                     "arg{index}: {}",
-                    self.type_text_with_impl_trait(*param, false)?
+                    self.function_type_param_text(&function_ty, index, *param, &HashSet::new())?
                 ))
             })
             .collect::<Result<Vec<_>, EmitError>>()?
@@ -1581,6 +1614,7 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             source_function.params.len().saturating_sub(1)
         };
+        let mut arg_preludes = Vec::new();
         let args = function_ty
             .params
             .iter()
@@ -1596,11 +1630,31 @@ impl<'mir> FunctionEmitter<'mir> {
                         .and_then(|param| self.function_local_decl(source_function, *param).ok())
                         .map_or(*target_param, |decl| decl.ty)
                 };
-                self.rendered_value_as_type_text(
-                    &format!("arg{index}.clone()"),
+                let arg_source_text = if function_ty.mutable_params.contains(&index) {
+                    format!("(*arg{index}).clone()")
+                } else {
+                    format!("arg{index}.clone()")
+                };
+                let arg_text = self.rendered_value_as_type_text(
+                    &arg_source_text,
                     *target_param,
                     source_param,
-                )
+                )?;
+                if !dispatches_to_source_field
+                    && let Some(source_local) =
+                        source_function.params.get(index.saturating_add(1)).copied()
+                    && self.parameter_needs_mutable_reference_in(source_function, source_local)
+                {
+                    if function_ty.mutable_params.contains(&index) {
+                        Ok(format!("arg{index}"))
+                    } else {
+                        let local_name = format!("smelt_arg_{index}");
+                        arg_preludes.push(format!("let mut {local_name} = {arg_text};"));
+                        Ok(format!("&mut {local_name}"))
+                    }
+                } else {
+                    Ok(arg_text)
+                }
             })
             .collect::<Result<Vec<_>, EmitError>>()?
             .join(", ");
@@ -1633,15 +1687,18 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             source_function.return_ty
         };
-        let call = if source_can_throw && function_ty.may_throw {
+        let adjusted_call = if source_can_throw && function_ty.may_throw {
             call
         } else if source_can_throw {
             format!("{call}.unwrap_or_else(|_| Default::default())")
         } else {
             call
         };
-        let body =
-            self.rendered_value_as_type_text(&call, source_return_ty, function_ty.return_ty)?;
+        let body = self.rendered_value_as_type_text(
+            &adjusted_call,
+            source_return_ty,
+            function_ty.return_ty,
+        )?;
         let return_ty = if function_ty.may_throw {
             format!(
                 "Result<{}, Box<dyn std::error::Error>>",
@@ -1650,13 +1707,18 @@ impl<'mir> FunctionEmitter<'mir> {
         } else {
             self.type_text_with_impl_trait(function_ty.return_ty, false)?
         };
-        let body = if function_ty.may_throw && !source_can_throw {
+        let wrapped_body = if function_ty.may_throw && !source_can_throw {
             format!("Ok::<_, Box<dyn std::error::Error>>({body})")
         } else {
             body
         };
+        let prelude = if arg_preludes.is_empty() {
+            String::new()
+        } else {
+            format!("{} ", arg_preludes.join(" "))
+        };
         Ok(Some(format!(
-            "{{ let smelt_virtual_receiver = {receiver_value}; ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = smelt_virtual_receiver.clone(); {body} }}) }}"
+            "{{ let smelt_virtual_receiver = {receiver_value}; ::std::rc::Rc::new(move |{params}| -> {return_ty} {{ let {receiver_mut}smelt_method_receiver = smelt_virtual_receiver.clone(); {prelude}{wrapped_body} }}) }}"
         )))
     }
 
@@ -1755,14 +1817,23 @@ impl<'mir> FunctionEmitter<'mir> {
         }
 
         let target_name = sanitize_ident(self.symbol_name(*name)?);
+        let scoped_type_params = args
+            .iter()
+            .filter_map(|arg| match self.mir.types.get(*arg) {
+                Some(Type::TypeParam {
+                    name: type_param_name,
+                }) => Some(*type_param_name),
+                _ => None,
+            })
+            .collect::<HashSet<_>>();
         let mut field_text = Vec::new();
         for field in target_fields {
-            let source_key = self.symbol_name(field.name)?;
-            let field_name = sanitize_ident(source_key);
-            let lookup_text = if source_key.contains('_') {
+            let field_key = self.symbol_name(field.name)?;
+            let field_name = sanitize_ident(field_key);
+            let lookup_text = if field_key.contains('_') {
                 let mut camel = String::new();
                 let mut upper_next = false;
-                for ch in source_key.chars() {
+                for ch in field_key.chars() {
                     if ch == '_' {
                         upper_next = true;
                     } else if upper_next {
@@ -1773,10 +1844,10 @@ impl<'mir> FunctionEmitter<'mir> {
                     }
                 }
                 format!(
-                    "smelt_record_map.get({source_key:?}).or_else(|| smelt_record_map.get({camel:?}))"
+                    "smelt_record_map.get({field_key:?}).or_else(|| smelt_record_map.get({camel:?}))"
                 )
             } else {
-                format!("smelt_record_map.get({source_key:?})")
+                format!("smelt_record_map.get({field_key:?})")
             };
             let lookup_value = if let Some(Type::Dict(key, _)) = self.mir.types.get(source_value) {
                 if self.dict_uses_smelt_record(*key) {
@@ -1798,10 +1869,10 @@ impl<'mir> FunctionEmitter<'mir> {
                 let mapped = self.rendered_value_as_type_text("value", source_value, field.ty)?;
                 format!(
                     "{lookup_value}.map_or({}, |value| {mapped})",
-                    self.default_value(field.ty)?
+                    self.default_value_with_scoped_type_params(field.ty, &scoped_type_params)?
                 )
             } else {
-                self.default_value(field.ty)?
+                self.default_value_with_scoped_type_params(field.ty, &scoped_type_params)?
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -3088,10 +3159,10 @@ impl<'mir> FunctionEmitter<'mir> {
                 Some(Type::Class { name, .. }) if self.symbol_name(*name)? == "MatchFnResult"
             )
         {
-            let value_ty = self.match_fn_result_value_type(source)?.unwrap_or_else(|| {
-                self.type_id(Type::Unknown)
-                    .expect("SmeltUnknown type must be interned")
-            });
+            let value_ty = match self.match_fn_result_value_type(source)? {
+                Some(value_ty) => value_ty,
+                None => self.type_id(Type::Unknown)?,
+            };
             return self.rendered_value_as_type_text(
                 &format!("{value_text}.value.clone()"),
                 value_ty,
@@ -3338,7 +3409,12 @@ impl<'mir> FunctionEmitter<'mir> {
             .map(|(index, param)| {
                 Ok(format!(
                     "arg{index}: {}",
-                    self.type_text_with_impl_trait(*param, false)?
+                    self.function_type_param_text(
+                        target_function,
+                        index,
+                        *param,
+                        &HashSet::new(),
+                    )?
                 ))
             })
             .collect::<Result<Vec<_>, EmitError>>()?;
@@ -3349,7 +3425,10 @@ impl<'mir> FunctionEmitter<'mir> {
             .map(|(index, source_param)| {
                 self.rendered_value_as_type_text(
                     &format!("arg{index}"),
-                    target_function.params[index],
+                    *target_function
+                        .params
+                        .get(index)
+                        .ok_or_else(|| EmitError::new("target callback parameter is missing"))?,
                     *source_param,
                 )
             })
@@ -3576,16 +3655,21 @@ impl<'mir> FunctionEmitter<'mir> {
                 }
                 let item = format!("smelt_args.get({index}).cloned().unwrap_or(SmeltUnknown::Null)");
                 let value = self.unknown_cast_value_text(&item, *param_ty)?;
-                if function
+                let arg = if function
                     .required_params
                     .is_some_and(|required_params| index >= required_params)
                 {
                     let default = self.default_value(*param_ty)?;
-                    Ok(format!(
+                    format!(
                         "if smelt_args.get({index}).is_some() {{ {value} }} else {{ {default} }}"
-                    ))
+                    )
                 } else {
-                    Ok(value)
+                    value
+                };
+                if function.mutable_params.contains(&index) {
+                    Ok(format!("&mut ({arg})"))
+                } else {
+                    Ok(arg)
                 }
             })
             .collect::<Result<Vec<_>, _>>()
@@ -3650,7 +3734,9 @@ impl<'mir> FunctionEmitter<'mir> {
                     for (target_index, target_param) in
                         target_function.params.iter().enumerate().skip(index)
                     {
-                        if let Some(Type::List(target_item)) = self.mir.types.get(*target_param) {
+                        if target_index > index
+                            && let Some(Type::List(target_item)) = self.mir.types.get(*target_param)
+                        {
                             let item_text = if matches!(
                                 self.mir.types.get(*source_item),
                                 Some(Type::Unknown | Type::Never | Type::None)
@@ -3750,7 +3836,9 @@ impl<'mir> FunctionEmitter<'mir> {
                 self.mir.types.get(source.return_ty),
                 self.mir.types.get(target_function.return_ty),
             ) else {
-                unreachable!();
+                return Err(EmitError::new(
+                    "async callback adapter requires future types",
+                ));
             };
             let awaited =
                 self.rendered_value_as_type_text("smelt_async_output", *source_item, *target_item)?;

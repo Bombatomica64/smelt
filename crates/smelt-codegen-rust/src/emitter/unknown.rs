@@ -91,8 +91,8 @@ impl FunctionEmitter<'_> {
                     && self.is_erased_unknown_rest_function(function)
                     && !function.may_throw
                 {
-                    let text = self.operand_text(operand)?;
-                    return Ok(format!("{text}.clone().into_smelt_unknown()"));
+                    let function_text = self.operand_text(operand)?;
+                    return Ok(format!("{function_text}.clone().into_smelt_unknown()"));
                 }
                 let adapter = self
                     .rest_vector_unknown_adapter_text(operand)?
@@ -600,7 +600,12 @@ impl FunctionEmitter<'_> {
                     .map(|(index, param)| {
                         Ok(format!(
                             "arg{index}: {}",
-                            self.type_text_with_impl_trait(*param, false)?
+                            self.function_type_param_text(
+                                function,
+                                index,
+                                *param,
+                                &HashSet::new(),
+                            )?
                         ))
                     })
                     .collect::<Result<Vec<_>, EmitError>>()?
@@ -660,7 +665,12 @@ impl FunctionEmitter<'_> {
                     "smelt_call_args.extend(arg{index}.clone().into_iter().map(|value| {item_text}));"
                 ));
             } else {
-                let item_text = self.unknown_wrap_value_text(&format!("arg{index}"), *param_ty)?;
+                let arg_text = if function.mutable_params.contains(&index) {
+                    format!("arg{index}.clone()")
+                } else {
+                    format!("arg{index}")
+                };
+                let item_text = self.unknown_wrap_value_text(&arg_text, *param_ty)?;
                 statements.push(format!("smelt_call_args.push({item_text});"));
             }
         }

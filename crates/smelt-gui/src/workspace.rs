@@ -399,7 +399,11 @@ fn render_header(
                 .flex_row()
                 .items_center()
                 .gap(px(8.0))
-                .child(status_pill(theme::python(), theme::primary_dim(), "Pre-alpha"))
+                .child(status_pill(
+                    theme::python(),
+                    theme::primary_dim(),
+                    "Pre-alpha",
+                ))
                 .child(status_pill(status_color, status_bg, status_label))
                 .child(
                     div()
@@ -446,7 +450,10 @@ fn status_pill(color: Hsla, bg: Hsla, label: &str) -> impl IntoElement {
 // ── Source editors ──────────────────────────────────────────────────
 
 /// Middle column with stacked TypeScript and Python editors.
-#[expect(clippy::too_many_arguments, reason = "render helper passes editor state")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "render helper passes editor state"
+)]
 fn render_source_column(
     ts_input: &Entity<InputState>,
     py_input: &Entity<InputState>,
@@ -482,7 +489,10 @@ fn render_source_column(
 }
 
 /// A single editable source panel with a labelled header.
-#[expect(clippy::too_many_arguments, reason = "render helper passes editor state")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "render helper passes editor state"
+)]
 fn render_editor_panel(
     input: &Entity<InputState>,
     badge: &str,
@@ -500,12 +510,11 @@ fn render_editor_panel(
         .border_color(theme::border_subtle())
         .child(panel_header(badge, path, line_count, dirty, accent))
         .child(
-            div().flex_1().min_h(px(0.0)).bg(theme::bg_surface()).child(
-                Input::new(input)
-                    .appearance(false)
-                    .bordered(false)
-                    .h_full(),
-            ),
+            div()
+                .flex_1()
+                .min_h(px(0.0))
+                .bg(theme::bg_surface())
+                .child(Input::new(input).appearance(false).bordered(false).h_full()),
         )
 }
 
@@ -642,7 +651,10 @@ fn example_card(
 // ── Status bar ──────────────────────────────────────────────────────
 
 /// Bottom proof rail with compile stats, line counts, and active example.
-#[expect(clippy::too_many_arguments, reason = "render helper passes proof state")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "render helper passes proof state"
+)]
 fn render_status_bar(
     ok: bool,
     failing_stage: Option<&'static str>,
@@ -737,7 +749,11 @@ fn ghost_button(
         .rounded(px(6.0))
         .text_color(theme::text_muted())
         .text_size(px(12.0))
-        .hover(|style| style.bg(theme::bg_hover()).text_color(theme::text_primary()))
+        .hover(|style| {
+            style
+                .bg(theme::bg_hover())
+                .text_color(theme::text_primary())
+        })
         .active(|style| style.opacity(0.7))
         .child(label.to_owned())
         .on_click(handler)

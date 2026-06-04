@@ -376,6 +376,7 @@ impl ModuleBuilder<'_> {
             params: params.to_vec(),
             rest: None,
             required_params: None,
+                    mutable_params: Vec::new(),
             return_ty,
             is_async: false,
             may_throw: false,

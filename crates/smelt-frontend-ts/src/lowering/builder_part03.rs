@@ -907,10 +907,14 @@ return_ty,
             {
                 continue;
             }
+            let params = method.params.iter().map(|param| param.ty).collect::<Vec<_>>();
+            let mutable_params =
+                self.mutable_params_from_returned_tuple_state(&params, method.return_ty);
             let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
-                params: method.params.iter().map(|param| param.ty).collect(),
+                params,
                 rest: method.rest,
                 required_params: method.required_params,
+                mutable_params,
                 return_ty: method.return_ty,
                 is_async: method.is_async,
                 may_throw: false,
@@ -1045,8 +1049,8 @@ return_ty,
                 }
             }
             Statement::BlockStatement(block) => {
-                for statement in &block.body {
-                    self.collect_this_member_names_from_statement(statement, names);
+                for block_statement in &block.body {
+                    self.collect_this_member_names_from_statement(block_statement, names);
                 }
             }
             _ => {}
@@ -1069,16 +1073,16 @@ return_ty,
             Expression::CallExpression(call) => {
                 self.collect_this_member_names_from_expression(&call.callee, names);
                 for argument in &call.arguments {
-                    if let Some(expression) = argument.as_expression() {
-                        self.collect_this_member_names_from_expression(expression, names);
+                    if let Some(argument_expression) = argument.as_expression() {
+                        self.collect_this_member_names_from_expression(argument_expression, names);
                     }
                 }
             }
             Expression::NewExpression(new_expr) => {
                 self.collect_this_member_names_from_expression(&new_expr.callee, names);
                 for argument in &new_expr.arguments {
-                    if let Some(expression) = argument.as_expression() {
-                        self.collect_this_member_names_from_expression(expression, names);
+                    if let Some(argument_expression) = argument.as_expression() {
+                        self.collect_this_member_names_from_expression(argument_expression, names);
                     }
                 }
             }
@@ -1120,8 +1124,8 @@ return_ty,
                             self.collect_this_member_names_from_expression(&spread.argument, names);
                         }
                         other => {
-                            if let Some(expression) = other.as_expression() {
-                                self.collect_this_member_names_from_expression(expression, names);
+                            if let Some(element_expression) = other.as_expression() {
+                                self.collect_this_member_names_from_expression(element_expression, names);
                             }
                         }
                     }

@@ -18,6 +18,7 @@ fn main() {
     user = _smelt_tmp_1.clone();
     let _smelt_tmp_2: String = user.label("Hi ".to_owned());
     let _ = { println!("{}", _smelt_tmp_2.clone()); };
+    return;
 }
 
 impl User {

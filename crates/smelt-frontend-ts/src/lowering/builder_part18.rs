@@ -161,6 +161,7 @@ impl ModuleBuilder<'_> {
                     params,
                     rest: function.rest,
                     required_params: function.required_params,
+                    mutable_params: Vec::new(),
                     return_ty,
                     is_async: function.is_async,
                     may_throw: false,

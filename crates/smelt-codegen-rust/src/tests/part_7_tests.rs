@@ -1004,6 +1004,63 @@ class Box {
 }
 
 #[test]
+fn emits_mutable_structural_parameters_when_fields_are_assigned() {
+    let source = source_for(
+        r#"
+interface Flags {
+  era?: number;
+}
+
+function setEra(flags: Flags, value: number): void {
+  flags.era = value;
+}
+
+function readEra(): number {
+  const flags: Flags = {};
+  setEra(flags, 1);
+  return flags.era!;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("fn set_era(mut flags: &mut Flags, value: f64)"),
+        "{source}"
+    );
+    assert!(source.contains("set_era(&mut flags"), "{source}");
+}
+
+#[test]
+fn emits_mutable_function_field_parameters_for_structural_objects() {
+    let source = source_for(
+        r#"
+interface Flags {
+  era?: number;
+}
+
+interface Setter {
+  set: (flags: Flags) => number | [number, Flags];
+}
+
+function run(setter: Setter): number {
+  const flags: Flags = {};
+  setter.set(flags);
+  return flags.era!;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("set: ::std::rc::Rc<dyn Fn(&mut Flags) -> SmeltUnknown>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(setter.set.clone())(&mut flags)"),
+        "{source}"
+    );
+}
+
+#[test]
 fn deduplicates_interface_fields_after_inheritance_expansion() {
     let source = source_for(
         r#"
@@ -1578,6 +1635,37 @@ export function read(): number {
 }
 
 #[test]
+fn calls_base_typed_virtual_methods_through_stored_function_fields() {
+    let source = source_for(
+        r#"
+abstract class Setter {
+  validate(value: number): boolean {
+    return true;
+  }
+}
+
+class ValueSetter extends Setter {
+  validate(value: number): boolean {
+    return value >= 0 && value <= 11;
+  }
+}
+
+const setter: Setter = new ValueSetter();
+const accepted = setter.validate(12);
+"#,
+    );
+
+    assert!(
+        source.contains("(setter.validate.clone())(12.0)"),
+        "base-typed virtual calls should dispatch through the stored function field: {source}"
+    );
+    assert!(
+        !source.contains("setter.validate(12.0)"),
+        "base inherent method calls lose subclass overrides: {source}"
+    );
+}
+
+#[test]
 fn binds_stored_virtual_methods_when_reerasing_base_class_values() {
     let source = source_for(
         r#"
@@ -1654,6 +1742,32 @@ const selected: unknown = value ? value : fallback;
     );
     assert!(
         !source.contains("selected = SmeltUnknown::String"),
+        "{source}"
+    );
+}
+
+#[test]
+fn wraps_concrete_records_when_casting_to_erased_intersection_aliases() {
+    let source = source_for(
+        r#"
+type A = { locale?: unknown };
+type B = { weekStartsOn?: number };
+type DefaultOptions = A & B;
+
+let defaultOptions: DefaultOptions = {};
+
+export function getDefaultOptions(): DefaultOptions {
+  return defaultOptions;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("let mut _smelt_tmp_1: SmeltUnknown = SmeltUnknown::Object"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("let mut _smelt_tmp_1: SmeltUnknown = _smelt_tmp_0.clone();"),
         "{source}"
     );
 }
@@ -2300,6 +2414,66 @@ const sortByImplementation = <T>(
 }
 
 #[test]
+fn adapts_rest_callback_without_flattening_list_arguments() {
+    let source = source_for(
+        r#"
+function purry<T>(
+  callback: (...args: unknown[]) => unknown,
+): (data: readonly T[], compare: (left: T, right: T) => number) => unknown {
+  const n = 2;
+  return (data, compare) => callback(data, compare, n);
+}
+
+function wrap<T>(
+  func: (data: readonly T[], compare: (left: T, right: T) => number, n: number) => unknown,
+): unknown {
+  const n = 2;
+  return purry((...args) => func(...args, n));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("if let SmeltUnknown::Array(values) = arg0.get(0).cloned().unwrap_or(SmeltUnknown::Null).clone()"),
+        "fixed callback spread calls should read the first fixed parameter from the rest vector: {source}"
+    );
+    assert!(
+        source.contains("match arg0.get(1).cloned().unwrap_or(SmeltUnknown::Null).clone()"),
+        "fixed callback spread calls should read the second fixed parameter from the rest vector: {source}"
+    );
+    assert!(
+        source.contains("}, n.clone().clone())"),
+        "fixed callback spread calls should keep trailing scalar arguments after spread expansion: {source}"
+    );
+}
+
+#[test]
+fn emits_void_return_inside_loop_branch() {
+    let source = source_for(
+        r#"
+function stopWhenSorted(items: number[]): void {
+  let index = 0;
+  while (index < items.length) {
+    if (items[index]! >= 0) {
+      return;
+    }
+    index += 1;
+  }
+}
+"#,
+    );
+
+    assert!(
+        source.contains("if _smelt_tmp_"),
+        "expected a loop branch in the generated function: {source}"
+    );
+    assert!(
+        source.contains("return;"),
+        "void returns inside loop branches must emit a Rust return: {source}"
+    );
+}
+
+#[test]
 fn emits_non_escaping_closure_that_captures_borrowed_callback_param() {
     let source = source_for(
         r#"
@@ -2520,6 +2694,62 @@ const usesMultiline = pattern.multiline;
     assert!(source.contains(".has_flag('g')"), "{source}");
     assert!(source.contains(".has_flag('i')"), "{source}");
     assert!(source.contains(".has_flag('m')"), "{source}");
+}
+
+#[test]
+fn emits_erased_regexp_test_with_flags_preserved() {
+    let source = source_for(
+        r#"
+const patterns: unknown = [/^n/i];
+const first = (patterns as any)[0];
+const matches = first.test("Nov");
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltRegExp::new(source.clone(), flags).test(&haystack)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("(\"flags\".to_owned(), SmeltUnknown::String(self.flags))"),
+        "{source}"
+    );
+}
+
+#[test]
+fn preserves_regex_arrays_inside_static_object_consts() {
+    let source = source_for(
+        r#"
+type Args = {
+  parsePatterns: Record<string, readonly RegExp[]>;
+  defaultParseWidth: string;
+};
+
+function use(args: Args): unknown {
+  return args.parsePatterns[args.defaultParseWidth];
+}
+
+const parseMonthPatterns = {
+  narrow: [/^j/i, /^f/i] as const,
+  any: [/^ja/i, /^f/i] as const,
+};
+
+const selected = use({
+  parsePatterns: parseMonthPatterns,
+  defaultParseWidth: "any",
+});
+"#,
+    );
+
+    assert!(
+        source.contains("\"any\".to_owned()")
+            && source.contains("SmeltRegExp::new(\"^ja\".to_owned(), \"i\".to_owned())"),
+        "static regex-array records should preserve their entries: {source}"
+    );
+    assert!(
+        !source.contains("parseMonthPatterns = SmeltRecord::from([])"),
+        "static regex-array records must not collapse to an empty record: {source}"
+    );
 }
 
 #[test]
@@ -2791,8 +3021,37 @@ function build(key: unknown, value: unknown): unknown {
     );
 
     assert!(source.contains("SmeltUnknown::Object(map)"), "{source}");
-    assert!(source.contains("map.insert(smelt_key, smelt_value)"), "{source}");
+    assert!(
+        source.contains("map.insert(smelt_key, smelt_value)"),
+        "{source}"
+    );
     assert!(!source.contains("unknown is not null"), "{source}");
+}
+
+#[test]
+fn emits_array_destructuring_assignment_as_indexed_writes() {
+    let source = source_for(
+        r#"
+function swap(data: unknown[], i: number, j: number): void {
+  [data[i], data[j]] = [data[j], data[i]];
+}
+"#,
+    );
+
+    assert!(source.contains("let __smelt_destructure"), "{source}");
+    assert!(source.contains("__smelt_destructure.get"), "{source}");
+    assert!(source.contains("index = 1.0"), "{source}");
+    assert_eq!(
+        source
+            .matches("data[index] = __smelt_destructure.get")
+            .count(),
+        2,
+        "{source}"
+    );
+    assert!(
+        !source.contains("data[index] = SmeltUnknown::Array"),
+        "{source}"
+    );
 }
 
 #[test]
@@ -2805,8 +3064,16 @@ function mapType(values: unknown[]): string[] {
 "#,
     );
 
-    assert!(source.contains("SmeltUnknown::Symbol(_) => \"symbol\""), "{source}");
-    assert!(source.contains("SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\""), "{source}");
+    assert!(
+        source.contains("SmeltUnknown::Symbol(_) => \"symbol\""),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            "SmeltUnknown::Null | SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"object\""
+        ),
+        "{source}"
+    );
 }
 
 #[test]

@@ -85,6 +85,7 @@ impl ModuleBuilder<'_> {
                     params,
                     rest,
                     required_params: None,
+                    mutable_params: Vec::new(),
                     return_ty,
                     is_async,
                     may_throw: false,
@@ -128,6 +129,7 @@ impl ModuleBuilder<'_> {
                         params: function.params.iter().map(|param| param.ty).collect(),
                         rest: function.rest,
                         required_params: function.required_params,
+                    mutable_params: Vec::new(),
                         return_ty: function.return_ty,
                         is_async: function.is_async,
                         may_throw: false,
@@ -410,6 +412,7 @@ impl ModuleBuilder<'_> {
             params: param_tys,
             rest: None,
             required_params: None,
+                    mutable_params: Vec::new(),
             return_ty,
             is_async: false,
             may_throw: false,
@@ -603,6 +606,7 @@ impl ModuleBuilder<'_> {
             params: vec![number_ty],
             rest: None,
             required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: number_ty,
             is_async: false,
                             may_throw: false,
@@ -903,6 +907,7 @@ return_ty: number_ty,
             params: vec![number_ty],
             rest: None,
             required_params: None,
+                    mutable_params: Vec::new(),
 return_ty: number_ty,
             is_async: false,
                             may_throw: false,
@@ -1180,6 +1185,99 @@ return_ty: number_ty,
         };
         self.apply_assignment_observed_type(&assign.left, Self::expr_ty(body, value), body);
         Ok((target, value))
+    }
+
+    /// Lower a plain array destructuring assignment statement.
+    ///
+    /// JavaScript evaluates the right-hand side before writing any targets, so
+    /// Smelt stores that value in a compiler local and then emits one ordinary
+    /// assignment per destructured element. This keeps swaps like
+    /// `[data[i], data[j]] = [data[j], data[i]]` from observing their own writes.
+    fn array_destructuring_assignment_statement(
+        &mut self,
+        assign: &oxc::ast::ast::AssignmentExpression<'_>,
+        body: &mut Body,
+        block: smelt_hir::BlockId,
+    ) -> Result<bool, SmeltError> {
+        if assign.operator != AssignmentOperator::Assign {
+            return Ok(false);
+        }
+        let AssignmentTarget::ArrayAssignmentTarget(array) = &assign.left else {
+            return Ok(false);
+        };
+        let value = self.expression(&assign.right, body)?;
+        let value_ty = Self::expr_ty(body, value);
+        let value_local = body.push_local(LocalDecl {
+            name: Some(self.ctx.krate.symbols.intern("__smelt_destructure")),
+            ty: value_ty,
+            mutable: false,
+            span: self.span(assign.right.span().start, assign.right.span().end),
+        });
+        let value_pat = body.push_pattern(Pattern::Binding(value_local));
+        body.push_stmt_to_block(
+            block,
+            Stmt::Let {
+                pat: value_pat,
+                ty: value_ty,
+                value: Some(value),
+            },
+        );
+
+        for (index, target) in array.elements.iter().enumerate() {
+            let Some(target) = target else {
+                continue;
+            };
+            let target = self.assignment_maybe_default_target_expr(target, body)?;
+            let receiver = body.push_expr(Expr {
+                kind: ExprKind::Local(value_local),
+                ty: value_ty,
+                span: self.span(assign.right.span().start, assign.right.span().end),
+            });
+            let index_ty = self.ctx.krate.types.intern(Type::Float);
+            let index_value = u32::try_from(index).map_or(f64::INFINITY, f64::from);
+            let index_expr = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::Float(index_value)),
+                ty: index_ty,
+                span: self.span(assign.left.span().start, assign.left.span().end),
+            });
+            let (kind, ty) = match self.ctx.krate.types.get(value_ty) {
+                Some(Type::Tuple(items)) => {
+                    let Some(ty) = items.get(index).copied() else {
+                        return Err(SmeltError::unsupported(
+                            self.span(assign.left.span().start, assign.left.span().end),
+                            "array assignment index is outside tuple type",
+                        ));
+                    };
+                    (
+                        ExprKind::TupleIndex {
+                            tuple: receiver,
+                            index,
+                        },
+                        ty,
+                    )
+                }
+                _ => (
+                    ExprKind::Index {
+                        receiver,
+                        index: index_expr,
+                    },
+                    self.index_type(value_ty)?,
+                ),
+            };
+            let element_value = body.push_expr(Expr {
+                kind,
+                ty,
+                span: self.span(assign.left.span().start, assign.left.span().end),
+            });
+            body.push_stmt_to_block(
+                block,
+                Stmt::Assign {
+                    target,
+                    value: element_value,
+                },
+            );
+        }
+        Ok(true)
     }
 
     /// Record the observed type produced by assigning into an unknown local.

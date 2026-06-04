@@ -464,7 +464,8 @@ impl FunctionEmitter<'_> {
                 value: unknown_value,
                 target,
             } => {
-                let cast_text = if self.mir.types.get(*target) == Some(&Type::Unknown) {
+                let target_rust_ty = self.type_text_with_impl_trait(*target, false)?;
+                let cast_text = if target_rust_ty == "SmeltUnknown" {
                     self.unknown_wrap_text(unknown_value)?
                 } else {
                     self.unknown_cast_text(unknown_value, *target)?
@@ -479,6 +480,11 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .find(|item| item.name == *class)
                     .ok_or_else(|| EmitError::new("struct rvalue references an unknown class"))?;
+                let scoped_type_params = mir_class
+                    .type_params
+                    .iter()
+                    .map(|param| param.name)
+                    .collect::<HashSet<_>>();
                 let mut parts = Vec::new();
                 for field in crate::classes::effective_class_fields(self.mir, mir_class) {
                     let name = sanitize_ident(self.symbol_name(field.name)?);
@@ -488,7 +494,13 @@ impl FunctionEmitter<'_> {
                     {
                         parts.push(format!("{name}: {}", self.operand_text(field_value)?));
                     } else {
-                        parts.push(format!("{name}: {}", self.default_value(field.ty)?));
+                        parts.push(format!(
+                            "{name}: {}",
+                            self.default_value_with_scoped_type_params(
+                                field.ty,
+                                &scoped_type_params,
+                            )?
+                        ));
                     }
                 }
                 if !mir_class.type_params.is_empty() {
@@ -632,7 +644,8 @@ impl FunctionEmitter<'_> {
                                 )
                                 .unwrap_or(false)
                     })
-                    && (closure.escapes || !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))))
+                    && (closure.escapes
+                        || !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_))))
                 {
                     return self.default_value(dest_ty);
                 }
@@ -716,8 +729,15 @@ impl FunctionEmitter<'_> {
                     let mut rendered_args = args
                         .iter()
                         .zip(params.iter())
-                        .map(|(arg, param)| {
-                            let text = self.operand_as_type_text(arg, *param)?;
+                        .enumerate()
+                        .map(|(index, (arg, param))| {
+                            let text = if rest_function.is_some_and(|function| {
+                                function.mutable_params.contains(&index)
+                            }) {
+                                self.mutable_reference_argument_text(arg, *param)?
+                            } else {
+                                self.operand_as_type_text(arg, *param)?
+                            };
                             if self.type_text(*param)? == "Vec<SmeltUnknown>"
                                 && text
                                     .contains(".into_iter().map(|value| value).collect::<Vec<_>>()")
@@ -2302,14 +2322,14 @@ impl FunctionEmitter<'_> {
         } else {
             call
         };
-        let returned = self.unknown_wrap_value_text(&returned, function.return_ty)?;
+        let wrapped_returned = self.unknown_wrap_value_text(&returned, function.return_ty)?;
         let receiver_clone = if receiver_text == "self" {
             self.self_struct_clone_text(class)?
         } else {
             format!("{receiver_text}.clone()")
         };
         Ok(Some(format!(
-            "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({returned}))) }}"
+            "{{ let smelt_receiver = {receiver_clone}; SmeltUnknown::Function(::std::rc::Rc::new(move |smelt_args: Vec<SmeltUnknown>| Ok::<SmeltUnknown, Box<dyn std::error::Error>>({wrapped_returned}))) }}"
         )))
     }
 

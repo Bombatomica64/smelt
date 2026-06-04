@@ -116,6 +116,34 @@ const second = mapping.hasOwnProperty("b");
 }
 
 #[test]
+fn emits_object_prototype_has_own_call_for_erased_generics() {
+    let source = source_for(
+        r#"
+function findKey<Value, Obj extends { [key in string | number]: Value }>(
+  object: Obj,
+  predicate: (value: Value) => boolean,
+): string | undefined {
+  for (const key in object) {
+    if (
+      Object.prototype.hasOwnProperty.call(object, key) &&
+      predicate(object[key])
+    ) {
+      return key;
+    }
+  }
+  return undefined;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("values.contains_key(&smelt_key)"),
+        "{source}"
+    );
+    assert!(!source.contains("_smelt_tmp_7 = false;"), "{source}");
+}
+
+#[test]
 fn emits_static_function_with_params_and_return_value() {
     let source = source_for(
         "function add(a: number, b: number): number {

@@ -4,4 +4,5 @@
 fn main() {
     let enabled: bool = true;
     let _ = { println!("{}", enabled.clone()); };
+    return;
 }

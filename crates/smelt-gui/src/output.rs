@@ -39,7 +39,10 @@ impl OutputTab {
 }
 
 /// Renders the output tab bar. Each tab gets its own click listener.
-#[expect(clippy::too_many_arguments, reason = "one click listener per output tab")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one click listener per output tab"
+)]
 pub(super) fn render_tab_bar(
     active: OutputTab,
     diagnostic_count: usize,
@@ -64,7 +67,11 @@ pub(super) fn render_tab_bar(
         .bg(theme::bg_elevated())
         .border_b_1()
         .border_color(theme::border())
-        .child(tab_button(OutputTab::Rust.label().to_owned(), active == OutputTab::Rust, on_rust))
+        .child(tab_button(
+            OutputTab::Rust.label().to_owned(),
+            active == OutputTab::Rust,
+            on_rust,
+        ))
         .child(tab_button(
             format!("{}{diag_suffix}", OutputTab::Diagnostics.label()),
             active == OutputTab::Diagnostics,
@@ -159,7 +166,11 @@ pub(super) fn render_diagnostics_tab(diagnostics: &[DiagnosticMessage]) -> impl 
 
 /// Renders one diagnostic as a card with a stage label and message body.
 fn render_diagnostic_card(diagnostic: &DiagnosticMessage) -> impl IntoElement {
-    let mut body = div().flex().flex_col().gap(px(1.0)).font_family("monospace");
+    let mut body = div()
+        .flex()
+        .flex_col()
+        .gap(px(1.0))
+        .font_family("monospace");
     for line in diagnostic.message.lines() {
         body = body.child(
             div()

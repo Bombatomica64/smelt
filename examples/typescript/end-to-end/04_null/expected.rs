@@ -4,4 +4,5 @@
 fn main() {
     let empty: () = ();
     let _ = { println!("{}", "null"); };
+    return;
 }

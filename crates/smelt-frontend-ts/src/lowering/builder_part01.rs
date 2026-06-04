@@ -1153,10 +1153,12 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let return_ty = self
             .function_return_type_or_overload(function, name_text)
             .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+        let mutable_params = self.mutable_params_from_returned_tuple_state(&params, return_ty);
         let ty = self.ctx.krate.types.intern(Type::Function(FunctionType {
             params,
             rest: rest.map(|rest| rest.index),
             required_params: None,
+            mutable_params,
             return_ty,
             is_async: function.r#async,
             may_throw: false,
@@ -1289,7 +1291,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
         let result = self.predeclared_function(function, id.name.as_str());
         let returns_date = result
             .as_ref()
-            .is_ok_and(|function| self.type_is_known_date_value(function.return_ty));
+            .is_ok_and(|predeclared| self.type_is_known_date_value(predeclared.return_ty));
         self.pop_type_parameter_scope();
         let item = self.ctx.krate.push_item(Item::Function(result?));
         if returns_date {
@@ -2543,8 +2545,8 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     });
                     continue;
                 }
-                ArrayExpressionElement::ArrayExpression(array) => {
-                    let (value, ty) = self.array_object_const_entry_value(array)?;
+                ArrayExpressionElement::ArrayExpression(nested_array) => {
+                    let (value, ty) = self.array_object_const_entry_value(nested_array)?;
                     items.push(ObjectConstEntryValue { value, ty });
                     continue;
                 }
@@ -2553,6 +2555,17 @@ impl<'ctx> ModuleBuilder<'ctx> {
                     let ty = value.ty;
                     items.push(ObjectConstEntryValue {
                         value: ObjectConstValue::Object(value),
+                        ty,
+                    });
+                    continue;
+                }
+                ArrayExpressionElement::RegExpLiteral(literal) => {
+                    let ty = self.regexp_type();
+                    items.push(ObjectConstEntryValue {
+                        value: ObjectConstValue::RegExp {
+                            pattern: Self::regex_literal_pattern_text_without_flags(literal),
+                            flags: literal.regex.flags.to_string(),
+                        },
                         ty,
                     });
                     continue;

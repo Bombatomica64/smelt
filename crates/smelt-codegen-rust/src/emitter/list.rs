@@ -261,15 +261,15 @@ impl FunctionEmitter<'_> {
                     .map(|text| format!("Some({text})"))
             },
         )?;
-        let result_text = "smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>()";
+        let sliced_values_text = "smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>()";
         let result_text = if matches!(
             self.mir.types.get(dest_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(dest_ty)
         {
-            format!("SmeltUnknown::Array({result_text}.into())")
+            format!("SmeltUnknown::Array({sliced_values_text}.into())")
         } else {
-            result_text.to_owned()
+            sliced_values_text.to_owned()
         };
         Ok(format!(
             "{{ let smelt_slice_value = {list_text}; let smelt_slice_start = {start_text}; let smelt_slice_end = {end_text}; let smelt_slice_values = match smelt_slice_value {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 {{ smelt_slice_len + smelt_start_index }} else {{ smelt_start_index }}.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| {{ let end = end as i64; if end < 0 {{ smelt_slice_len + end }} else {{ end }} }}).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; {result_text} }}"
@@ -499,9 +499,9 @@ impl FunctionEmitter<'_> {
         {
             let depth_text = match depth {
                 None => "1.0_f64".to_owned(),
-                Some(depth) => {
-                    let text = self.operand_text(depth)?;
-                    match self.mir.types.get(self.operand_ty(depth)?) {
+                Some(depth_operand) => {
+                    let text = self.operand_text(depth_operand)?;
+                    match self.mir.types.get(self.operand_ty(depth_operand)?) {
                         Some(Type::Optional(inner))
                             if self.mir.types.get(*inner) == Some(&Type::Float) =>
                         {
@@ -583,7 +583,12 @@ impl FunctionEmitter<'_> {
                             "dynamic array entries destination must contain (int, item) tuples",
                         ));
                     }
-                    let item_text = self.unknown_cast_value_text("item", items[1])?;
+                    let Some(item_ty) = items.get(1).copied() else {
+                        return Err(EmitError::new(
+                            "dynamic array entries destination must contain an item type",
+                        ));
+                    };
+                    let item_text = self.unknown_cast_value_text("item", item_ty)?;
                     Ok(format!(
                         "match {list_text}.clone() {{ SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(idx, item)| (idx as i64, {item_text})).collect::<Vec<_>>(), _ => Vec::new() }}"
                     ))

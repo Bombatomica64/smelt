@@ -65,6 +65,13 @@ pub struct FunctionType {
     /// when a rest parameter is present. `None` means the frontend does not know
     /// the source-level arity and consumers should fall back to `params.len()`.
     pub required_params: Option<usize>,
+    /// Parameter indexes that use Rust mutable-reference ABI.
+    ///
+    /// This is a backend ABI detail for source object identity. It is empty for
+    /// ordinary function values, and populated when codegen adapts a concrete
+    /// mutating method into a structural function field.
+    #[serde(default)]
+    pub mutable_params: Vec<usize>,
     /// Return type.
     pub return_ty: TypeId,
     /// Whether the function is async.
