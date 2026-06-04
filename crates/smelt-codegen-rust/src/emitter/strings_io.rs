@@ -48,10 +48,10 @@ impl FunctionEmitter<'_> {
             );
         if !receiver_is_erased
             || !(self.is_erased_class_type(dest_ty)
-            || matches!(
-                self.mir.types.get(dest_ty),
-                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
-            ))
+                || matches!(
+                    self.mir.types.get(dest_ty),
+                    Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                ))
         {
             return Ok(result_text);
         }
@@ -109,7 +109,7 @@ impl FunctionEmitter<'_> {
             Some(Type::Int | Type::Float) => Ok(value_text.to_owned()),
             Some(Type::Bool) => Ok(format!("if {value_text} {{ 1.0 }} else {{ 0.0 }}")),
             Some(Type::String) => Ok(format!(
-                "chrono::DateTime::parse_from_rfc3339(&{value_text}).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| {value_text}.parse::<f64>().unwrap_or(f64::NAN))"
+                "chrono::DateTime::parse_from_rfc3339(&{value_text}).or_else(|_| chrono::DateTime::parse_from_str(&{value_text}, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| {value_text}.parse::<f64>().unwrap_or(f64::NAN))"
             )),
             Some(Type::Optional(inner)) => {
                 let inner_text = self.date_timestamp_value_text("value", *inner)?;
@@ -126,7 +126,7 @@ impl FunctionEmitter<'_> {
                     ) =>
             {
                 Ok(format!(
-                    "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
+                    "match {value_text} {{ SmeltUnknown::Number(value) => value, SmeltUnknown::Object(value) => match value.get(\"__smelt_date\") {{ Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN }}, SmeltUnknown::String(value) => chrono::DateTime::parse_from_rfc3339(&value).or_else(|_| chrono::DateTime::parse_from_str(&value, \"%a %b %d %Y %H:%M:%S GMT%z\")).map(|date| date.timestamp_millis() as f64).unwrap_or_else(|_| value.parse::<f64>().unwrap_or(f64::NAN)), SmeltUnknown::Bool(value) => if value {{ 1.0 }} else {{ 0.0 }}, SmeltUnknown::Null | SmeltUnknown::Symbol(_) | SmeltUnknown::Array(_) | SmeltUnknown::Function(_) => f64::NAN }}"
                 ))
             }
             _ => Ok("f64::NAN".to_owned()),

@@ -423,6 +423,22 @@ test("catch assertion", () => {
         assertion > err_arm,
         "catch assertion escaped before the catch binding:\n{source}"
     );
+    assert!(source.contains("\"__smelt_error\".to_owned()"), "{source}");
+    assert!(source.contains("\"message\".to_owned()"), "{source}");
+}
+
+#[test]
+fn parses_javascript_date_to_string_input() {
+    let source = source_for(
+        r#"
+const value = new Date("Wed Jul 02 2014 05:30:15 GMT+0600");
+"#,
+    );
+
+    assert!(
+        source.contains("%a %b %d %Y %H:%M:%S GMT%z"),
+        "standard JavaScript Date string input needs its GMT-offset parser: {source}"
+    );
 }
 
 #[test]

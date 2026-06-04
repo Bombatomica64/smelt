@@ -725,7 +725,32 @@ impl FunctionEmitter<'_> {
         class: Symbol,
     ) -> Result<String, EmitError> {
         let value_ty = self.operand_ty(value)?;
-        if self.symbol_name(class)? == "Date"
+        let class_name = self.symbol_name(class)?;
+        if matches!(
+            class_name,
+            "Error"
+                | "EvalError"
+                | "RangeError"
+                | "ReferenceError"
+                | "SyntaxError"
+                | "TypeError"
+                | "URIError"
+                | "AggregateError"
+        ) && matches!(
+            self.mir.types.get(value_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))
+        ) {
+            let value_text = self.operand_text(value)?;
+            if matches!(self.mir.types.get(value_ty), Some(Type::Optional(_))) {
+                return Ok(format!(
+                    "matches!({value_text}.clone(), Some(SmeltUnknown::Object(value)) if value.contains_key(\"__smelt_error\"))"
+                ));
+            }
+            return Ok(format!(
+                "matches!({value_text}.clone(), SmeltUnknown::Object(value) if value.contains_key(\"__smelt_error\"))"
+            ));
+        }
+        if class_name == "Date"
             && matches!(
                 self.mir.types.get(value_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Optional(_))

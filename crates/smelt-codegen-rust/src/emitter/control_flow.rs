@@ -628,7 +628,7 @@ impl FunctionEmitter<'_> {
                 let exception_decl = self.local_decl(exception_local)?;
                 let value = match self.mir.types.get(exception_decl.ty) {
                     Some(Type::String) => "__smelt_error".to_owned(),
-                    Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error)".to_owned(),
+                    Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
                     _ => self.default_value(exception_decl.ty)?,
                 };
                 out.push_str(&format!("            let {exception_name} = {value};\n"));
@@ -673,7 +673,7 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
                 Some(Type::String) => "__smelt_error.to_string()".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error.to_string())".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error.to_string()))])))".to_owned(),
                 _ => self.default_value(exception_decl.ty)?,
             };
             out.push_str(&format!("            let {exception_name} = {value};\n"));
@@ -688,7 +688,7 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
                 Some(Type::String) => "__smelt_error".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error)".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error))])))".to_owned(),
                 _ => self.default_value(exception_decl.ty)?,
             };
             out.push_str(&format!("            let {exception_name} = {value};\n"));
@@ -750,7 +750,7 @@ impl FunctionEmitter<'_> {
             let exception_decl = self.local_decl(exception_local)?;
             let value = match self.mir.types.get(exception_decl.ty) {
                 Some(Type::String) => "__smelt_error.to_string()".to_owned(),
-                Some(Type::Unknown) => "SmeltUnknown::String(__smelt_error.to_string())".to_owned(),
+                Some(Type::Unknown) => "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([(\"__smelt_error\".to_owned(), SmeltUnknown::Bool(true)), (\"message\".to_owned(), SmeltUnknown::String(__smelt_error.to_string()))])))".to_owned(),
                 _ => self.default_value(exception_decl.ty)?,
             };
             out.push_str(&format!("            let {exception_name} = {value};\n"));
