@@ -299,7 +299,7 @@ impl ModuleBuilder<'_> {
                 let callback = self.lambda_callback(lambda, expected_param_tys, body)?;
                 let return_ty = callback.ty;
                 let expr = self.callback_expr_to_closure(
-                    callback,
+                    &callback,
                     expected_param_tys,
                     self.span(lambda.range),
                     body,
@@ -326,7 +326,7 @@ impl ModuleBuilder<'_> {
                     ));
                 }
                 let expr = self.callback_expr_to_closure(
-                    callback.callback,
+                    &callback.callback,
                     &callback.params,
                     self.span(name.range),
                     body,
@@ -346,7 +346,7 @@ impl ModuleBuilder<'_> {
     /// Store a Python callback expression as a HIR closure expression.
     fn callback_expr_to_closure(
         &mut self,
-        callback: CallbackExpr,
+        callback: &CallbackExpr,
         params: &[TypeId],
         span: Span,
         body: &mut Body,
@@ -372,7 +372,7 @@ impl ModuleBuilder<'_> {
                 }
             })
             .collect::<Vec<_>>();
-        let mut captures = self.callback_captures(&callback, body);
+        let mut captures = self.callback_captures(callback, body);
         let mut capture_locals = HashMap::new();
         for capture in &mut captures {
             let local = closure_body.push_local(LocalDecl {
@@ -395,19 +395,14 @@ impl ModuleBuilder<'_> {
             })
             .collect::<Vec<_>>();
         let tail = self.callback_expr_to_body_expr(
-            &callback,
+            callback,
             &param_exprs,
             &capture_locals,
             &mut closure_body,
         );
         let return_ty = callback.ty;
-        let callback_body = match tail {
-            Ok(tail_expr) => {
-                closure_body.blocks[0].tail = Some(tail_expr);
-                None
-            }
-            Err(_) => Some(callback),
-        };
+        let tail_expr = tail.expect("Python callback expressions must lower into closure bodies");
+        closure_body.blocks[0].tail = Some(tail_expr);
         let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.intern_type(Type::Function(FunctionType {
             params: params.to_vec(),
@@ -426,7 +421,7 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 captures,
                 body: body_id,
-                callback_body,
+                callback_body: None,
                 span,
             }),
             ty: closure_ty,

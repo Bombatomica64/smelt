@@ -280,7 +280,7 @@ impl ModuleBuilder<'_> {
 
         if let Some(callback) = self.local_callbacks.get(name).cloned() {
             return Ok(self.callback_expr_to_closure(
-                callback.callback,
+                &callback.callback,
                 &callback.params,
                 span,
                 body,
