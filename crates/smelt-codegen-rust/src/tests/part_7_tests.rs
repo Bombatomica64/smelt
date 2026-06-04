@@ -947,7 +947,7 @@ export function localize(enNumber: number): string {
     );
 
     assert!(source.contains("replace_all"), "{source}");
-    assert!(source.contains("|arg0: String|"), "{source}");
+    assert!(source.contains("|closure_arg_0: String|"), "{source}");
     assert!(
         !source.contains("|caps: &regex::Captures<'_>| (_smelt_tmp_"),
         "{source}"
