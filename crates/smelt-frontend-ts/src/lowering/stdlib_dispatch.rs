@@ -58,7 +58,7 @@ pub(super) enum PureMathCall {
 #[must_use]
 pub(super) fn call_rule(call: &CallExpression<'_>) -> Option<RuleId> {
     match &call.callee {
-        Expression::Identifier(callee) if callee.name == "fetch" => Some(RuleId::TsFetch),
+        Expression::Identifier(callee) => smelt_stdlib::typescript_call_rule(None, &callee.name),
         Expression::StaticMemberExpression(member) => static_member_rule(member),
         _ => None,
     }
@@ -107,19 +107,12 @@ pub(super) fn pure_math_call(call: &CallExpression<'_>) -> Option<PureMathCall> 
 /// Return the rule matching a static member call.
 fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Option<RuleId> {
     let property = member.property.name.as_str();
+    if let Expression::Identifier(object) = &member.object
+        && let Some(rule) = smelt_stdlib::typescript_call_rule(Some(&object.name), property)
+    {
+        return Some(rule);
+    }
     match &member.object {
-        Expression::Identifier(object) if object.name == "JSON" && property == "stringify" => {
-            Some(RuleId::TsJsonStringify)
-        }
-        Expression::Identifier(object) if object.name == "JSON" && property == "parse" => {
-            Some(RuleId::TsJsonParse)
-        }
-        Expression::Identifier(object) if object.name == "Math" && property == "random" => {
-            Some(RuleId::TsMathRandom)
-        }
-        Expression::Identifier(object) if object.name == "Date" && property == "now" => {
-            Some(RuleId::TsDateNow)
-        }
         Expression::NewExpression(new_expr) if property == "test" => {
             let Expression::Identifier(callee) = &new_expr.callee else {
                 return None;
@@ -140,6 +133,59 @@ fn static_member_rule(member: &oxc::ast::ast::StaticMemberExpression<'_>) -> Opt
             (callee.name == "Date").then_some(RuleId::TsDateToIsoString)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use oxc::{allocator::Allocator, parser::Parser, span::SourceType};
+
+    use super::*;
+
+    /// Parse a single expression statement and return its recognized rule.
+    fn parse_call_rule(source: &str) -> Option<RuleId> {
+        let allocator = Allocator::default();
+        let parsed = Parser::new(&allocator, source, SourceType::ts()).parse();
+        let statement = parsed.program.body.first().expect("expression statement");
+        let oxc::ast::ast::Statement::ExpressionStatement(statement) = statement else {
+            panic!("expected expression statement");
+        };
+        let Expression::CallExpression(call) = &statement.expression else {
+            panic!("expected call expression");
+        };
+        call_rule(call)
+    }
+
+    /// Frontend AST recognition delegates exact calls to shared metadata.
+    #[test]
+    fn exact_call_rules_follow_shared_metadata() {
+        let cases = [
+            ("structuredClone(value);", RuleId::TsStructuredClone),
+            ("Promise.all(values);", RuleId::TsPromiseStatic),
+            ("Math.floor(value);", RuleId::TsMathNumeric),
+            ("Number.parseInt(text);", RuleId::TsNumberParseInt),
+            ("Object.fromEntries(entries);", RuleId::TsObjectStatic),
+            ("Array.isArray(value);", RuleId::TsArrayStatic),
+        ];
+
+        for (source, expected) in cases {
+            assert_eq!(parse_call_rule(source), Some(expected));
+        }
+    }
+
+    /// Similar unsupported AST call shapes remain outside exact metadata.
+    #[test]
+    fn similar_unsupported_calls_do_not_match() {
+        for source in [
+            "Promise.any(values);",
+            "Math.randomBytes();",
+            "Number.parseDouble(text);",
+            "Object.entries(value);",
+            "Array.of(value);",
+            "value.map(callback);",
+        ] {
+            assert_eq!(parse_call_rule(source), None, "{source}");
+        }
     }
 }
 

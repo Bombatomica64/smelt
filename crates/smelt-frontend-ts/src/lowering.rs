@@ -420,6 +420,7 @@ include!("lowering/builder_part12.rs");
 include!("lowering/builder_part13.rs");
 include!("lowering/builder_part14.rs");
 include!("lowering/builder_part15.rs");
+include!("lowering/types.rs");
 include!("lowering/builder_part16.rs");
 include!("lowering/builder_part17.rs");
 include!("lowering/builder_part18.rs");
