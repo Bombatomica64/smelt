@@ -40,7 +40,14 @@ impl FunctionEmitter<'_> {
         receiver: &Operand,
     ) -> Result<String, EmitError> {
         let result_text = self.date_timestamp_result_text(text, dest_ty)?;
-        if !(self.is_erased_class_type(dest_ty)
+        let receiver_ty = self.operand_ty(receiver)?;
+        let receiver_is_erased = self.is_erased_class_type(receiver_ty)
+            || matches!(
+                self.mir.types.get(receiver_ty),
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+            );
+        if !receiver_is_erased
+            || !(self.is_erased_class_type(dest_ty)
             || matches!(
                 self.mir.types.get(dest_ty),
                 Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))

@@ -1021,7 +1021,7 @@ impl FunctionEmitter<'_> {
             }
             Rvalue::DateFromValue { value: date_value } => {
                 let text = self.date_timestamp_text(date_value)?;
-                self.date_timestamp_result_text(&text, dest_ty)
+                self.date_timestamp_result_preserving_receiver_text(&text, dest_ty, date_value)
             }
             Rvalue::DateGetPart { part, timestamp_ms } => {
                 self.date_get_part_text(*part, timestamp_ms)

@@ -912,7 +912,7 @@ Current active date-fns blockers:
 
 | Priority | Surface | Where it breaks | Notes |
 |---|---|---|---|
-| 1 | Broad parser/Intl runtime parity | Last whole-suite execution: `parse/test.ts` has `247` failures and `intlFormatDistance/test.ts` has `88` | Rerun the complete generated suite after concurrent overload work stabilizes; `invalid_date` is now green in targeted native validation. |
+| 1 | Broad parser/Intl runtime parity | Fresh `parse/test.ts` execution passes `242 / 247` (`98.0%`); `intlFormatDistance/test.ts` last recorded `88` failures | Parse context, DST transitions, and custom locale behavior pass. Remaining parse failures are four caught `RangeError` identity/message checks and one `Date.prototype.toString` mismatch. Report: `blocker-logs/date-fns-parse-20260604-after-timezone-green-full.md`. |
 | 2 | Remaining invalid-date semantics | Panic-focused isolated `invalid_date` execution passes `344 / 344`; `closestTo` passes `11 / 11` | The compiler stack-overflow abort, eager optional-index panic path, Date identity mismatch, and invalid-date `differenceInBusinessDays` guard failures no longer reproduce. |
 | 3 | Timezone normalization/context output | Focused `eachHourOfInterval` (`16 / 21`) and `eachWeekendOfInterval` (`11 / 13`) | Loop termination and invalid endpoints now pass; remaining failures are normalization/context output mismatches and interval step behavior. |
 
