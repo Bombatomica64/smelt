@@ -2275,6 +2275,33 @@ function call<Values extends unknown[]>(values: Values): unknown[] {
 }
 
 #[test]
+fn selects_array_rest_overload_for_conditional_array_spread() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function normalize(context: unknown, ...values: [number, number]): [number, number];
+function normalize(context: unknown, ...values: number[]): number[];
+function normalize(context: unknown, ...values: number[]): number[] {
+  return values;
+}
+
+function call(context: unknown, comparison: number, left: number, right: number): number[] {
+  return normalize(context, ...(comparison > 0 ? [left, right] : [right, left]));
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 1)?;
+    ensure!(
+        matches!(ctx.krate.types.get(function.return_ty), Some(Type::List(_))),
+        "conditional array spread did not select the list-rest overload"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_tuple_rest_destructuring_as_list() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(

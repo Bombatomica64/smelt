@@ -906,7 +906,7 @@ Full manifest build status:
 | File | Unsupported feature | Current error shape |
 |---|---|---|
 | Full manifest, `[output] build = false` | None in source emission | Latest release emission-only full build completes after match closure body emission support. |
-| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in generated Rust compilation | Fresh `/tmp/smelt_date_fns_full_tests_20260526/Smelt.toml` includes all 253 `test.ts` files from date-fns `424a783de1fd974bcdbe907c9c5eb5154e9db29f`, compiles with `0` errors, and reports `754` warnings in `blocker-logs/date-fns-full-tests-current.md`. The last recorded whole-suite runtime total predates the latest invalid-date fixes; targeted native validation is current below. |
+| Full test-only native manifest, `[output] build = false` plus generated `cargo check` | None in source emission | Fresh `/tmp/smelt_date_fns_full_tests_20260604/Smelt.toml` includes all 253 `test.ts` files from date-fns `424a783de1fd974bcdbe907c9c5eb5154e9db29f`. Conditional array spreads now select compatible list-rest overloads, so the full source probe emits successfully. Generated `cargo check` currently reports two unrelated errors (`E0308` in `localize_index_3.rs` and missing `ResultDate` in `isMatch_index_1.rs`) plus `754` warnings in `blocker-logs/date-fns-full-tests-20260604-current.md`. |
 
 Current active date-fns blockers:
 

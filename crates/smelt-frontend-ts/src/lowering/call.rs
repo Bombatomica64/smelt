@@ -1488,7 +1488,12 @@ impl ModuleBuilder<'_> {
         let mut selected: Option<(usize, usize, OverloadSignature, HashMap<_, _>)> = None;
         for (order, signature) in signatures.iter().enumerate() {
             let mut substitutions = HashMap::new();
-            if self.overload_signature_matches_args(signature, &lowered_arg_tys, &mut substitutions)
+            if self.overload_signature_matches_args(
+                signature,
+                arguments,
+                &lowered_arg_tys,
+                &mut substitutions,
+            )
                 && self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
                 && self.overload_substitutions_satisfy_constraints(signature, &substitutions)
             {
@@ -1520,6 +1525,7 @@ impl ModuleBuilder<'_> {
                 let mut substitutions = HashMap::new();
                 if !self.loose_overload_signature_matches_args(
                     signature,
+                    arguments,
                     &lowered_arg_tys,
                     &mut substitutions,
                 ) || !self.overload_accepts_spread_shape(signature, arguments, &lowered_arg_tys)
@@ -1573,6 +1579,7 @@ impl ModuleBuilder<'_> {
     fn loose_overload_signature_matches_args(
         &mut self,
         signature: &OverloadSignature,
+        arguments: &[Argument<'_>],
         arg_tys: &[smelt_hir::TypeId],
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
@@ -1614,6 +1621,9 @@ impl ModuleBuilder<'_> {
         let Some(rest_args) = arg_tys.get(fixed_params.len()..) else {
             return false;
         };
+        let Some(rest_arguments) = arguments.get(fixed_params.len()..) else {
+            return false;
+        };
         let rest_matches = match self
             .ctx
             .krate
@@ -1621,14 +1631,37 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(rest_ty))
             .cloned()
         {
+            Some(Type::Tuple(_))
+                if rest_args.len() == 1
+                    && matches!(rest_arguments.first(), Some(Argument::SpreadElement(_))) =>
+            {
+                rest_args.first().is_some_and(|actual| {
+                    self.loose_overload_type_matches(
+                        rest_ty,
+                        *actual,
+                        &mut rest_substitutions,
+                    )
+                })
+            }
             Some(Type::Tuple(items)) if items.len() == rest_args.len() => {
                 items.iter().zip(rest_args).all(|(expected, actual)| {
                     self.loose_overload_type_matches(*expected, *actual, &mut rest_substitutions)
                 })
             }
-            Some(Type::List(item_ty)) => rest_args.iter().all(|actual| {
-                self.loose_overload_type_matches(item_ty, *actual, &mut rest_substitutions)
-            }),
+            Some(Type::List(item_ty)) => rest_args.iter().zip(rest_arguments).all(
+                |(actual, argument)| {
+                    let expected = if matches!(argument, Argument::SpreadElement(_)) {
+                        rest_ty
+                    } else {
+                        item_ty
+                    };
+                    self.loose_overload_type_matches(
+                        expected,
+                        *actual,
+                        &mut rest_substitutions,
+                    )
+                },
+            ),
             _ => false,
         };
         if rest_matches {
@@ -1804,6 +1837,7 @@ impl ModuleBuilder<'_> {
     fn overload_signature_matches_args(
         &mut self,
         signature: &OverloadSignature,
+        arguments: &[Argument<'_>],
         arg_tys: &[smelt_hir::TypeId],
         substitutions: &mut HashMap<smelt_hir::Symbol, smelt_hir::TypeId>,
     ) -> bool {
@@ -1848,6 +1882,9 @@ impl ModuleBuilder<'_> {
         let Some(rest_args) = arg_tys.get(fixed_params.len()..) else {
             return false;
         };
+        let Some(rest_arguments) = arguments.get(fixed_params.len()..) else {
+            return false;
+        };
         let rest_matches = match self
             .ctx
             .krate
@@ -1855,14 +1892,29 @@ impl ModuleBuilder<'_> {
             .get(self.type_param_constraint_or_self(rest_ty))
             .cloned()
         {
+            Some(Type::Tuple(_))
+                if rest_args.len() == 1
+                    && matches!(rest_arguments.first(), Some(Argument::SpreadElement(_))) =>
+            {
+                rest_args.first().is_some_and(|actual| {
+                    self.infer_overload_type(rest_ty, *actual, &mut rest_substitutions)
+                })
+            }
             Some(Type::Tuple(items)) if items.len() == rest_args.len() => {
                 items.iter().zip(rest_args).all(|(expected, actual)| {
                     self.infer_overload_type(*expected, *actual, &mut rest_substitutions)
                 })
             }
-            Some(Type::List(item_ty)) => rest_args
-                .iter()
-                .all(|actual| self.infer_overload_type(item_ty, *actual, &mut rest_substitutions)),
+            Some(Type::List(item_ty)) => rest_args.iter().zip(rest_arguments).all(
+                |(actual, argument)| {
+                    let expected = if matches!(argument, Argument::SpreadElement(_)) {
+                        rest_ty
+                    } else {
+                        item_ty
+                    };
+                    self.infer_overload_type(expected, *actual, &mut rest_substitutions)
+                },
+            ),
             _ => false,
         };
         if rest_matches {
