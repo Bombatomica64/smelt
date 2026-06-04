@@ -1247,10 +1247,27 @@ impl ModuleBuilder<'_> {
                 span,
                 "this callback default expression is not lowered at call sites yet",
             )),
-            CallbackExprKind::Index { .. } => Err(SmeltError::unsupported(
-                span,
-                "static callback indexes are not lowered into closure bodies yet",
-            )),
+            CallbackExprKind::Index { receiver, index } => {
+                let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
+                let index_ty = self.ctx.krate.types.intern(Type::Int);
+                let index = body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::Int(i64::try_from(*index).map_err(
+                        |error| {
+                            SmeltError::unsupported(
+                                span,
+                                format!("callback index is too large: {error}"),
+                            )
+                        },
+                    )?)),
+                    ty: index_ty,
+                    span,
+                });
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Index { receiver, index },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
             CallbackExprKind::Field { receiver, field } => {
                 let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 Ok(body.push_expr(Expr {

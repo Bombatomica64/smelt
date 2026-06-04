@@ -190,7 +190,7 @@ const sums = pairs.map(([left, right]) => left + right);
 "#,
     );
 
-    assert!(source.contains(".0.clone() + arg0.1.clone()"));
+    assert!(source.contains("closure_arg_0.0.clone() + closure_arg_0.1.clone()"));
 }
 
 #[test]

@@ -964,6 +964,33 @@ const filtered = values.filter(value => value > minimum);
 }
 
 #[test]
+fn lowers_static_callback_indexes_into_closure_bodies() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+const values: string[][] = [["a"], ["b"]];
+const first = values.map(value => value[0]);
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let body = module_body(&ctx, module)?;
+
+    ensure!(
+        body.exprs.iter().any(|expr| matches!(
+            &expr.kind,
+            ExprKind::ListCallback { callback, .. }
+                if matches!(
+                    body.exprs.get(callback.0 as usize).map(|expr| &expr.kind),
+                    Some(ExprKind::Closure(closure)) if closure.callback_body.is_none()
+                )
+        )),
+        "missing CFG-backed static-index callback"
+    );
+    Ok(())
+}
+
+#[test]
 fn lowers_read_only_mutable_filter_callback_captures() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
