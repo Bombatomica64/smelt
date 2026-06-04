@@ -2585,11 +2585,8 @@ function sample<T>(data: readonly T[]): T[] {
 "#,
     );
 
-    assert!(source.contains("callback_index_receiver"), "{source}");
-    assert!(
-        source.contains(".get(callback_index).cloned().expect(\"index out of bounds\")"),
-        "{source}"
-    );
+    assert!(source.contains("closure_arg_0.clone() as i64"), "{source}");
+    assert!(source.contains("usize::try_from(normalized)"), "{source}");
 }
 
 #[test]

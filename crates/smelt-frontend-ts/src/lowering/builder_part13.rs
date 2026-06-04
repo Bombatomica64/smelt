@@ -1236,7 +1236,6 @@ impl ModuleBuilder<'_> {
             | CallbackExprKind::Sequence { .. }
             | CallbackExprKind::Throw { .. }
             | CallbackExprKind::HasDynamicField { .. }
-            | CallbackExprKind::DynamicIndex { .. }
             | CallbackExprKind::Function(_)
             | CallbackExprKind::FunctionTableLookup { .. }
             | CallbackExprKind::AssignCapture { .. }
@@ -1262,6 +1261,15 @@ impl ModuleBuilder<'_> {
                     ty: index_ty,
                     span,
                 });
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Index { receiver, index },
+                    ty: callback.ty,
+                    span,
+                }))
+            }
+            CallbackExprKind::DynamicIndex { receiver, index } => {
+                let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
+                let index = self.callback_expr_to_body_expr(index, args, body, span)?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::Index { receiver, index },
                     ty: callback.ty,

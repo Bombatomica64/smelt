@@ -424,11 +424,11 @@ function zip(
     );
 
     assert!(
-        source.contains("fn_(item.clone(),"),
+        source.contains("fn_(closure_arg_0.clone(),"),
         "captured callback should retain its four-argument ABI: {source}"
     );
     assert!(
-        !source.contains("fn_(match item.clone()"),
+        !source.contains("fn_(match closure_arg_0.clone()"),
         "captured callback was typed from a synthetic map local: {source}"
     );
 }
@@ -451,7 +451,7 @@ function zip(
     );
 
     assert!(
-        source.contains("fn_(item.clone(),"),
+        source.contains("fn_(closure_arg_0.clone(),"),
         "captured callback should not adopt the same-named free function ABI: {source}"
     );
     assert!(
@@ -504,7 +504,10 @@ export function values(record: Record<string, number>, keys: string[]): number[]
 "#,
     );
 
-    assert!(source.contains(".get(&item.clone())"), "{source}");
+    assert!(
+        source.contains(".get(&closure_arg_0.clone().clone())"),
+        "{source}"
+    );
 }
 
 #[test]
