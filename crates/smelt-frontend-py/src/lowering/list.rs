@@ -258,7 +258,10 @@ impl ModuleBuilder<'_> {
         let list = self.expression(list_arg, body)?;
         let list_ty = Self::expr_ty(body, list);
         let Some(Type::List(element_ty)) = self.ctx.krate.types.get(list_ty) else {
-            return Err(SmeltError::unsupported(span, "map/filter input must be a list"));
+            return Err(SmeltError::unsupported(
+                span,
+                "map/filter input must be a list",
+            ));
         };
         let callback = self.python_callback_argument(callback_arg, &[*element_ty], body)?;
         let ty = if name.id.as_str() == "filter" {
@@ -369,14 +372,48 @@ impl ModuleBuilder<'_> {
                 }
             })
             .collect::<Vec<_>>();
-        let body_id = self.ctx.krate.push_body(closure_body);
-        let captures = self.callback_captures(&callback, body);
+        let mut captures = self.callback_captures(&callback, body);
+        let mut capture_locals = HashMap::new();
+        for capture in &mut captures {
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(capture.symbol),
+                ty: capture.ty,
+                mutable: capture.mode == CaptureMode::ByMut,
+                span,
+            });
+            capture.body_local = Some(local);
+            capture_locals.insert(capture.source_local, local);
+        }
+        let param_exprs = closure_params
+            .iter()
+            .map(|param| {
+                closure_body.push_expr(HirExpr {
+                    kind: ExprKind::Local(param.local),
+                    ty: param.ty,
+                    span,
+                })
+            })
+            .collect::<Vec<_>>();
+        let tail = self.callback_expr_to_body_expr(
+            &callback,
+            &param_exprs,
+            &capture_locals,
+            &mut closure_body,
+        );
         let return_ty = callback.ty;
+        let callback_body = match tail {
+            Ok(tail_expr) => {
+                closure_body.blocks[0].tail = Some(tail_expr);
+                None
+            }
+            Err(_) => Some(callback),
+        };
+        let body_id = self.ctx.krate.push_body(closure_body);
         let closure_ty = self.intern_type(Type::Function(FunctionType {
             params: params.to_vec(),
             rest: None,
             required_params: None,
-                    mutable_params: Vec::new(),
+            mutable_params: Vec::new(),
             return_ty,
             is_async: false,
             may_throw: false,
@@ -389,12 +426,82 @@ impl ModuleBuilder<'_> {
                 return_ty,
                 captures,
                 body: body_id,
-                callback_body: Some(callback),
+                callback_body,
                 span,
             }),
             ty: closure_ty,
             span,
         })
+    }
+
+    /// Convert Python's compact callback subset into a normal closure-body expression.
+    fn callback_expr_to_body_expr(
+        &mut self,
+        callback: &CallbackExpr,
+        params: &[smelt_hir::ExprId],
+        capture_locals: &HashMap<smelt_hir::LocalId, smelt_hir::LocalId>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let span = body.blocks[0].span;
+        let kind = match &callback.kind {
+            CallbackExprKind::Param(index) => {
+                return params.get(*index).copied().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback parameter index is out of bounds")
+                });
+            }
+            CallbackExprKind::Capture(local) => ExprKind::Local(
+                capture_locals
+                    .get(local)
+                    .copied()
+                    .ok_or_else(|| SmeltError::unsupported(span, "callback capture is missing"))?,
+            ),
+            CallbackExprKind::Literal(literal) => ExprKind::Literal(literal.clone()),
+            CallbackExprKind::Field { receiver, field } => ExprKind::Field {
+                receiver: self.callback_expr_to_body_expr(
+                    receiver,
+                    params,
+                    capture_locals,
+                    body,
+                )?,
+                field: *field,
+            },
+            CallbackExprKind::Index { receiver, index } => {
+                let receiver_expr =
+                    self.callback_expr_to_body_expr(receiver, params, capture_locals, body)?;
+                let literal_index = i64::try_from(*index).map_err(|error| {
+                    SmeltError::unsupported(
+                        span,
+                        format!("callback index is too large for Rust: {error}"),
+                    )
+                })?;
+                let index_ty = self.intern_type(Type::Int);
+                let index_expr = body.push_expr(HirExpr {
+                    kind: ExprKind::Literal(Literal::Int(literal_index)),
+                    ty: index_ty,
+                    span,
+                });
+                ExprKind::Index {
+                    receiver: receiver_expr,
+                    index: index_expr,
+                }
+            }
+            CallbackExprKind::Binary { op, lhs, rhs } => ExprKind::BinOp {
+                op: *op,
+                lhs: self.callback_expr_to_body_expr(lhs, params, capture_locals, body)?,
+                rhs: self.callback_expr_to_body_expr(rhs, params, capture_locals, body)?,
+            },
+            _ => {
+                return Err(SmeltError::unsupported(
+                    span,
+                    "Python callback expression is not lowered into a closure body yet",
+                ));
+            }
+        };
+        Ok(body.push_expr(HirExpr {
+            kind,
+            ty: callback.ty,
+            span,
+        }))
     }
 
     /// Collect explicit captures from a Python callback expression tree.
@@ -585,14 +692,11 @@ impl ModuleBuilder<'_> {
             );
         }
         if let Some(kwarg) = &params.kwarg {
-            let kwarg_ty = expected_param_tys
-                .last()
-                .copied()
-                .unwrap_or_else(|| {
-                    let string_ty = self.intern_type(Type::String);
-                    let unknown_ty = self.intern_type(Type::Unknown);
-                    self.intern_type(Type::Dict(string_ty, unknown_ty))
-                });
+            let kwarg_ty = expected_param_tys.last().copied().unwrap_or_else(|| {
+                let string_ty = self.intern_type(Type::String);
+                let unknown_ty = self.intern_type(Type::Unknown);
+                self.intern_type(Type::Dict(string_ty, unknown_ty))
+            });
             callback_params.insert(
                 kwarg.name.as_str(),
                 CallbackExpr {
@@ -656,7 +760,12 @@ impl ModuleBuilder<'_> {
             Expr::NumberLiteral(number) => match &number.value {
                 Number::Int(value) => Ok(CallbackExpr {
                     kind: CallbackExprKind::Literal(Literal::Int(value.as_i64().ok_or_else(
-                        || SmeltError::unsupported(self.span(number.range), "integer literal is too large"),
+                        || {
+                            SmeltError::unsupported(
+                                self.span(number.range),
+                                "integer literal is too large",
+                            )
+                        },
                     )?)),
                     ty: self.intern_type(Type::Int),
                 }),
@@ -769,15 +878,14 @@ impl ModuleBuilder<'_> {
                             )
                         })?;
                         let item_ty = match self.ctx.krate.types.get(receiver.ty) {
-                            Some(Type::Tuple(items)) => items
-                                .get(index_usize)
-                                .copied()
-                                .ok_or_else(|| {
+                            Some(Type::Tuple(items)) => {
+                                items.get(index_usize).copied().ok_or_else(|| {
                                     SmeltError::unsupported(
                                         self.span(sub.range),
                                         "callback tuple index is out of bounds",
                                     )
-                                })?,
+                                })?
+                            }
                             Some(Type::List(item_ty)) => *item_ty,
                             _ => {
                                 return Err(SmeltError::unsupported(

@@ -368,7 +368,7 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
                     op: smelt_hir::ListCallbackOp::Map,
                     callback,
                     ..
-                } if closure_callback_has_capture(body, *callback)
+                } if closure_cfg_has_capture(&ctx, body, *callback)
             )
         }),
         "expected map lambda callback lowering",
@@ -381,7 +381,7 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
                     op: smelt_hir::ListCallbackOp::Filter,
                     callback,
                     ..
-                } if closure_callback_has_capture(body, *callback)
+                } if closure_cfg_has_capture(&ctx, body, *callback)
             )
         }),
         "expected filter lambda callback lowering",
@@ -416,7 +416,7 @@ scaled: list[int] = list(map(scale, values))
                     op: smelt_hir::ListCallbackOp::Map,
                     callback,
                     ..
-                } if closure_callback_has_capture(body, *callback)
+                } if closure_cfg_has_capture(&ctx, body, *callback)
             )
         }),
         "expected local map lambda callback lowering",

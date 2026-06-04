@@ -116,73 +116,33 @@ fn symbol(ctx: &HirCtx, symbol: Symbol) -> Result<&str, String> {
         .ok_or_else(|| format!("missing symbol {symbol:?}"))
 }
 
-/// Return whether a lowered callback captures an enclosing local.
-fn callback_has_capture(callback: &smelt_hir::CallbackExpr) -> bool {
-    match &callback.kind {
-        smelt_hir::CallbackExprKind::Capture(_)
-        | smelt_hir::CallbackExprKind::AssignCapture { .. } => true,
-        smelt_hir::CallbackExprKind::Param(_)
-        | smelt_hir::CallbackExprKind::Function(_)
-        | smelt_hir::CallbackExprKind::Literal(_) => false,
-        smelt_hir::CallbackExprKind::FunctionTableLookup { key, .. } => callback_has_capture(key),
-        smelt_hir::CallbackExprKind::ListLit(items) => items.iter().any(callback_has_capture),
-        smelt_hir::CallbackExprKind::Sequence { effects, result } => {
-            effects.iter().any(callback_has_capture) || callback_has_capture(result)
-        }
-        smelt_hir::CallbackExprKind::DictLit(entries) => {
-            entries.iter().any(|(_, value)| callback_has_capture(value))
-        }
-        smelt_hir::CallbackExprKind::Throw { message } => {
-            message.as_deref().is_some_and(callback_has_capture)
-        }
-        smelt_hir::CallbackExprKind::Index { receiver, .. }
-        | smelt_hir::CallbackExprKind::Field { receiver, .. }
-        | smelt_hir::CallbackExprKind::HasField { receiver, .. }
-        | smelt_hir::CallbackExprKind::FieldTruthy { receiver, .. } => {
-            callback_has_capture(receiver)
-        }
-        smelt_hir::CallbackExprKind::DynamicIndex { receiver, index } => {
-            callback_has_capture(receiver) || callback_has_capture(index)
-        }
-        smelt_hir::CallbackExprKind::HasDynamicField { receiver, field } => {
-            callback_has_capture(receiver) || callback_has_capture(field)
-        }
-        smelt_hir::CallbackExprKind::UnknownIs { value, .. } => callback_has_capture(value),
-        smelt_hir::CallbackExprKind::TypeofValue { value } => callback_has_capture(value),
-        smelt_hir::CallbackExprKind::Unary { operand, .. } => callback_has_capture(operand),
-        smelt_hir::CallbackExprKind::Binary { lhs, rhs, .. } => {
-            callback_has_capture(lhs) || callback_has_capture(rhs)
-        }
-        smelt_hir::CallbackExprKind::Conditional {
-            cond,
-            then_expr,
-            else_expr,
-        } => {
-            callback_has_capture(cond)
-                || callback_has_capture(then_expr)
-                || callback_has_capture(else_expr)
-        }
-        smelt_hir::CallbackExprKind::Call { callee, args } => {
-            callback_has_capture(callee) || args.iter().any(|arg| callback_has_capture(&arg.expr))
-        }
-        smelt_hir::CallbackExprKind::MethodCall { receiver, args, .. } => {
-            callback_has_capture(receiver) || args.iter().any(|arg| callback_has_capture(&arg.expr))
-        }
-    }
-}
-
-/// Return whether a closure expression's callback body captures an enclosing local.
-fn closure_callback_has_capture(body: &Body, callback: smelt_hir::ExprId) -> bool {
-    let Some(expr) = body.exprs.get(callback.0 as usize) else {
+/// Return whether a closure callback uses a captured local through its normal body CFG.
+fn closure_cfg_has_capture(ctx: &HirCtx, body: &Body, callback: smelt_hir::ExprId) -> bool {
+    let Ok(callback_index) = usize::try_from(callback.0) else {
+        return false;
+    };
+    let Some(expr) = body.exprs.get(callback_index) else {
         return false;
     };
     let ExprKind::Closure(closure) = &expr.kind else {
         return false;
     };
-    closure
-        .callback_body
-        .as_ref()
-        .is_some_and(callback_has_capture)
+    let Ok(body_index) = usize::try_from(closure.body.0) else {
+        return false;
+    };
+    let Some(closure_body) = ctx.krate.bodies.get(body_index) else {
+        return false;
+    };
+    closure.callback_body.is_none()
+        && closure
+            .captures
+            .iter()
+            .all(|capture| capture.body_local.is_some())
+        && !closure.captures.is_empty()
+        && closure_body
+            .blocks
+            .first()
+            .is_some_and(|root| root.tail.is_some())
 }
 
 mod basic_tests;

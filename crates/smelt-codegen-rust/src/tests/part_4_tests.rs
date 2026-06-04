@@ -44,7 +44,7 @@ filtered: list[int] = list(filter(lambda value: value > factor, values))
 
     assert!(source.contains(".iter().enumerate().map("));
     assert!(source.contains("* factor"));
-    assert!(source.contains(".iter().enumerate().filter("));
+    assert!(source.contains(".iter().enumerate().filter_map("));
     assert!(source.contains("> factor"));
 }
 
@@ -270,9 +270,16 @@ def run() -> int:
 "#,
     );
 
-    assert!(source.contains("|arg0: Vec<i64>| -> i64 { (arg0[0].clone() + arg0[1].clone()) }"));
+    assert!(source.contains("|closure_arg_0: Vec<i64>|"));
+    assert!(
+        source.contains("usize::try_from(normalized).expect(\"negative index out of bounds\")")
+    );
     assert!(source.contains("vec![2, 3, 4]"));
-    assert!(source.contains("arg0.get(\"value\").cloned().unwrap_or(0)"));
+    assert!(
+        source.contains(
+            "closure_arg_0.get(&\"value\".to_owned()).cloned().expect(\"missing field\")"
+        )
+    );
     assert!(source.contains("::std::collections::HashMap::from([(\"value\".to_owned(), 5)])"));
     assert!(source.contains("assigned.extend"));
 }
