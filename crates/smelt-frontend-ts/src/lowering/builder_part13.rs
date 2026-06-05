@@ -1239,11 +1239,7 @@ impl ModuleBuilder<'_> {
             )),
             CallbackExprKind::Function(function) => {
                 let item = self.callback_function_item(*function, span)?;
-                Ok(body.push_expr(Expr {
-                    kind: ExprKind::Item(item),
-                    ty: callback.ty,
-                    span,
-                }))
+                self.callback_function_item_closure(item, callback.ty, body, span)
             }
             CallbackExprKind::HasField { receiver, field } => {
                 let dict = self.callback_expr_to_body_expr(receiver, args, body, span)?;
@@ -1518,6 +1514,83 @@ impl ModuleBuilder<'_> {
                     "callback function reference does not resolve to an item",
                 )
             })
+    }
+
+    /// Wrap a function item in a first-class closure value.
+    fn callback_function_item_closure(
+        &mut self,
+        item: smelt_hir::ItemId,
+        function_ty: smelt_hir::TypeId,
+        outer_body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(Type::Function(function)) = self.ctx.krate.types.get(function_ty).cloned() else {
+            return Err(SmeltError::unsupported(
+                span,
+                "callback function reference must have a function type",
+            ));
+        };
+        if function.rest.is_some() || function.required_params.is_some() {
+            return Err(SmeltError::unsupported(
+                span,
+                "callback function references with rest parameters are not lowered yet",
+            ));
+        }
+        let mut closure_body = Body::new(None, span);
+        let mut closure_params = Vec::new();
+        let mut call_args = Vec::new();
+        for (index, ty) in function.params.iter().copied().enumerate() {
+            let name = self.ctx.krate.symbols.intern(&format!("arg{index}"));
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(name),
+                ty,
+                mutable: false,
+                span,
+            });
+            closure_body.params.push(local);
+            closure_params.push(Param {
+                name,
+                local,
+                ty,
+                span,
+            });
+            call_args.push(closure_body.push_expr(Expr {
+                kind: ExprKind::Local(local),
+                ty,
+                span,
+            }));
+        }
+        let callee = closure_body.push_expr(Expr {
+            kind: ExprKind::Item(item),
+            ty: function_ty,
+            span,
+        });
+        let call = closure_body.push_expr(Expr {
+            kind: ExprKind::Call {
+                callee,
+                args: call_args,
+            },
+            ty: function.return_ty,
+            span,
+        });
+        if let Some(block) = closure_body.blocks.first_mut() {
+            block.tail = Some(call);
+        }
+        let body = self.ctx.krate.push_body(closure_body);
+        Ok(outer_body.push_expr(Expr {
+            kind: ExprKind::Closure(smelt_hir::ClosureExpr {
+                params: closure_params,
+                rest: None,
+                required_params: None,
+                return_ty: function.return_ty,
+                captures: Vec::new(),
+                body,
+                callback_body: None,
+                span,
+            }),
+            ty: function_ty,
+            span,
+        }))
     }
 
     /// Convert stored callback call arguments into normal HIR argument expressions.
