@@ -997,24 +997,24 @@ impl ModuleBuilder<'_> {
             .collect::<Vec<_>>();
         let mut captures = self.callback_captures(&callback, body);
         let may_throw = Self::callback_expr_contains_throw(&callback);
-        let captures_can_migrate = params.len() >= 2
-            && !matches!(
+        let captures_can_migrate = captures.is_empty()
+            || (!matches!(
                 params
                     .first()
                     .and_then(|param| self.ctx.krate.types.get(*param)),
                 Some(Type::Function(_))
             )
-            && captures.iter().all(|capture| {
-                capture.mode == CaptureMode::ByRef
-                    && !matches!(
-                        self.ctx.krate.types.get(capture.ty),
-                        Some(Type::List(item))
-                            if matches!(
-                                self.ctx.krate.types.get(*item),
-                                Some(Type::Function(_))
-                            )
-                    )
-            });
+                && captures.iter().all(|capture| {
+                    capture.mode == CaptureMode::ByRef
+                        && !matches!(
+                            self.ctx.krate.types.get(capture.ty),
+                            Some(Type::List(item))
+                                if matches!(
+                                    self.ctx.krate.types.get(*item),
+                                    Some(Type::Function(_))
+                                )
+                        )
+                }));
         let mut migrated_callback = callback.clone();
         if captures_can_migrate {
             let mut capture_locals = HashMap::new();

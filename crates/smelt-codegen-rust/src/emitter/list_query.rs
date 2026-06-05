@@ -1503,6 +1503,7 @@ impl FunctionEmitter<'_> {
         };
         let capture_prefix = if closure.escapes
             || matches!(self.mir.types.get(closure.return_ty), Some(Type::Future(_)))
+            || !closure.captures.is_empty()
             || closure.captures.iter().any(|capture| {
                 capture.mode == smelt_hir::CaptureMode::ByValue
                     && !self
