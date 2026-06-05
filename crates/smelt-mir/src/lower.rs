@@ -985,6 +985,7 @@ fn mark_local_escaping_closures(
         Rvalue::Binary { .. }
         | Rvalue::Unary { .. }
         | Rvalue::Conditional { .. }
+        | Rvalue::FunctionTableLookup { .. }
         | Rvalue::OptionalField { .. }
         | Rvalue::OptionalIndex { .. }
         | Rvalue::OptionalMethod { .. }
@@ -1418,10 +1419,14 @@ impl<'hir> LoweringCtx<'hir> {
         self.lower_block_stmts(self.body.root)?;
 
         let root = self.hir_block(self.body.root)?;
+        if self.block()?.terminator.is_some() {
+            return Ok((self.function, self.closures));
+        }
+
         if let Some(tail) = root.tail {
             let operand = self.lower_expr(tail)?;
             self.set_terminator(Terminator::Return(operand))?;
-        } else if self.block()?.terminator.is_none() {
+        } else {
             if matches!(self.function.origin, HirOrigin::ClassConstructor { .. }) {
                 self.set_terminator(Terminator::Return(Operand::Move(Place::Local(LocalId(0)))))?;
                 return Ok((self.function, self.closures));
@@ -2035,6 +2040,25 @@ impl<'hir> LoweringCtx<'hir> {
                 }
 
                 self.current_block = join_block;
+                Operand::Copy(Place::Local(dest))
+            }
+            ExprKind::FunctionTableLookup { key, cases } => {
+                let lowered_key = self.lower_expr(*key)?;
+                let lowered_cases = cases
+                    .iter()
+                    .map(|(case_key, case_expr)| {
+                        self.lower_expr(*case_expr)
+                            .map(|operand| (case_key.clone(), operand))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let dest = self.push_temp(expr.ty, expr.span);
+                self.block_mut()?.statements.push(Statement::Assign {
+                    dest,
+                    value: Rvalue::FunctionTableLookup {
+                        key: lowered_key,
+                        cases: lowered_cases,
+                    },
+                });
                 Operand::Copy(Place::Local(dest))
             }
             ExprKind::InstanceOf { value, class } => {
@@ -4495,6 +4519,7 @@ impl<'hir> LoweringCtx<'hir> {
             | ExprKind::BinOp { .. }
             | ExprKind::UnaryOp { .. }
             | ExprKind::Conditional { .. }
+            | ExprKind::FunctionTableLookup { .. }
             | ExprKind::InstanceOf { .. }
             | ExprKind::UnknownIs { .. }
             | ExprKind::TypeofValue { .. }

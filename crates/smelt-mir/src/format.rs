@@ -245,6 +245,17 @@ fn rvalue_text(value: &Rvalue) -> String {
                 operand_text(else_operand)
             )
         }
+        Rvalue::FunctionTableLookup { key, cases } => {
+            let case_text = cases
+                .iter()
+                .map(|(case_key, operand)| format!("{case_key:?}: {}", operand_text(operand)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "function_table_lookup {} {{{case_text}}}",
+                operand_text(key)
+            )
+        }
         Rvalue::OptionalField { receiver, field } => {
             format!("{}?.field{}", operand_text(receiver), field.0)
         }

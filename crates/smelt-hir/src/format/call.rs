@@ -752,6 +752,14 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
                 expr_ref(*else_expr)
             )
         }
+        ExprKind::FunctionTableLookup { key, cases } => {
+            let cases = cases
+                .iter()
+                .map(|(case_key, expr)| format!("{case_key:?}: {}", expr_ref(*expr)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("function_table_lookup {} {{{cases}}}", expr_ref(*key))
+        }
         ExprKind::InstanceOf { value, class } => {
             format!("instanceof {}, class{}", expr_ref(*value), class.0)
         }

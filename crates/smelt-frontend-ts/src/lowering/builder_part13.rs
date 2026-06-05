@@ -1232,14 +1232,44 @@ impl ModuleBuilder<'_> {
                     span,
                 }))
             }
-            CallbackExprKind::Throw { .. }
-            | CallbackExprKind::FunctionTableLookup { .. } => Err(SmeltError::unsupported(
-                span,
-                "this callback default expression is not lowered at call sites yet",
-            )),
+            CallbackExprKind::Throw { message } => {
+                let string_ty = self.ctx.krate.types.intern(Type::String);
+                let message = if let Some(message) = message {
+                    self.callback_expr_to_body_expr(message, args, body, span)?
+                } else {
+                    body.push_expr(Expr {
+                        kind: ExprKind::Literal(Literal::String("callback threw".to_owned())),
+                        ty: string_ty,
+                        span,
+                    })
+                };
+                body.push_stmt(Stmt::Throw(message));
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::None),
+                    ty: callback.ty,
+                    span,
+                }))
+            }
             CallbackExprKind::Function(function) => {
                 let item = self.callback_function_item(*function, span)?;
                 self.callback_function_item_closure(item, callback.ty, body, span)
+            }
+            CallbackExprKind::FunctionTableLookup { key, cases } => {
+                let key = self.callback_expr_to_body_expr(key, args, body, span)?;
+                let cases = cases
+                    .iter()
+                    .map(|(case_key, function)| {
+                        let item = self.callback_function_item(*function, span)?;
+                        let value =
+                            self.callback_function_item_closure(item, callback.ty, body, span)?;
+                        Ok((case_key.clone(), value))
+                    })
+                    .collect::<Result<Vec<_>, SmeltError>>()?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::FunctionTableLookup { key, cases },
+                    ty: callback.ty,
+                    span,
+                }))
             }
             CallbackExprKind::HasField { receiver, field } => {
                 let dict = self.callback_expr_to_body_expr(receiver, args, body, span)?;

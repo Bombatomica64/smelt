@@ -556,6 +556,10 @@ pub enum ExprKind {
         then_expr: ExprId,
         else_expr: ExprId,
     },
+    FunctionTableLookup {
+        key: ExprId,
+        cases: Vec<(String, ExprId)>,
+    },
     InstanceOf {
         value: ExprId,
         class: Symbol,

@@ -3900,6 +3900,12 @@ fn rvalue_uses_local(value: &Rvalue, local: LocalId) -> bool {
                 || operand_uses_local(then_operand, local)
                 || operand_uses_local(else_operand, local)
         }
+        Rvalue::FunctionTableLookup { key, cases } => {
+            operand_uses_local(key, local)
+                || cases
+                    .iter()
+                    .any(|(_, case)| operand_uses_local(case, local))
+        }
         Rvalue::OptionalField { receiver, .. } => operand_uses_local(receiver, local),
         Rvalue::OptionalIndex { receiver, index } => {
             operand_uses_local(receiver, local) || operand_uses_local(index, local)

@@ -246,6 +246,12 @@ impl Rvalue {
                 visit(then_operand);
                 visit(else_operand);
             }
+            Self::FunctionTableLookup { key, cases } => {
+                visit(key);
+                for (_, case) in cases {
+                    visit(case);
+                }
+            }
             Self::OptionalField { receiver, .. } => {
                 visit(receiver);
             }
@@ -1144,6 +1150,12 @@ fn validate_rvalue(
             validate_operand(mir, function, definitions, cond, errors);
             validate_operand(mir, function, definitions, then_operand, errors);
             validate_operand(mir, function, definitions, else_operand, errors);
+        }
+        Rvalue::FunctionTableLookup { key, cases } => {
+            validate_operand(mir, function, definitions, key, errors);
+            for (_, case) in cases {
+                validate_operand(mir, function, definitions, case, errors);
+            }
         }
         Rvalue::OptionalField { receiver, .. } => {
             validate_operand(mir, function, definitions, receiver, errors);

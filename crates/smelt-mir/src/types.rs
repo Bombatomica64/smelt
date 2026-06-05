@@ -472,6 +472,13 @@ pub enum Rvalue {
         /// Operand used when the condition is false.
         else_operand: Operand,
     },
+    /// Select a first-class function value from a static string-keyed table.
+    FunctionTableLookup {
+        /// String key used to select the function.
+        key: Operand,
+        /// Function values keyed by source object field text.
+        cases: Vec<(String, Operand)>,
+    },
     /// Read a field through a TypeScript optional-chain receiver.
     OptionalField {
         /// Receiver operand, either `T` or `Option<T>`.

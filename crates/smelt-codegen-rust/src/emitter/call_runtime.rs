@@ -424,6 +424,9 @@ impl FunctionEmitter<'_> {
                 self.value_at_type(then_operand, dest_ty)?,
                 self.value_at_type(else_operand, dest_ty)?
             )),
+            Rvalue::FunctionTableLookup { key, cases } => {
+                self.function_table_lookup_text(key, cases, dest_ty)
+            }
             Rvalue::OptionalField { receiver, field } => {
                 self.optional_field_text_for_dest(receiver, *field, dest_ty)
             }
@@ -1740,6 +1743,27 @@ impl FunctionEmitter<'_> {
     ) -> Result<String, EmitError> {
         let value = self.option_value_text(operand, inner)?;
         self.value_at_type_text(&value, inner, target)
+    }
+
+    /// Emits Rust for selecting a function value from a static string-keyed table.
+    fn function_table_lookup_text(
+        &self,
+        key: &Operand,
+        cases: &[(String, Operand)],
+        dest_ty: TypeId,
+    ) -> Result<String, EmitError> {
+        let key_text = self.operand_text(key)?;
+        let cases_text = cases
+            .iter()
+            .map(|(case_key, case)| {
+                let case_text = self.value_at_type(case, dest_ty)?;
+                Ok(format!("{case_key:?} => {case_text}"))
+            })
+            .collect::<Result<Vec<_>, EmitError>>()?
+            .join(", ");
+        Ok(format!(
+            "{{ let __smelt_function_key = {key_text}; match __smelt_function_key.as_str() {{ {cases_text}, _ => panic!(\"unknown function table key: {{}}\", __smelt_function_key) }} }}"
+        ))
     }
 
     /// Emits Rust for an optional-chain field read coerced to a destination type.

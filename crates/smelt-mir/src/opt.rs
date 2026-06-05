@@ -243,6 +243,10 @@ fn rewrite_rvalue(
                 | rewrite_operand_except(then_operand, aliases, dest)
                 | rewrite_operand_except(else_operand, aliases, dest)
         }
+        Rvalue::FunctionTableLookup { key, cases } => cases.iter_mut().fold(
+            rewrite_operand_except(key, aliases, dest),
+            |changed, (_, case)| rewrite_operand_except(case, aliases, dest) | changed,
+        ),
         Rvalue::OptionalField { receiver, .. } => rewrite_operand_except(receiver, aliases, dest),
         Rvalue::OptionalIndex { receiver, index } => {
             rewrite_operand_except(receiver, aliases, dest)
