@@ -269,7 +269,9 @@ impl ModuleBuilder<'_> {
         })?;
         let mut actual = self.argument(actual_arg, body)?;
         let actual_ty = Self::expr_ty(body, actual);
-        if self.assertion_type_contains_unknown(actual_ty) {
+        if !matches!(self.ctx.krate.types.get(actual_ty), Some(Type::Optional(_)))
+            && self.assertion_type_contains_unknown(actual_ty)
+        {
             let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
             actual = body.push_expr(Expr {
                 kind: ExprKind::TypeAssert { value: actual },
@@ -2131,6 +2133,8 @@ impl ModuleBuilder<'_> {
             let saved_async = self.current_async;
             self.current_return_ty = declared_return_ty;
             self.current_async = function.r#async;
+            self.current_arguments_arities
+                .push(function.params.items.len());
             let mut lowering_result = Ok(());
             for statement in &function_body.statements {
                 if let Err(error) = self.statement(statement, &mut closure_body) {
@@ -2143,6 +2147,7 @@ impl ModuleBuilder<'_> {
             }
             self.current_return_ty = saved_return_ty;
             self.current_async = saved_async;
+            self.current_arguments_arities.pop();
             for (name, prior) in saved_locals.into_iter().rev() {
                 if let Some(local) = prior {
                     self.locals.insert(name, local);

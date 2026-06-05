@@ -68,6 +68,7 @@ pub const TYPESCRIPT_CALLS: &[CallRecognition] = &[
     static_call("Symbol", "for", RuleId::TsSymbol),
     static_call("Object", "is", RuleId::TsObjectStatic),
     static_call("Object", "fromEntries", RuleId::TsObjectStatic),
+    static_call("Object", "create", RuleId::TsObjectStatic),
     static_call("Object", "getPrototypeOf", RuleId::TsObjectStatic),
     static_call("Array", "isArray", RuleId::TsArrayStatic),
     static_call("Array", "from", RuleId::TsArrayStatic),
@@ -118,6 +119,7 @@ mod tests {
             ((Some("Number"), "isNaN"), RuleId::TsNumberPredicate),
             ((Some("Promise"), "allSettled"), RuleId::TsPromiseStatic),
             ((Some("Object"), "fromEntries"), RuleId::TsObjectStatic),
+            ((Some("Object"), "create"), RuleId::TsObjectStatic),
             ((Some("Array"), "isArray"), RuleId::TsArrayStatic),
         ];
 

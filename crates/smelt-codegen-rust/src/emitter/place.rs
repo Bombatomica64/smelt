@@ -45,6 +45,11 @@ impl FunctionEmitter<'_> {
                 {
                     let field_name = self.symbol_source_name(*field)?;
                     let base_text = self.local_value_text(*base)?;
+                    if field_name == "length" {
+                        return Ok(format!(
+                            "match {base_text}.clone() {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
+                        ));
+                    }
                     return Ok(format!(
                         "match {base_text}.clone() {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
                     ));
@@ -57,6 +62,11 @@ impl FunctionEmitter<'_> {
                 {
                     let field_name = self.symbol_source_name(*field)?;
                     let base_text = self.local_value_text(*base)?;
+                    if field_name == "length" {
+                        return Ok(format!(
+                            "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64), SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64), SmeltUnknown::Object(map) => smelt_get_object_field(&map, \"length\"), _ => SmeltUnknown::Null }}"
+                        ));
+                    }
                     return Ok(format!(
                         "match {base_text}.clone().unwrap_or(SmeltUnknown::Null) {{ SmeltUnknown::Object(map) => smelt_get_object_field(&map, {field_name:?}), _ => SmeltUnknown::Null }}"
                     ));
@@ -183,6 +193,7 @@ impl FunctionEmitter<'_> {
                             self.value_at_type(index, *key_ty)?
                         };
                         let base_text = self.local_value_text(*base)?;
+                        let default_value = self.default_value(*value_ty)?;
                         let value_is_unknownish = matches!(
                             self.mir.types.get(*value_ty),
                             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
@@ -198,7 +209,7 @@ impl FunctionEmitter<'_> {
                             || self.dict_uses_js_key_map(*key_ty)
                         {
                             Ok(format!(
-                                "{base_text}.get(&{key_text}).expect(\"index out of bounds\")"
+                                "{base_text}.get(&{key_text}).unwrap_or({default_value})"
                             ))
                         } else if value_is_unknownish {
                             Ok(format!(
@@ -206,7 +217,7 @@ impl FunctionEmitter<'_> {
                             ))
                         } else {
                             Ok(format!(
-                                "{base_text}.get(&{key_text}).cloned().expect(\"index out of bounds\")"
+                                "{base_text}.get(&{key_text}).cloned().unwrap_or({default_value})"
                             ))
                         }
                     }

@@ -1,0 +1,914 @@
+fn test_runtime_datafirst_returns_undefined_on_empty (FuncId(0)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Unknown>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = []
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = closure_call copy %1(copy %2, copy %5)
+    %7 = copy %6
+    %8 = none
+    %9 = copy %7 != copy %8
+    switch copy %9 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBeUndefined() failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_returns_the_item_on_a_single_item_array (FuncId(1)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [1.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = closure_call copy %1(copy %2, copy %5)
+    %7 = 1.0
+    %8 = copy %6 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_finds_the_minimum (FuncId(2)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [2.0, 1.0, 4.0, 3.0, 5.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = closure_call copy %1(copy %2, copy %5)
+    %7 = 1.0
+    %8 = copy %6 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_finds_the_minimum_with_a_non_trivial_order_rule (FuncId(3)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: fn(Unknown) -> Unknown
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["aa", "a", "aaaa", "aaa", "aaaaa"]
+    %3 = closure ClosureId(0) []
+    %4 = closure_call copy %1(copy %2, copy %3)
+    %5 = "a"
+    %6 = copy %4 != copy %5
+    switch copy %6 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_finds_the_max_with_desc_order_rules (FuncId(4)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: List<Unknown>
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [2.0, 1.0, 4.0, 3.0, 5.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = [copy %5, "desc"]
+    %7 = closure_call copy %1(copy %2, copy %6)
+    %8 = 5.0
+    %9 = copy %7 != copy %8
+    switch copy %9 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_finds_the_max_with_non_trivial_desc_order_rules (FuncId(5)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: List<Unknown>
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["aa", "a", "aaaa", "aaa", "aaaaa"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = [copy %5, "desc"]
+    %7 = closure_call copy %1(copy %2, copy %6)
+    %8 = "aaaaa"
+    %9 = copy %7 != copy %8
+    switch copy %9 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_breaks_ties_with_multiple_order_rules (FuncId(6)) -> None throws
+  locals
+    %0 user data: List<String>
+    %1 temp: List<String>
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+    %4 temp: fn(Unknown) -> Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Bool
+    %11 temp: Dict<String, Unknown>
+    %12 temp: Unknown
+    %13 temp: fn(Unknown) -> Unknown
+    %14 temp: List<Unknown>
+    %15 temp: Dict<String, Unknown>
+    %16 temp: Unknown
+    %17 temp: Unknown
+    %18 temp: Unknown
+    %19 temp: Unknown
+    %20 temp: Bool
+    %21 temp: Dict<String, Unknown>
+    %22 temp: Unknown
+    %23 temp: fn(Unknown) -> Unknown
+    %24 temp: Dict<String, Unknown>
+    %25 temp: Unknown
+    %26 temp: Unknown
+    %27 temp: List<Unknown>
+    %28 temp: Unknown
+    %29 temp: Unknown
+    %30 temp: Bool
+    %31 temp: Dict<String, Unknown>
+    %32 temp: Unknown
+    %33 temp: fn(Unknown) -> Unknown
+    %34 temp: List<Unknown>
+    %35 temp: Dict<String, Unknown>
+    %36 temp: Unknown
+    %37 temp: Unknown
+    %38 temp: List<Unknown>
+    %39 temp: Unknown
+    %40 temp: Unknown
+    %41 temp: Bool
+  bb0:
+    %1 = ["a", "bb", "b", "aaaa", "bbb", "aa", "aaa", "bbbb"]
+    %0 = copy %1
+    %2 = {}
+    %3 = unknown_cast copy %2 as t0
+    %4 = closure ClosureId(1) []
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = closure_call copy %3(copy %0, copy %4, copy %7)
+    %9 = "a"
+    %10 = copy %8 != copy %9
+    switch copy %10 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    %11 = {}
+    %12 = unknown_cast copy %11 as t0
+    %13 = closure ClosureId(2) []
+    %14 = [copy %13, "desc"]
+    %15 = {}
+    %16 = unknown_cast copy %15 as t0
+    %17 = closure_call copy %16()
+    %18 = closure_call copy %12(copy %0, copy %14, copy %17)
+    %19 = "aaaa"
+    %20 = copy %18 != copy %19
+    switch copy %20 ? bb3 : bb4
+  bb3:
+    throw "expect(...).toBe(...) failed"
+  bb4:
+    %21 = {}
+    %22 = unknown_cast copy %21 as t0
+    %23 = closure ClosureId(3) []
+    %24 = {}
+    %25 = unknown_cast copy %24 as t0
+    %26 = closure_call copy %25()
+    %27 = [copy %26, "desc"]
+    %28 = closure_call copy %22(copy %0, copy %23, copy %27)
+    %29 = "b"
+    %30 = copy %28 != copy %29
+    switch copy %30 ? bb5 : bb6
+  bb5:
+    throw "expect(...).toBe(...) failed"
+  bb6:
+    %31 = {}
+    %32 = unknown_cast copy %31 as t0
+    %33 = closure ClosureId(4) []
+    %34 = [copy %33, "desc"]
+    %35 = {}
+    %36 = unknown_cast copy %35 as t0
+    %37 = closure_call copy %36()
+    %38 = [copy %37, "desc"]
+    %39 = closure_call copy %32(copy %0, copy %34, copy %38)
+    %40 = "bbbb"
+    %41 = copy %39 != copy %40
+    switch copy %41 ? bb7 : bb8
+  bb7:
+    throw "expect(...).toBe(...) failed"
+  bb8:
+    return none
+
+fn test_runtime_datafirst_can_compare_strings (FuncId(7)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["b", "a", "c"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = closure_call copy %1(copy %2, copy %5)
+    %7 = "a"
+    %8 = copy %6 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_can_compare_numbers (FuncId(8)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [2.0, 1.0, 3.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = closure_call copy %1(copy %2, copy %5)
+    %7 = 1.0
+    %8 = copy %6 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_can_compare_booleans (FuncId(9)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Bool>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [true, false, true, true, false]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure_call copy %4()
+    %6 = closure_call copy %1(copy %2, copy %5)
+    %7 = false
+    %8 = copy %6 != copy %7
+    switch copy %8 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datafirst_can_compare_valueofs (FuncId(10)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Date
+    %3 temp: Date
+    %4 temp: Date
+    %5 temp: List<Date>
+    %6 temp: Dict<String, Unknown>
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Date
+    %11 temp: Unknown
+    %12 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = date_from_value 0
+    %3 = date_from_value 1.0
+    %4 = date_from_value 2.0
+    %5 = [copy %2, copy %3, copy %4]
+    %6 = {}
+    %7 = unknown_cast copy %6 as t0
+    %8 = closure_call copy %7()
+    %9 = closure_call copy %1(copy %5, copy %8)
+    %10 = date_from_value 1.0
+    %11 = copy %10
+    %12 = copy %9 != copy %11
+    switch copy %12 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_returns_undefined_on_empty (FuncId(11)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Unknown>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Unknown
+    %12 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = []
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = closure_call copy %4(copy %7)
+    %9 = closure_call copy %1(copy %2, copy %8)
+    %10 = copy %9
+    %11 = none
+    %12 = copy %10 != copy %11
+    switch copy %12 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBeUndefined() failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_returns_the_item_on_a_single_item_array (FuncId(12)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [1.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = closure_call copy %4(copy %7)
+    %9 = closure_call copy %1(copy %2, copy %8)
+    %10 = 1.0
+    %11 = copy %9 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_finds_the_minimum (FuncId(13)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [2.0, 1.0, 4.0, 3.0, 5.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = closure_call copy %4(copy %7)
+    %9 = closure_call copy %1(copy %2, copy %8)
+    %10 = 1.0
+    %11 = copy %9 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_finds_the_minimum_with_a_non_trivial_order_rule (FuncId(14)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: fn(Unknown) -> Unknown
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["aa", "a", "aaaa", "aaa", "aaaaa"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = closure ClosureId(5) []
+    %6 = closure_call copy %4(copy %5)
+    %7 = closure_call copy %1(copy %2, copy %6)
+    %8 = "a"
+    %9 = copy %7 != copy %8
+    switch copy %9 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_finds_the_max_with_desc_order_rules (FuncId(15)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: List<Unknown>
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Unknown
+    %12 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [2.0, 1.0, 4.0, 3.0, 5.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = [copy %7, "desc"]
+    %9 = closure_call copy %4(copy %8)
+    %10 = closure_call copy %1(copy %2, copy %9)
+    %11 = 5.0
+    %12 = copy %10 != copy %11
+    switch copy %12 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_finds_the_max_with_non_trivial_desc_order_rules (FuncId(16)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: List<Unknown>
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Unknown
+    %12 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["aa", "a", "aaaa", "aaa", "aaaaa"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = [copy %7, "desc"]
+    %9 = closure_call copy %4(copy %8)
+    %10 = closure_call copy %1(copy %2, copy %9)
+    %11 = "aaaaa"
+    %12 = copy %10 != copy %11
+    switch copy %12 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_breaks_ties_with_multiple_order_rules (FuncId(17)) -> None throws
+  locals
+    %0 user data: List<String>
+    %1 temp: List<String>
+    %2 temp: Dict<String, Unknown>
+    %3 temp: Unknown
+    %4 temp: Dict<String, Unknown>
+    %5 temp: Unknown
+    %6 temp: fn(Unknown) -> Unknown
+    %7 temp: Dict<String, Unknown>
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Unknown
+    %12 temp: Unknown
+    %13 temp: Bool
+    %14 temp: Dict<String, Unknown>
+    %15 temp: Unknown
+    %16 temp: Dict<String, Unknown>
+    %17 temp: Unknown
+    %18 temp: fn(Unknown) -> Unknown
+    %19 temp: List<Unknown>
+    %20 temp: Dict<String, Unknown>
+    %21 temp: Unknown
+    %22 temp: Unknown
+    %23 temp: Unknown
+    %24 temp: Unknown
+    %25 temp: Unknown
+    %26 temp: Bool
+    %27 temp: Dict<String, Unknown>
+    %28 temp: Unknown
+    %29 temp: Dict<String, Unknown>
+    %30 temp: Unknown
+    %31 temp: fn(Unknown) -> Unknown
+    %32 temp: Dict<String, Unknown>
+    %33 temp: Unknown
+    %34 temp: Unknown
+    %35 temp: List<Unknown>
+    %36 temp: Unknown
+    %37 temp: Unknown
+    %38 temp: Unknown
+    %39 temp: Bool
+    %40 temp: Dict<String, Unknown>
+    %41 temp: Unknown
+    %42 temp: Dict<String, Unknown>
+    %43 temp: Unknown
+    %44 temp: fn(String) -> Unknown
+    %45 temp: List<Unknown>
+    %46 temp: Dict<String, Unknown>
+    %47 temp: Unknown
+    %48 temp: Unknown
+    %49 temp: List<Unknown>
+    %50 temp: Unknown
+    %51 temp: Unknown
+    %52 temp: Unknown
+    %53 temp: Bool
+  bb0:
+    %1 = ["a", "bb", "b", "aaaa", "bbb", "aa", "aaa", "bbbb"]
+    %0 = copy %1
+    %2 = {}
+    %3 = unknown_cast copy %2 as t0
+    %4 = {}
+    %5 = unknown_cast copy %4 as t0
+    %6 = closure ClosureId(6) []
+    %7 = {}
+    %8 = unknown_cast copy %7 as t0
+    %9 = closure_call copy %8()
+    %10 = closure_call copy %5(copy %6, copy %9)
+    %11 = closure_call copy %3(copy %0, copy %10)
+    %12 = "a"
+    %13 = copy %11 != copy %12
+    switch copy %13 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    %14 = {}
+    %15 = unknown_cast copy %14 as t0
+    %16 = {}
+    %17 = unknown_cast copy %16 as t0
+    %18 = closure ClosureId(7) []
+    %19 = [copy %18, "desc"]
+    %20 = {}
+    %21 = unknown_cast copy %20 as t0
+    %22 = closure_call copy %21()
+    %23 = closure_call copy %17(copy %19, copy %22)
+    %24 = closure_call copy %15(copy %0, copy %23)
+    %25 = "aaaa"
+    %26 = copy %24 != copy %25
+    switch copy %26 ? bb3 : bb4
+  bb3:
+    throw "expect(...).toBe(...) failed"
+  bb4:
+    %27 = {}
+    %28 = unknown_cast copy %27 as t0
+    %29 = {}
+    %30 = unknown_cast copy %29 as t0
+    %31 = closure ClosureId(8) []
+    %32 = {}
+    %33 = unknown_cast copy %32 as t0
+    %34 = closure_call copy %33()
+    %35 = [copy %34, "desc"]
+    %36 = closure_call copy %30(copy %31, copy %35)
+    %37 = closure_call copy %28(copy %0, copy %36)
+    %38 = "b"
+    %39 = copy %37 != copy %38
+    switch copy %39 ? bb5 : bb6
+  bb5:
+    throw "expect(...).toBe(...) failed"
+  bb6:
+    %40 = {}
+    %41 = unknown_cast copy %40 as t0
+    %42 = {}
+    %43 = unknown_cast copy %42 as t0
+    %44 = closure ClosureId(9) []
+    %45 = [copy %44, "desc"]
+    %46 = {}
+    %47 = unknown_cast copy %46 as t0
+    %48 = closure_call copy %47()
+    %49 = [copy %48, "desc"]
+    %50 = closure_call copy %43(copy %45, copy %49)
+    %51 = closure_call copy %41(copy %0, copy %50)
+    %52 = "bbbb"
+    %53 = copy %51 != copy %52
+    switch copy %53 ? bb7 : bb8
+  bb7:
+    throw "expect(...).toBe(...) failed"
+  bb8:
+    return none
+
+fn test_runtime_datalast_can_compare_strings (FuncId(18)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<String>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = ["b", "a", "c"]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = closure_call copy %4(copy %7)
+    %9 = closure_call copy %1(copy %2, copy %8)
+    %10 = "a"
+    %11 = copy %9 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_can_compare_numbers (FuncId(19)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Float>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [2.0, 1.0, 3.0]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = closure_call copy %4(copy %7)
+    %9 = closure_call copy %1(copy %2, copy %8)
+    %10 = 1.0
+    %11 = copy %9 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_can_compare_booleans (FuncId(20)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: List<Bool>
+    %3 temp: Dict<String, Unknown>
+    %4 temp: Unknown
+    %5 temp: Dict<String, Unknown>
+    %6 temp: Unknown
+    %7 temp: Unknown
+    %8 temp: Unknown
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = [true, false, true, true, false]
+    %3 = {}
+    %4 = unknown_cast copy %3 as t0
+    %5 = {}
+    %6 = unknown_cast copy %5 as t0
+    %7 = closure_call copy %6()
+    %8 = closure_call copy %4(copy %7)
+    %9 = closure_call copy %1(copy %2, copy %8)
+    %10 = false
+    %11 = copy %9 != copy %10
+    switch copy %11 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toBe(...) failed"
+  bb2:
+    return none
+
+fn test_runtime_datalast_can_compare_valueofs (FuncId(21)) -> None throws
+  locals
+    %0 temp: Dict<String, Unknown>
+    %1 temp: Unknown
+    %2 temp: Date
+    %3 temp: Date
+    %4 temp: Date
+    %5 temp: List<Date>
+    %6 temp: Dict<String, Unknown>
+    %7 temp: Unknown
+    %8 temp: Dict<String, Unknown>
+    %9 temp: Unknown
+    %10 temp: Unknown
+    %11 temp: Unknown
+    %12 temp: Unknown
+    %13 temp: Date
+    %14 temp: Unknown
+    %15 temp: Bool
+  bb0:
+    %0 = {}
+    %1 = unknown_cast copy %0 as t0
+    %2 = date_from_value 0
+    %3 = date_from_value 1.0
+    %4 = date_from_value 2.0
+    %5 = [copy %2, copy %3, copy %4]
+    %6 = {}
+    %7 = unknown_cast copy %6 as t0
+    %8 = {}
+    %9 = unknown_cast copy %8 as t0
+    %10 = closure_call copy %9()
+    %11 = closure_call copy %7(copy %10)
+    %12 = closure_call copy %1(copy %5, copy %11)
+    %13 = date_from_value 1.0
+    %14 = copy %13
+    %15 = copy %12 != copy %14
+    switch copy %15 ? bb1 : bb2
+  bb1:
+    throw "expect(...).toStrictEqual(...) failed"
+  bb2:
+    return none
+
+closure ClosureId(0) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(1) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(2) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(3) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(4) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(5) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(6) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(7) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(8) -> Unknown
+  locals
+    %0 param __callback_param_0: Unknown
+  bb0:
+    return copy %0.field9
+
+closure ClosureId(9) -> Unknown
+  locals
+    %0 param __callback_param_0: String
+  bb0:
+    return copy %0.field9
+

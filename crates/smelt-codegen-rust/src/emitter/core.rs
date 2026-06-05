@@ -553,26 +553,6 @@ impl<'mir> FunctionEmitter<'mir> {
         })
     }
 
-    /// Returns whether a local is read anywhere in a closure body.
-    pub(super) fn closure_local_has_uses(&self, closure: &MirClosure, local: LocalId) -> bool {
-        closure.blocks.iter().any(|block| {
-            block.phis.iter().any(|phi| {
-                phi.incoming
-                    .iter()
-                    .any(|(_, operand)| operand_uses_local(operand, local))
-            }) || block.statements.iter().any(|statement| match statement {
-                Statement::Assign { value, .. } => rvalue_uses_local(value, local),
-                Statement::AssignPlace { place, value } => {
-                    assignment_place_reads_local(place, local) || rvalue_uses_local(value, local)
-                }
-                Statement::StorageLive(_) | Statement::StorageDead(_) => false,
-            }) || block
-                .terminator
-                .as_ref()
-                .is_some_and(|terminator| terminator_uses_local(terminator, local))
-        })
-    }
-
     /// Returns the source operand for a single-assignment unknown cast local.
     ///
     /// TypeScript type assertions and control-flow narrows do not convert the
@@ -1568,15 +1548,6 @@ impl<'mir> FunctionEmitter<'mir> {
             return Ok(None);
         };
         let target_name = sanitize_ident(self.symbol_name(*name)?);
-        let scoped_type_params = args
-            .iter()
-            .filter_map(|arg| match self.mir.types.get(*arg) {
-                Some(Type::TypeParam {
-                    name: type_param_name,
-                }) => Some(*type_param_name),
-                _ => None,
-            })
-            .collect::<HashSet<_>>();
         let mut field_text = Vec::new();
         for (source_field_match, target_field) in adapted_fields {
             let field_name = sanitize_ident(self.symbol_name(target_field.name)?);
@@ -1589,7 +1560,7 @@ impl<'mir> FunctionEmitter<'mir> {
                 let source_value = format!("smelt_struct_value.{source_field_name}.clone()");
                 self.value_at_type_text(&source_value, source_field.ty, target_field.ty)?
             } else {
-                self.default_value_with_scoped_type_params(target_field.ty, &scoped_type_params)?
+                self.default_value_with_scoped_type_params(target_field.ty, &HashSet::new())?
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -2022,7 +1993,7 @@ impl<'mir> FunctionEmitter<'mir> {
                     self.default_value_with_scoped_type_params(field.ty, &scoped_type_params)?
                 )
             } else {
-                self.default_value_with_scoped_type_params(field.ty, &scoped_type_params)?
+                self.default_value_with_scoped_type_params(field.ty, &HashSet::new())?
             };
             field_text.push(format!("{field_name}: {value}"));
         }
@@ -2927,7 +2898,7 @@ impl<'mir> FunctionEmitter<'mir> {
             }
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_) | Type::Class { .. }) => {
                 Ok(format!(
-                    "match {value_text} {{ SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
+                    "match {value_text} {{ SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{{value}}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => String::new(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () {{ [native code] }}\".to_owned() }}"
                 ))
             }
             _ => Ok("\"[object Object]\".to_owned()".to_owned()),

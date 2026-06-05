@@ -270,6 +270,10 @@ pub enum DictProjectionOp {
     FromEntries,
     /// Project dictionary keys.
     Keys,
+    /// Project keys for JavaScript `for...in` iteration.
+    ForInKeys,
+    /// Project dictionary symbol keys.
+    Symbols,
     /// Project dictionary values.
     Values,
     /// Project dictionary key-value entries.

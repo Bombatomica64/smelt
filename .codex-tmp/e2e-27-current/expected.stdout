@@ -1,0 +1,4 @@
+Some("Ada")
+None
+Some(3.0)
+Some("user")

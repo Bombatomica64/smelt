@@ -754,6 +754,25 @@ impl ModuleBuilder<'_> {
             Argument::FunctionExpression(function) => {
                 self.function_expression_value(function, type_hint, function.span, body)
             }
+            Argument::RegExpLiteral(literal)
+                if type_hint
+                    .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String)) =>
+            {
+                let ty = self.ctx.krate.types.intern(Type::String);
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::Literal(Literal::String(Self::regex_literal_pattern_text(
+                        literal,
+                    ))),
+                    ty,
+                    span: self.span(literal.span.start, literal.span.end),
+                }))
+            }
+            Argument::RegExpLiteral(literal)
+                if type_hint
+                    .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::Unknown)) =>
+            {
+                self.regexp_literal_expression(literal, body)
+            }
             Argument::TSAsExpression(as_expr) => self.type_assertion_expression(
                 &as_expr.expression,
                 &as_expr.type_annotation,
@@ -780,6 +799,35 @@ impl ModuleBuilder<'_> {
             }
             _ => self.argument(argument, body),
         }
+    }
+
+    /// Lower a `RegExp` literal to a runtime `RegExp` value for erased object contexts.
+    fn regexp_literal_expression(
+        &mut self,
+        literal: &oxc::ast::ast::RegExpLiteral<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let pattern = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(
+                Self::regex_literal_pattern_text_without_flags(literal),
+            )),
+            ty: string_ty,
+            span: self.span(literal.span.start, literal.span.end),
+        });
+        let flags = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String(literal.regex.flags.to_string())),
+            ty: string_ty,
+            span: self.span(literal.span.start, literal.span.end),
+        });
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::New {
+                class: self.intern_type_name("RegExp"),
+                args: vec![pattern, flags],
+            },
+            ty: self.regexp_type(),
+            span: self.span(literal.span.start, literal.span.end),
+        }))
     }
 
     /// Lower supported `Promise.*` calls into shared async runtime operations.
@@ -1427,7 +1475,7 @@ impl ModuleBuilder<'_> {
         let [timestamp_arg] = new_expr.arguments.as_slice() else {
             let ty = self.ctx.krate.types.intern(Type::Int);
             return Ok(body.push_expr(Expr {
-                kind: ExprKind::Literal(Literal::Int(0)),
+                kind: ExprKind::DateNow,
                 ty,
                 span: self.span(new_expr.span.start, new_expr.span.end),
             }));

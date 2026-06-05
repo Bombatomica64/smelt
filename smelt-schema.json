@@ -115,6 +115,10 @@
             "null"
           ]
         },
+        "kind": {
+          "description": "Generated Rust crate target kind.",
+          "$ref": "#/$defs/OutputKind"
+        },
         "build": {
           "description": "Whether to build the generated crate.",
           "type": [
@@ -125,6 +129,21 @@
       },
       "required": [
         "target"
+      ]
+    },
+    "OutputKind": {
+      "description": "Kind of Rust crate target emitted by Smelt.",
+      "oneOf": [
+        {
+          "description": "Generate an executable Rust program rooted at `src/main.rs`.",
+          "type": "string",
+          "const": "program"
+        },
+        {
+          "description": "Generate a Rust library crate rooted at `src/lib.rs`.",
+          "type": "string",
+          "const": "library"
+        }
       ]
     },
     "Runtime": {

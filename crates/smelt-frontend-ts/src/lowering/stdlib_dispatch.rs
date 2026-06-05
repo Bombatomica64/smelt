@@ -165,6 +165,7 @@ mod tests {
             ("Math.floor(value);", RuleId::TsMathNumeric),
             ("Number.parseInt(text);", RuleId::TsNumberParseInt),
             ("Object.fromEntries(entries);", RuleId::TsObjectStatic),
+            ("Object.create(proto);", RuleId::TsObjectStatic),
             ("Array.isArray(value);", RuleId::TsArrayStatic),
         ];
 

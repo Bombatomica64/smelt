@@ -286,7 +286,14 @@ impl FunctionEmitter<'_> {
         let list_iteration =
             self.list_callback_iteration_parts(list, list_ty, element_ty, callback, function_ty)?;
         let call_args = list_iteration.call_args;
-        let call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let callback_call_text = format!("(smelt_callback)({})", call_args.join(", "));
+        let call_text = if function_ty.may_throw {
+            format!(
+                "({callback_call_text}).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{{}}\", error))"
+            )
+        } else {
+            callback_call_text
+        };
         let value_text =
             self.value_at_type_text(&call_text, function_ty.return_ty, *dest_item_ty)?;
         Ok(format!(
@@ -392,7 +399,7 @@ impl FunctionEmitter<'_> {
         list: &Operand,
         list_ty: TypeId,
         element_ty: TypeId,
-        callback: &Operand,
+        _callback: &Operand,
         function_ty: &FunctionType,
     ) -> Result<ListCallbackIterationParts, EmitError> {
         let Some(item_param_ty) = function_ty.params.first().copied() else {
@@ -422,10 +429,7 @@ impl FunctionEmitter<'_> {
                 index_param_ty,
             )?);
         }
-        let needs_array_snapshot = function_ty.params.get(2).is_some()
-            && self
-                .list_callback_closure_uses_array_param(callback)
-                .unwrap_or(true);
+        let needs_array_snapshot = function_ty.params.get(2).is_some();
         let (prefix, iter_text) = if needs_array_snapshot {
             let array_param_ty = function_ty.params.get(2).copied().ok_or_else(|| {
                 EmitError::new("array callback snapshot requires an array parameter")
@@ -447,46 +451,6 @@ impl FunctionEmitter<'_> {
             iter_text,
             call_args,
         })
-    }
-
-    /// Return whether a local closure callback reads the contextual array arg.
-    ///
-    /// Array callback types are widened to include JavaScript's optional third
-    /// array parameter even when source callbacks declared fewer parameters.
-    /// Local closure bodies let us tell those apart; non-local callbacks stay
-    /// conservative because their body is not available to this emitter.
-    fn list_callback_closure_uses_array_param(
-        &self,
-        callback: &Operand,
-    ) -> Result<bool, EmitError> {
-        let local = match callback {
-            Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) => *local,
-            _ => return Ok(true),
-        };
-        let source_local = self.closure_source_local(local);
-        for block in &self.function.blocks {
-            for statement in &block.statements {
-                if let Statement::Assign {
-                    dest,
-                    value: Rvalue::Closure { id, .. },
-                } = statement
-                    && *dest == source_local
-                {
-                    let closure = self
-                        .mir
-                        .closures
-                        .get(id_index(id.0, "closure id does not fit usize")?)
-                        .ok_or_else(|| {
-                            EmitError::new("closure rvalue references an unknown closure")
-                        })?;
-                    return Ok(closure
-                        .params
-                        .get(2)
-                        .is_some_and(|param| self.closure_local_has_uses(closure, *param)));
-                }
-            }
-        }
-        Ok(true)
     }
 
     /// Converts `Array.from({ length }, mapper)` into an indexed Rust loop.
@@ -854,6 +818,13 @@ impl FunctionEmitter<'_> {
                 self.default_value(return_ty)?
             ));
         }
+        let closure_param_names = closure
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("closure_arg_{index}"))
+            .collect::<HashSet<_>>();
+        let mut capture_aliases = HashMap::new();
         let body = {
             let mut closure_locals = closure.locals.clone();
             let fallback_span = closure_locals.first().map_or(
@@ -907,18 +878,26 @@ impl FunctionEmitter<'_> {
                 if let Some(target) = capture.target_local {
                     let source = self.local_decl(capture.source_local)?;
                     let source_name = self.local_name(capture.source_local)?.to_owned();
+                    let alias_name = if closure_param_names.contains(&source_name) {
+                        capture_aliases
+                            .entry(capture.source_local)
+                            .or_insert_with(|| format!("smelt_captured_{source_name}"))
+                            .clone()
+                    } else {
+                        source_name.clone()
+                    };
                     if matches!(self.mir.types.get(source.ty), Some(Type::Function(_)))
                         && matches!(source.kind, LocalKind::Param { .. })
                         && !self.function_parameter_requires_owned(capture.source_local)?
                     {
-                        emitter.borrowed_callback_names.insert(source_name.clone());
+                        emitter.borrowed_callback_names.insert(alias_name.clone());
                     }
                     let capture_name = if self.closure_capture_needs_shared_access(closure, capture)
                         || self.local_uses_shared_capture_storage(capture.source_local)
                     {
-                        format!("(*smelt_capture_{source_name}.borrow_mut())")
+                        format!("(*smelt_capture_{alias_name}.borrow_mut())")
                     } else {
-                        source_name
+                        alias_name
                     };
                     emitter.names.insert(target, capture_name);
                     emitter.mark_local_declared(target);
@@ -1019,10 +998,14 @@ impl FunctionEmitter<'_> {
                         {
                             return None;
                         }
-                        let name = self.local_name(capture.source_local).ok()?.to_owned();
+                        let source_name = self.local_name(capture.source_local).ok()?.to_owned();
+                        let name = capture_aliases
+                            .get(&capture.source_local)
+                            .cloned()
+                            .unwrap_or_else(|| source_name.clone());
                         cloned_async_captures
                             .insert(name.clone())
-                            .then(|| format!("let {name} = {name}.clone();"))
+                            .then(|| format!("let {name} = {source_name}.clone();"))
                     })
                     .collect::<Vec<_>>();
                 let async_capture_prelude = if async_capture_lines.is_empty() {
@@ -1080,8 +1063,12 @@ impl FunctionEmitter<'_> {
                 {
                     return None;
                 }
-                let name = self.local_name(capture.source_local).ok()?.to_owned();
-                if name.starts_with("(*smelt_capture_") {
+                let source_name = self.local_name(capture.source_local).ok()?.to_owned();
+                let name = capture_aliases
+                    .get(&capture.source_local)
+                    .cloned()
+                    .unwrap_or_else(|| source_name.clone());
+                if source_name.starts_with("(*smelt_capture_") {
                     return None;
                 }
                 cloned_captures.insert(name.clone()).then(|| {
@@ -1104,7 +1091,7 @@ impl FunctionEmitter<'_> {
                     } else {
                         ""
                     };
-                    format!("let {mutability}{name} = {name}.clone();")
+                    format!("let {mutability}{name} = {source_name}.clone();")
                 })
             })
             .collect::<Vec<_>>();
@@ -1972,6 +1959,31 @@ impl FunctionEmitter<'_> {
                             smelt_hir::bin_op_text(*op)
                         ));
                     }
+                }
+                if matches!(
+                    op,
+                    smelt_hir::BinOp::Eq
+                        | smelt_hir::BinOp::NotEq
+                        | smelt_hir::BinOp::StrictEq
+                        | smelt_hir::BinOp::StrictNotEq
+                ) && (self.callback_expr_renders_numeric(lhs)
+                    || self.callback_expr_renders_numeric(rhs)
+                    || matches!(self.mir.types.get(lhs.ty), Some(Type::Int | Type::Float))
+                    || matches!(self.mir.types.get(rhs.ty), Some(Type::Int | Type::Float))
+                    || lhs_text.contains(" as f64")
+                    || rhs_text.contains(" as f64"))
+                {
+                    let float_ty = self.type_id(Type::Float)?;
+                    let lhs_value = self.value_at_type_text(&lhs_text, lhs.ty, float_ty)?;
+                    let rhs_value = self.value_at_type_text(&rhs_text, rhs.ty, float_ty)?;
+                    let comparison = format!("{lhs_value} == {rhs_value}");
+                    return Ok(
+                        if matches!(op, smelt_hir::BinOp::NotEq | smelt_hir::BinOp::StrictNotEq) {
+                            format!("!({comparison})")
+                        } else {
+                            comparison
+                        },
+                    );
                 }
                 if matches!(op, smelt_hir::BinOp::Eq | smelt_hir::BinOp::NotEq) && lhs.ty != rhs.ty
                 {

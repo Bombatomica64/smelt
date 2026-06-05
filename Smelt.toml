@@ -12,6 +12,8 @@ roots = ["src", "lib"]
 [output]
 target = "./dist"
 crate-name = "my_app"
+# "program" emits src/main.rs; "library" emits src/lib.rs.
+kind = "program"
 # If true, smelt also runs `cargo build` after emitting.
 build = false
 

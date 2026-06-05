@@ -110,6 +110,58 @@ clone-strategy = "aggressive"
 }
 
 #[test]
+fn build_can_emit_library_crate_root() -> TestResult {
+    let project = TempProject::new()?;
+    let project_path = project.path();
+    fs::create_dir_all(project_path.join("src"))?;
+    fs::create_dir_all(project_path.join("dist/src"))?;
+    fs::write(project_path.join("dist/src/main.rs"), "fn main() {}\n")?;
+    fs::write(
+        project_path.join("Smelt.toml"),
+        r#"[project]
+name = "generated-library"
+version = "0.1.0"
+
+[sources]
+entries = ["src/main.ts"]
+
+[output]
+target = "./dist"
+crate-name = "generated_library"
+kind = "library"
+build = true
+
+[runtime]
+clone-strategy = "aggressive"
+"#,
+    )?;
+    fs::write(
+        project_path.join("src/main.ts"),
+        "export function add(left: number, right: number): number { return left + right; }\n",
+    )?;
+
+    let manifest_arg = utf8_path(&project_path.join("Smelt.toml"))?;
+    smelt(&["--manifest-path", &manifest_arg, "build"])?;
+
+    let generated = fs::read_to_string(project_path.join("dist/src/lib.rs"))?;
+    let source_module = fs::read_to_string(project_path.join("dist/src/source_main.rs"))?;
+    ensure(
+        generated.contains("#[path = \"source_main.rs\"]"),
+        "library root did not include source module",
+    )?;
+    ensure(
+        source_module.contains("fn add("),
+        "missing generated library function",
+    )?;
+    ensure(
+        !project_path.join("dist/src/main.rs").exists(),
+        "stale program crate root was not removed",
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn build_python_rich_like_null_file_package_fixture() -> TestResult {
     let project = TempProject::new()?;
     let project_path = project.path();

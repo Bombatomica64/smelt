@@ -780,7 +780,7 @@ return_ty,
                 Ok(())
             }
             Statement::ThrowStatement(throw_stmt) => {
-                let expr = self.expression(&throw_stmt.argument, body)?;
+                let expr = self.throw_message_expression(&throw_stmt.argument, body)?;
                 body.push_stmt_to_block(block, Stmt::Throw(expr));
                 Ok(())
             }

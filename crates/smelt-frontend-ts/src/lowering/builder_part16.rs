@@ -57,6 +57,9 @@ impl ModuleBuilder<'_> {
                 span: self.span(start, end),
             }));
         }
+        if name == "arguments" {
+            return self.arguments_object_expression(start, end, body);
+        }
         if name == "Date" {
             let symbol = self.intern_type_name("Date");
             let ty = self.ctx.krate.types.intern(Type::Class {
@@ -252,6 +255,55 @@ impl ModuleBuilder<'_> {
             }));
         }
         Ok(local_expr)
+    }
+
+    /// Lower JavaScript `arguments` to the array-like shape used by object checks.
+    fn arguments_object_expression(
+        &mut self,
+        start: u32,
+        end: u32,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let Some(argument_count) = self.current_arguments_arities.last().copied() else {
+            return Err(SmeltError::unsupported(
+                self.span(start, end),
+                "`arguments` is only available inside function bodies",
+            ));
+        };
+        let argument_count = u32::try_from(argument_count).map_err(|_error| {
+            SmeltError::unsupported(
+                self.span(start, end),
+                "`arguments.length` exceeds the supported numeric range",
+            )
+        })?;
+        let span = self.span(start, end);
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        let key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("length".to_owned())),
+            ty: key_ty,
+            span,
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(f64::from(argument_count))),
+            ty: self.ctx.krate.types.intern(Type::Float),
+            span,
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(key, value)]),
+            ty: dict_ty,
+            span,
+        });
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        }))
     }
 
     /// Lower the global `String` value to a callable primitive string converter.

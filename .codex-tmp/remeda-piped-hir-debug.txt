@@ -1,0 +1,1166 @@
+Crate {
+    modules: [
+        Module {
+            id: ModuleId(
+                0,
+            ),
+            name: "main",
+            source: SourceFile {
+                path: "third_party/remeda/packages/remeda/src/piped.ts",
+                language: TypeScript,
+            },
+            imports: [
+                Import {
+                    module: "./pipe",
+                    name: Symbol(
+                        0,
+                    ),
+                    alias: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 0,
+                        end: 30,
+                    },
+                },
+            ],
+            items: [
+                ItemId(
+                    0,
+                ),
+            ],
+            body: Some(
+                BodyId(
+                    2,
+                ),
+            ),
+        },
+    ],
+    items: [
+        Function(
+            Function {
+                name: Symbol(
+                    17,
+                ),
+                span: Span {
+                    file: FileId(
+                        0,
+                    ),
+                    start: 5063,
+                    end: 5353,
+                },
+                params: [
+                    Param {
+                        name: Symbol(
+                            18,
+                        ),
+                        local: LocalId(
+                            0,
+                        ),
+                        ty: TypeId(
+                            48,
+                        ),
+                        span: Span {
+                            file: FileId(
+                                0,
+                            ),
+                            start: 5081,
+                            end: 5090,
+                        },
+                    },
+                ],
+                rest: Some(
+                    0,
+                ),
+                required_params: Some(
+                    0,
+                ),
+                return_ty: TypeId(
+                    46,
+                ),
+                is_async: false,
+                is_test: false,
+                body: Some(
+                    BodyId(
+                        1,
+                    ),
+                ),
+                owner: Module,
+            },
+        ),
+    ],
+    bodies: [
+        Body {
+            id: BodyId(
+                0,
+            ),
+            owner: None,
+            locals: [
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            19,
+                        ),
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5146,
+                        end: 5151,
+                    },
+                },
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            18,
+                        ),
+                    ),
+                    ty: TypeId(
+                        48,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5081,
+                        end: 5090,
+                    },
+                },
+            ],
+            params: [
+                LocalId(
+                    0,
+                ),
+            ],
+            exprs: [
+                Expr {
+                    kind: DictLit(
+                        [],
+                    ),
+                    ty: TypeId(
+                        51,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5178,
+                        end: 5182,
+                    },
+                },
+                Expr {
+                    kind: UnknownCast {
+                        value: ExprId(
+                            0,
+                        ),
+                        target: TypeId(
+                            0,
+                        ),
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5178,
+                        end: 5182,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            0,
+                        ),
+                    ),
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5190,
+                        end: 5195,
+                    },
+                },
+                Expr {
+                    kind: Local(
+                        LocalId(
+                            1,
+                        ),
+                    ),
+                    ty: TypeId(
+                        48,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5334,
+                        end: 5343,
+                    },
+                },
+                Expr {
+                    kind: ClosureCall {
+                        callee: ExprId(
+                            1,
+                        ),
+                        args: [
+                            ExprId(
+                                2,
+                            ),
+                            ExprId(
+                                3,
+                            ),
+                        ],
+                    },
+                    ty: TypeId(
+                        0,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5178,
+                        end: 5350,
+                    },
+                },
+            ],
+            stmts: [
+                Return(
+                    Some(
+                        ExprId(
+                            4,
+                        ),
+                    ),
+                ),
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5145,
+                        end: 5350,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                1,
+            ),
+            owner: None,
+            locals: [
+                LocalDecl {
+                    name: Some(
+                        Symbol(
+                            18,
+                        ),
+                    ),
+                    ty: TypeId(
+                        48,
+                    ),
+                    mutable: false,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5081,
+                        end: 5090,
+                    },
+                },
+            ],
+            params: [
+                LocalId(
+                    0,
+                ),
+            ],
+            exprs: [
+                Expr {
+                    kind: Closure(
+                        ClosureExpr {
+                            params: [
+                                Param {
+                                    name: Symbol(
+                                        19,
+                                    ),
+                                    local: LocalId(
+                                        0,
+                                    ),
+                                    ty: TypeId(
+                                        0,
+                                    ),
+                                    span: Span {
+                                        file: FileId(
+                                            0,
+                                        ),
+                                        start: 5146,
+                                        end: 5151,
+                                    },
+                                },
+                            ],
+                            rest: None,
+                            required_params: None,
+                            return_ty: TypeId(
+                                0,
+                            ),
+                            captures: [
+                                ClosureCapture {
+                                    source_local: LocalId(
+                                        0,
+                                    ),
+                                    body_local: Some(
+                                        LocalId(
+                                            1,
+                                        ),
+                                    ),
+                                    symbol: Symbol(
+                                        18,
+                                    ),
+                                    ty: TypeId(
+                                        48,
+                                    ),
+                                    mode: ByRef,
+                                },
+                            ],
+                            body: BodyId(
+                                0,
+                            ),
+                            span: Span {
+                                file: FileId(
+                                    0,
+                                ),
+                                start: 5145,
+                                end: 5350,
+                            },
+                        },
+                    ),
+                    ty: TypeId(
+                        47,
+                    ),
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5145,
+                        end: 5350,
+                    },
+                },
+            ],
+            stmts: [
+                Return(
+                    Some(
+                        ExprId(
+                            0,
+                        ),
+                    ),
+                ),
+            ],
+            blocks: [
+                Block {
+                    stmts: [
+                        StmtId(
+                            0,
+                        ),
+                    ],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 5134,
+                        end: 5353,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+        Body {
+            id: BodyId(
+                2,
+            ),
+            owner: None,
+            locals: [],
+            params: [],
+            exprs: [],
+            stmts: [],
+            blocks: [
+                Block {
+                    stmts: [],
+                    tail: None,
+                    span: Span {
+                        file: FileId(
+                            0,
+                        ),
+                        start: 0,
+                        end: 5354,
+                    },
+                },
+            ],
+            patterns: [],
+            async_state_machine: None,
+            root: BlockId(
+                0,
+            ),
+        },
+    ],
+    types: TypeInterner {
+        types: [
+            Unknown,
+            TypeParam {
+                name: Symbol(
+                    1,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        1,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    2,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        3,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    3,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            3,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        5,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        5,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    4,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            5,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        8,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        8,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    5,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            8,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        11,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        11,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    6,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            11,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        14,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        14,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    7,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            14,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        17,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        17,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    8,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            17,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        20,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        20,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    9,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            20,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        23,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        23,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    10,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            23,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        26,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        26,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    11,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            26,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        29,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        29,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    12,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            29,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        32,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        32,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    13,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            32,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        35,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        35,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    14,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            35,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        38,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        38,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    15,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            38,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        41,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        41,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            TypeParam {
+                name: Symbol(
+                    16,
+                ),
+            },
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            41,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        44,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            1,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        44,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            0,
+                        ),
+                    ],
+                    rest: None,
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        0,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            List(
+                TypeId(
+                    47,
+                ),
+            ),
+            Function(
+                FunctionType {
+                    params: [
+                        TypeId(
+                            48,
+                        ),
+                    ],
+                    rest: Some(
+                        0,
+                    ),
+                    required_params: None,
+                    mutable_params: [],
+                    return_ty: TypeId(
+                        46,
+                    ),
+                    is_async: false,
+                    may_throw: false,
+                },
+            ),
+            String,
+            Dict(
+                TypeId(
+                    50,
+                ),
+                TypeId(
+                    0,
+                ),
+            ),
+        ],
+    },
+    symbols: SymbolInterner {
+        symbols: [
+            "pipe",
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+            "G",
+            "H",
+            "I",
+            "J",
+            "K",
+            "L",
+            "M",
+            "N",
+            "O",
+            "P",
+            "piped",
+            "functions",
+            "value",
+        ],
+    },
+    names: OriginalNameTable {
+        names: [
+            Some(
+                "pipe",
+            ),
+            Some(
+                "A",
+            ),
+            Some(
+                "B",
+            ),
+            Some(
+                "C",
+            ),
+            Some(
+                "D",
+            ),
+            Some(
+                "E",
+            ),
+            Some(
+                "F",
+            ),
+            Some(
+                "G",
+            ),
+            Some(
+                "H",
+            ),
+            Some(
+                "I",
+            ),
+            Some(
+                "J",
+            ),
+            Some(
+                "K",
+            ),
+            Some(
+                "L",
+            ),
+            Some(
+                "M",
+            ),
+            Some(
+                "N",
+            ),
+            Some(
+                "O",
+            ),
+            Some(
+                "P",
+            ),
+            Some(
+                "piped",
+            ),
+            Some(
+                "functions",
+            ),
+            Some(
+                "value",
+            ),
+        ],
+    },
+}

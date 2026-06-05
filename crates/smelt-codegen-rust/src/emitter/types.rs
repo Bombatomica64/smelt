@@ -414,15 +414,23 @@ impl FunctionEmitter<'_> {
     /// is still outside the collection; the generated Rust keeps that behavior
     /// with `expect` on negative conversion and the eventual indexed lookup.
     /// Finds the type ID for a given type.
+    #[track_caller]
     pub(super) fn type_id(&self, needle: Type) -> Result<TypeId, EmitError> {
-        let index = self
-            .mir
-            .types
-            .all()
-            .iter()
-            .position(|ty| *ty == needle)
-            .ok_or_else(|| EmitError::new("type table does not contain literal operand type"))?;
-        Ok(TypeId(compact_index(index, "type index does not fit u32")?))
+        let caller = ::std::panic::Location::caller();
+        self.find_type_id(&needle).ok_or_else(|| {
+            EmitError::new(format!(
+                "type table does not contain literal operand type {needle:?} at {}:{}",
+                caller.file(),
+                caller.line()
+            ))
+        })
+    }
+
+    /// Finds the type ID for a type when that type is present in the MIR table.
+    pub(super) fn find_type_id(&self, needle: &Type) -> Option<TypeId> {
+        let type_index = self.mir.types.all().iter().position(|ty| ty == needle)?;
+        let compact = compact_index(type_index, "type index does not fit u32").ok()?;
+        Some(TypeId(compact))
     }
 
     /// Converts a type ID to its Rust text representation.

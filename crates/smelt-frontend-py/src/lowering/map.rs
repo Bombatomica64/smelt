@@ -31,9 +31,12 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = *key_type;
         let value_ty = *value_type;
+        let symbol_key_ty = self.intern_type(Type::String);
+        let symbol_list_ty = self.intern_type(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
-            DictProjectionOp::Keys => self.intern_type(Type::List(key_ty)),
+            DictProjectionOp::Keys | DictProjectionOp::ForInKeys => self.intern_type(Type::List(key_ty)),
+            DictProjectionOp::Symbols => symbol_list_ty,
             DictProjectionOp::Values => self.intern_type(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self.intern_type(Type::Tuple(vec![key_ty, value_ty]));

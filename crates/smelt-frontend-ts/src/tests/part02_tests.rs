@@ -474,6 +474,7 @@ fn lowers_date_now_and_to_iso_string() -> Result<(), String> {
     let module_id = lower_ok(
         ts!(r#"
 const now = Date.now();
+const current = new Date();
 const iso = new Date(now).toISOString();
 "#),
         &mut ctx,
@@ -483,7 +484,9 @@ const iso = new Date(now).toISOString();
     ensure!(
         body.exprs
             .iter()
-            .any(|expr| matches!(expr.kind, ExprKind::DateNow))
+            .filter(|expr| matches!(expr.kind, ExprKind::DateNow))
+            .count()
+            >= 2
     );
     ensure!(
         body.exprs
@@ -1355,7 +1358,15 @@ function isDate(value: unknown): boolean {
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    let function = function_item(&ctx, module, 0)?;
+    let function = module
+        .items
+        .iter()
+        .filter_map(|item_id| ctx.krate.items.get(item_id.0 as usize))
+        .find_map(|item| match item {
+            Item::Function(function) => Some(function),
+            _ => None,
+        })
+        .ok_or_else(|| "expected contextual arrow to lower into a function item".to_owned())?;
     let body = function_body(&ctx, function)?;
     ensure!(
         body.exprs
@@ -1377,7 +1388,15 @@ function isError<T>(data: Error | T): boolean {
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    let function = function_item(&ctx, module, 0)?;
+    let function = module
+        .items
+        .iter()
+        .filter_map(|item_id| ctx.krate.items.get(item_id.0 as usize))
+        .find_map(|item| match item {
+            Item::Function(function) => Some(function),
+            _ => None,
+        })
+        .ok_or_else(|| "expected contextual arrow to lower into a function item".to_owned())?;
     let body = function_body(&ctx, function)?;
     ensure!(
         body.exprs
@@ -1400,7 +1419,15 @@ function isPromise<T>(data: PromiseLike<unknown> | T): boolean {
         &mut ctx,
     )?;
     let module = module(&ctx, module_id)?;
-    let function = function_item(&ctx, module, 0)?;
+    let function = module
+        .items
+        .iter()
+        .filter_map(|item_id| ctx.krate.items.get(item_id.0 as usize))
+        .find_map(|item| match item {
+            Item::Function(function) => Some(function),
+            _ => None,
+        })
+        .ok_or_else(|| "expected contextual arrow to lower into a function item".to_owned())?;
     let body = function_body(&ctx, function)?;
     ensure!(
         body.exprs
@@ -2490,6 +2517,95 @@ function select<ResultDate extends Date>(
 }
 
 #[test]
+fn lowers_string_return_addition_with_branch_assigned_suffix() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let module_id = lower_ok(
+        ts!(r#"
+function ordinal(dirtyNumber: number, feminine: boolean): string {
+  const number = Number(dirtyNumber);
+  let suffix;
+  if (number === 1) {
+    suffix = feminine ? "ère" : "er";
+  } else {
+    suffix = "ème";
+  }
+  return number + suffix;
+}
+"#),
+        &mut ctx,
+    )?;
+    let module = module(&ctx, module_id)?;
+    let function = function_item(&ctx, module, 0)?;
+    let body = function_body(&ctx, function)?;
+    ensure!(
+        body.exprs.iter().any(
+            |expr| matches!(expr.kind, ExprKind::BinOp { op: BinOp::Add, .. })
+                && ctx.krate.types.get(expr.ty) == Some(&Type::String)
+        ),
+        "string-return additions with erased branch locals must keep string result type"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_contextual_string_arrow_addition_with_unknown_suffix() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    let _module_id = lower_ok(
+        ts!(r#"
+type LocalizeFn<Value> = (value: Value, options?: { unit?: string }) => string;
+type Localize = {
+  ordinalNumber: LocalizeFn<number>;
+};
+
+const feminineUnits = ["second", "minute"];
+
+const ordinalNumber: LocalizeFn<number> = (dirtyNumber, options) => {
+  const number = Number(dirtyNumber);
+  const unit = options?.unit;
+  if (number === 0) return "0";
+  let suffix;
+  if (number === 1) {
+    suffix = unit && feminineUnits.includes(unit) ? "ère" : "er";
+  } else {
+    suffix = "ème";
+  }
+  return number + suffix;
+};
+
+export const localize: Localize = {
+  ordinalNumber,
+};
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::BinOp { op: BinOp::Add, .. }
+            ) && ctx.krate.types.get(expr.ty)
+                == Some(&Type::String))),
+        "contextual string-return arrows must keep number-plus-suffix as string addition"
+    );
+    ensure!(
+        !ctx.krate
+            .bodies
+            .iter()
+            .any(|body| body.exprs.iter().any(|expr| matches!(
+                expr.kind,
+                ExprKind::BinOp { op: BinOp::Add, .. }
+            ) && ctx.krate.types.get(expr.ty)
+                == Some(&Type::Float))),
+        "contextual string-return arrows must not lower number-plus-suffix as numeric addition"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_negated_optional_date_type_parameter_as_presence_check() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -2902,7 +3018,7 @@ function findKey<Value, Obj extends { [key in string | number]: Value }>(
             .any(|body| body.exprs.iter().any(|expr| matches!(
                 expr.kind,
                 ExprKind::DictProjection {
-                    op: DictProjectionOp::Keys,
+                    op: DictProjectionOp::ForInKeys,
                     ..
                 }
             )))

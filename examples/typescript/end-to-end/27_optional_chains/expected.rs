@@ -171,6 +171,11 @@ impl SmeltObject {
     fn values(&self) -> Vec<SmeltUnknown> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect() }
 }
 
+/// Return whether an erased object key is visible to JavaScript `for...in` iteration.
+fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(object.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) }
+/// Return whether a record key is visible to JavaScript `for...in` iteration.
+fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != "__smelt_date" && key != "__smelt_timezone" && !(record.contains_key("__smelt_regexp") && matches!(key, "__smelt_regexp" | "source" | "flags")) }
+
 impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }
 impl Eq for SmeltObject {}
 impl ::std::hash::Hash for SmeltObject { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_hash(self, state, &mut smelt_seen); } }
@@ -245,6 +250,7 @@ fn smelt_unknown_structural_eq(left: &SmeltUnknown, right: &SmeltUnknown, seen: 
 }
 
 fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {
+    if left.contains_key("__smelt_date") || right.contains_key("__smelt_date") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }
     if left.id == right.id { return true; }
     let key = (left.id, right.id);
     if !seen.insert(key) { return true; }
@@ -265,6 +271,13 @@ fn smelt_unknown_structural_hash<H: ::std::hash::Hasher>(value: &SmeltUnknown, s
         SmeltUnknown::Object(values) => { 6_u8.hash(state); smelt_object_structural_hash(values, state, seen); }
         SmeltUnknown::Function(function) => { 7_u8.hash(state); ::std::rc::Rc::as_ptr(function).hash(state); }
     }
+}
+
+fn smelt_unknown_stable_hash_key(value: &SmeltUnknown) -> u64 {
+    let mut hasher = ::std::collections::hash_map::DefaultHasher::new();
+    let mut seen = ::std::collections::HashSet::new();
+    smelt_unknown_structural_hash(value, &mut hasher, &mut seen);
+    ::std::hash::Hasher::finish(&hasher)
 }
 
 fn smelt_object_structural_hash<H: ::std::hash::Hasher>(object: &SmeltObject, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {
@@ -399,6 +412,7 @@ impl PartialOrd for SmeltUnknown {
             (Self::Number(left), Self::Number(right)) => left.partial_cmp(right),
             (Self::String(left), Self::String(right)) => Some(left.cmp(right)),
             (Self::Bool(left), Self::Bool(right)) => Some(left.cmp(right)),
+            (Self::Object(left), Self::Object(right)) if left.contains_key("__smelt_date") || right.contains_key("__smelt_date") => smelt_unknown_date_value(self).partial_cmp(&smelt_unknown_date_value(other)),
             (Self::Null, Self::Null) => Some(::std::cmp::Ordering::Equal),
             (left, right) => Some(smelt_unknown_rank(left).cmp(&smelt_unknown_rank(right))),
         }
@@ -443,6 +457,13 @@ impl PartialEq<SmeltUnknown> for Option<SmeltUnknown> {
 impl PartialOrd<SmeltUnknown> for Option<SmeltUnknown> {
     fn partial_cmp(&self, other: &SmeltUnknown) -> Option<::std::cmp::Ordering> {
         self.as_ref().and_then(|value| value.partial_cmp(other))
+    }
+}
+
+fn smelt_unknown_date_value(value: &SmeltUnknown) -> f64 {
+    match value {
+        SmeltUnknown::Object(object) => match object.get("__smelt_date") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },
+        _ => f64::NAN,
     }
 }
 
@@ -564,6 +585,15 @@ impl<T: IntoSmeltUnknown> IntoSmeltUnknown for Vec<T> {
     }
 }
 
+impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::collections::HashSet<T> {
+    /// Erase JavaScript Set values as iterable array-like values.
+    fn into_smelt_unknown(self) -> SmeltUnknown {
+        let mut values = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>();
+        values.sort_by_key(smelt_unknown_stable_hash_key);
+        SmeltUnknown::Array(values.into())
+    }
+}
+
 trait SmeltArrayExt<T> {
     /// Return the first JavaScript-style index of a value, or -1 when absent.
     fn index_of(&self, needle: T) -> SmeltUnknown where T: PartialEq;
@@ -609,13 +639,13 @@ impl<A: IntoSmeltUnknown, B: IntoSmeltUnknown> IntoSmeltUnknown for (A, B) {
 
 impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 
 impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone, T: IntoSmeltUnknown + Clone {
     fn into_smelt_unknown(self) -> SmeltUnknown {
-        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
+        SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!("__smelt_symbol:{value}"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => "null".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => "[object Object]".to_owned(), SmeltUnknown::Function(_) => "function () { [native code] }".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))
     }
 }
 
@@ -721,6 +751,7 @@ impl IntoSmeltUnknown for SmeltRegExp {
         SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([
         ("source".to_owned(), SmeltUnknown::String(self.source)),
         ("flags".to_owned(), SmeltUnknown::String(self.flags)),
+        ("__smelt_regexp".to_owned(), SmeltUnknown::Bool(true)),
         ])))
     }
 }

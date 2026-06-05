@@ -2,6 +2,25 @@
 
 use super::*;
 
+/// Source location for a list local copied out of a mutable JavaScript property.
+#[derive(Clone)]
+enum ListAliasOrigin {
+    /// A statically named field on an erased object.
+    Field {
+        /// Object local that owns the aliased field.
+        base: LocalId,
+        /// Static field name copied into the local list alias.
+        field: Symbol,
+    },
+    /// A dynamic dictionary entry.
+    Index {
+        /// Dictionary local that owns the aliased entry.
+        base: LocalId,
+        /// Dynamic key operand copied into the local list alias.
+        index: Box<Operand>,
+    },
+}
+
 impl FunctionEmitter<'_> {
     /// Converts a list push operation to Rust text.
     pub(super) fn list_push_text(
@@ -43,11 +62,8 @@ impl FunctionEmitter<'_> {
             ));
         }
         if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
-            && let Some((base, field)) = self.list_field_alias_origin(*local)
-            && (matches!(
-                self.mir.types.get(self.local_decl(base)?.ty),
-                Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
-            ) || self.is_erased_class_type(self.local_decl(base)?.ty))
+            && let Some(ListAliasOrigin::Field { base, field }) = self.list_alias_origin(*local)
+            && self.list_alias_base_is_erased_object(base)?
         {
             let list_text = self.local_mut_value_text(*local)?;
             let base_text = self.local_mut_value_text(base)?;
@@ -60,6 +76,31 @@ impl FunctionEmitter<'_> {
             };
             return Ok(format!(
                 "{{ {list_text}.push({item_text}); let smelt_result = {result}; let smelt_value = SmeltUnknown::Array({list_text}.clone().into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect()); match &mut {base_text} {{ SmeltUnknown::Object(map) => {{ map.insert(\"{field_name}\".to_owned(), smelt_value); }}, other => {{ let map = SmeltObject::new(::std::collections::HashMap::from([(\"{field_name}\".to_owned(), smelt_value)])); *other = SmeltUnknown::Object(map); }} }} smelt_result }}"
+            ));
+        }
+        if let Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local)) = list
+            && let Some(ListAliasOrigin::Index { base, index }) = self.list_alias_origin(*local)
+            && let Some(Type::Dict(key_ty, value_ty)) =
+                self.mir.types.get(self.local_decl(base)?.ty)
+            && *value_ty == list_ty
+        {
+            let list_text = self.local_mut_value_text(*local)?;
+            let base_text = self.local_mut_value_text(base)?;
+            let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                let source_key = self.operand_ty(index.as_ref())?;
+                let index_text = self.operand_text(index.as_ref())?;
+                self.property_key_to_string_text(&index_text, source_key)?
+            } else {
+                self.value_at_type(index.as_ref(), *key_ty)?
+            };
+            let item_text = self.value_at_type(item, *item_ty)?;
+            let result = if returns_length {
+                format!("{list_text}.len() as f64")
+            } else {
+                "()".to_owned()
+            };
+            return Ok(format!(
+                "{{ {list_text}.push({item_text}); let smelt_result = {result}; {base_text}.insert({key_text}, {list_text}.clone()); smelt_result }}"
             ));
         }
         let (Operand::Copy(Place::Local(local)) | Operand::Move(Place::Local(local))) = list else {
@@ -78,17 +119,17 @@ impl FunctionEmitter<'_> {
         }
     }
 
-    /// Find the dynamic object field whose array value initialized a local alias.
-    fn list_field_alias_origin(&self, local: LocalId) -> Option<(LocalId, Symbol)> {
-        self.list_field_alias_origin_inner(local, &mut HashSet::new())
+    /// Find the mutable property whose array value initialized a local alias.
+    fn list_alias_origin(&self, local: LocalId) -> Option<ListAliasOrigin> {
+        self.list_alias_origin_inner(local, &mut HashSet::new())
     }
 
-    /// Follow simple local copies until reaching the dynamic object field read.
-    fn list_field_alias_origin_inner(
+    /// Follow simple local copies until reaching the property read.
+    fn list_alias_origin_inner(
         &self,
         local: LocalId,
         seen: &mut HashSet<LocalId>,
-    ) -> Option<(LocalId, Symbol)> {
+    ) -> Option<ListAliasOrigin> {
         if !seen.insert(local) {
             return None;
         }
@@ -108,19 +149,38 @@ impl FunctionEmitter<'_> {
                     }
                     origin = match source {
                         Operand::Copy(Place::Field { base, field })
-                        | Operand::Move(Place::Field { base, field }) => Some((*base, *field)),
+                        | Operand::Move(Place::Field { base, field }) => {
+                            Some(ListAliasOrigin::Field {
+                                base: *base,
+                                field: *field,
+                            })
+                        }
+                        Operand::Copy(Place::Index { base, index })
+                        | Operand::Move(Place::Index { base, index }) => {
+                            Some(ListAliasOrigin::Index {
+                                base: *base,
+                                index: index.clone(),
+                            })
+                        }
                         Operand::Copy(Place::Local(source_local))
                         | Operand::Move(Place::Local(source_local)) => {
-                            self.list_field_alias_origin_inner(*source_local, seen)
+                            self.list_alias_origin_inner(*source_local, seen)
                         }
-                        Operand::Copy(Place::Index { .. })
-                        | Operand::Move(Place::Index { .. })
-                        | Operand::Const(_) => None,
+                        Operand::Const(_) => None,
                     };
                 }
             }
         }
         origin
+    }
+
+    /// Return whether a local stores an erased object whose fields need writeback.
+    fn list_alias_base_is_erased_object(&self, base: LocalId) -> Result<bool, EmitError> {
+        let base_ty = self.local_decl(base)?.ty;
+        Ok(matches!(
+            self.mir.types.get(base_ty),
+            Some(Type::Unknown | Type::Union(_) | Type::TypeParam { .. })
+        ) || self.is_erased_class_type(base_ty))
     }
 
     /// Converts a list extend operation to Rust text.

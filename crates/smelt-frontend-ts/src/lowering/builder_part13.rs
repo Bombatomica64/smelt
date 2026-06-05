@@ -30,9 +30,14 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = *dict_key_ty;
         let value_ty = *dict_value_ty;
+        let symbol_key_ty = self.ctx.krate.types.intern(Type::String);
+        let symbol_list_ty = self.ctx.krate.types.intern(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
-            DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
+            DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
+                self.ctx.krate.types.intern(Type::List(key_ty))
+            }
+            DictProjectionOp::Symbols => symbol_list_ty,
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self
@@ -108,9 +113,14 @@ impl ModuleBuilder<'_> {
             }
             _ => return Ok(None),
         };
+        let symbol_key_ty = self.ctx.krate.types.intern(Type::String);
+        let symbol_list_ty = self.ctx.krate.types.intern(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
-            DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
+            DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
+                self.ctx.krate.types.intern(Type::List(key_ty))
+            }
+            DictProjectionOp::Symbols => symbol_list_ty,
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self
@@ -997,37 +1007,19 @@ impl ModuleBuilder<'_> {
             .collect::<Vec<_>>();
         let mut captures = self.callback_captures(callback, body);
         let may_throw = Self::callback_expr_contains_throw(callback);
-        let captures_can_migrate = captures.iter().all(|capture| {
-            !matches!(
-                self.ctx.krate.types.get(capture.ty),
-                Some(Type::List(item))
-                    if matches!(
-                        self.ctx.krate.types.get(*item),
-                        Some(Type::Function(_))
-                    )
-            )
-        });
         let mut migrated_callback = callback.clone();
-        if captures_can_migrate {
-            let mut capture_locals = HashMap::new();
-            for capture in &mut captures {
-                let local = closure_body.push_local(LocalDecl {
-                    name: Some(capture.symbol),
-                    ty: capture.ty,
-                    mutable: false,
-                    span,
-                });
-                capture.body_local = Some(local);
-                capture_locals.insert(capture.source_local, local);
-            }
-            Self::remap_callback_captures(&mut migrated_callback, &capture_locals);
-        }
-        if !captures_can_migrate {
-            return Err(SmeltError::unsupported(
+        let mut capture_locals = HashMap::new();
+        for capture in &mut captures {
+            let local = closure_body.push_local(LocalDecl {
+                name: Some(capture.symbol),
+                ty: capture.ty,
+                mutable: false,
                 span,
-                "callback captures cannot be migrated into closure bodies yet",
-            ));
+            });
+            capture.body_local = Some(local);
+            capture_locals.insert(capture.source_local, local);
         }
+        Self::remap_callback_captures(&mut migrated_callback, &capture_locals);
         let param_exprs = closure_params
             .iter()
             .map(|param| {
@@ -1079,7 +1071,10 @@ impl ModuleBuilder<'_> {
                     *local = *mapped;
                 }
             }
-            CallbackExprKind::AssignCapture { value, .. } => {
+            CallbackExprKind::AssignCapture { target, value } => {
+                if let Some(mapped) = capture_locals.get(target) {
+                    *target = *mapped;
+                }
                 Self::remap_callback_captures(value, capture_locals);
             }
             CallbackExprKind::ListLit(items) => {
@@ -1448,26 +1443,47 @@ impl ModuleBuilder<'_> {
             } => {
                 let callee_ty = callee.ty;
                 let callee = self.callback_expr_to_body_expr(callee, args, body, span)?;
-                let call_args = if call_args.iter().any(|arg| arg.spread)
-                    && let Some(Type::Function(function)) =
-                        self.ctx.krate.types.get(callee_ty).cloned()
+                let callee_index = usize::try_from(callee.0).map_err(|_error| {
+                    SmeltError::unsupported(
+                        span,
+                        "callback callee expression index does not fit usize",
+                    )
+                })?;
+                let callee_is_item = matches!(
+                    body.exprs.get(callee_index).map(|expr| &expr.kind),
+                    Some(ExprKind::Item(_))
+                );
+                let has_spread = call_args.iter().any(|arg| arg.spread);
+                if has_spread
+                    && !callee_is_item
+                    && !matches!(self.ctx.krate.types.get(callee_ty), Some(Type::Function(_)))
                 {
-                    self.callback_spread_call_args_to_body_exprs(
-                        &function, call_args, args, body, span,
-                    )?
+                    let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+                    let packed =
+                        self.callback_packed_spread_call_args(item_ty, call_args, args, body, span)?;
+                    return Ok(body.push_expr(Expr {
+                        kind: ExprKind::ClosureCallSpread {
+                            callee,
+                            args: packed,
+                        },
+                        ty: callback.ty,
+                        span,
+                    }));
+                }
+                let call_args = if has_spread
+                    && let Some(Type::Function(function)) = self.ctx.krate.types.get(callee_ty).cloned()
+                {
+                    self.callback_spread_call_args_to_body_exprs(&function, call_args, args, body, span)?
                 } else {
                     self.callback_call_args_to_body_exprs(call_args, args, body, span)?
                 };
-                let kind = if matches!(
-                    self.ctx.krate.types.get(Self::expr_ty(body, callee)),
-                    Some(Type::Function(_))
-                ) {
-                    ExprKind::ClosureCall {
+                let kind = if callee_is_item {
+                    ExprKind::Call {
                         callee,
                         args: call_args,
                     }
                 } else {
-                    ExprKind::Call {
+                    ExprKind::ClosureCall {
                         callee,
                         args: call_args,
                     }
@@ -1481,18 +1497,20 @@ impl ModuleBuilder<'_> {
             CallbackExprKind::MethodCall {
                 receiver,
                 method,
-                args: call_args,
+                args: raw_call_args,
             } => {
                 let receiver_ty = receiver.ty;
                 let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 let call_args =
-                    self.callback_call_args_to_body_exprs(call_args, args, body, span)?;
+                    self.callback_call_args_to_body_exprs(raw_call_args, args, body, span)?;
                 self.callback_method_call_to_body_expr(
                     receiver,
                     receiver_ty,
                     *method,
+                    raw_call_args,
                     &call_args,
                     callback.ty,
+                    args,
                     body,
                     span,
                 )
@@ -1506,13 +1524,30 @@ impl ModuleBuilder<'_> {
         receiver: smelt_hir::ExprId,
         receiver_ty: smelt_hir::TypeId,
         method: smelt_hir::Symbol,
+        raw_args: &[CallbackCallArg],
         args: &[smelt_hir::ExprId],
         ty: smelt_hir::TypeId,
+        callback_args: &[smelt_hir::ExprId],
         body: &mut Body,
         span: Span,
     ) -> Result<smelt_hir::ExprId, SmeltError> {
-        let method_text = self.ctx.krate.symbols.get(method).unwrap_or_default();
-        match method_text {
+        let method_text = self
+            .ctx
+            .krate
+            .symbols
+            .get(method)
+            .unwrap_or_default()
+            .to_owned();
+        match method_text.as_str() {
+            "call" => self.callback_call_method_to_body_expr(
+                receiver,
+                receiver_ty,
+                raw_args,
+                ty,
+                callback_args,
+                body,
+                span,
+            ),
             "toString" | "to_string" if args.is_empty() => Ok(body.push_expr(Expr {
                 kind: ExprKind::PrimitiveCast {
                     op: PrimitiveCastOp::ToString,
@@ -1622,14 +1657,28 @@ impl ModuleBuilder<'_> {
                 }))
             }
             "includes" if args.len() == 1
-                && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_))) =>
+                && self.list_surface_type(receiver_ty).is_some() =>
             {
+                let (list_ty, _) = self.list_surface_type(receiver_ty).ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback Array.includes call requires a list receiver")
+                })?;
+                let list = if receiver_ty == list_ty {
+                    receiver
+                } else {
+                    body.push_expr(Expr {
+                        kind: ExprKind::TypeAssert {
+                            value: receiver,
+                        },
+                        ty: list_ty,
+                        span,
+                    })
+                };
                 let item = *args.first().ok_or_else(|| {
                     SmeltError::unsupported(span, "callback Array.includes call requires one argument")
                 })?;
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::ListContains {
-                        list: receiver,
+                        list,
                         item,
                     },
                     ty,
@@ -1640,7 +1689,7 @@ impl ModuleBuilder<'_> {
                 if args.len() == 1
                     && self.callback_method_receiver_is_list_like(receiver_ty) =>
             {
-                let op = if matches!(method_text, "lastIndexOf" | "last_index_of") {
+                let op = if matches!(method_text.as_str(), "lastIndexOf" | "last_index_of") {
                     ListSearchOp::RFind
                 } else {
                     ListSearchOp::Find
@@ -1782,11 +1831,164 @@ impl ModuleBuilder<'_> {
                     )),
                 }
             }
-            _ => Err(SmeltError::unsupported(
-                span,
-                format!("callback method `{method_text}` is not lowered into closure bodies yet"),
-            )),
+            _ => self
+                .callback_callable_field_method_to_body_expr(
+                    receiver,
+                    receiver_ty,
+                    method,
+                    raw_args,
+                    ty,
+                    callback_args,
+                    body,
+                    span,
+                )
+                .ok_or_else(|| {
+                    SmeltError::unsupported(
+                        span,
+                        format!(
+                            "callback method `{method_text}` is not lowered into closure bodies yet"
+                        ),
+                    )
+                }),
         }
+    }
+
+    /// Lower a callback method call whose receiver has a callable field.
+    fn callback_callable_field_method_to_body_expr(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+        raw_args: &[CallbackCallArg],
+        ty: smelt_hir::TypeId,
+        callback_args: &[smelt_hir::ExprId],
+        body: &mut Body,
+        span: Span,
+    ) -> Option<smelt_hir::ExprId> {
+        let field_ty = self.class_field_type(receiver_ty, method).ok()?;
+        let function = self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(field_ty))
+            .and_then(|field_type| match field_type {
+                Type::Function(function) => Some(function.clone()),
+                _ => None,
+            })?;
+        let callee = body.push_expr(Expr {
+            kind: ExprKind::Field {
+                receiver,
+                field: method,
+            },
+            ty: field_ty,
+            span,
+        });
+        let args = self
+            .callback_spread_call_args_to_body_exprs(
+                &function,
+                raw_args,
+                callback_args,
+                body,
+                span,
+            )
+            .ok()?;
+        Some(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall { callee, args },
+            ty,
+            span,
+        }))
+    }
+
+    /// Convert callback-body `.call(...)` forwarding into a normal closure call.
+    fn callback_call_method_to_body_expr(
+        &mut self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        raw_args: &[CallbackCallArg],
+        ty: smelt_hir::TypeId,
+        callback_args: &[smelt_hir::ExprId],
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let receiver_function = self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(receiver_ty))
+            .and_then(|receiver_type| match receiver_type {
+                Type::Function(function) => Some(function.clone()),
+                _ => None,
+            });
+        let (callee, function) = if let Some(function) = receiver_function {
+            (receiver, Some(function))
+        } else {
+            let field = self.intern_source_name("call");
+            let field_ty = self
+                .class_field_type(receiver_ty, field)
+                .unwrap_or_else(|_| self.ctx.krate.types.intern(Type::Unknown));
+            let function = self
+                .ctx
+                .krate
+                .types
+                .get(self.type_param_constraint_or_self(field_ty))
+                .and_then(|field_type| match field_type {
+                    Type::Function(function) => Some(function.clone()),
+                    _ => None,
+                });
+            (
+                body.push_expr(Expr {
+                    kind: ExprKind::Field { receiver, field },
+                    ty: field_ty,
+                    span,
+                }),
+                function,
+            )
+        };
+
+        if let Some(function) = function {
+            let args =
+                self.callback_spread_call_args_to_body_exprs(&function, raw_args, callback_args, body, span)?;
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCall {
+                    callee,
+                    args,
+                },
+                ty,
+                span,
+            }));
+        }
+
+        if raw_args.len() == 1
+            && raw_args.first().is_some_and(|arg| arg.spread)
+            && let Some(args) = callback_args.first().copied()
+        {
+            return Ok(body.push_expr(Expr {
+                kind: ExprKind::ClosureCallSpread {
+                    callee,
+                    args,
+                },
+                ty,
+                span,
+            }));
+        }
+
+        if raw_args.iter().any(|arg| arg.spread) {
+            return Err(SmeltError::unsupported(
+                span,
+                "callback .call spread arguments need a callable receiver type",
+            ));
+        }
+
+        let args =
+            self.callback_call_args_to_body_exprs(raw_args, callback_args, body, span)?;
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::ClosureCall {
+                callee,
+                args,
+            },
+            ty,
+            span,
+        }))
     }
 
     /// Convert a callback `concat` argument into the list operand expected by HIR.
@@ -2122,6 +2324,78 @@ impl ModuleBuilder<'_> {
             }));
         }
         Ok(lowered)
+    }
+
+    /// Pack callback call arguments that contain spreads into a single list expression.
+    fn callback_packed_spread_call_args(
+        &mut self,
+        item_ty: smelt_hir::TypeId,
+        call_args: &[CallbackCallArg],
+        args: &[smelt_hir::ExprId],
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let list_ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        let mut current_items = Vec::new();
+        let mut packed = None;
+        for arg in call_args {
+            if arg.spread {
+                if !current_items.is_empty() {
+                    let left = body.push_expr(Expr {
+                        kind: ExprKind::ListLit(std::mem::take(&mut current_items)),
+                        ty: list_ty,
+                        span,
+                    });
+                    packed = Some(packed.map_or(left, |existing| {
+                        body.push_expr(Expr {
+                            kind: ExprKind::ListConcat {
+                                left: existing,
+                                right: left,
+                            },
+                            ty: list_ty,
+                            span,
+                        })
+                    }));
+                }
+                let spread_expr = self.callback_expr_to_body_expr(&arg.expr, args, body, span)?;
+                packed = Some(packed.map_or(spread_expr, |existing| {
+                    body.push_expr(Expr {
+                        kind: ExprKind::ListConcat {
+                            left: existing,
+                            right: spread_expr,
+                        },
+                        ty: list_ty,
+                        span,
+                    })
+                }));
+                continue;
+            }
+            current_items.push(self.callback_expr_to_body_expr(&arg.expr, args, body, span)?);
+        }
+        if !current_items.is_empty() {
+            let right = body.push_expr(Expr {
+                kind: ExprKind::ListLit(current_items),
+                ty: list_ty,
+                span,
+            });
+            packed = Some(packed.map_or(right, |existing| {
+                body.push_expr(Expr {
+                    kind: ExprKind::ListConcat {
+                        left: existing,
+                        right,
+                    },
+                    ty: list_ty,
+                    span,
+                })
+            }));
+        }
+        Ok(packed.unwrap_or_else(|| {
+            body.push_expr(Expr {
+                kind: ExprKind::ListLit(Vec::new()),
+                ty: list_ty,
+                span,
+            })
+        }))
     }
 
     /// Recursively collect captures and upgrade assigned captures to mutable mode.
@@ -4469,6 +4743,15 @@ impl ModuleBuilder<'_> {
                 });
                 return Ok(ClosureCallback { expr, return_ty });
             }
+            if !self.locals.contains_key(identifier.name.as_str()) {
+                return Err(SmeltError::unsupported(
+                    self.span(identifier.span.start, identifier.span.end),
+                    format!(
+                        "{context} local callback `{}` is not in scope",
+                        identifier.name
+                    ),
+                ));
+            }
             let Some(callback) = self.local_callbacks.get(identifier.name.as_str()).cloned() else {
                 return Err(SmeltError::unsupported(
                     self.span(identifier.span.start, identifier.span.end),
@@ -5122,12 +5405,12 @@ impl ModuleBuilder<'_> {
                         PropertyKey::StringLiteral(literal) => literal.value.as_str(),
                         _ => {
                             let value = self.callback_expression(&property.value, params, body)?;
-                            entries.push((self.intern_source_name("__computed"), value));
+                            entries.push((self.intern_exact_source_name("__computed"), value));
                             continue;
                         }
                     };
                     let value = self.callback_expression(&property.value, params, body)?;
-                    entries.push((self.intern_source_name(key_text), value));
+                    entries.push((self.intern_exact_source_name(key_text), value));
                 }
                 Ok(CallbackExpr {
                     kind: CallbackExprKind::DictLit(entries),

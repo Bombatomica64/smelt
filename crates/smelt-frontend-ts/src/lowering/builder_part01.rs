@@ -41,6 +41,7 @@ impl<'ctx> ModuleBuilder<'ctx> {
             current_class: None,
             current_async: false,
             current_return_ty: None,
+            current_arguments_arities: Vec::new(),
             current_statement_block: None,
             deferred_postfix_updates: None,
             allow_unknown_index_access,

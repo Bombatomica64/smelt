@@ -1,0 +1,2519 @@
+    Checking remeda_smelt_probe v0.1.0 (/home/lollo/Playground/smelt/third_party/remeda/dist-smelt)
+warning: unnecessary parentheses around function argument
+  --> src/countBy.rs:52:53
+   |
+52 |     _smelt_tmp_15 = categorization_fn(item.clone(), (index.clone() as f64), data.clone());
+   |                                                     ^                    ^
+   |
+   = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
+help: remove these parentheses
+   |
+52 -     _smelt_tmp_15 = categorization_fn(item.clone(), (index.clone() as f64), data.clone());
+52 +     _smelt_tmp_15 = categorization_fn(item.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/dropWhile.rs:39:45
+   |
+39 |     _smelt_tmp_11 = predicate(item.clone(), (index.clone() as f64), data.clone());
+   |                                             ^                    ^
+   |
+help: remove these parentheses
+   |
+39 -     _smelt_tmp_11 = predicate(item.clone(), (index.clone() as f64), data.clone());
+39 +     _smelt_tmp_11 = predicate(item.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around assigned value
+  --> src/dropWhile.rs:42:85
+   |
+42 |     _smelt_tmp_13 = { let smelt_slice_value = data.clone(); let smelt_slice_start = (index.clone() as f64); let smelt_slice_end = No...
+   |                                                                                     ^                    ^
+   |
+help: remove these parentheses
+   |
+42 -     _smelt_tmp_13 = { let smelt_slice_value = data.clone(); let smelt_slice_start = (index.clone() as f64); let smelt_slice_end = None::<f64>; let smelt_slice_values = match smelt_slice_value { SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 { smelt_slice_len + smelt_start_index } else { smelt_start_index }.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| { let end = end as i64; if end < 0 { smelt_slice_len + end } else { end } }).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>().into()) };
+42 +     _smelt_tmp_13 = { let smelt_slice_value = data.clone(); let smelt_slice_start = index.clone() as f64; let smelt_slice_end = None::<f64>; let smelt_slice_values = match smelt_slice_value { SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }; let smelt_slice_len = smelt_slice_values.len() as i64; let smelt_start_index = smelt_slice_start as i64; let smelt_start_index = if smelt_start_index < 0 { smelt_slice_len + smelt_start_index } else { smelt_start_index }.clamp(0, smelt_slice_len); let smelt_end_index = smelt_slice_end.map_or(smelt_slice_len, |end| { let end = end as i64; if end < 0 { smelt_slice_len + end } else { end } }).clamp(0, smelt_slice_len); let smelt_take_len = smelt_end_index.saturating_sub(smelt_start_index) as usize; SmeltUnknown::Array(smelt_slice_values.into_iter().skip(smelt_start_index as usize).take(smelt_take_len).collect::<Vec<_>>().into()) };
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/filter.rs:22:63
+   |
+22 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+22 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+22 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/filter.rs:26:63
+   |
+26 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+26 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+26 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/find.rs:23:63
+   |
+23 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+23 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+23 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/find.rs:27:63
+   |
+27 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+27 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+27 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/findIndex.rs:18:63
+   |
+18 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+18 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+18 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/findIndex.rs:22:63
+   |
+22 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+22 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+22 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/fromKeys.rs:38:41
+   |
+38 |     _smelt_tmp_13 = mapper(key.clone(), (index.clone() as f64), data.clone());
+   |                                         ^                    ^
+   |
+help: remove these parentheses
+   |
+38 -     _smelt_tmp_13 = mapper(key.clone(), (index.clone() as f64), data.clone());
+38 +     _smelt_tmp_13 = mapper(key.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:194:95
+    |
+194 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+194 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+194 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:279:95
+    |
+279 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+279 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+279 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:367:95
+    |
+367 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+367 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+367 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:452:95
+    |
+452 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+452 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+452 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:547:95
+    |
+547 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+547 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+547 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:632:95
+    |
+632 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+632 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+632 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:720:95
+    |
+720 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+720 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+720 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:805:95
+    |
+805 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+805 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+805 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:904:95
+    |
+904 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+904 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+904 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+   --> src/funnel.rs:989:95
+    |
+989 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+    |                                                                                               ^                  ^
+    |
+help: remove these parentheses
+    |
+989 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+989 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+    |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1077:95
+     |
+1077 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1077 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1077 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1162:95
+     |
+1162 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1162 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1162 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1257:95
+     |
+1257 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1257 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1257 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1342:95
+     |
+1342 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1342 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1342 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1430:95
+     |
+1430 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1430 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1430 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1515:95
+     |
+1515 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1515 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1515 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1619:95
+     |
+1619 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1619 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1619 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1704:95
+     |
+1704 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1704 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1704 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1792:95
+     |
+1792 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1792 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1792 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1877:95
+     |
+1877 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1877 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1877 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:1972:95
+     |
+1972 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+1972 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+1972 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2057:95
+     |
+2057 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2057 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2057 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2145:95
+     |
+2145 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2145 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2145 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2230:95
+     |
+2230 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2230 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2230 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2329:95
+     |
+2329 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2329 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2329 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2414:95
+     |
+2414 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2414 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2414 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2502:95
+     |
+2502 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2502 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2502 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2587:95
+     |
+2587 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2587 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2587 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2682:95
+     |
+2682 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2682 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2682 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2767:95
+     |
+2767 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2767 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2767 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2855:95
+     |
+2855 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2855 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2855 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:2940:95
+     |
+2940 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+2940 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+2940 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3049:95
+     |
+3049 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3049 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3049 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3134:95
+     |
+3134 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3134 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3134 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3222:95
+     |
+3222 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3222 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3222 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3307:95
+     |
+3307 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3307 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3307 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3402:95
+     |
+3402 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3402 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3402 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3487:95
+     |
+3487 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3487 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3487 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3575:95
+     |
+3575 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3575 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3575 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3660:95
+     |
+3660 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3660 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3660 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3759:95
+     |
+3759 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3759 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3759 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3844:95
+     |
+3844 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3844 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3844 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:3932:95
+     |
+3932 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+3932 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+3932 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4017:95
+     |
+4017 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4017 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4017 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4112:95
+     |
+4112 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4112 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4112 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4197:95
+     |
+4197 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4197 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4197 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4285:95
+     |
+4285 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4285 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4285 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4370:95
+     |
+4370 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4370 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4370 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4474:95
+     |
+4474 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4474 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4474 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4559:95
+     |
+4559 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4559 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4559 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4647:95
+     |
+4647 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4647 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4647 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4732:95
+     |
+4732 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4732 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4732 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4827:95
+     |
+4827 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4827 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4827 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:4912:95
+     |
+4912 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+4912 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+4912 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5000:95
+     |
+5000 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5000 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5000 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5085:95
+     |
+5085 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5085 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5085 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5184:95
+     |
+5184 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5184 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5184 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5269:95
+     |
+5269 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5269 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5269 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5357:95
+     |
+5357 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5357 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5357 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5442:95
+     |
+5442 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5442 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5442 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5537:95
+     |
+5537 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5537 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5537 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5622:95
+     |
+5622 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5622 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5622 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5710:95
+     |
+5710 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5710 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5710 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around method argument
+    --> src/funnel.rs:5795:95
+     |
+5795 |     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+     |                                                                                               ^                  ^
+     |
+help: remove these parentheses
+     |
+5795 -     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or((now.clone() as f64));
+5795 +     _smelt_tmp_31 = (*smelt_capture_burst_start_timestamp.borrow()).clone().clone().unwrap_or(now.clone() as f64);
+     |
+
+warning: unnecessary parentheses around function argument
+  --> src/indexBy.rs:39:42
+   |
+39 |     _smelt_tmp_14 = mapper(item.clone(), (index.clone() as f64), data.clone());
+   |                                          ^                    ^
+   |
+help: remove these parentheses
+   |
+39 -     _smelt_tmp_14 = mapper(item.clone(), (index.clone() as f64), data.clone());
+39 +     _smelt_tmp_14 = mapper(item.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/mapToObj.rs:42:42
+   |
+42 |     _smelt_tmp_15 = fn_(element.clone(), (index.clone() as f64), array.clone());
+   |                                          ^                    ^
+   |
+help: remove these parentheses
+   |
+42 -     _smelt_tmp_15 = fn_(element.clone(), (index.clone() as f64), array.clone());
+42 +     _smelt_tmp_15 = fn_(element.clone(), index.clone() as f64, array.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/meanBy.rs:48:39
+   |
+48 |     _smelt_tmp_14 = fn_(item.clone(), (index.clone() as f64), array.clone());
+   |                                       ^                    ^
+   |
+help: remove these parentheses
+   |
+48 -     _smelt_tmp_14 = fn_(item.clone(), (index.clone() as f64), array.clone());
+48 +     _smelt_tmp_14 = fn_(item.clone(), index.clone() as f64, array.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/partition.rs:44:45
+   |
+44 |     _smelt_tmp_15 = predicate(item.clone(), (index.clone() as f64), data.clone());
+   |                                             ^                    ^
+   |
+help: remove these parentheses
+   |
+44 -     _smelt_tmp_15 = predicate(item.clone(), (index.clone() as f64), data.clone());
+44 +     _smelt_tmp_15 = predicate(item.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/pullObject.rs:41:49
+   |
+41 |     _smelt_tmp_16 = key_extractor(item.clone(), (index.clone() as f64), data.clone());
+   |                                                 ^                    ^
+   |
+help: remove these parentheses
+   |
+41 -     _smelt_tmp_16 = key_extractor(item.clone(), (index.clone() as f64), data.clone());
+41 +     _smelt_tmp_16 = key_extractor(item.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/pullObject.rs:43:51
+   |
+43 |     _smelt_tmp_17 = value_extractor(item.clone(), (index.clone() as f64), data.clone());
+   |                                                   ^                    ^
+   |
+help: remove these parentheses
+   |
+43 -     _smelt_tmp_17 = value_extractor(item.clone(), (index.clone() as f64), data.clone());
+43 +     _smelt_tmp_17 = value_extractor(item.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around `return` value
+  --> src/randomBigInt.rs:93:12
+   |
+93 |     return ((result.clone() as f64).trunc() as i64);
+   |            ^                                      ^
+   |
+help: remove these parentheses
+   |
+93 -     return ((result.clone() as f64).trunc() as i64);
+93 +     return (result.clone() as f64).trunc() as i64;
+   |
+
+warning: unnecessary parentheses around assigned value
+  --> src/sample.rs:71:128
+   |
+71 | ... left.clone(); let right = right.clone(); let ordering = (left - right); if ordering < 0.0 { std::cmp::Ordering::Less } else if o...
+   |                                                             ^            ^
+   |
+help: remove these parentheses
+   |
+71 -     _smelt_tmp_22 = { _smelt_tmp_21.sort_by(|left, right| { let left = left.clone(); let right = right.clone(); let ordering = (left - right); if ordering < 0.0 { std::cmp::Ordering::Less } else if ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); _smelt_tmp_21.clone() };
+71 +     _smelt_tmp_22 = { _smelt_tmp_21.sort_by(|left, right| { let left = left.clone(); let right = right.clone(); let ordering = left - right; if ordering < 0.0 { std::cmp::Ordering::Less } else if ordering > 0.0 { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Equal } }); _smelt_tmp_21.clone() };
+   |
+
+warning: unnecessary parentheses around closure body
+  --> src/sample_test.rs:24:57
+   |
+24 |     return _smelt_tmp_2.clone().into_iter().map(|value| (value as f64)).collect::<Vec<_>>();
+   |                                                         ^            ^
+   |
+help: remove these parentheses
+   |
+24 -     return _smelt_tmp_2.clone().into_iter().map(|value| (value as f64)).collect::<Vec<_>>();
+24 +     return _smelt_tmp_2.clone().into_iter().map(|value| value as f64).collect::<Vec<_>>();
+   |
+
+warning: unnecessary parentheses around method argument
+  --> src/splitAt.rs:38:45
+   |
+38 |     _smelt_tmp_9 = _smelt_tmp_8.clone().max((0.0 as f64));
+   |                                             ^          ^
+   |
+help: remove these parentheses
+   |
+38 -     _smelt_tmp_9 = _smelt_tmp_8.clone().max((0.0 as f64));
+38 +     _smelt_tmp_9 = _smelt_tmp_8.clone().max(0.0 as f64);
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/splitWhen.rs:24:63
+   |
+24 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+24 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+24 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/splitWhen.rs:28:63
+   |
+28 |     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+   |                                                               ^                            ^
+   |
+help: remove these parentheses
+   |
+28 -     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), (closure_arg_1.clone() as f64), closure_arg_2.clone());
+28 +     let _smelt_tmp_4: bool = predicate(closure_arg_0.clone(), closure_arg_1.clone() as f64, closure_arg_2.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/sumBy.rs:74:46
+   |
+74 |     _smelt_tmp_22 = callbackfn(item.clone(), (index.clone() as f64), array.clone());
+   |                                              ^                    ^
+   |
+help: remove these parentheses
+   |
+74 -     _smelt_tmp_22 = callbackfn(item.clone(), (index.clone() as f64), array.clone());
+74 +     _smelt_tmp_22 = callbackfn(item.clone(), index.clone() as f64, array.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/takeWhile.rs:40:45
+   |
+40 |     _smelt_tmp_13 = predicate(item.clone(), (index.clone() as f64), data.clone());
+   |                                             ^                    ^
+   |
+help: remove these parentheses
+   |
+40 -     _smelt_tmp_13 = predicate(item.clone(), (index.clone() as f64), data.clone());
+40 +     _smelt_tmp_13 = predicate(item.clone(), index.clone() as f64, data.clone());
+   |
+
+warning: unnecessary parentheses around function argument
+  --> src/zipWith.rs:87:24
+   |
+87 | ...   }.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned...
+   |                  ^                            ^
+   |
+help: remove these parentheses
+   |
+87 -             }.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+87 +             }.clone(), closure_arg_1.clone() as f64, { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+   |
+
+warning: unnecessary parentheses around function argument
+   --> src/zipWith.rs:110:24
+    |
+110 | ...   }.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).clone...
+    |                  ^                            ^
+    |
+help: remove these parentheses
+    |
+110 -             }.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+110 +             }.clone(), closure_arg_1.clone() as f64, { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+    |
+
+warning: unnecessary parentheses around function argument
+   --> src/zipWith.rs:136:47
+    |
+136 | ...   }.clone(), closure_arg_0.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tu...
+    |                                         ^                            ^
+    |
+help: remove these parentheses
+    |
+136 -             }.clone(), closure_arg_0.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+136 +             }.clone(), closure_arg_0.clone(), closure_arg_1.clone() as f64, { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+    |
+
+warning: unnecessary parentheses around function argument
+   --> src/zipWith.rs:159:47
+    |
+159 | ...   }.clone(), closure_arg_0.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tu...
+    |                                         ^                            ^
+    |
+help: remove these parentheses
+    |
+159 -             }.clone(), closure_arg_0.clone(), (closure_arg_1.clone() as f64), { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+159 +             }.clone(), closure_arg_0.clone(), closure_arg_1.clone() as f64, { let smelt_tuple_values = datum.clone().clone(); (smelt_tuple_values.get(0).cloned().unwrap_or(SmeltUnknown::Null), smelt_tuple_values.get(1).cloned().unwrap_or(SmeltUnknown::Null)) });
+    |
+
+error[E0277]: the `?` operator can only be used on `Option`s, not `Result`s, in a closure that returns `Option`
+   --> src/debounce.rs:314:52
+    |
+312 |     move || {
+    |     ------- this function returns an `Option`
+313 | unsafe {
+314 |     let _smelt_tmp_2: () = (handle_cool_down_end)()?;
+    |                                                    ^ use `.ok()?` if you want to discard the `Result<Infallible, Box<dyn StdError>>` error information
+
+warning: unreachable statement
+   --> src/sample.rs:104:5
+    |
+ 84 |     return _smelt_tmp_24.clone();
+    |     ---------------------------- any code following this expression is unreachable
+...
+104 |     return Vec::new();
+    |     ^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+error[E0308]: mismatched types
+  --> src/uniqueWith.rs:28:55
+   |
+28 |     let _smelt_tmp_6: bool = closure_arg_1.clone() == (closure_arg_1.clone() as f64);
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `i64`, found `f64`
+
+error[E0277]: can't compare `i64` with `f64`
+    --> src/uniqueWith.rs:28:52
+     |
+  28 |     let _smelt_tmp_6: bool = closure_arg_1.clone() == (closure_arg_1.clone() as f64);
+     |                                                    ^^ no implementation for `i64 == f64`
+     |
+     = help: the trait `PartialEq<f64>` is not implemented for `i64`
+help: the following other types implement trait `PartialEq<Rhs>`
+    --> /home/lollo/.rustup/toolchains/1.94.1-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/cmp.rs:1868:13
+     |
+1868 |               impl const PartialEq for $t {
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `i64` implements `PartialEq`
+...
+1890 | /     partial_eq_impl! {
+1891 | |         bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f16 f32 f64 f128
+1892 | |     }
+     | |_____- in this macro invocation
+     |
+    ::: /home/lollo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.149/src/value/partial_eq.rs:76:13
+     |
+  76 |               impl PartialEq<Value> for $ty {
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `i64` implements `PartialEq<Value>`
+...
+  97 | / partialeq_numeric! {
+  98 | |     eq_i64[i8 i16 i32 i64 isize]
+  99 | |     eq_u64[u8 u16 u32 u64 usize]
+ 100 | |     eq_f32[f32]
+ 101 | |     eq_f64[f64]
+ 102 | |     eq_bool[bool]
+ 103 | | }
+     | |_- in this macro invocation
+     = note: this error originates in the macro `partial_eq_impl` which comes from the expansion of the macro `partialeq_numeric` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0308]: mismatched types
+  --> src/uniqueWith.rs:39:55
+   |
+39 |     let _smelt_tmp_6: bool = closure_arg_1.clone() == (closure_arg_1.clone() as f64);
+   |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `i64`, found `f64`
+
+error[E0277]: can't compare `i64` with `f64`
+    --> src/uniqueWith.rs:39:52
+     |
+  39 |     let _smelt_tmp_6: bool = closure_arg_1.clone() == (closure_arg_1.clone() as f64);
+     |                                                    ^^ no implementation for `i64 == f64`
+     |
+     = help: the trait `PartialEq<f64>` is not implemented for `i64`
+help: the following other types implement trait `PartialEq<Rhs>`
+    --> /home/lollo/.rustup/toolchains/1.94.1-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/cmp.rs:1868:13
+     |
+1868 |               impl const PartialEq for $t {
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `i64` implements `PartialEq`
+...
+1890 | /     partial_eq_impl! {
+1891 | |         bool char usize u8 u16 u32 u64 u128 isize i8 i16 i32 i64 i128 f16 f32 f64 f128
+1892 | |     }
+     | |_____- in this macro invocation
+     |
+    ::: /home/lollo/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_json-1.0.149/src/value/partial_eq.rs:76:13
+     |
+  76 |               impl PartialEq<Value> for $ty {
+     |               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `i64` implements `PartialEq<Value>`
+...
+  97 | / partialeq_numeric! {
+  98 | |     eq_i64[i8 i16 i32 i64 isize]
+  99 | |     eq_u64[u8 u16 u32 u64 usize]
+ 100 | |     eq_f32[f32]
+ 101 | |     eq_f64[f64]
+ 102 | |     eq_bool[bool]
+ 103 | | }
+     | |_- in this macro invocation
+     = note: this error originates in the macro `partial_eq_impl` which comes from the expansion of the macro `partialeq_numeric` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: variable does not need to be mutable
+  --> src/addProp.rs:19:65
+   |
+19 |     let _smelt_tmp_5: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_3.clone().clone(); assigned.extend(match (...
+   |                                                                 ----^^^^^^^^
+   |                                                                 |
+   |                                                                 help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+  --> src/allPass.rs:16:147
+   |
+16 | ...ckages_remeda_src_all_pass_ts(data: SmeltUnknown, mut fns: Vec<::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>>) -> bool {
+   |                                                      ----^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/allPass.rs:24:36
+   |
+24 |     let _smelt_tmp_3: bool = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                                    ----^^^^^^^^^^^^^^
+   |                                    |
+   |                                    help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/anyPass.rs:16:147
+   |
+16 | ...ckages_remeda_src_any_pass_ts(data: SmeltUnknown, mut fns: Vec<::std::rc::Rc<dyn Fn(SmeltUnknown) -> bool>>) -> bool {
+   |                                                      ----^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/anyPass.rs:24:36
+   |
+24 |     let _smelt_tmp_3: bool = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                                    ----^^^^^^^^^^^^^^
+   |                                    |
+   |                                    help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/binarySearchCutoffIndex_test.rs:13:1
+   |
+13 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+   |
+   = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+ --> src/clamp.rs:8:64
+  |
+8 |     let _smelt_tmp_1 = ::std::rc::Rc::new(|closure_arg_0: f64, mut closure_arg_1: SmeltUnknown| {
+  |                                                                ----^^^^^^^^^^^^^
+  |                                                                |
+  |                                                                help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/clone.rs:16:57
+   |
+16 | pub(crate) fn clone_implementation(value: SmeltUnknown, mut ref_from: &mut Vec<SmeltUnknown>, mut ref_to: &mut Vec<SmeltUnknown>) ->...
+   |                                                         ----^^^^^^^^
+   |                                                         |
+   |                                                         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/clone.rs:16:95
+   |
+16 | pub(crate) fn clone_implementation(value: SmeltUnknown, mut ref_from: &mut Vec<SmeltUnknown>, mut ref_to: &mut Vec<SmeltUnknown>) ->...
+   |                                                                                               ----^^^^^^
+   |                                                                                               |
+   |                                                                                               help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/clone.rs:105:54
+    |
+105 | pub(crate) fn deep_clone_object(value: SmeltUnknown, mut ref_from: &mut Vec<SmeltUnknown>, mut ref_to: &mut Vec<SmeltUnknown>) -> S...
+    |                                                      ----^^^^^^^^
+    |                                                      |
+    |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/clone.rs:105:92
+    |
+105 | pub(crate) fn deep_clone_object(value: SmeltUnknown, mut ref_from: &mut Vec<SmeltUnknown>, mut ref_to: &mut Vec<SmeltUnknown>) -> S...
+    |                                                                                            ----^^^^^^
+    |                                                                                            |
+    |                                                                                            help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/clone.rs:115:9
+    |
+115 |     let mut copied_value: SmeltRecord<String, SmeltUnknown> = _smelt_tmp_7.clone();
+    |         ----^^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/clone.rs:137:53
+    |
+137 | pub(crate) fn deep_clone_array(value: SmeltUnknown, mut ref_from: &mut Vec<SmeltUnknown>, mut ref_to: &mut Vec<SmeltUnknown>) -> Sm...
+    |                                                     ----^^^^^^^^
+    |                                                     |
+    |                                                     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/clone.rs:137:91
+    |
+137 | pub(crate) fn deep_clone_array(value: SmeltUnknown, mut ref_from: &mut Vec<SmeltUnknown>, mut ref_to: &mut Vec<SmeltUnknown>) -> Sm...
+    |                                                                                           ----^^^^^^
+    |                                                                                           |
+    |                                                                                           help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/difference.rs:55:1
+   |
+55 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/differenceWith.rs:33:36
+   |
+33 |     let _smelt_tmp_4: bool = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                                    ----^^^^^^^^^^^^^^
+   |                                    |
+   |                                    help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/differenceWith.rs:19:9
+   |
+19 |     let mut other = other.clone();
+   |         ----^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/drop.rs:36:1
+   |
+36 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/evolve.rs:17:9
+   |
+17 |     let mut out: SmeltRecord<String, SmeltUnknown>;
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/evolve.rs:48:27
+   |
+48 |     _smelt_tmp_11 = { let mut assigned = _smelt_tmp_10.clone().clone(); assigned.extend(match (data.clone()).into_smelt_unknown() { ...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: value assigned to `sum` is never read
+   --> src/evolve_test.rs:861:5
+    |
+861 |     sum = _smelt_tmp_3.clone();
+    |     ^^^
+    |
+    = help: maybe it is overwritten before being read?
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+  --> src/filter.rs:25:49
+   |
+25 |     let _smelt_tmp_3: Vec<SmeltUnknown> = { let mut smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: SmeltUnknown, closure_a...
+   |                                                 ----^^^^^^^^^^^^^^
+   |                                                 |
+   |                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/find.rs:26:52
+   |
+26 |     let _smelt_tmp_3: Option<SmeltUnknown> = { let mut smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: SmeltUnknown, closur...
+   |                                                    ----^^^^^^^^^^^^^^
+   |                                                    |
+   |                                                    help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/findIndex.rs:21:35
+   |
+21 |     let _smelt_tmp_3: f64 = { let mut smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: SmeltUnknown, closure_arg_1: i64, clo...
+   |                                   ----^^^^^^^^^^^^^^
+   |                                   |
+   |                                   help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/flatMap.rs:21:49
+   |
+21 |     let _smelt_tmp_2: Vec<SmeltUnknown> = { let mut smelt_callback = callbackfn; let smelt_array = data.clone(); smelt_array.iter()....
+   |                                                 ----^^^^^^^^^^^^^^
+   |                                                 |
+   |                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/forEach.rs:21:34
+   |
+21 |     let _smelt_tmp_2: () = { let mut smelt_callback = callbackfn; let smelt_array = data.clone(); smelt_array.iter().enumerate().for...
+   |                                  ----^^^^^^^^^^^^^^
+   |                                  |
+   |                                  help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/funnel.rs:32:1
+   |
+32 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> src/funnel.rs:83:1
+   |
+83 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/funnel.rs:104:1
+    |
+104 | unsafe {
+    | ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+   --> src/funnel.rs:133:1
+    |
+133 | unsafe {
+    | ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/funnel.rs:5889:1
+     |
+5889 | unsafe {
+     | ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/funnel.rs:5904:1
+     |
+5904 | unsafe {
+     | ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+    --> src/funnel.rs:5915:1
+     |
+5915 | unsafe {
+     | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_debounce_test.rs:91:27
+   |
+91 |     _smelt_tmp_28 = { let mut assigned = _smelt_tmp_14.clone().clone(); assigned.extend(_smelt_tmp_16.clone().iter().map(|(key, valu...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/funnel_lodash_debounce_test.rs:104:27
+    |
+104 |     _smelt_tmp_28 = { let mut assigned = _smelt_tmp_14.clone().clone(); assigned.extend(_smelt_tmp_16.clone().iter().map(|(key, val...
+    |                           ----^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: value assigned to `rest` is never read
+   --> src/funnel_lodash_debounce_test.rs:111:5
+    |
+111 |     rest = _smelt_tmp_30.clone();
+    |     ^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `rest` is never read
+  --> src/funnel_lodash_debounce_test.rs:98:5
+   |
+98 |     rest = _smelt_tmp_30.clone();
+   |     ^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unnecessary `unsafe` block
+  --> src/funnel_lodash_debounce_with_cached_value_test.rs:39:1
+   |
+39 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_debounce_with_cached_value_test.rs:99:735
+   |
+99 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| pa...
+   |                                                      ----^^^^^^^^^^^^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/funnel_lodash_debounce_with_cached_value_test.rs:100:737
+    |
+100 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| p...
+    |                                                      ----^^^^^^^^^^^^^^^
+    |                                                      |
+    |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/funnel_lodash_debounce_with_cached_value_test.rs:117:735
+    |
+117 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| p...
+    |                                                      ----^^^^^^^^^^^^^^^
+    |                                                      |
+    |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/funnel_lodash_debounce_with_cached_value_test.rs:118:737
+    |
+118 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| p...
+    |                                                      ----^^^^^^^^^^^^^^^
+    |                                                      |
+    |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_debounce_with_cached_value_test.rs:96:27
+   |
+96 |     _smelt_tmp_29 = { let mut assigned = _smelt_tmp_15.clone().clone(); assigned.extend(_smelt_tmp_17.clone().iter().map(|(key, valu...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/funnel_lodash_debounce_with_cached_value_test.rs:114:27
+    |
+114 |     _smelt_tmp_29 = { let mut assigned = _smelt_tmp_15.clone().clone(); assigned.extend(_smelt_tmp_17.clone().iter().map(|(key, val...
+    |                           ----^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: value assigned to `call` is never read
+   --> src/funnel_lodash_debounce_with_cached_value_test.rs:116:5
+    |
+116 |     call = { let smelt_value = match _smelt_tmp_30.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "call"), _ =...
+    |     ^^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: value assigned to `call` is never read
+  --> src/funnel_lodash_debounce_with_cached_value_test.rs:98:5
+   |
+98 |     call = { let smelt_value = match _smelt_tmp_30.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "call"), _ =>...
+   |     ^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_test.rs:72:27
+   |
+72 |     _smelt_tmp_19 = { let mut assigned = _smelt_tmp_11.clone().clone(); assigned.extend(_smelt_tmp_13.clone().iter().map(|(key, valu...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_test.rs:85:27
+   |
+85 |     _smelt_tmp_19 = { let mut assigned = _smelt_tmp_11.clone().clone(); assigned.extend(_smelt_tmp_13.clone().iter().map(|(key, valu...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: value assigned to `rest` is never read
+  --> src/funnel_lodash_throttle_test.rs:92:5
+   |
+92 |     rest = _smelt_tmp_21.clone();
+   |     ^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: value assigned to `rest` is never read
+  --> src/funnel_lodash_throttle_test.rs:79:5
+   |
+79 |     rest = _smelt_tmp_21.clone();
+   |     ^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unnecessary `unsafe` block
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:31:1
+   |
+31 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:80:735
+   |
+80 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| pa...
+   |                                                      ----^^^^^^^^^^^^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:81:737
+   |
+81 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| pa...
+   |                                                      ----^^^^^^^^^^^^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:98:735
+   |
+98 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| pa...
+   |                                                      ----^^^^^^^^^^^^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:99:737
+   |
+99 | ...-> () { let smelt_result = (smelt_function)({ let mut smelt_call_args = Vec::new();  smelt_call_args }).unwrap_or_else(|error| pa...
+   |                                                      ----^^^^^^^^^^^^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:77:27
+   |
+77 |     _smelt_tmp_20 = { let mut assigned = _smelt_tmp_12.clone().clone(); assigned.extend(_smelt_tmp_14.clone().iter().map(|(key, valu...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:95:27
+   |
+95 |     _smelt_tmp_20 = { let mut assigned = _smelt_tmp_12.clone().clone(); assigned.extend(_smelt_tmp_14.clone().iter().map(|(key, valu...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: value assigned to `call` is never read
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:97:5
+   |
+97 |     call = { let smelt_value = match _smelt_tmp_21.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "call"), _ =>...
+   |     ^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: value assigned to `call` is never read
+  --> src/funnel_lodash_throttle_with_cached_value_test.rs:79:5
+   |
+79 |     call = { let smelt_value = match _smelt_tmp_21.clone() { SmeltUnknown::Object(map) => smelt_get_object_field(&map, "call"), _ =>...
+   |     ^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+  --> src/funnel_reference_batch_test.rs:17:44
+   |
+17 |     let _smelt_tmp_3 = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown, closure_arg_1: i64, closure_arg_2: Vec<SmeltUnknown>| {
+   |                                            ----^^^^^^^^^^^^^
+   |                                            |
+   |                                            help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_reference_batch_test.rs:20:90
+   |
+20 |     let _smelt_tmp_4: Vec<SmeltUnknown> = { let mut smelt_callback = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown, closure_ar...
+   |                                                                                          ----^^^^^^^^^^^^^
+   |                                                                                          |
+   |                                                                                          help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_reference_batch_test.rs:20:49
+   |
+20 |     let _smelt_tmp_4: Vec<SmeltUnknown> = { let mut smelt_callback = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown, closure_ar...
+   |                                                 ----^^^^^^^^^^^^^^
+   |                                                 |
+   |                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_reference_batch_test.rs:27:81
+   |
+27 |     let _smelt_tmp_5 = ::std::rc::Rc::new(|closure_arg_0: Option<SmeltUnknown>, mut closure_arg_1: SmeltUnknown| {
+   |                                                                                 ----^^^^^^^^^^^^^
+   |                                                                                 |
+   |                                                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+ --> src/funnel_reference_batch_test.rs:8:9
+  |
+8 |     let mut batch_funnel: SmeltUnknown;
+  |         ----^^^^^^^^^^^^
+  |         |
+  |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/funnel_reference_batch_test.rs:47:27
+   |
+47 |     _smelt_tmp_11 = { let mut assigned = _smelt_tmp_8.clone().clone(); assigned.extend(_smelt_tmp_10.clone().iter().map(|(key, value...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: value assigned to `batch_funnel` is never read
+  --> src/funnel_reference_batch_test.rs:37:5
+   |
+37 |     batch_funnel = _smelt_tmp_7.clone();
+   |     ^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: unnecessary `unsafe` block
+  --> src/funnel_remeda_debounce_test.rs:82:1
+   |
+82 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+ --> src/funnel_remeda_debounce_test.rs:9:9
+  |
+9 |     let mut debouncing_funnel: SmeltUnknown;
+  |         ----^^^^^^^^^^^^^^^^^
+  |         |
+  |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/funnel_remeda_debounce_test.rs:111:27
+    |
+111 |     _smelt_tmp_38 = { let mut assigned = _smelt_tmp_21.clone().clone(); assigned.extend(_smelt_tmp_25.clone().iter().map(|(key, val...
+    |                           ----^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/funnel_remeda_debounce_test.rs:165:27
+    |
+165 |     _smelt_tmp_38 = { let mut assigned = _smelt_tmp_21.clone().clone(); assigned.extend(_smelt_tmp_25.clone().iter().map(|(key, val...
+    |                           ----^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/groupByProp.rs:34:9
+   |
+34 |     let mut output: SmeltRecord<String, Vec<SmeltUnknown>> = match (_smelt_tmp_7.clone()).into_smelt_unknown() { SmeltUnknown::Objec...
+   |         ----^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+ --> src/heap.rs:7:23
+  |
+7 | pub(crate) fn heapify(mut heap: &mut Vec<SmeltUnknown>, compare_fn: &dyn Fn(SmeltUnknown, SmeltUnknown) -> f64) -> () {
+  |                       ----^^^^
+  |                       |
+  |                       help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/heap.rs:25:33
+   |
+25 | pub(crate) fn heap_maybe_insert(mut heap: &mut Vec<SmeltUnknown>, compare_fn: &dyn Fn(SmeltUnknown, SmeltUnknown) -> f64, item: Smel...
+   |                                 ----^^^^
+   |                                 |
+   |                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/heap.rs:51:30
+   |
+51 | pub(crate) fn heap_sift_down(mut heap: &mut Vec<SmeltUnknown>, index: f64, compare_fn: &dyn Fn(SmeltUnknown, SmeltUnknown) -> f64) -...
+   |                              ----^^^^
+   |                              |
+   |                              help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/intersection.rs:55:1
+   |
+55 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/intersectionWith.rs:32:36
+   |
+32 |     let _smelt_tmp_4: bool = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                                    ----^^^^^^^^^^^^^^
+   |                                    |
+   |                                    help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/intersectionWith.rs:19:9
+   |
+19 |     let mut other = other.clone();
+   |         ----^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/invert.rs:25:9
+   |
+25 |     let mut result: SmeltRecord<String, SmeltUnknown> = _smelt_tmp_5.clone();
+   |         ----^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/isDeepEqual_test.rs:21:65
+   |
+21 |     let _smelt_tmp_4: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_3.clone().clone(); assigned.extend(match (...
+   |                                                                 ----^^^^^^^^
+   |                                                                 |
+   |                                                                 help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/isIncludedIn.rs:22:1
+   |
+22 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/lazyDataLastImpl.rs:12:9
+   |
+12 |     let mut args = args.clone();
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/map.rs:21:49
+   |
+21 |     let _smelt_tmp_2: Vec<SmeltUnknown> = { let mut smelt_callback = callbackfn; let smelt_array = data.clone(); smelt_array.iter()....
+   |                                                 ----^^^^^^^^^^^^^^
+   |                                                 |
+   |                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/mapToObj.rs:30:9
+   |
+30 |     let mut out: SmeltRecord<String, SmeltUnknown> = _smelt_tmp_8.clone();
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/mapValues.rs:27:9
+   |
+27 |     let mut out: SmeltRecord<String, SmeltUnknown> = _smelt_tmp_7.clone();
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/mapWithFeedback.rs:22:1
+   |
+22 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/merge.rs:18:65
+   |
+18 |     let _smelt_tmp_3: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_2.clone().clone(); assigned.extend(match (...
+   |                                                                 ----^^^^^^^^
+   |                                                                 |
+   |                                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/mergeAll.rs:22:26
+   |
+22 |     _smelt_tmp_8 = { let mut assigned = _smelt_tmp_7.clone().clone(); assigned.extend(out.clone().iter().map(|(key, value)| (key.clo...
+   |                          ----^^^^^^^^
+   |                          |
+   |                          help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/mergeDeep.rs:28:65
+   |
+28 |     let _smelt_tmp_7: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_6.clone().clone(); assigned.extend(match (...
+   |                                                                 ----^^^^^^^^
+   |                                                                 |
+   |                                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/mergeDeep.rs:29:9
+   |
+29 |     let mut output: SmeltRecord<String, SmeltUnknown> = _smelt_tmp_7.clone();
+   |         ----^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/nthBy.rs:16:123
+   |
+16 | ..._third_party_remeda_packages_remeda_src_nth_by_ts(mut data: &mut Vec<SmeltUnknown>, compare_fn: &dyn Fn(SmeltUnknown, SmeltUnknow...
+   |                                                      ----^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/omit.rs:19:9
+   |
+19 |     let mut out: SmeltRecord<String, SmeltUnknown>;
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/omit.rs:40:27
+   |
+40 |     _smelt_tmp_10 = { let mut assigned = _smelt_tmp_9.clone().clone(); assigned.extend(match (data.clone()).into_smelt_unknown() { S...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/omit.rs:114:27
+    |
+114 |     _smelt_tmp_17 = { let mut assigned = _smelt_tmp_16.clone().clone(); assigned.extend(match (data.clone()).into_smelt_unknown() {...
+    |                           ----^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: value assigned to `key` is never read
+   --> src/omit.rs:122:5
+    |
+122 |     key = _smelt_tmp_18.get({ let len = _smelt_tmp_18.len() as i64; let index = _smelt_tmp_19.clone() as i64; let normalized = if i...
+    |     ^^^
+    |
+    = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+  --> src/omitBy.rs:27:65
+   |
+27 |     let _smelt_tmp_7: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_6.clone().clone(); assigned.extend(match (...
+   |                                                                 ----^^^^^^^^
+   |                                                                 |
+   |                                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/omitBy.rs:28:9
+   |
+28 |     let mut out: SmeltRecord<String, SmeltUnknown> = _smelt_tmp_7.clone();
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/once.rs:15:1
+   |
+15 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/partialBind.rs:10:9
+   |
+10 |     let mut partial = partial.clone();
+   |         ----^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+ --> src/partialLastBind.rs:9:9
+  |
+9 |     let mut partial = partial.clone();
+  |         ----^^^^^^^
+  |         |
+  |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/pathOr_test.rs:206:9
+    |
+206 |     let mut obj: SmeltUnknown = SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_3.clone()).clone()));
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/pickBy.rs:26:9
+   |
+26 |     let mut out: SmeltRecord<String, SmeltUnknown> = _smelt_tmp_6.clone();
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/pipe.rs:50:40
+   |
+50 |     _smelt_tmp_5 = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown| {
+   |                                        ----^^^^^^^^^^^^^
+   |                                        |
+   |                                        help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/pipe.rs:68:40
+   |
+68 |     _smelt_tmp_5 = ::std::rc::Rc::new(|mut closure_arg_0: SmeltUnknown| {
+   |                                        ----^^^^^^^^^^^^^
+   |                                        |
+   |                                        help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/pipe.rs:62:50
+   |
+62 |     let _smelt_tmp_15: Vec<SmeltUnknown> = { let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnknown, closure_arg_1...
+   |                                                  ----^^^^^^^^^^^^^^
+   |                                                  |
+   |                                                  help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/pipe.rs:237:48
+    |
+237 | pub(crate) fn process_item(item: SmeltUnknown, mut accumulator: &mut Vec<SmeltUnknown>, lazy_sequence: Vec<SmeltUnknown>) -> bool {
+    |                                                ----^^^^^^^^^^^
+    |                                                |
+    |                                                help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/pipe.rs:362:37
+    |
+362 | pub(crate) fn prepare_lazy_function(mut func: SmeltUnknown) -> SmeltUnknown {
+    |                                     ----^^^^
+    |                                     |
+    |                                     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/pipe.rs:371:65
+    |
+371 |     let _smelt_tmp_9: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_5.clone().clone(); assigned.extend(_smelt...
+    |                                                                 ----^^^^^^^^
+    |                                                                 |
+    |                                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+ --> src/piped.rs:9:9
+  |
+9 |     let mut functions = functions.clone();
+  |         ----^^^^^^^^^
+  |         |
+  |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/prop.rs:32:9
+   |
+32 |     let mut args = args.clone();
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/purryFromLazy.rs:42:9
+   |
+42 |     let mut lazy_definition_1 = lazy_definition_1.clone();
+   |         ----^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/purryOn.rs:17:9
+   |
+17 |     let mut args = args.clone();
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/purryOrderRules.rs:78:9
+   |
+78 |     let mut arg = arg.clone();
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: value assigned to `arg` is never read
+  --> src/purryOrderRules.rs:62:33
+   |
+62 |     let mut arg: SmeltUnknown = SmeltUnknown::Null;
+   |                                 ^^^^^^^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: value assigned to `arg_removed` is never read
+  --> src/purryOrderRules.rs:63:46
+   |
+63 |     let mut arg_removed: Vec<SmeltUnknown> = Vec::new();
+   |                                              ^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+   --> src/purryOrderRules.rs:187:9
+    |
+187 |     let mut projected_a: SmeltUnknown = _smelt_tmp_7.clone();
+    |         ----^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/purryOrderRules.rs:189:9
+    |
+189 |     let mut projected_b: SmeltUnknown = _smelt_tmp_8.clone();
+    |         ----^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+ --> src/quickSelect.rs:7:43
+  |
+7 | pub(crate) fn quick_select_implementation(mut data: &mut Vec<SmeltUnknown>, left: f64, right: f64, index: f64, compare_fn: &dyn Fn(Sm...
+  |                                           ----^^^^
+  |                                           |
+  |                                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/quickSelect.rs:51:29
+   |
+51 | pub(crate) fn partition_798(mut data: &mut Vec<SmeltUnknown>, left: f64, right: f64, compare_fn: &dyn Fn(SmeltUnknown, SmeltUnknown)...
+   |                             ----^^^^
+   |                             |
+   |                             help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/quickSelect.rs:79:28
+   |
+79 | pub(crate) fn quick_select(mut data: &mut Vec<SmeltUnknown>, index: f64, compare_fn: &dyn Fn(SmeltUnknown, SmeltUnknown) -> f64) -> ...
+   |                            ----^^^^
+   |                            |
+   |                            help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/range.rs:49:27
+   |
+49 |     _smelt_tmp_16 = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                           ----^^^^^^^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/reverse.rs:16:38
+   |
+16 | pub(crate) fn reverse_implementation(mut array: &mut Vec<SmeltUnknown>) -> Vec<SmeltUnknown> {
+   |                                      ----^^^^^
+   |                                      |
+   |                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sample.rs:73:9
+   |
+73 |     let mut data = data.clone();
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sample.rs:78:27
+   |
+78 |     _smelt_tmp_24 = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                           ----^^^^^^^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sample.rs:79:9
+   |
+79 |     let mut data = data.clone();
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sample.rs:87:9
+   |
+87 |     let mut sample_indices = sample_indices.clone();
+   |         ----^^^^^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sample.rs:94:27
+   |
+94 |     _smelt_tmp_26 = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                           ----^^^^^^^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sample.rs:95:9
+   |
+95 |     let mut sample_indices = sample_indices.clone();
+   |         ----^^^^^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sample_test.rs:21:40
+   |
+21 |     let _smelt_tmp_2: Vec<i64> = { let mut smelt_callback = ::std::rc::Rc::new(|closure_arg_0: SmeltUnknown, closure_arg_1: i64, clo...
+   |                                        ----^^^^^^^^^^^^^^
+   |                                        |
+   |                                        help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/set.rs:19:65
+   |
+19 |     let _smelt_tmp_5: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_3.clone().clone(); assigned.extend(match (...
+   |                                                                 ----^^^^^^^^
+   |                                                                 |
+   |                                                                 help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/setPath.rs:66:27
+   |
+66 |     _smelt_tmp_27 = { let mut assigned = _smelt_tmp_23.clone().clone(); assigned.extend(remaining.clone().iter().map(|(key, value)| ...
+   |                           ----^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/setPath_test.rs:394:9
+    |
+394 |     let mut test_object: SmeltUnknown = SmeltUnknown::Object(SmeltObject::from_unknown_record((_smelt_tmp_8.clone()).clone()));
+    |         ----^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sortBy.rs:16:125
+   |
+16 | ...third_party_remeda_packages_remeda_src_sort_by_ts(mut data: &mut Vec<SmeltUnknown>, compare_fn: &dyn Fn(SmeltUnknown, SmeltUnknow...
+   |                                                      ----^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sortedIndexBy.rs:18:9
+   |
+18 |     let mut value: SmeltUnknown = _smelt_tmp_4.clone();
+   |         ----^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sortedIndexBy.rs:21:9
+   |
+21 |     let mut data = data.clone();
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/sortedIndexBy_test.rs:14:1
+   |
+14 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/sortedLastIndexBy.rs:18:9
+   |
+18 |     let mut value: SmeltUnknown = _smelt_tmp_4.clone();
+   |         ----^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/sortedLastIndexBy.rs:20:9
+   |
+20 |     let mut array = array.clone();
+   |         ----^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/sortedLastIndexBy_test.rs:14:1
+   |
+14 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/splice.rs:16:37
+   |
+16 | pub(crate) fn splice_implementation(mut items: &mut Vec<SmeltUnknown>, start: f64, delete_count: f64, replacement: Vec<SmeltUnknown>...
+   |                                     ----^^^^^
+   |                                     |
+   |                                     help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/splitWhen.rs:27:35
+   |
+27 |     let _smelt_tmp_4: f64 = { let mut smelt_callback = ::std::rc::Rc::new(move |closure_arg_0: SmeltUnknown, closure_arg_1: i64, clo...
+   |                                   ----^^^^^^^^^^^^^^
+   |                                   |
+   |                                   help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/stringToPath.rs:39:191
+   |
+39 | ...rap_or(SmeltUnknown::Null) { SmeltUnknown::Object(mut getter) if getter.contains_key("__smelt_get") => match getter.remove("__sme...
+   |                                                      ----^^^^^^
+   |                                                      |
+   |                                                      help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/stringToPath.rs:32:9
+   |
+32 |     let mut path_segment_re: SmeltRegExp = _smelt_tmp_9.clone();
+   |         ----^^^^^^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: value assigned to `match_` is never read
+  --> src/stringToPath.rs:33:44
+   |
+33 |     let mut match_: Option<SmeltUnknown> = None::<SmeltUnknown>;
+   |                                            ^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+  --> src/stringToPath.rs:91:9
+   |
+91 |     let mut non_negative_integer_re: SmeltRegExp = _smelt_tmp_1.clone();
+   |         ----^^^^^^^^^^^^^^^^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+ --> src/swapInPlace.rs:7:29
+  |
+7 | pub(crate) fn swap_in_place(mut data: &mut Vec<SmeltUnknown>, i: f64, j: f64) -> () {
+  |                             ----^^^^
+  |                             |
+  |                             help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/swapProps.rs:27:65
+   |
+27 |     let _smelt_tmp_7: SmeltRecord<String, SmeltUnknown> = { let mut assigned = _smelt_tmp_5.clone().clone(); assigned.extend(match (...
+   |                                                                 ----^^^^^^^^
+   |                                                                 |
+   |                                                                 help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/take.rs:36:1
+   |
+36 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/toCamelCase.rs:18:67
+   |
+18 |     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String, mut closure_arg_1: SmeltUnknown| {
+   |                                                                   ----^^^^^^^^^^^^^
+   |                                                                   |
+   |                                                                   help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/toCamelCase.rs:136:27
+    |
+136 |     _smelt_tmp_12 = { let mut smelt_callback = ::std::rc::Rc::new({
+    |                           ----^^^^^^^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/toCamelCase.rs:226:9
+    |
+226 |     let mut lower_case_character_re: SmeltRegExp = _smelt_tmp_2.clone();
+    |         ----^^^^^^^^^^^^^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/toTitleCase.rs:18:67
+   |
+18 |     let _smelt_tmp_2 = ::std::rc::Rc::new(|closure_arg_0: String, mut closure_arg_1: SmeltUnknown| {
+   |                                                                   ----^^^^^^^^^^^^^
+   |                                                                   |
+   |                                                                   help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/toTitleCase.rs:95:27
+   |
+95 |     _smelt_tmp_12 = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                           ----^^^^^^^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/toTitleCase.rs:144:9
+    |
+144 |     let mut lower_case_character_re: SmeltRegExp = _smelt_tmp_2.clone();
+    |         ----^^^^^^^^^^^^^^^^^^^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/truncate.rs:19:87
+   |
+19 |     let _smelt_tmp_3 = ::std::rc::Rc::new(|closure_arg_0: String, closure_arg_1: f64, mut closure_arg_2: SmeltUnknown| {
+   |                                                                                       ----^^^^^^^^^^^^^
+   |                                                                                       |
+   |                                                                                       help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/unique.rs:22:1
+   |
+22 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: unnecessary `unsafe` block
+  --> src/uniqueBy.rs:25:1
+   |
+25 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/uniqueBy.rs:31:9
+   |
+31 |     let mut key: SmeltUnknown = _smelt_tmp_7.clone();
+   |         ----^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/when.rs:15:9
+   |
+15 |     let mut args = args.clone();
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: unnecessary `unsafe` block
+  --> src/words.rs:52:1
+   |
+52 | unsafe {
+   | ^^^^^^ unnecessary `unsafe` block
+
+warning: variable does not need to be mutable
+  --> src/zip.rs:57:26
+   |
+57 |     _smelt_tmp_8 = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                          ----^^^^^^^^^^^^^^
+   |                          |
+   |                          help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/zip.rs:104:27
+    |
+104 |     _smelt_tmp_11 = { let mut smelt_callback = ::std::rc::Rc::new({
+    |                           ----^^^^^^^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/zipWith.rs:70:9
+   |
+70 |     let mut datum = datum.clone();
+   |         ----^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/zipWith.rs:91:27
+   |
+91 |     _smelt_tmp_11 = { let mut smelt_callback = ::std::rc::Rc::new({
+   |                           ----^^^^^^^^^^^^^^
+   |                           |
+   |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+  --> src/zipWith.rs:93:9
+   |
+93 |     let mut datum = datum.clone();
+   |         ----^^^^^
+   |         |
+   |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/zipWith.rs:118:9
+    |
+118 |     let mut datum = datum.clone();
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/zipWith.rs:140:27
+    |
+140 |     _smelt_tmp_14 = { let mut smelt_callback = ::std::rc::Rc::new({
+    |                           ----^^^^^^^^^^^^^^
+    |                           |
+    |                           help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/zipWith.rs:141:9
+    |
+141 |     let mut datum = datum.clone();
+    |         ----^^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/main.rs:2155:9
+     |
+2155 |     let mut this: Self = TestClass { foo: String::new() };
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+    --> src/main.rs:2170:9
+     |
+2170 |     let mut this: Self = Empty {  };
+     |         ----^^^^
+     |         |
+     |         help: remove this `mut`
+
+Some errors have detailed explanations: E0277, E0308.
+For more information about an error, try `rustc --explain E0277`.
+warning: `remeda_smelt_probe` (bin "remeda_smelt_probe") generated 262 warnings
+error: could not compile `remeda_smelt_probe` (bin "remeda_smelt_probe") due to 5 previous errors; 262 warnings emitted

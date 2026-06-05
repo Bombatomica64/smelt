@@ -414,7 +414,9 @@ impl ModuleBuilder<'_> {
             };
             let ty = match op {
                 DictProjectionOp::FromEntries => dict_ty,
-                DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(string_ty)),
+                DictProjectionOp::Keys | DictProjectionOp::ForInKeys | DictProjectionOp::Symbols => {
+                    self.ctx.krate.types.intern(Type::List(string_ty))
+                }
                 DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(unknown)),
                 DictProjectionOp::Entries => {
                     let entry_ty = self

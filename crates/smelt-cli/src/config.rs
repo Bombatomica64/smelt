@@ -4,6 +4,23 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use std::path::PathBuf;
 
+/// Kind of Rust crate target emitted by Smelt.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, JsonSchema, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputKind {
+    /// Generate an executable Rust program rooted at `src/main.rs`.
+    Program,
+    /// Generate a Rust library crate rooted at `src/lib.rs`.
+    Library,
+}
+
+impl Default for OutputKind {
+    /// Returns the default output kind used by existing Smelt manifests.
+    fn default() -> Self {
+        Self::Program
+    }
+}
+
 /// Project metadata from the [project] section of Smelt.toml.
 #[derive(Deserialize, Debug, JsonSchema)]
 #[expect(
@@ -75,6 +92,12 @@ impl Config {
         self.output.crate_name.as_deref()
     }
 
+    /// Get the generated Rust crate target kind.
+    #[must_use]
+    pub fn output_kind(&self) -> OutputKind {
+        self.output.kind
+    }
+
     /// Whether the generated output should be built automatically.
     #[must_use]
     pub fn should_build_output(&self) -> bool {
@@ -102,6 +125,9 @@ pub struct Output {
     /// Optional crate name override.
     #[serde(rename = "crate-name")]
     crate_name: Option<String>,
+    /// Generated Rust crate target kind.
+    #[serde(default)]
+    kind: OutputKind,
     /// Whether to build the generated crate.
     build: Option<bool>,
 }

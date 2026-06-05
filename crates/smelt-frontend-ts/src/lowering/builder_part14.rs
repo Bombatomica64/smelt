@@ -2172,9 +2172,6 @@ impl ModuleBuilder<'_> {
                 entries.push((key, value));
                 continue;
             }
-            if Self::is_computed_symbol_key(object_property) {
-                continue;
-            }
             let key = self.object_property_key_expr(object_property, body)?;
             let value_hint = self.object_property_value_hint(object_property, type_hint);
             let value = self.object_property_value_expr(object_property, body, value_hint)?;
@@ -2706,19 +2703,27 @@ impl ModuleBuilder<'_> {
         }))
     }
 
-    /// Return true for computed symbol keys that `Object.entries` ignores.
+    /// Return true for computed symbol keys that getter/method enumeration ignores.
     fn is_computed_symbol_key(object_property: &oxc::ast::ast::ObjectProperty<'_>) -> bool {
         if !object_property.computed {
             return false;
         }
-        matches!(
-            &object_property.key,
-            PropertyKey::CallExpression(call)
-                if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol")
-        ) || matches!(
+        Self::is_direct_computed_symbol_call_key(object_property) || matches!(
             &object_property.key,
             PropertyKey::Identifier(identifier) if identifier.name.contains("SYMBOL")
         )
+    }
+
+    /// Return true when a computed key is a direct `Symbol(...)` expression.
+    fn is_direct_computed_symbol_call_key(
+        object_property: &oxc::ast::ast::ObjectProperty<'_>,
+    ) -> bool {
+        object_property.computed
+            && matches!(
+                &object_property.key,
+                PropertyKey::CallExpression(call)
+                    if matches!(&call.callee, Expression::Identifier(callee) if callee.name == "Symbol")
+            )
     }
 
     /// Extract the source string from a computed string literal key with erased assertions.
@@ -2856,7 +2861,15 @@ impl ModuleBuilder<'_> {
         {
             return ty;
         }
-        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let string_ty = self.ctx.krate.types.intern(Type::String);
+        let key_ty = if entries
+            .iter()
+            .all(|(key, _)| Self::expr_ty(body, *key) == string_ty)
+        {
+            string_ty
+        } else {
+            self.ctx.krate.types.intern(Type::Unknown)
+        };
         let first_value_ty = entries
             .first()
             .map(|(_, value)| Self::expr_ty(body, *value));

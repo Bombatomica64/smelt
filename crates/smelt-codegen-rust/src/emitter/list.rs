@@ -112,9 +112,10 @@ impl FunctionEmitter<'_> {
             self.mir.types.get(right_ty),
             Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
         ) || self.is_erased_class_type(right_ty);
-        if left_erased || right_erased {
-            let unknown_ty = self.type_id(Type::Unknown)?;
-            let list_ty = self.type_id(Type::List(unknown_ty))?;
+        if (left_erased || right_erased)
+            && let Some(unknown_ty) = self.find_type_id(&Type::Unknown)
+            && let Some(list_ty) = self.find_type_id(&Type::List(unknown_ty))
+        {
             let left_text = self.value_at_type_text(&self.operand_text(left)?, left_ty, list_ty)?;
             let right_text =
                 self.value_at_type_text(&self.operand_text(right)?, right_ty, list_ty)?;
@@ -489,27 +490,32 @@ impl FunctionEmitter<'_> {
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let list_ty = self.operand_ty(list)?;
+        if matches!(
+            self.mir.types.get(list_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(list_ty)
+        {
+            let Some(Type::List(item_ty)) = self.mir.types.get(dest_ty) else {
+                return Ok("Default::default()".to_owned());
+            };
+            if self.mir.types.get(*item_ty) != Some(&Type::Unknown) {
+                return Err(EmitError::new(
+                    "erased array flat destination must be list[unknown]",
+                ));
+            }
+            let depth_text = self.flat_depth_text(depth)?;
+            let list_text = self.operand_text(list)?;
+            return Ok(format!(
+                "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, depth: i64) -> Vec<SmeltUnknown> {{ if depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = ({depth_text}).max(0.0).floor() as i64; let smelt_flat_input = match {list_text} {{ SmeltUnknown::Array(values) => values.into_vec(), SmeltUnknown::String(value) => value.chars().map(|ch| SmeltUnknown::String(ch.to_string())).collect::<Vec<_>>(), _ => Vec::new() }}; smelt_flat_values(smelt_flat_input, smelt_flat_depth) }}"
+            ));
+        }
         let Some(Type::List(nested_ty)) = self.mir.types.get(list_ty) else {
             return Ok("Default::default()".to_owned());
         };
         if self.mir.types.get(*nested_ty) == Some(&Type::Unknown)
             && self.mir.types.get(dest_ty) == Some(&Type::List(*nested_ty))
         {
-            let depth_text = match depth {
-                None => "1.0_f64".to_owned(),
-                Some(depth_operand) => {
-                    let text = self.operand_text(depth_operand)?;
-                    match self.mir.types.get(self.operand_ty(depth_operand)?) {
-                        Some(Type::Optional(inner))
-                            if self.mir.types.get(*inner) == Some(&Type::Float) =>
-                        {
-                            format!("{text}.clone().unwrap_or(1.0)")
-                        }
-                        Some(Type::Float) => text,
-                        _ => return Err(EmitError::new("array flat depth must be numeric")),
-                    }
-                }
-            };
+            let depth_text = self.flat_depth_text(depth)?;
             return Ok(format!(
                 "{{ fn smelt_flat_values(values: Vec<SmeltUnknown>, depth: i64) -> Vec<SmeltUnknown> {{ if depth <= 0 {{ return values; }} values.into_iter().flat_map(|value| match value {{ SmeltUnknown::Array(items) => smelt_flat_values(items.into_vec(), depth - 1), value => vec![value] }}).collect::<Vec<_>>() }} let smelt_flat_depth = ({depth_text}).max(0.0).floor() as i64; smelt_flat_values({}.clone(), smelt_flat_depth) }}",
                 self.operand_text(list)?
@@ -532,6 +538,25 @@ impl FunctionEmitter<'_> {
             "{}.iter().flat_map(|items| items.iter().cloned()).collect::<Vec<_>>()",
             self.operand_text(list)?
         ))
+    }
+
+    /// Emits the JavaScript `Array.flat` depth expression as a runtime number.
+    fn flat_depth_text(&self, depth: Option<&Operand>) -> Result<String, EmitError> {
+        match depth {
+            None => Ok("1.0_f64".to_owned()),
+            Some(depth_operand) => {
+                let text = self.operand_text(depth_operand)?;
+                match self.mir.types.get(self.operand_ty(depth_operand)?) {
+                    Some(Type::Optional(inner))
+                        if self.mir.types.get(*inner) == Some(&Type::Float) =>
+                    {
+                        Ok(format!("{text}.clone().unwrap_or(1.0)"))
+                    }
+                    Some(Type::Float) => Ok(text),
+                    _ => Err(EmitError::new("array flat depth must be numeric")),
+                }
+            }
+        }
     }
 
     /// Converts array keys, values, and entries projections to Rust text.

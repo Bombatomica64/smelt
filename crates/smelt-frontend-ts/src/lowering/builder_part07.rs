@@ -230,7 +230,7 @@ impl ModuleBuilder<'_> {
                 let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::DictProjection {
-                        op: DictProjectionOp::Keys,
+                        op: DictProjectionOp::ForInKeys,
                         dict: object,
                     },
                     ty: list_ty,
@@ -252,7 +252,7 @@ impl ModuleBuilder<'_> {
                 let list_ty = self.ctx.krate.types.intern(Type::List(key_ty));
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::DictProjection {
-                        op: DictProjectionOp::Keys,
+                        op: DictProjectionOp::ForInKeys,
                         dict: object,
                     },
                     ty: list_ty,

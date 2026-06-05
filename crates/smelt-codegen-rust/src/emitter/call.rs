@@ -1,6 +1,7 @@
 //! Call emission helpers.
 
 use super::*;
+use smelt_hir::FunctionType;
 
 impl FunctionEmitter<'_> {
     /// Return true when rendered argument text is a generated no-op callback.
@@ -561,25 +562,75 @@ impl FunctionEmitter<'_> {
                     return Err(EmitError::new("indirect call target is not a function"));
                 };
                 let callee_text = self.operand_text(indirect_callee)?;
-                let rendered_args = args
-                    .iter()
-                    .enumerate()
-                    .map(|(index, arg)| {
-                        let target_ty = function.params.get(index).copied().ok_or_else(|| {
-                            EmitError::new("indirect call has too many arguments")
-                        })?;
-                        if function.mutable_params.contains(&index) {
-                            self.mutable_reference_argument_text(arg, target_ty)
-                        } else {
-                            self.value_at_type(arg, target_ty)
-                        }
-                    })
-                    .collect::<Result<Vec<_>, _>>()?
-                    .join(", ");
+                let rendered_args = self.indirect_call_args_text(function, args)?;
                 let suffix = if function.may_throw { "?" } else { "" };
                 Ok(format!("({callee_text})({rendered_args}){suffix}"))
             }
         }
+    }
+
+    /// Renders arguments for a first-class function call using the callee's
+    /// parameter types, including mutable callback arguments.
+    fn indirect_call_args_text(
+        &self,
+        function: &FunctionType,
+        args: &[Operand],
+    ) -> Result<String, EmitError> {
+        args.iter()
+            .enumerate()
+            .map(|(index, arg)| {
+                let target_ty = function
+                    .params
+                    .get(index)
+                    .copied()
+                    .ok_or_else(|| EmitError::new("indirect call has too many arguments"))?;
+                if function.mutable_params.contains(&index) {
+                    self.mutable_reference_argument_text(arg, target_ty)
+                } else {
+                    self.value_at_type(arg, target_ty)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(|rendered_args| rendered_args.join(", "))
+    }
+
+    /// Emits an optional first-class function call as an optional return value.
+    fn optional_indirect_call_text_for_dest(
+        &self,
+        callee: &Operand,
+        args: &[Operand],
+        dest_ty: TypeId,
+        unwrap_errors: bool,
+    ) -> Result<Option<String>, EmitError> {
+        let Some(Type::Optional(inner_callee_ty)) = self.mir.types.get(self.operand_ty(callee)?)
+        else {
+            return Ok(None);
+        };
+        let Some(Type::Function(function)) = self.mir.types.get(*inner_callee_ty) else {
+            return Ok(None);
+        };
+        let Some(Type::Optional(inner_dest_ty)) = self.mir.types.get(dest_ty) else {
+            return Ok(None);
+        };
+
+        let callee_text = self.operand_text(callee)?;
+        let rendered_args = self.indirect_call_args_text(function, args)?;
+        let raw_call = if function.may_throw {
+            if unwrap_errors {
+                format!(
+                    "(smelt_function)({rendered_args}).unwrap_or_else(|error| panic!(\"{{}}\", error))"
+                )
+            } else {
+                format!("(smelt_function)({rendered_args})?")
+            }
+        } else {
+            format!("(smelt_function)({rendered_args})")
+        };
+        let coerced_call =
+            self.value_at_type_text(&raw_call, function.return_ty, *inner_dest_ty)?;
+        Ok(Some(format!(
+            "{callee_text}.clone().map(|smelt_function| {coerced_call})"
+        )))
     }
 
     /// Converts a function call to Rust text and coerces it to the destination type.
@@ -589,6 +640,12 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
+        if let Callee::Indirect(indirect_callee) = callee
+            && let Some(call_text) =
+                self.optional_indirect_call_text_for_dest(indirect_callee, args, dest_ty, false)?
+        {
+            return Ok(call_text);
+        }
         let mut call_text = self.call_text(callee, args)?;
         if args.is_empty() && call_text.ends_with("(Vec::new())") {
             call_text = format!("{}()", call_text.trim_end_matches("(Vec::new())"));
@@ -664,7 +721,16 @@ impl FunctionEmitter<'_> {
         args: &[Operand],
         dest_ty: TypeId,
     ) -> Result<String, EmitError> {
-        let call_text = self.call_text(callee, args)?;
+        if let Callee::Indirect(indirect_callee) = callee
+            && let Some(call_text) =
+                self.optional_indirect_call_text_for_dest(indirect_callee, args, dest_ty, true)?
+        {
+            return Ok(call_text);
+        }
+        let mut call_text = self.call_text(callee, args)?;
+        if let Some(stripped) = call_text.strip_suffix('?') {
+            call_text = format!("{stripped}.unwrap_or_else(|error| panic!(\"{{}}\", error))");
+        }
         let source_ty = self.call_source_ty(callee)?;
         self.value_at_type_text(&call_text, source_ty, dest_ty)
     }

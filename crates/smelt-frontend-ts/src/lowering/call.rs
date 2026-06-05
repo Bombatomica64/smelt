@@ -709,6 +709,7 @@ impl<'builder> ModuleBuilder<'builder> {
         Self::node_process_cwd_call,
         Self::commonjs_require_call,
         Self::object_metadata_mutation_call,
+        Self::buffer_alloc_call,
         Self::buffer_from_call,
         Self::lodash_negate_call,
         Self::lodash_has_call,
@@ -1677,6 +1678,9 @@ impl<'builder> ModuleBuilder<'builder> {
             return Ok(Some(expr));
         }
         if let Some(expr) = self.object_from_entries_call(call, body)? {
+            return Ok(Some(expr));
+        }
+        if let Some(expr) = self.object_create_call(call, body)? {
             return Ok(Some(expr));
         }
         self.object_get_prototype_of_call(call, body)

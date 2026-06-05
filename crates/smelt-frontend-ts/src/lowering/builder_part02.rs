@@ -86,7 +86,9 @@ impl ModuleBuilder<'_> {
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_narrowed_locals = std::mem::take(&mut self.narrowed_locals);
         let saved_async = self.current_async;
+        let saved_return_ty = self.current_return_ty;
         self.current_async = arrow.r#async;
+        self.current_return_ty = declared_return_ty;
         let mut body = Body::new(None, self.span(arrow.body.span.start, arrow.body.span.end));
         let mut params = Vec::new();
         for (param_index, param) in arrow.params.items.iter().enumerate() {
@@ -101,6 +103,7 @@ impl ModuleBuilder<'_> {
                     self.locals = saved_locals;
                     self.narrowed_locals = saved_narrowed_locals;
                     self.current_async = saved_async;
+                    self.current_return_ty = saved_return_ty;
                     self.pop_type_parameter_scope();
                     return Err(error);
                 }
@@ -165,6 +168,7 @@ impl ModuleBuilder<'_> {
                 self.locals = saved_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -175,6 +179,7 @@ impl ModuleBuilder<'_> {
                 self.locals = saved_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -184,17 +189,19 @@ impl ModuleBuilder<'_> {
             let ty = match self.ts_type_to_hir(&annotation.type_annotation) {
                 Ok(ty) => ty,
                 Err(error) => {
-                    self.locals = saved_locals;
-                    self.narrowed_locals = saved_narrowed_locals;
-                    self.current_async = saved_async;
-                    self.pop_type_parameter_scope();
-                    return Err(error);
+                self.locals = saved_locals;
+                self.narrowed_locals = saved_narrowed_locals;
+                self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
+                self.pop_type_parameter_scope();
+                return Err(error);
                 }
             };
             let Ok((ty, item_ty)) = self.rest_param_array_type(ty) else {
                 self.locals = saved_locals;
                 self.narrowed_locals = saved_narrowed_locals;
                 self.current_async = saved_async;
+                self.current_return_ty = saved_return_ty;
                 self.pop_type_parameter_scope();
                 return Err(SmeltError::unsupported(
                     self.span(rest.span.start, rest.span.end),
@@ -269,6 +276,7 @@ impl ModuleBuilder<'_> {
         self.locals = saved_locals;
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
+        self.current_return_ty = saved_return_ty;
         if let Some(error) = errors.into_iter().next() {
             self.pop_type_parameter_scope();
             return Err(error);

@@ -28,6 +28,29 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         target: TypeId,
     ) -> Result<String, EmitError> {
+        let target_is_erased = matches!(
+            self.mir.types.get(target),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) || self.is_erased_class_type(target);
+        if target_is_erased
+            && let Operand::Copy(Place::Field { base, field })
+            | Operand::Move(Place::Field { base, field }) = operand
+            && matches!(
+                self.mir.types.get(self.local_decl(*base)?.ty),
+                Some(Type::String)
+            )
+        {
+            let field_text = self.string_field_text(&self.local_value_text(*base)?, *field)?;
+            let source_ty = match self.symbol_name(*field)? {
+                "source" => self.type_id(Type::String)?,
+                "global" | "ignoreCase" | "ignore_case" | "multiline" => {
+                    self.type_id(Type::Bool)?
+                }
+                "length" => self.type_id(Type::Int)?,
+                _ => self.type_id(Type::Unknown)?,
+            };
+            return self.erase_value_text(&field_text, source_ty);
+        }
         if self.operand_ty(operand)? == target
             && !matches!(self.mir.types.get(target), Some(Type::Function(_)))
         {
@@ -767,7 +790,12 @@ impl FunctionEmitter<'_> {
             Some(Type::Class { .. }) => {
                 self.class_unknown_object_text(&text, self.operand_ty(operand)?)
             }
-            Some(Type::Set(_)) => Ok("SmeltUnknown::Array(Vec::new().into())".to_owned()),
+            Some(Type::Set(item)) => {
+                let value_wrap = self.erase_value_text("value", *item)?;
+                Ok(format!(
+                    "{{ let mut values = {text}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}"
+                ))
+            }
             Some(Type::Tuple(items)) => {
                 let values = items
                     .iter()
@@ -921,7 +949,12 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Class { .. }) if self.is_erased_class_type(ty) => Ok(value_text.to_owned()),
             Some(Type::Class { .. }) => self.class_unknown_object_text(value_text, ty),
-            Some(Type::Set(_)) => Ok("SmeltUnknown::Array(Vec::new().into())".to_owned()),
+            Some(Type::Set(item)) => {
+                let value_wrap = self.erase_value_text("value", *item)?;
+                Ok(format!(
+                    "{{ let mut values = {value_text}.clone().into_iter().map(|value| {value_wrap}).collect::<Vec<_>>(); values.sort_by_key(smelt_unknown_stable_hash_key); SmeltUnknown::Array(values.into()) }}"
+                ))
+            }
             Some(Type::Tuple(items)) => {
                 let values = items
                     .iter()
@@ -1026,6 +1059,7 @@ impl FunctionEmitter<'_> {
 
         let entries_result = fields
             .iter()
+            .filter(|field| !matches!(field.visibility, smelt_hir::Visibility::Private))
             .map(|field| {
                 let source_name = self.symbol_source_name(field.name)?;
                 let field_name = sanitize_ident(self.symbol_name(field.name)?);
@@ -1192,13 +1226,13 @@ impl FunctionEmitter<'_> {
                     && self.mir.types.get(*item) == Some(&Type::Unknown) =>
             {
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(value) => SmeltRecord::with_id_from_entries(value.id, value.into_iter()), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), value)).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| (index.to_string(), SmeltUnknown::String(ch.to_string()))).collect(), SmeltUnknown::Function(value) => SmeltRecord::from([(\"__smelt_call\".to_owned(), SmeltUnknown::Function(value))]), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) == Some(&Type::String) => {
                 let item_text = self.extract_value_text("value", *item)?;
                 Ok(format!(
-                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), _ => SmeltRecord::new() }}"
+                    "match ({text}).into_smelt_unknown() {{ SmeltUnknown::Object(values) => SmeltRecord::with_id_from_entries(values.id, values.into_iter().map(|(key, value)| (key, {item_text}))), SmeltUnknown::Array(values) => values.into_iter().enumerate().map(|(index, value)| (index.to_string(), {item_text})).collect(), SmeltUnknown::String(value) => value.chars().enumerate().map(|(index, ch)| {{ let value = SmeltUnknown::String(ch.to_string()); (index.to_string(), {item_text}) }}).collect(), _ => SmeltRecord::new() }}"
                 ))
             }
             Some(Type::Dict(key, item)) if self.mir.types.get(*key) != Some(&Type::String) => {

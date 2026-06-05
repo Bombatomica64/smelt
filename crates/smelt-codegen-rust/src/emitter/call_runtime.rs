@@ -89,7 +89,9 @@ impl FunctionEmitter<'_> {
             Rvalue::Use(operand)
                 if matches!(
                     self.mir.types.get(self.operand_ty(operand)?),
-                    Some(Type::Optional(inner)) if *inner == dest_ty
+                    Some(Type::Optional(inner))
+                        if *inner == dest_ty
+                            && !matches!(self.mir.types.get(dest_ty), Some(Type::Function(_)))
                 ) =>
             {
                 Ok(format!(
@@ -472,13 +474,16 @@ impl FunctionEmitter<'_> {
                     .iter()
                     .find(|item| item.name == *class)
                     .ok_or_else(|| EmitError::new("struct rvalue references an unknown class"))?;
+                let effective_fields = self
+                    .structural_record_fields(dest_ty)
+                    .unwrap_or_else(|| crate::classes::effective_class_fields(self.mir, mir_class));
                 let scoped_type_params = mir_class
                     .type_params
                     .iter()
                     .map(|param| param.name)
                     .collect::<HashSet<_>>();
                 let mut parts = Vec::new();
-                for field in crate::classes::effective_class_fields(self.mir, mir_class) {
+                for field in effective_fields {
                     let name = sanitize_ident(self.symbol_name(field.name)?);
                     if let Some((_, field_value)) = fields
                         .iter()
@@ -527,7 +532,7 @@ impl FunctionEmitter<'_> {
             Rvalue::PrimitiveCast { op, operand } => {
                 self.primitive_cast_text(*op, operand, dest_ty)
             }
-            Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand),
+            Rvalue::StringCase { op, operand } => self.string_case_text(*op, operand, dest_ty),
             Rvalue::StringNormalize { form, operand } => self.string_normalize_text(*form, operand),
             Rvalue::StringTrim { side, operand } => self.string_trim_text(*side, operand),
             Rvalue::StringAffix {
@@ -581,7 +586,13 @@ impl FunctionEmitter<'_> {
                 self.regex_replace_first_match_uppercase_text(pattern, haystack)
             }
             Rvalue::RegexSplit { pattern, haystack } => self.regex_split_text(pattern, haystack),
-            Rvalue::RegexFind { pattern, haystack } => self.regex_find_text(pattern, haystack),
+            Rvalue::RegexFind { pattern, haystack } => {
+                let text = self.regex_find_text(pattern, haystack)?;
+                let string_ty = self.type_id(Type::String)?;
+                let list_ty = self.type_id(Type::List(string_ty))?;
+                let source_ty = self.type_id(Type::Optional(list_ty))?;
+                self.value_at_type_text(&text, source_ty, dest_ty)
+            }
             Rvalue::RegexExec { regex, haystack } => self.regex_exec_text(regex, haystack),
             Rvalue::RegexMatchAll { regex, haystack } => self.regex_match_all_text(regex, haystack),
             Rvalue::StringCharAt { operand, index } => self.string_char_at_text(operand, index),
@@ -595,11 +606,27 @@ impl FunctionEmitter<'_> {
                 operand,
                 start,
                 end,
-            } => self.string_slice_text(operand, start.as_ref(), end.as_ref()),
-            Rvalue::ListContains { list, item } => self.list_contains_text(list, item),
-            Rvalue::SetContains { set, item } => self.set_contains_text(set, item),
-            Rvalue::SetDisjoint { left, right } => self.set_disjoint_text(left, right),
-            Rvalue::SetRelation { op, left, right } => self.set_relation_text(*op, left, right),
+            } => self.string_slice_text(operand, start.as_ref(), end.as_ref(), dest_ty),
+            Rvalue::ListContains { list, item } => {
+                let text = self.list_contains_text(list, item)?;
+                let bool_ty = self.type_id(Type::Bool)?;
+                self.value_at_type_text(&text, bool_ty, dest_ty)
+            }
+            Rvalue::SetContains { set, item } => {
+                let text = self.set_contains_text(set, item)?;
+                let bool_ty = self.type_id(Type::Bool)?;
+                self.value_at_type_text(&text, bool_ty, dest_ty)
+            }
+            Rvalue::SetDisjoint { left, right } => {
+                let text = self.set_disjoint_text(left, right)?;
+                let bool_ty = self.type_id(Type::Bool)?;
+                self.value_at_type_text(&text, bool_ty, dest_ty)
+            }
+            Rvalue::SetRelation { op, left, right } => {
+                let text = self.set_relation_text(*op, left, right)?;
+                let bool_ty = self.type_id(Type::Bool)?;
+                self.value_at_type_text(&text, bool_ty, dest_ty)
+            }
             Rvalue::SetAdd { set, item } => self.set_add_text(set, item, dest_ty),
             Rvalue::SetRemove { op, set, item } => self.set_remove_text(*op, set, item, dest_ty),
             Rvalue::SetClear { set } => self.collection_clear_text(set, dest_ty, "set"),
@@ -610,8 +637,38 @@ impl FunctionEmitter<'_> {
                 self.set_binary_text(*op, left, right, dest_ty)
             }
             Rvalue::SetProjection { op, set } => self.set_projection_text(*op, set, dest_ty),
-            Rvalue::ListConcat { left, right } => self.list_concat_text(left, right),
-            Rvalue::ListSearch { op, list, item } => self.list_search_text(*op, list, item),
+            Rvalue::ListConcat { left, right } => {
+                let text = self.list_concat_text(left, right)?;
+                let left_ty = self.operand_ty(left)?;
+                let right_ty = self.operand_ty(right)?;
+                let source_ty = match (self.mir.types.get(left_ty), self.mir.types.get(right_ty)) {
+                    (Some(Type::List(left_item)), Some(Type::List(right_item)))
+                        if left_item == right_item =>
+                    {
+                        self.type_id(Type::List(*left_item))?
+                    }
+                    (Some(Type::List(left_item)), Some(Type::List(right_item)))
+                        if matches!(self.mir.types.get(*left_item), Some(Type::Never)) =>
+                    {
+                        self.type_id(Type::List(*right_item))?
+                    }
+                    (Some(Type::List(left_item)), Some(Type::List(right_item)))
+                        if matches!(self.mir.types.get(*right_item), Some(Type::Never)) =>
+                    {
+                        self.type_id(Type::List(*left_item))?
+                    }
+                    _ => {
+                        let unknown_ty = self.type_id(Type::Unknown)?;
+                        self.type_id(Type::List(unknown_ty))?
+                    }
+                };
+                self.value_at_type_text(&text, source_ty, dest_ty)
+            }
+            Rvalue::ListSearch { op, list, item } => {
+                let text = self.list_search_text(*op, list, item)?;
+                let float_ty = self.type_id(Type::Float)?;
+                self.value_at_type_text(&text, float_ty, dest_ty)
+            }
             Rvalue::Closure { id, .. } => {
                 if !matches!(
                     self.mir.types.get(dest_ty),
@@ -787,7 +844,7 @@ impl FunctionEmitter<'_> {
                             Some(Type::Future(_))
                         );
                         let throwing_call_text = if function.may_throw && !returns_future {
-                            format!("{call_text}?")
+                            format!("{call_text}.unwrap_or_else(|error| panic!(\"{{}}\", error))")
                         } else {
                             call_text
                         };
@@ -964,7 +1021,7 @@ impl FunctionEmitter<'_> {
                 haystack,
                 separator,
                 limit,
-            } => self.string_split_text(haystack, separator, limit.as_ref()),
+            } => self.string_split_text(haystack, separator, limit.as_ref(), dest_ty),
             Rvalue::StringChars { haystack } => self.string_chars_text(haystack, dest_ty),
             Rvalue::StringJoin { items, separator } => self.string_join_text(items, separator),
             Rvalue::JsonStringify { value: json_value } => {
@@ -1330,12 +1387,19 @@ impl FunctionEmitter<'_> {
         if !self.is_numeric_type(lhs_ty) || !self.is_numeric_type(rhs_ty) {
             return Ok(None);
         }
-        let common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
+        let lhs_text = self.operand_text(lhs)?;
+        let rhs_text = self.operand_text(rhs)?;
+        let mut common_ty = self.common_numeric_type(lhs_ty, rhs_ty, dest_ty)?;
+        if matches!(self.mir.types.get(common_ty), Some(Type::Int))
+            && (lhs_text.contains(" as f64") || rhs_text.contains(" as f64"))
+        {
+            common_ty = self.type_id(Type::Float)?;
+        }
         Ok(Some(format!(
             "{} {} {}",
-            self.value_at_type(lhs, common_ty)?,
+            self.value_at_type_text(&lhs_text, lhs_ty, common_ty)?,
             smelt_hir::bin_op_text(op),
-            self.value_at_type(rhs, common_ty)?
+            self.value_at_type_text(&rhs_text, rhs_ty, common_ty)?
         )))
     }
 
@@ -2415,7 +2479,7 @@ impl FunctionEmitter<'_> {
             "source" => format!("{receiver_text}.clone()"),
             "global" | "ignoreCase" | "ignore_case" | "multiline" => "false".to_owned(),
             "constructor" => "SmeltUnknown::Null".to_owned(),
-            "length" => format!("{receiver_text}.chars().count() as i64"),
+            "length" => format!("({receiver_text}.chars().count() as i64)"),
             _ => "SmeltUnknown::Null".to_owned(),
         })
     }
@@ -2474,10 +2538,12 @@ impl FunctionEmitter<'_> {
             }
             Some(Type::Dict(key_ty, _)) => {
                 let key_text = if self.mir.types.get(*key_ty) == Some(&Type::String) {
-                    self.property_key_to_string_text(
-                        &self.operand_text(index)?,
-                        self.operand_ty(index)?,
-                    )?
+                    let index_ty = self.operand_ty(index)?;
+                    if index_ty == *key_ty {
+                        self.value_at_type(index, *key_ty)?
+                    } else {
+                        self.property_key_to_string_text(&self.operand_text(index)?, index_ty)?
+                    }
                 } else {
                     self.value_at_type(index, *key_ty)?
                 };

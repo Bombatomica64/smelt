@@ -60,12 +60,24 @@ const rebuilt = Object.fromEntries([["a", 1], ["b", 2]]);
 "#,
     );
 
-    assert!(source.contains(".keys().collect::<Vec<_>>();"), "{source}");
     assert!(
-        source.contains(".values().collect::<Vec<_>>();"),
+        source.contains(
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>();"
+        ),
         "{source}"
     );
-    assert!(source.contains(".iter().collect::<Vec<_>>();"), "{source}");
+    assert!(
+        source.contains(
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value).collect::<Vec<_>>();"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>();"
+        ),
+        "{source}"
+    );
     assert!(
         source.contains("SmeltRecord::from([(\"a\".to_owned(), 1.0), (\"b\".to_owned(), 2.0)])"),
         "{source}"

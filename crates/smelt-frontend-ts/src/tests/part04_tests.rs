@@ -834,6 +834,39 @@ const sameOrigin = new URL(adminAbsoluteUrl).origin === new URL(adminAbsoluteUrl
 }
 
 #[test]
+fn lowers_url_search_params_constructor_size() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+const empty = new URLSearchParams();
+const emptyText = new URLSearchParams("");
+const emptyQuery = new URLSearchParams("?");
+const text = new URLSearchParams("hello");
+const object = new URLSearchParams({ hello: "world" });
+"#),
+        &mut ctx,
+    )?;
+    let size_keys = ctx
+        .krate
+        .bodies
+        .iter()
+        .flat_map(|body| body.exprs.iter())
+        .filter(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::Literal(Literal::String(value)) if value == "size"
+            )
+        })
+        .count();
+    ensure!(
+        size_keys == 5,
+        "expected URLSearchParams constructors to carry size"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn lowers_primitive_object_spread_sources_as_empty_records() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     let module_id = lower_ok(
@@ -5015,6 +5048,8 @@ import { resolve } from 'path';
 
 const keyPath = resolve(__dirname, '../key.pub');
 const [signature, content] = Buffer.from('encoded', 'base64').toString().split('\n');
+const empty = Buffer.alloc(0);
+const payload = Buffer.alloc(3);
 
 function fail(): never {
   throw Error('bad license');
@@ -5022,6 +5057,14 @@ function fail(): never {
 "#),
         &mut ctx,
     )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ListFromLength { .. })),
+        "Buffer.alloc did not lower to a length-backed list"
+    );
     Ok(())
 }
 
@@ -5498,6 +5541,124 @@ function lazy(value: unknown, depth: number) {
             .flat_map(|body| body.exprs.iter())
             .any(|expr| matches!(expr.kind, ExprKind::ListFlat { .. })),
         "expected callback Array.flat calls to lower into normal closure-body HIR"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_call_method_spread_into_closure_body() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Funnel = { call: (...args: string[]) => void; flush: () => void; cancel: () => void };
+
+function run(funnel: Funnel, args: string[]) {
+  return [1, 2].map((value) => {
+    funnel.call(...args);
+    funnel.flush();
+    funnel.cancel();
+    return value;
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| {
+                matches!(
+                    expr.kind,
+                    ExprKind::ClosureCall { .. } | ExprKind::ClosureCallSpread { .. }
+                )
+            }),
+        "expected callback .call(...args) to lower as a closure call"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_spread_call_through_captured_function_parameter() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type StrictFunction = (...args: unknown[]) => unknown;
+
+function partialBind<F extends StrictFunction>(func: F, ...partial: unknown[]) {
+  return (...rest: unknown[]) => func(...partial, ...rest);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| matches!(expr.kind, ExprKind::ClosureCallSpread { .. })),
+        "expected spread call through captured function parameter to lower as ClosureCallSpread"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_returned_callback_capturing_function_list() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+declare function pipe(value: unknown, ...functions: ((input: unknown) => unknown)[]): unknown;
+
+export function piped(...functions: readonly ((input: unknown) => unknown)[]) {
+  return (value: unknown): unknown => pipe(value, ...functions);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.exprs.iter())
+            .any(|expr| {
+                matches!(
+                    &expr.kind,
+                    ExprKind::Closure(closure)
+                        if closure.captures.iter().any(|capture| capture.body_local.is_some())
+                )
+            }),
+        "expected returned callback with captured function list to migrate captures"
+    );
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_callback_assignment_to_migrated_capture() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+function run(values: number[]) {
+  let count = 0;
+  return values.map((value) => {
+    count = count + 1;
+    return value + count;
+  });
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(
+        ctx.krate
+            .bodies
+            .iter()
+            .flat_map(|body| body.stmts.iter())
+            .any(|stmt| matches!(stmt, Stmt::Assign { .. })),
+        "expected callback capture assignment to migrate into a closure-local assignment"
     );
     ensure!(smelt_hir::validate(&ctx.krate).is_empty());
     Ok(())
@@ -6343,6 +6504,45 @@ type Generic = {
 export interface RouterConfig extends Generic {
   find?: unknown;
 }
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_function_arguments_as_array_like_unknown() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+declare function isEmptyish(value: unknown): boolean;
+
+function empty(): boolean {
+  return isEmptyish(arguments);
+}
+
+function nonEmpty(value: string, count: number): boolean {
+  return isEmptyish(arguments);
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
+fn lowers_object_create_to_erased_prototype_shape() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+declare function isEmptyish(value: unknown): boolean;
+
+const empty = Object.create(Object.create({}));
+const filled = Object.create(Object.create({ a: 123 }));
+
+export const result = [isEmptyish(empty), isEmptyish(filled)];
 "#),
         &mut ctx,
     )?;

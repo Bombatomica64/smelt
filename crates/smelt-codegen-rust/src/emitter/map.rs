@@ -18,7 +18,7 @@ impl FunctionEmitter<'_> {
                     Some(Type::String) => key_text,
                     Some(Type::Int | Type::Float | Type::Bool) => format!("{key_text}.to_string()"),
                     Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => {
-                        format!("{key_text}.to_string()")
+                        self.property_key_to_string_text(&key_text, self.operand_ty(key)?)?
                     }
                     _ => return Ok("false".to_owned()),
                 };
@@ -233,6 +233,13 @@ impl FunctionEmitter<'_> {
             let default = self.default_value(key_ty)?;
             return Ok(format!("{key_text}.clone().unwrap_or({default})"));
         }
+        if operand_ty == key_ty {
+            return self.value_at_type(key, key_ty);
+        }
+        if self.mir.types.get(key_ty) == Some(&Type::String) {
+            let key_text = self.operand_text(key)?;
+            return self.property_key_to_string_text(&key_text, operand_ty);
+        }
         self.value_at_type(key, key_ty)
     }
 
@@ -441,13 +448,19 @@ impl FunctionEmitter<'_> {
                     "match {dict_text} {{ SmeltUnknown::Array(entries) => entries.into_iter().filter_map(|entry| match entry {{ SmeltUnknown::Array(values) if values.len() >= 2 => {{ let mut values = values.into_iter(); let key = match values.next()? {{ SmeltUnknown::String(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), _ => return None }}; Some((key, values.next()?)) }}, _ => None }}).collect::<SmeltRecord<String, SmeltUnknown>>(), _ => SmeltRecord::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Keys => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect(), _ => Vec::new() }}"
+                )),
+                smelt_hir::DictProjectionOp::ForInKeys => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter(|key| smelt_is_for_in_object_key(&map, key)).collect(), _ => Vec::new() }}"
+                )),
+                smelt_hir::DictProjectionOp::Symbols => Ok(format!(
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.keys().into_iter().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(str::to_owned)).collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Values => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.values(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value).collect(), _ => Vec::new() }}"
                 )),
                 smelt_hir::DictProjectionOp::Entries => Ok(format!(
-                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.into_iter().collect::<Vec<_>>(), _ => Vec::new() }}"
+                    "match {dict_text} {{ SmeltUnknown::Object(map) => map.into_iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>(), _ => Vec::new() }}"
                 )),
             };
         }
@@ -462,28 +475,105 @@ impl FunctionEmitter<'_> {
                 Err(EmitError::new("fromEntries receiver must be erased"))
             }
             smelt_hir::DictProjectionOp::Keys => {
-                if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
-                    && (self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty))
-                {
-                    Ok(format!("{dict_text}.keys().collect::<Vec<_>>()"))
+                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                    return Err(EmitError::new("dict projection receiver must be a dict"));
+                };
+                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                        Ok(format!(
+                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
+                        ))
+                    } else {
+                        Ok(format!(
+                            "{dict_text}.keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+                        ))
+                    }
+                } else if self.dict_uses_js_key_map(*key_ty) {
+                    Ok(format!(
+                        "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                    ))
                 } else {
                     Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
                 }
             }
+            smelt_hir::DictProjectionOp::ForInKeys => {
+                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                    return Err(EmitError::new("dict projection receiver must be a dict"));
+                };
+                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                        Ok(format!(
+                            "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).collect::<Vec<_>>()"
+                        ))
+                    } else {
+                        Ok(format!(
+                            "{dict_text}.keys().filter(|key| smelt_is_for_in_record_key(&{dict_text}, key)).cloned().collect::<Vec<_>>()"
+                        ))
+                    }
+                } else if self.dict_uses_js_key_map(*key_ty) {
+                    Ok(format!(
+                        "{dict_text}.keys().filter(|key| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                    ))
+                } else {
+                    Ok(format!("{dict_text}.keys().cloned().collect::<Vec<_>>()"))
+                }
+            }
+            smelt_hir::DictProjectionOp::Symbols => {
+                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                    return Err(EmitError::new("dict projection receiver must be a dict"));
+                };
+                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    Ok(format!(
+                        "{dict_text}.keys().filter_map(|key| key.strip_prefix(\"__smelt_symbol:\").map(str::to_owned)).collect::<Vec<_>>()"
+                    ))
+                } else if self.dict_uses_js_key_map(*key_ty) {
+                    Ok(format!(
+                        "{dict_text}.keys().filter_map(|key| match key {{ SmeltUnknown::Symbol(value) => Some(value), _ => None }}).collect::<Vec<_>>()"
+                    ))
+                } else {
+                    Ok("Vec::<String>::new()".to_owned())
+                }
+            }
             smelt_hir::DictProjectionOp::Values => {
-                if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
-                    && (self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty))
-                {
-                    Ok(format!("{dict_text}.values().collect::<Vec<_>>()"))
+                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                    return Err(EmitError::new("dict projection receiver must be a dict"));
+                };
+                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                        Ok(format!(
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value).collect::<Vec<_>>()"
+                        ))
+                    } else {
+                        Ok(format!(
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+                        ))
+                    }
+                } else if self.dict_uses_js_key_map(*key_ty) {
+                    Ok(format!(
+                        "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).map(|(_, value)| value).collect::<Vec<_>>()"
+                    ))
                 } else {
                     Ok(format!("{dict_text}.values().cloned().collect::<Vec<_>>()"))
                 }
             }
             smelt_hir::DictProjectionOp::Entries => {
-                if let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?)
-                    && (self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty))
-                {
-                    Ok(format!("{dict_text}.iter().collect::<Vec<_>>()"))
+                let Some(Type::Dict(key_ty, _)) = self.mir.types.get(self.operand_ty(dict)?) else {
+                    return Err(EmitError::new("dict projection receiver must be a dict"));
+                };
+                if self.mir.types.get(*key_ty) == Some(&Type::String) {
+                    if self.dict_uses_smelt_record(*key_ty) || self.dict_uses_js_key_map(*key_ty) {
+                        Ok(format!(
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).collect::<Vec<_>>()"
+                        ))
+                    } else {
+                        Ok(format!(
+                            "{dict_text}.iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+                        ))
+                    }
+                } else if self.dict_uses_js_key_map(*key_ty) {
+                    Ok(format!(
+                        "{dict_text}.iter().filter(|(key, _)| !matches!(key, SmeltUnknown::Symbol(_))).collect::<Vec<_>>()"
+                    ))
                 } else {
                     Ok(format!(
                         "{dict_text}.iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"

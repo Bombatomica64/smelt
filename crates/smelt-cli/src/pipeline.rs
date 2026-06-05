@@ -9,7 +9,12 @@ use std::{
 
 use smelt_hir::format_compact;
 
-use crate::{config::Config, lowering, manifest::resolve_manifest_path, stubs, timing};
+use crate::{
+    config::{Config, OutputKind},
+    lowering,
+    manifest::resolve_manifest_path,
+    stubs, timing,
+};
 
 /// Parses a Python file and dumps the Ruff AST for CLI debugging.
 pub(crate) fn dump_python_ast(file: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -101,7 +106,8 @@ pub(crate) fn build_rust_crate(
             &krate,
             &modules,
             &output_dir,
-            &smelt_codegen_rust::EmitOptions::new(crate_name),
+            &smelt_codegen_rust::EmitOptions::new(crate_name)
+                .with_crate_kind(codegen_crate_kind(config.output_kind())),
         )
     })?;
 
@@ -124,6 +130,14 @@ pub(crate) fn check_manifest(
         stubs::emit_type_declarations(&krate, &modules)
     })?;
     Ok(())
+}
+
+/// Converts manifest output kind to the Rust codegen crate kind.
+fn codegen_crate_kind(output_kind: OutputKind) -> smelt_codegen_rust::CrateKind {
+    match output_kind {
+        OutputKind::Program => smelt_codegen_rust::CrateKind::Program,
+        OutputKind::Library => smelt_codegen_rust::CrateKind::Library,
+    }
 }
 
 /// Builds the generated output crate by running `cargo build` in that directory.

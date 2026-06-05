@@ -101,6 +101,8 @@ use rust::{CodeWriter, RustIdent};
 pub struct EmitOptions {
     /// The name of the Rust crate to generate.
     pub crate_name: String,
+    /// The Rust crate target kind to generate.
+    pub crate_kind: CrateKind,
 }
 
 impl Default for EmitOptions {
@@ -108,15 +110,54 @@ impl Default for EmitOptions {
     fn default() -> Self {
         Self {
             crate_name: "smelt_app".to_owned(),
+            crate_kind: CrateKind::Program,
         }
     }
 }
 
 impl EmitOptions {
-    /// Creates emission options for the given Rust crate name.
+    /// Creates program emission options for the given Rust crate name.
     pub fn new(crate_name: impl Into<String>) -> Self {
         Self {
             crate_name: crate_name.into(),
+            ..Self::default()
+        }
+    }
+
+    /// Sets whether Smelt emits a program or library crate root.
+    #[must_use]
+    pub fn with_crate_kind(mut self, crate_kind: CrateKind) -> Self {
+        self.crate_kind = crate_kind;
+        self
+    }
+}
+
+/// Rust crate target kind emitted by Smelt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CrateKind {
+    /// Generate an executable Rust program rooted at `src/main.rs`.
+    Program,
+    /// Generate a Rust library crate rooted at `src/lib.rs`.
+    Library,
+}
+
+impl CrateKind {
+    /// Returns the Rust source root file name for this crate kind.
+    #[must_use]
+    fn root_file_name(self) -> &'static str {
+        match self {
+            Self::Program => "main.rs",
+            Self::Library => "lib.rs",
+        }
+    }
+
+    /// Returns the Rust source root file name for the other crate kind.
+    #[must_use]
+    fn stale_root_file_name(self) -> &'static str {
+        match self {
+            Self::Program => "lib.rs",
+            Self::Library => "main.rs",
         }
     }
 }
@@ -159,7 +200,7 @@ fn compact_index(index: usize, context: &'static str) -> Result<u32, EmitError> 
 
 /// Emits a complete Rust crate from the given MIR.
 ///
-/// Creates the crate structure with Cargo.toml and main.rs files.
+/// Creates the crate structure with Cargo.toml and the configured crate root.
 pub fn emit_crate(
     mir: &Mir,
     output_path: impl AsRef<Path>,
@@ -172,15 +213,16 @@ pub fn emit_crate(
         output_dir.join("Cargo.toml"),
         &deps::cargo_toml(&options.crate_name, &generated_deps(mir)),
     )?;
-    write_if_changed(src_dir.join("main.rs"), &emit_source(mir)?)?;
+    write_crate_root(&src_dir, options.crate_kind, &emit_source(mir)?)?;
     Ok(())
 }
 
 /// Emits a complete Rust crate while preserving the source module layout.
 ///
-/// Shared generated runtime/types stay in `main.rs`. Non-entry module-level
-/// functions are moved into source-shaped Rust modules and re-exported from the
-/// crate root so existing flat-name call emission continues to resolve.
+/// Shared generated runtime/types stay in the configured crate root. Non-entry
+/// module-level functions are moved into source-shaped Rust modules and
+/// re-exported from the crate root so existing flat-name call emission
+/// continues to resolve.
 pub fn emit_crate_with_modules(
     mir: &Mir,
     krate: &smelt_hir::Crate,
@@ -197,10 +239,28 @@ pub fn emit_crate_with_modules(
     )?;
 
     let mapped = emit_mapped_sources(mir, krate, modules)?;
-    write_if_changed(src_dir.join("main.rs"), &mapped.root)?;
+    write_crate_root(&src_dir, options.crate_kind, &mapped.root)?;
     for module in mapped.modules {
         let module_path = src_dir.join(format!("{}.rs", module.name));
         write_if_changed(module_path, &module.source)?;
+    }
+    Ok(())
+}
+
+/// Writes the configured crate root and removes the stale opposite root.
+///
+/// Cargo infers program and library targets from `src/main.rs` and `src/lib.rs`.
+/// Removing the other generated root keeps manifest kind changes from silently
+/// producing both targets in the same output directory.
+fn write_crate_root(
+    src_dir: &Path,
+    crate_kind: CrateKind,
+    contents: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    write_if_changed(src_dir.join(crate_kind.root_file_name()), contents)?;
+    let stale_root = src_dir.join(crate_kind.stale_root_file_name());
+    if stale_root.exists() {
+        fs::remove_file(stale_root)?;
     }
     Ok(())
 }
@@ -506,6 +566,14 @@ fn emit_source_with_free_function_router(
         writer.line("    fn values(&self) -> Vec<SmeltUnknown> { let values = self.values.borrow(); self.order.borrow().iter().filter_map(|key| values.get(key).cloned()).collect() }");
         writer.line("}");
         writer.blank_line();
+        writer.line(
+            "/// Return whether an erased object key is visible to JavaScript `for...in` iteration.",
+        );
+        writer.line("fn smelt_is_for_in_object_key(object: &SmeltObject, key: &str) -> bool { key != \"__smelt_date\" && key != \"__smelt_timezone\" && !(object.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) }");
+        writer
+            .line("/// Return whether a record key is visible to JavaScript `for...in` iteration.");
+        writer.line("fn smelt_is_for_in_record_key<V>(record: &SmeltRecord<String, V>, key: &str) -> bool { key != \"__smelt_date\" && key != \"__smelt_timezone\" && !(record.contains_key(\"__smelt_regexp\") && matches!(key, \"__smelt_regexp\" | \"source\" | \"flags\")) }");
+        writer.blank_line();
         writer.line("impl PartialEq for SmeltObject { fn eq(&self, other: &Self) -> bool { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_eq(self, other, &mut smelt_seen) } }");
         writer.line("impl Eq for SmeltObject {}");
         writer.line("impl ::std::hash::Hash for SmeltObject { fn hash<H: ::std::hash::Hasher>(&self, state: &mut H) { let mut smelt_seen = ::std::collections::HashSet::new(); smelt_object_structural_hash(self, state, &mut smelt_seen); } }");
@@ -612,6 +680,7 @@ fn emit_source_with_free_function_router(
         writer.line("}");
         writer.blank_line();
         writer.line("fn smelt_object_structural_eq(left: &SmeltObject, right: &SmeltObject, seen: &mut ::std::collections::HashSet<(usize, usize)>) -> bool {");
+        writer.line("    if left.contains_key(\"__smelt_date\") || right.contains_key(\"__smelt_date\") { let left_date = smelt_unknown_date_value(&SmeltUnknown::Object(left.clone())); let right_date = smelt_unknown_date_value(&SmeltUnknown::Object(right.clone())); return left_date == right_date || (left_date.is_nan() && right_date.is_nan()); }");
         writer.line("    if left.id == right.id { return true; }");
         writer.line("    let key = (left.id, right.id);");
         writer.line("    if !seen.insert(key) { return true; }");
@@ -637,6 +706,13 @@ fn emit_source_with_free_function_router(
         writer.line("        SmeltUnknown::Object(values) => { 6_u8.hash(state); smelt_object_structural_hash(values, state, seen); }");
         writer.line("        SmeltUnknown::Function(function) => { 7_u8.hash(state); ::std::rc::Rc::as_ptr(function).hash(state); }");
         writer.line("    }");
+        writer.line("}");
+        writer.blank_line();
+        writer.line("fn smelt_unknown_stable_hash_key(value: &SmeltUnknown) -> u64 {");
+        writer.line("    let mut hasher = ::std::collections::hash_map::DefaultHasher::new();");
+        writer.line("    let mut seen = ::std::collections::HashSet::new();");
+        writer.line("    smelt_unknown_structural_hash(value, &mut hasher, &mut seen);");
+        writer.line("    ::std::hash::Hasher::finish(&hasher)");
         writer.line("}");
         writer.blank_line();
         writer.line("fn smelt_object_structural_hash<H: ::std::hash::Hasher>(object: &SmeltObject, state: &mut H, seen: &mut ::std::collections::HashSet<usize>) {");
@@ -854,6 +930,7 @@ fn emit_source_with_free_function_router(
                         match_writer.line("(Self::Number(left), Self::Number(right)) => left.partial_cmp(right),");
                         match_writer.line("(Self::String(left), Self::String(right)) => Some(left.cmp(right)),");
                         match_writer.line("(Self::Bool(left), Self::Bool(right)) => Some(left.cmp(right)),");
+                        match_writer.line("(Self::Object(left), Self::Object(right)) if left.contains_key(\"__smelt_date\") || right.contains_key(\"__smelt_date\") => smelt_unknown_date_value(self).partial_cmp(&smelt_unknown_date_value(other)),");
                         match_writer.line("(Self::Null, Self::Null) => Some(::std::cmp::Ordering::Equal),");
                         match_writer.line("(left, right) => Some(smelt_unknown_rank(left).cmp(&smelt_unknown_rank(right))),");
                     });
@@ -914,6 +991,16 @@ fn emit_source_with_free_function_router(
                         fn_writer.line("self.as_ref().and_then(|value| value.partial_cmp(other))");
                     },
                 );
+            },
+        );
+        writer.blank_line();
+        writer.block(
+            "fn smelt_unknown_date_value(value: &SmeltUnknown) -> f64",
+            |fn_writer| {
+                fn_writer.block("match value", |match_writer| {
+                    match_writer.line("SmeltUnknown::Object(object) => match object.get(\"__smelt_date\") { Some(SmeltUnknown::Number(value)) => value, _ => f64::NAN },");
+                    match_writer.line("_ => f64::NAN,");
+                });
             },
         );
         writer.blank_line();
@@ -1058,6 +1145,18 @@ fn emit_source_with_free_function_router(
             });
         });
         writer.blank_line();
+        writer.block(
+            "impl<T: IntoSmeltUnknown + Eq + ::std::hash::Hash> IntoSmeltUnknown for ::std::collections::HashSet<T>",
+            |impl_writer| {
+                impl_writer.line("/// Erase JavaScript Set values as iterable array-like values.");
+                impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
+                    fn_writer.line("let mut values = self.into_iter().map(IntoSmeltUnknown::into_smelt_unknown).collect::<Vec<_>>();");
+                    fn_writer.line("values.sort_by_key(smelt_unknown_stable_hash_key);");
+                    fn_writer.line("SmeltUnknown::Array(values.into())");
+                });
+            },
+        );
+        writer.blank_line();
         writer.block("trait SmeltArrayExt<T>", |trait_writer| {
             trait_writer
                 .line("/// Return the first JavaScript-style index of a value, or -1 when absent.");
@@ -1122,7 +1221,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for ::std::collections::HashMap<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash, T: IntoSmeltUnknown",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::new(self.into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -1131,7 +1230,7 @@ fn emit_source_with_free_function_router(
             "impl<K, T> IntoSmeltUnknown for SmeltRecord<K, T> where K: IntoSmeltUnknown + Eq + ::std::hash::Hash + Clone, T: IntoSmeltUnknown + Clone",
             |impl_writer| {
                 impl_writer.block("fn into_smelt_unknown(self) -> SmeltUnknown", |fn_writer| {
-                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) | SmeltUnknown::Symbol(value) => value, SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
+                    fn_writer.line("SmeltUnknown::Object(SmeltObject::with_id(self.id, self.iter().into_iter().map(|(key, value)| { let key = match key.into_smelt_unknown() { SmeltUnknown::String(value) => value, SmeltUnknown::Symbol(value) => format!(\"__smelt_symbol:{value}\"), SmeltUnknown::Number(value) => value.to_string(), SmeltUnknown::Bool(value) => value.to_string(), SmeltUnknown::Null => \"null\".to_owned(), SmeltUnknown::Array(_) | SmeltUnknown::Object(_) => \"[object Object]\".to_owned(), SmeltUnknown::Function(_) => \"function () { [native code] }\".to_owned() }; (key, value.into_smelt_unknown()) }).collect()))");
                 });
             },
         );
@@ -1337,6 +1436,7 @@ fn emit_source_with_free_function_router(
                 );
                 fn_writer.line("(\"source\".to_owned(), SmeltUnknown::String(self.source)),");
                 fn_writer.line("(\"flags\".to_owned(), SmeltUnknown::String(self.flags)),");
+                fn_writer.line("(\"__smelt_regexp\".to_owned(), SmeltUnknown::Bool(true)),");
                 fn_writer.line("])))");
             });
         });
@@ -1895,6 +1995,9 @@ fn emit_record_into_smelt_unknown_impl(
                     "SmeltUnknown::Object(SmeltObject::new(::std::collections::HashMap::from([",
                 );
                 for field in fields {
+                    if matches!(field.visibility, smelt_hir::Visibility::Private) {
+                        continue;
+                    }
                     let key = mir.symbols.get(field.name).unwrap_or("field");
                     let field_name = RustIdent::new(key).into_string();
                     let value =

@@ -450,6 +450,30 @@ export function hasLong(parts: { value: string }[]): boolean {
 }
 
 #[test]
+fn lowers_array_includes_inside_find_callback_after_array_guard() -> Result<(), String> {
+    let mut ctx = HirCtx::new();
+    lower_ok(
+        ts!(r#"
+type Parser = { incompatibleTokens: string[] | "*" };
+type UsedToken = { token: string };
+
+export function findIncompatible(parser: Parser, usedTokens: UsedToken[]) {
+  if (Array.isArray(parser.incompatibleTokens)) {
+    return usedTokens.find(
+      (usedToken) =>
+        parser.incompatibleTokens.includes(usedToken.token) ||
+        usedToken.token === "x",
+    );
+  }
+}
+"#),
+        &mut ctx,
+    )?;
+    ensure!(smelt_hir::validate(&ctx.krate).is_empty());
+    Ok(())
+}
+
+#[test]
 fn records_mixed_object_const_as_unknown_module_global() -> Result<(), String> {
     let mut ctx = HirCtx::new();
     lower_ok(

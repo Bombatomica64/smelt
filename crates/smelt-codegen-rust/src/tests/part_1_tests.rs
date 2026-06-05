@@ -121,7 +121,7 @@ function anyPass(data: unknown, fns: Array<(value: unknown) => boolean>): boolea
 }
 
 #[test]
-fn array_callback_value_index_paths_do_not_snapshot_source_array() {
+fn array_callback_value_index_paths_snapshot_source_array_for_js_callback_abi() {
     let source = source_for(
         r#"
 function offsets(values: number[], factor: number): number[] {
@@ -133,14 +133,20 @@ function positive(values: number[]): boolean {
 "#,
     );
 
-    assert!(source.contains("values.iter().enumerate().map"), "{source}");
-    assert!(source.contains("values.iter().enumerate().any"), "{source}");
+    assert!(
+        source.contains("smelt_array.iter().enumerate().map"),
+        "{source}"
+    );
+    assert!(
+        source.contains("smelt_array.iter().enumerate().any"),
+        "{source}"
+    );
     assert!(
         source.contains("closure_arg_0.clone() * factor.clone()"),
         "{source}"
     );
     assert!(
-        !source.contains("let smelt_array = values.clone();"),
+        source.contains("let smelt_array = values.clone();"),
         "{source}"
     );
     assert!(!source.contains(".clone().clone()"), "{source}");
@@ -201,12 +207,12 @@ function invokeAll(callbacks: RestCallback[], args: unknown[]): unknown[] {
     );
 
     assert!(
-        source.contains("callbacks.iter().enumerate().map"),
+        source.contains("smelt_array.iter().enumerate().map"),
         "{source}"
     );
     assert!(source.contains("args.clone()"), "{source}");
     assert!(
-        !source.contains("let smelt_array = callbacks.clone();"),
+        source.contains("let smelt_array = callbacks.clone();"),
         "{source}"
     );
     assert!(!source.contains("callback.clone().clone()"), "{source}");

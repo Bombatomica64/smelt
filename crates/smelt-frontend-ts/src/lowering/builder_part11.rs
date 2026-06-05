@@ -208,9 +208,14 @@ impl ModuleBuilder<'_> {
         };
         let key_ty = key_type;
         let value_ty = value_type;
+        let symbol_key_ty = self.ctx.krate.types.intern(Type::String);
+        let symbol_list_ty = self.ctx.krate.types.intern(Type::List(symbol_key_ty));
         let ty = match op {
             DictProjectionOp::FromEntries => return Ok(None),
-            DictProjectionOp::Keys => self.ctx.krate.types.intern(Type::List(key_ty)),
+            DictProjectionOp::Keys | DictProjectionOp::ForInKeys => {
+                self.ctx.krate.types.intern(Type::List(key_ty))
+            }
+            DictProjectionOp::Symbols => symbol_list_ty,
             DictProjectionOp::Values => self.ctx.krate.types.intern(Type::List(value_ty)),
             DictProjectionOp::Entries => {
                 let entry_ty = self
@@ -267,11 +272,22 @@ impl ModuleBuilder<'_> {
                 "Object.getOwnPropertySymbols requires exactly one object argument",
             ));
         };
-        self.argument(argument, body)?;
+        let value = self.argument(argument, body)?;
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        let dict = body.push_expr(Expr {
+            kind: ExprKind::UnknownCast { value, target },
+            ty: target,
+            span: self.span(call.span.start, call.span.end),
+        });
         let symbol_ty = self.ctx.krate.types.intern(Type::String);
         let ty = self.ctx.krate.types.intern(Type::List(symbol_ty));
         Ok(Some(body.push_expr(Expr {
-            kind: ExprKind::ListLit(Vec::new()),
+            kind: ExprKind::DictProjection {
+                op: DictProjectionOp::Symbols,
+                dict,
+            },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -303,6 +319,156 @@ impl ModuleBuilder<'_> {
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::DictLit(Vec::new()),
             ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower `Object.create(proto)` to an erased object shaped from its prototype.
+    fn object_create_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object_ident) = &member.object else {
+            return Ok(None);
+        };
+        if object_ident.name != "Object" || member.property.name != "create" {
+            return Ok(None);
+        }
+        let [prototype] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Object.create requires exactly one prototype argument",
+            ));
+        };
+        if let Argument::ObjectExpression(prototype_object) = prototype {
+            return self.object_create_from_literal_prototype(call, prototype_object, body);
+        }
+        let prototype = self.argument(prototype, body)?;
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        if matches!(self.ctx.krate.types.get(Self::expr_ty(body, prototype)), Some(Type::None)) {
+            return Ok(Some(body.push_expr(Expr {
+                kind: ExprKind::DictLit(Vec::new()),
+                ty: unknown_ty,
+                span: self.span(call.span.start, call.span.end),
+            })));
+        }
+        if Self::expr_ty(body, prototype) == unknown_ty {
+            return Ok(Some(prototype));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: prototype,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower `Object.create({ ... })` while marking properties as inherited.
+    fn object_create_from_literal_prototype(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        prototype_object: &oxc::ast::ast::ObjectExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let span = self.span(call.span.start, call.span.end);
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        let mut entries = Vec::new();
+        for property in &prototype_object.properties {
+            let ObjectPropertyKind::ObjectProperty(object_property) = property else {
+                return Err(SmeltError::unsupported(
+                    self.span(property.span().start, property.span().end),
+                    "Object.create prototype spread properties are not lowered yet",
+                ));
+            };
+            let Some(key_text) = self.static_object_property_key_text(object_property)? else {
+                return self.object_create_call_fallback(call, body);
+            };
+            let key = body.push_expr(Expr {
+                kind: ExprKind::Literal(Literal::String(format!("__smelt_proto:{key_text}"))),
+                ty: key_ty,
+                span: self.span(
+                    object_property.key.span().start,
+                    object_property.key.span().end,
+                ),
+            });
+            let value = self.object_property_value_expr(object_property, body, Some(value_ty))?;
+            entries.push((key, value));
+        }
+        let object_expr = body.push_expr(Expr {
+            kind: ExprKind::DictLit(entries),
+            ty: dict_ty,
+            span,
+        });
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object_expr,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span,
+        })))
+    }
+
+    /// Return a static object-literal key when one is available.
+    fn static_object_property_key_text(
+        &self,
+        object_property: &oxc::ast::ast::ObjectProperty<'_>,
+    ) -> Result<Option<String>, SmeltError> {
+        if object_property.computed {
+            return Ok(self.computed_string_literal_key(object_property));
+        }
+        match &object_property.key {
+            PropertyKey::StaticIdentifier(ident) => Ok(Some(ident.name.as_str().to_owned())),
+            PropertyKey::StringLiteral(lit) => Ok(Some(lit.value.to_string())),
+            PropertyKey::NumericLiteral(lit) => Ok(Some(lit.raw.as_ref().map_or_else(
+                || {
+                    if lit.value.fract() == 0.0_f64 {
+                        format!("{:.0}", lit.value)
+                    } else {
+                        lit.value.to_string()
+                    }
+                },
+                ToString::to_string,
+            ))),
+            _ => Err(SmeltError::unsupported(
+                self.span(
+                    object_property.key.span().start,
+                    object_property.key.span().end,
+                ),
+                "Object.create prototype keys must be static string keys or computed strings",
+            )),
+        }
+    }
+
+    /// Fall back to the broad erased `Object.create` approximation.
+    fn object_create_call_fallback(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let [prototype] = call.arguments.as_slice() else {
+            return Ok(None);
+        };
+        let prototype = self.argument(prototype, body)?;
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        if Self::expr_ty(body, prototype) == unknown_ty {
+            return Ok(Some(prototype));
+        }
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: prototype,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
             span: self.span(call.span.start, call.span.end),
         })))
     }
@@ -340,6 +506,46 @@ impl ModuleBuilder<'_> {
         let ty = self.ctx.krate.types.intern(Type::Unknown);
         Ok(Some(body.push_expr(Expr {
             kind: ExprKind::Literal(Literal::None),
+            ty,
+            span: self.span(call.span.start, call.span.end),
+        })))
+    }
+
+    /// Lower Node `Buffer.alloc(length)` as a zero-filled array-like value.
+    fn buffer_alloc_call(
+        &mut self,
+        call: &oxc::ast::ast::CallExpression<'_>,
+        body: &mut Body,
+    ) -> Result<Option<smelt_hir::ExprId>, SmeltError> {
+        let Expression::StaticMemberExpression(member) = &call.callee else {
+            return Ok(None);
+        };
+        let Expression::Identifier(object) = &member.object else {
+            return Ok(None);
+        };
+        if object.name != "Buffer" || member.property.name != "alloc" {
+            return Ok(None);
+        }
+        let [length_arg] = call.arguments.as_slice() else {
+            return Err(SmeltError::unsupported(
+                self.span(call.span.start, call.span.end),
+                "Buffer.alloc requires exactly one length argument",
+            ));
+        };
+        let length = self.argument(length_arg, body)?;
+        if !matches!(
+            self.ctx.krate.types.get(Self::expr_ty(body, length)),
+            Some(Type::Int | Type::Float)
+        ) {
+            return Err(SmeltError::unsupported(
+                self.span(length_arg.span().start, length_arg.span().end),
+                "Buffer.alloc length must be numeric",
+            ));
+        }
+        let item_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let ty = self.ctx.krate.types.intern(Type::List(item_ty));
+        Ok(Some(body.push_expr(Expr {
+            kind: ExprKind::ListFromLength { length },
             ty,
             span: self.span(call.span.start, call.span.end),
         })))
@@ -760,9 +966,9 @@ return_ty,
         let dict_shape_ty = self.type_param_constraint_or_self(dict_ty);
         let key_ty = match self.ctx.krate.types.get(dict_shape_ty) {
             Some(Type::Dict(key_ty, _)) => *key_ty,
-            Some(
-                Type::Unknown | Type::TypeParam { .. } | Type::Class { .. } | Type::String,
-            ) => {
+            Some(Type::Unknown) => Self::expr_ty(body, key),
+            Some(Type::String) => self.ctx.krate.types.intern(Type::String),
+            Some(Type::TypeParam { .. } | Type::Class { .. }) => {
                 let key_ty = self.ctx.krate.types.intern(Type::String);
                 let value_ty = self.ctx.krate.types.intern(Type::Unknown);
                 let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
@@ -781,18 +987,7 @@ return_ty,
                     .iter()
                     .all(|item| self.object_keys_compatible_type(*item)) =>
             {
-                let key_ty = self.ctx.krate.types.intern(Type::String);
-                let value_ty = self.ctx.krate.types.intern(Type::Unknown);
-                let target = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
-                dict = body.push_expr(Expr {
-                    kind: ExprKind::UnknownCast {
-                        value: dict,
-                        target,
-                    },
-                    ty: target,
-                    span: self.span(call.span.start, call.span.end),
-                });
-                key_ty
+                self.ctx.krate.types.intern(Type::String)
             }
             _ => {
                 return Err(SmeltError::unsupported(

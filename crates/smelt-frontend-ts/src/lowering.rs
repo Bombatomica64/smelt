@@ -353,6 +353,8 @@ struct ModuleBuilder<'ctx> {
     current_async: bool,
     /// Declared return type for the current lowered function body.
     current_return_ty: Option<smelt_hir::TypeId>,
+    /// Active JavaScript `arguments` object arities for function bodies.
+    current_arguments_arities: Vec<usize>,
     /// HIR block that owns side-effect statements emitted while lowering an expression.
     current_statement_block: Option<smelt_hir::BlockId>,
     /// Postfix updates waiting for the variable initializer that reads their original value.

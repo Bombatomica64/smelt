@@ -352,7 +352,12 @@ item_pairs: list[tuple[int, int]] = enumerate(items)
 
     assert!(source.contains(".iter().cloned().enumerate()"));
     assert!(source.contains("idx as i64"));
-    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(
+        source.contains(
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+        ),
+        "{source}"
+    );
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
 }
 
@@ -370,7 +375,12 @@ mixed: list[tuple[str, int]] = zip(lookup, items)
     );
 
     assert!(source.contains(".iter().cloned().zip("));
-    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(
+        source.contains(
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+        ),
+        "{source}"
+    );
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
 }
 
@@ -633,8 +643,9 @@ for (const entry: [string, number] of mapping) {
 
     assert!(
         source.contains(
-            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
-        )
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+        ),
+        "{source}"
     );
     assert!(source.contains("loop {"));
     assert!(source.contains("entry ="));
@@ -656,7 +667,12 @@ for name in names:
     );
 
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
-    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(
+        source.contains(
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+        ),
+        "{source}"
+    );
     assert!(source.matches("loop {").count() >= 2);
     assert!(source.contains("total ="));
     assert!(source.contains("last = name.clone();"));

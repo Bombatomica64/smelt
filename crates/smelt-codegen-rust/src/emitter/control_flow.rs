@@ -317,7 +317,17 @@ impl FunctionEmitter<'_> {
                 match self.mir.types.get(base_ty) {
                     Some(Type::Dict(key, item)) => {
                         let rendered_value = self.rvalue_text_for_dest(value, *item)?;
-                        let key_text = self.value_at_type(index, *key)?;
+                        let key_text = if self.mir.types.get(*key) == Some(&Type::String) {
+                            let index_ty = self.operand_ty(index)?;
+                            if index_ty == *key {
+                                self.value_at_type(index, *key)?
+                            } else {
+                                let index_text = self.operand_text(index)?;
+                                self.property_key_to_string_text(&index_text, index_ty)?
+                            }
+                        } else {
+                            self.value_at_type(index, *key)?
+                        };
                         out.push_str(&format!(
                             "    {}.insert({}, {rendered_value});\n",
                             self.local_mut_value_text(*base)?,

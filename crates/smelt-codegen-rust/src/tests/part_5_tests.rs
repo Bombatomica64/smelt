@@ -81,6 +81,32 @@ test("nullish", () => {
 }
 
 #[test]
+fn emits_optional_unknown_to_be_undefined_without_unwrap() {
+    let source = source_for(
+        r#"
+import { test, expect } from "vitest";
+
+function maybeValue(flag: boolean): unknown | undefined {
+  if (flag) {
+    return undefined;
+  }
+  return "x";
+}
+
+test("optional unknown", () => {
+  expect(maybeValue(true)).toBeUndefined();
+});
+"#,
+    );
+
+    assert!(source.contains(".is_none()"), "{source}");
+    assert!(
+        !source.contains("expect(\"optional value was absent after narrowing\")"),
+        "{source}"
+    );
+}
+
+#[test]
 fn emits_typescript_describe_it_as_flattened_rust_test() {
     let source = source_for(
         r#"
@@ -239,12 +265,23 @@ const mapEntries = mapping.entries();
 "#,
     );
 
-    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
-    assert!(source.contains(".values().cloned().collect::<Vec<_>>()"));
     assert!(
         source.contains(
-            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
-        )
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value.clone()).collect::<Vec<_>>()"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>()"
+        ),
+        "{source}"
     );
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
     assert!(
@@ -327,6 +364,26 @@ const limited = word.split(",", 2);
 
     assert!(source.contains(".split(&\",\".to_owned()).map(str::to_owned).collect::<Vec<_>>();"));
     assert!(source.contains(".take((2.0 as f64).max(0.0) as usize)"));
+}
+
+#[test]
+fn emits_string_split_with_erased_union_limit() {
+    let source = source_for(
+        r#"
+function splitWord(word: string, limit: number | undefined | string): string[] {
+  return word.split(",", limit);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Number(value) => Some(value)"),
+        "{source}"
+    );
+    assert!(
+        source.contains(".take(split_limit.max(0.0) as usize)"),
+        "{source}"
+    );
 }
 
 #[test]

@@ -187,6 +187,78 @@ const iso = date.toISOString();
 }
 
 #[test]
+fn hides_internal_metadata_from_erased_object_projection() {
+    let source = source_for(
+        r#"
+function keyCount(value: unknown): number {
+  return Object.keys(value).length;
+}
+const dateCount = keyCount(new Date(0));
+const regexpCount = keyCount(/abc/u);
+"#,
+    );
+
+    assert!(
+        source.contains("smelt_is_for_in_record_key"),
+        "erased object projections must filter internal metadata keys: {source}"
+    );
+    assert!(
+        source.contains("\"__smelt_regexp\".to_owned()"),
+        "RegExp erasure must keep a marker so source/flags stay non-enumerable: {source}"
+    );
+    assert!(
+        source.contains("SmeltRegExp::new(\"abc\".to_owned(), \"u\".to_owned())"),
+        "RegExp literal arguments should lower to RegExp values, not strings: {source}"
+    );
+}
+
+#[test]
+fn omits_private_class_fields_from_erased_object_projection() {
+    let source = source_for(
+        r#"
+class PrivateBox {
+  readonly #value = "hidden";
+}
+function keyCount(value: unknown): number {
+  return Object.keys(value).length;
+}
+const count = keyCount(new PrivateBox());
+"#,
+    );
+
+    assert!(
+        !source.contains("(\"value\".to_owned(), SmeltUnknown::String(self.value))"),
+        "private class fields must not become enumerable erased object keys: {source}"
+    );
+    assert!(
+        !source.contains("smelt_object_entries.insert(\"value\".to_owned()"),
+        "direct class-to-unknown erasure must also omit private fields: {source}"
+    );
+}
+
+#[test]
+fn omits_class_getters_from_erased_object_projection() {
+    let source = source_for(
+        r#"
+class GetterBox {
+  get value(): string {
+    return "hidden";
+  }
+}
+function keyCount(value: unknown): number {
+  return Object.keys(value).length;
+}
+const count = keyCount(new GetterBox());
+"#,
+    );
+
+    assert!(
+        !source.contains("smelt_object_entries.insert(\"value\".to_owned()"),
+        "class accessors live on the prototype and must not erase as own enumerable fields: {source}"
+    );
+}
+
+#[test]
 fn emits_date_to_iso_string_for_erased_datearg_surfaces() {
     let source = source_for(
         r#"
@@ -820,6 +892,71 @@ const pattern: RegExp = "\\d+";
 
     assert!(
         source.contains("SmeltRegExp::new(\"\\\\d+\".to_owned(), String::new())"),
+        "{source}"
+    );
+}
+
+#[test]
+fn unwraps_throwing_array_map_callbacks_before_collecting() {
+    let source = source_for(
+        r#"
+function run(values: string[]): string[] {
+  return values.map((value) => {
+    if (value === "x") {
+      throw new Error(value);
+    }
+    return value;
+  });
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".map(|(index, item)| { ((smelt_callback)(")
+            && source.contains(
+                ")).unwrap_or_else(|error: Box<dyn std::error::Error>| panic!(\"{}\", error))"
+            ),
+        "{source}"
+    );
+}
+
+#[test]
+fn emits_contextual_string_arrow_number_suffix_addition_as_concat() {
+    let source = source_for(
+        r#"
+type LocalizeFn<Value> = (value: Value, options?: { unit?: string }) => string;
+type Localize = {
+  ordinalNumber: LocalizeFn<number>;
+};
+
+const feminineUnits = ["second", "minute"];
+
+const ordinalNumber: LocalizeFn<number> = (dirtyNumber, options) => {
+  const number = Number(dirtyNumber);
+  const unit = options?.unit;
+  if (number === 0) return "0";
+  let suffix;
+  if (number === 1) {
+    suffix = unit && feminineUnits.includes(unit) ? "ère" : "er";
+  } else {
+    suffix = "ème";
+  }
+  return number + suffix;
+};
+
+export const localize: Localize = {
+  ordinalNumber,
+};
+"#,
+    );
+
+    assert!(
+        source.contains("number.clone().to_string() + &match suffix.clone()"),
+        "{source}"
+    );
+    assert!(
+        !source.contains("let _smelt_tmp_16: f64")
+            && !source.contains("return _smelt_tmp_16.clone();"),
         "{source}"
     );
 }
@@ -2009,6 +2146,7 @@ function before(left: unknown, right: unknown): boolean {
         "{source}"
     );
     assert!(source.contains("smelt_unknown_rank"), "{source}");
+    assert!(source.contains("smelt_unknown_date_value"), "{source}");
 }
 
 #[test]
@@ -2206,6 +2344,134 @@ console.log(user.name);
     );
     assert!(
         source.contains("user.get(&\"name\".to_owned()).cloned().expect(\"missing field\")"),
+        "{source}"
+    );
+}
+
+#[test]
+fn reinserts_dynamic_record_list_alias_after_push() {
+    let source = source_for(
+        r#"
+function group(values: string[]): Record<string, string[]> {
+  const output: Record<string, string[]> = {};
+  for (const value of values) {
+    const key = value[0];
+    const items = output[key];
+    if (items === undefined) {
+      output[key] = [value];
+    } else {
+      items.push(value);
+    }
+  }
+  return output;
+}
+"#,
+    );
+
+    assert!(
+        source.contains(".cloned().unwrap_or(Vec::new())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("output.insert(key.clone().clone(), items.clone());"),
+        "{source}"
+    );
+}
+
+#[test]
+fn preserves_computed_symbol_object_literal_properties() {
+    let source = source_for(
+        r#"
+function read(): unknown {
+  const SymbolKey = Symbol("kind");
+  const item = { [SymbolKey]: "cat", [Symbol("inline")]: "dog", 2: 123 };
+  return item[SymbolKey];
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Symbol(\"Symbol(kind)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Symbol(\"Symbol(inline)"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::String(\"cat\".to_owned())"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::String(\"dog\".to_owned())"),
+        "{source}"
+    );
+}
+
+#[test]
+fn preserves_object_has_own_length_on_erased_arrays() {
+    let source = source_for(
+        r#"
+function hasLength(value: unknown): boolean {
+  return Object.hasOwn(value, "length");
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::Array(values) => smelt_key == \"length\""),
+        "{source}"
+    );
+    assert!(
+        !source.contains("SmeltRecord::with_id_from_entries"),
+        "{source}"
+    );
+}
+
+#[test]
+fn projects_string_indices_when_casting_unknown_to_record() {
+    let source = source_for(
+        r#"
+function keyCount(value: unknown): number {
+  return Object.keys(value).length;
+}
+"#,
+    );
+
+    assert!(
+        source.contains("SmeltUnknown::String(value) => value.chars().enumerate()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn erases_sets_without_dropping_items() {
+    let source = source_for(
+        r#"
+function accept(value: unknown): unknown {
+  return value;
+}
+
+export function run(): unknown {
+  return accept(new Set([1, 2, 3]));
+}
+"#,
+    );
+
+    assert!(
+        source.contains("IntoSmeltUnknown for ::std::collections::HashSet<T>"),
+        "{source}"
+    );
+    assert!(
+        source.contains("values.sort_by_key(smelt_unknown_stable_hash_key);"),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Array(values.into())"),
+        "{source}"
+    );
+    assert!(
+        source.contains(".clone().into_iter().map(|value|"),
         "{source}"
     );
 }
@@ -2473,6 +2739,44 @@ const result = useOptions({ locale: customLocale });
 }
 
 #[test]
+fn instantiates_generic_option_defaults_without_leaking_type_params() {
+    let source = source_for(
+        r#"
+interface ContextOptions<DateType extends Date = Date> {
+  in?: (value: unknown) => DateType;
+}
+
+interface ParseOptions<DateType extends Date = Date> extends ContextOptions<DateType> {
+  token?: string;
+}
+
+interface IsMatchOptions {
+  token?: string;
+}
+
+function parseValue(options?: ParseOptions<unknown>): unknown {
+  return options?.token ?? null;
+}
+
+function isMatch(options?: IsMatchOptions): unknown {
+  return parseValue(options);
+}
+"#,
+    );
+
+    assert!(
+        source.contains("None::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>>"),
+        "generic callback defaults should use the instantiated option payload: {source}"
+    );
+    assert!(
+        source.contains(
+            "ParseOptions { in_: None::<::std::rc::Rc<dyn Fn(SmeltUnknown) -> SmeltUnknown>>"
+        ),
+        "struct literal defaults must not leak declaration type parameters: {source}"
+    );
+}
+
+#[test]
 fn preserves_erased_date_values_when_retyping_unknown_callback_fields() {
     let source = source_for(
         r#"
@@ -2528,7 +2832,7 @@ console.log(user[key]);
         "{source}"
     );
     assert!(
-        source.contains("user.get(&key.clone().clone()).cloned().expect(\"index out of bounds\")"),
+        source.contains("user.get(&key.clone().clone()).cloned().unwrap_or(String::new())"),
         "{source}"
     );
 }
@@ -3424,6 +3728,32 @@ function lengthOf(value: unknown): number {
     );
     assert!(
         !source.contains("SmeltUnknown::Object(value) => value.len()"),
+        "{source}"
+    );
+}
+
+#[test]
+fn reads_erased_callback_string_length_property() {
+    let source = source_for(
+        r#"
+function project(values: string[], mapper: (value: unknown) => unknown): unknown[] {
+  return values.map(mapper);
+}
+
+export function run(): unknown[] {
+  return project(["aa", "b"], (value) => value.length);
+}
+"#,
+    );
+
+    assert!(
+        source.contains(
+            "SmeltUnknown::String(value) => SmeltUnknown::Number(value.chars().count() as f64)"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains("SmeltUnknown::Array(value) => SmeltUnknown::Number(value.len() as f64)"),
         "{source}"
     );
 }

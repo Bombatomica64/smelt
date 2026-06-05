@@ -8,13 +8,22 @@ impl FunctionEmitter<'_> {
         &self,
         op: smelt_hir::StringCaseOp,
         operand: &Operand,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let receiver_text = self.string_like_operand_text(operand, "string case")?;
         let method_name = match op {
             smelt_hir::StringCaseOp::Lower => "to_lowercase",
             smelt_hir::StringCaseOp::Upper => "to_uppercase",
         };
-        Ok(format!("{receiver_text}.{method_name}()"))
+        let result = format!("{receiver_text}.{method_name}()");
+        if matches!(
+            self.mir.types.get(dest_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            Ok(format!("SmeltUnknown::String({result})"))
+        } else {
+            Ok(result)
+        }
     }
 
     /// Converts Unicode normalization to Rust text through `unicode-normalization`.
@@ -586,10 +595,11 @@ impl FunctionEmitter<'_> {
         operand: &Operand,
         start: Option<&Operand>,
         end: Option<&Operand>,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         self.validate_optional_numeric_index(start, "string slice start index")?;
         self.validate_optional_numeric_index(end, "string slice end index")?;
-        if matches!(
+        let result = if matches!(
             self.mir.types.get(self.operand_ty(operand)?),
             Some(Type::String)
         ) {
@@ -597,18 +607,27 @@ impl FunctionEmitter<'_> {
             let len_source = format!("{operand_text}.chars().count()");
             let start_text = self.slice_start_text(start, &len_source)?;
             let len_text = self.slice_len_text(&operand_text, start, end, SliceLenKind::Chars)?;
-            return Ok(format!(
+            format!(
                 "{operand_text}.chars().skip({start_text}).take({len_text}).collect::<String>()"
-            ));
+            )
+        } else {
+            let operand_text = self.string_like_operand_text(operand, "string slice")?;
+            let receiver_text = "__smelt_string";
+            let len_source = format!("{receiver_text}.chars().count()");
+            let start_text = self.slice_start_text(start, &len_source)?;
+            let len_text = self.slice_len_text(receiver_text, start, end, SliceLenKind::Chars)?;
+            format!(
+                "{{ let {receiver_text} = {operand_text}; {receiver_text}.chars().skip({start_text}).take({len_text}).collect::<String>() }}"
+            )
+        };
+        if matches!(
+            self.mir.types.get(dest_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            Ok(format!("SmeltUnknown::String({result})"))
+        } else {
+            Ok(result)
         }
-        let operand_text = self.string_like_operand_text(operand, "string slice")?;
-        let receiver_text = "__smelt_string";
-        let len_source = format!("{receiver_text}.chars().count()");
-        let start_text = self.slice_start_text(start, &len_source)?;
-        let len_text = self.slice_len_text(receiver_text, start, end, SliceLenKind::Chars)?;
-        Ok(format!(
-            "{{ let {receiver_text} = {operand_text}; {receiver_text}.chars().skip({start_text}).take({len_text}).collect::<String>() }}"
-        ))
     }
 
     /// Converts a list containment operation to Rust text.
@@ -622,6 +641,7 @@ impl FunctionEmitter<'_> {
         haystack: &Operand,
         separator: &Operand,
         limit: Option<&Operand>,
+        dest_ty: TypeId,
     ) -> Result<String, EmitError> {
         let haystack_text = self.string_like_operand_text(haystack, "string split")?;
         let base = if matches!(
@@ -634,25 +654,49 @@ impl FunctionEmitter<'_> {
             let separator_text = self.string_like_operand_text(separator, "string split")?;
             format!("{haystack_text}.split(&{separator_text}).map(str::to_owned)")
         };
-        let Some(limit_operand) = limit else {
-            return Ok(format!("{base}.collect::<Vec<_>>()"));
-        };
-        let limit_text = self.operand_text(limit_operand)?;
-        match self.mir.types.get(self.operand_ty(limit_operand)?) {
-            Some(Type::None) => Ok(format!("{base}.collect::<Vec<_>>()")),
-            Some(Type::Int | Type::Float) => Ok(format!(
-                "{base}.take(({limit_text} as f64).max(0.0) as usize).collect::<Vec<_>>()"
-            )),
-            Some(Type::Optional(inner))
-                if matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float)) =>
-            {
-                Ok(format!(
-                    "if let Some(split_limit) = {limit_text} {{ {base}.take((split_limit as f64).max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
-                ))
+        let result = if let Some(limit_operand) = limit {
+            let limit_text = self.operand_text(limit_operand)?;
+            match self.mir.types.get(self.operand_ty(limit_operand)?) {
+                Some(Type::None) => Ok(format!("{base}.collect::<Vec<_>>()")),
+                Some(Type::Int | Type::Float) => Ok(format!(
+                    "{base}.take(({limit_text} as f64).max(0.0) as usize).collect::<Vec<_>>()"
+                )),
+                Some(Type::Optional(inner))
+                    if matches!(self.mir.types.get(*inner), Some(Type::Int | Type::Float)) =>
+                {
+                    Ok(format!(
+                        "if let Some(split_limit) = {limit_text} {{ {base}.take((split_limit as f64).max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
+                    ))
+                }
+                Some(Type::Optional(inner))
+                    if matches!(
+                        self.mir.types.get(*inner),
+                        Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+                    ) =>
+                {
+                    Ok(format!(
+                        "if let Some(split_limit) = match {limit_text} {{ Some(SmeltUnknown::Number(value)) => Some(value), Some(SmeltUnknown::Null) | None => None, _ => None }} {{ {base}.take(split_limit.max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
+                    ))
+                }
+                Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_)) => Ok(format!(
+                    "if let Some(split_limit) = match {limit_text} {{ SmeltUnknown::Number(value) => Some(value), SmeltUnknown::Null => None, _ => None }} {{ {base}.take(split_limit.max(0.0) as usize).collect::<Vec<_>>() }} else {{ {base}.collect::<Vec<_>>() }}"
+                )),
+                _ => Err(EmitError::new(
+                    "string split limit must be numeric or optional numeric",
+                )),
             }
-            _ => Err(EmitError::new(
-                "string split limit must be numeric or optional numeric",
-            )),
+        } else {
+            Ok(format!("{base}.collect::<Vec<_>>()"))
+        }?;
+        if matches!(
+            self.mir.types.get(dest_ty),
+            Some(Type::Unknown | Type::TypeParam { .. } | Type::Union(_))
+        ) {
+            Ok(format!(
+                "SmeltUnknown::Array({result}.into_iter().map(SmeltUnknown::String).collect())"
+            ))
+        } else {
+            Ok(result)
         }
     }
 

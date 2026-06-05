@@ -624,12 +624,28 @@ impl ModuleBuilder<'_> {
         &self,
         ty: smelt_hir::TypeId,
     ) -> Option<(smelt_hir::TypeId, smelt_hir::TypeId)> {
-        match self.ctx.krate.types.get(ty) {
+        match self
+            .ctx
+            .krate
+            .types
+            .get(self.type_param_constraint_or_self(ty))
+        {
             Some(Type::List(item_ty)) => Some((ty, *item_ty)),
             Some(Type::Optional(inner)) => match self.ctx.krate.types.get(*inner) {
                 Some(Type::List(item_ty)) => Some((*inner, *item_ty)),
                 _ => None,
             },
+            Some(Type::Union(items)) => {
+                let mut list_surface = None;
+                for item in items {
+                    if let Some(surface) = self.list_surface_type(*item) {
+                        if list_surface.replace(surface).is_some() {
+                            return None;
+                        }
+                    }
+                }
+                list_surface
+            }
             _ => None,
         }
     }

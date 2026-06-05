@@ -63,13 +63,13 @@ impl ModuleBuilder<'_> {
             return self.numeric_typed_array_constructor_expression(new_expr, body);
         }
         if callee.name == "URLSearchParams" {
-            return self.opaque_builtin_constructor_expression(new_expr, body, "URLSearchParams");
+            return self.url_search_params_constructor_expression(new_expr, body);
         }
         if matches!(callee.name.as_str(), "WeakMap" | "WeakSet") {
             return self.opaque_builtin_constructor_expression(new_expr, body, callee.name.as_str());
         }
         if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError") {
-            return self.error_constructor_expression(new_expr, body);
+            return self.opaque_builtin_constructor_expression(new_expr, body, callee.name.as_str());
         }
         if let Some(expr) = self.dynamic_identifier_constructor_expression(new_expr, body)? {
             return Ok(expr);
@@ -272,6 +272,74 @@ impl ModuleBuilder<'_> {
         )
     }
 
+    /// Lower `new URLSearchParams(init)` to an object carrying observable `size`.
+    fn url_search_params_constructor_expression(
+        &mut self,
+        new_expr: &oxc::ast::ast::NewExpression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if new_expr.arguments.len() > 1 {
+            return Err(SmeltError::unsupported(
+                self.span(new_expr.span.start, new_expr.span.end),
+                "URLSearchParams constructor supports at most one initializer",
+            ));
+        }
+        let size = match new_expr.arguments.first() {
+            None => 0.0_f64,
+            Some(Argument::StringLiteral(literal)) => {
+                if literal.value.trim_start_matches('?').is_empty() {
+                    0.0_f64
+                } else {
+                    1.0_f64
+                }
+            }
+            Some(Argument::ObjectExpression(object)) => {
+                let count = object
+                    .properties
+                    .iter()
+                    .filter(|property| matches!(property, ObjectPropertyKind::ObjectProperty(_)))
+                    .count();
+                f64::from(u32::try_from(count).map_err(|error| {
+                    SmeltError::unsupported(
+                        self.span(new_expr.span.start, new_expr.span.end),
+                        format!("URLSearchParams initializer is too large: {error}"),
+                    )
+                })?)
+            }
+            Some(argument) => {
+                let _ = self.argument(argument, body)?;
+                1.0_f64
+            }
+        };
+        let key_ty = self.ctx.krate.types.intern(Type::String);
+        let value_ty = self.ctx.krate.types.intern(Type::Unknown);
+        let dict_ty = self.ctx.krate.types.intern(Type::Dict(key_ty, value_ty));
+        let key = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::String("size".to_owned())),
+            ty: key_ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        });
+        let value = body.push_expr(Expr {
+            kind: ExprKind::Literal(Literal::Float(size)),
+            ty: self.ctx.krate.types.intern(Type::Float),
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        });
+        let object = body.push_expr(Expr {
+            kind: ExprKind::DictLit(vec![(key, value)]),
+            ty: dict_ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        });
+        let unknown_ty = self.ctx.krate.types.intern(Type::Unknown);
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::UnknownCast {
+                value: object,
+                target: unknown_ty,
+            },
+            ty: unknown_ty,
+            span: self.span(new_expr.span.start, new_expr.span.end),
+        }))
+    }
+
     /// Lower a supported opaque builtin constructor to an unknown object value.
     fn opaque_builtin_constructor_expression(
         &mut self,
@@ -301,6 +369,20 @@ impl ModuleBuilder<'_> {
             ty: unknown_ty,
             span: self.span(new_expr.span.start, new_expr.span.end),
         }))
+    }
+
+    /// Lower a thrown expression to the string message carried by HIR throws.
+    pub(super) fn throw_message_expression(
+        &mut self,
+        argument: &Expression<'_>,
+        body: &mut Body,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        if let Expression::NewExpression(new_expr) = argument
+            && matches!(&new_expr.callee, Expression::Identifier(callee) if matches!(callee.name.as_str(), "Error" | "TypeError" | "RangeError"))
+        {
+            return self.error_constructor_expression(new_expr, body);
+        }
+        self.expression(argument, body)
     }
 
     /// Lower `new Error(message)` to the message expression used by HIR throws.
@@ -518,7 +600,18 @@ impl ModuleBuilder<'_> {
                 let rhs = self.expression(&binary.right, body)?;
                 let lhs_ty = Self::expr_ty(body, lhs);
                 let rhs_ty = Self::expr_ty(body, rhs);
-                let ty = self.binary_result_type(op, lhs_ty, rhs_ty);
+                let ty = if op == BinOp::Add
+                    && type_hint
+                        .is_some_and(|hint| self.ctx.krate.types.get(hint) == Some(&Type::String))
+                    && (self.is_string_compatible_type(lhs_ty)
+                        || self.is_string_compatible_type(rhs_ty)
+                        || self.type_contains_unknown(lhs_ty)
+                        || self.type_contains_unknown(rhs_ty))
+                {
+                    self.ctx.krate.types.intern(Type::String)
+                } else {
+                    self.binary_result_type(op, lhs_ty, rhs_ty)
+                };
                 Ok(body.push_expr(Expr {
                     kind: ExprKind::BinOp { op, lhs, rhs },
                     ty,

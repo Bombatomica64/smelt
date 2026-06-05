@@ -45,7 +45,12 @@ coord_set: set[int] = set(coords)
     assert!(source.contains("::std::collections::HashSet::new()"));
     assert!(source.contains("::std::collections::HashMap::from([])"));
     assert!(source.contains(".iter().cloned().collect::<Vec<_>>()"));
-    assert!(source.contains(".keys().cloned().collect::<Vec<_>>()"));
+    assert!(
+        source.contains(
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>()"
+        ),
+        "{source}"
+    );
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashSet<_>>()"));
     assert!(source.contains(".iter().cloned().collect::<::std::collections::HashMap<_, _>>()"));
     assert!(source.contains("panic!(\"tuple() length mismatch\")"));
@@ -253,12 +258,23 @@ items: list[tuple[str, int]] = mapping.items()
 "#,
     );
 
-    assert!(source.contains(".keys().cloned().collect::<Vec<_>>();"));
-    assert!(source.contains(".values().cloned().collect::<Vec<_>>();"));
     assert!(
         source.contains(
-            ".iter().map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();"
-        )
+            ".keys().filter(|key| !key.starts_with(\"__smelt_symbol:\")).cloned().collect::<Vec<_>>();"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(_, value)| value.clone()).collect::<Vec<_>>();"
+        ),
+        "{source}"
+    );
+    assert!(
+        source.contains(
+            ".iter().filter(|(key, _)| !key.starts_with(\"__smelt_symbol:\")).map(|(key, value)| (key.clone(), value.clone())).collect::<Vec<_>>();"
+        ),
+        "{source}"
     );
 }
 

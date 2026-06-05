@@ -29,6 +29,8 @@ roots = ["src", "lib"]
 [output]
 target = "./dist"
 crate-name = "my_app"
+# "program" emits src/main.rs; "library" emits src/lib.rs.
+kind = "program"
 # If true, smelt also runs `cargo build` after emitting.
 build = false
 
@@ -74,6 +76,7 @@ clone-strategy = "aggressive"
 | ------------ | ------ | -------------------- | ------------------------------------------------ |
 | `target`     | string | `./dist`             | Where to emit the generated Rust crate           |
 | `crate-name` | string | `project.name` (snake_cased) | Name of the generated Rust crate         |
+| `kind`       | string | `"program"`          | Output target kind: `"program"` or `"library"`   |
 | `build`      | bool   | `false`              | If true, run `cargo build` after emitting        |
 
 ### `[rust]`
@@ -111,6 +114,8 @@ dist/
 │   └── ...             # other modules discovered via imports
 └── .smelt-cache/       # incremental build state (v2.0+)
 ```
+
+For `output.kind = "library"`, the crate root is `src/lib.rs` instead of `src/main.rs`.
 
 The generated `Cargo.toml` should never be checked into source control. Add `dist/` to `.gitignore` by default in `smelt new`.
 

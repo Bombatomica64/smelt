@@ -661,6 +661,8 @@ pub(super) fn expr_text(krate: &Crate, expr: &Expr) -> String {
             let op_name = match op {
                 crate::expr::DictProjectionOp::FromEntries => "from_entries",
                 crate::expr::DictProjectionOp::Keys => "keys",
+                crate::expr::DictProjectionOp::ForInKeys => "for_in_keys",
+                crate::expr::DictProjectionOp::Symbols => "symbols",
                 crate::expr::DictProjectionOp::Values => "values",
                 crate::expr::DictProjectionOp::Entries => "entries",
             };

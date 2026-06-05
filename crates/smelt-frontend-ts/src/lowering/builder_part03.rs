@@ -235,6 +235,8 @@ impl ModuleBuilder<'_> {
         {
             errors.push(error);
         }
+        self.current_arguments_arities
+            .push(function.params.items.len());
         for statement in &function_body.statements {
             if self.is_super_call_statement(statement) {
                 continue;
@@ -251,6 +253,7 @@ impl ModuleBuilder<'_> {
         self.narrowed_locals = saved_narrowed_locals;
         self.current_async = saved_async;
         self.current_return_ty = saved_return_ty;
+        self.current_arguments_arities.pop();
         self.pop_type_parameter_scope();
 
         if let Some(error) = errors.into_iter().next() {
@@ -616,10 +619,18 @@ return_ty,
                             self.span(property.span.start, property.span.end),
                         ));
                     }
+                    let field_visibility = if matches!(
+                        &property.key,
+                        PropertyKey::PrivateIdentifier(_)
+                    ) {
+                        Visibility::Private
+                    } else {
+                        visibility(property.accessibility)
+                    };
                     fields.push(Field {
                         name,
                         ty,
-                        visibility: visibility(property.accessibility),
+                        visibility: field_visibility,
                         optional: property.optional,
                         span: self.span(property.span.start, property.span.end),
                     });
@@ -656,7 +667,7 @@ return_ty,
                     fields.push(Field {
                         name,
                         ty,
-                        visibility: visibility(method.accessibility),
+                        visibility: Visibility::Private,
                         optional: false,
                         span: self.span(method.span.start, method.span.end),
                     });
