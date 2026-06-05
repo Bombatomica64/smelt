@@ -1490,34 +1490,158 @@ impl ModuleBuilder<'_> {
                 method,
                 args: call_args,
             } => {
+                let receiver_ty = receiver.ty;
                 let receiver = self.callback_expr_to_body_expr(receiver, args, body, span)?;
                 let call_args =
                     self.callback_call_args_to_body_exprs(call_args, args, body, span)?;
-                if self.ctx.krate.symbols.get(*method) == Some("has")
-                    && call_args.len() == 1
-                    && matches!(
-                        self.ctx.krate.types.get(Self::expr_ty(body, receiver)),
-                        Some(Type::Set(_))
-                    )
-                {
-                    let item = *call_args.first().ok_or_else(|| {
-                        SmeltError::unsupported(span, "Set.has callback call requires one argument")
-                    })?;
-                    return Ok(body.push_expr(Expr {
-                        kind: ExprKind::SetContains {
-                            set: receiver,
-                            item,
-                        },
-                        ty: callback.ty,
-                        span,
-                    }));
-                }
-                Err(SmeltError::unsupported(
+                self.callback_method_call_to_body_expr(
+                    receiver,
+                    receiver_ty,
+                    *method,
+                    &call_args,
+                    callback.ty,
+                    body,
                     span,
-                    "callback methods are not lowered into closure bodies yet",
-                ))
+                )
             }
         }
+    }
+
+    /// Convert a callback method call into the corresponding normal HIR expression.
+    fn callback_method_call_to_body_expr(
+        &self,
+        receiver: smelt_hir::ExprId,
+        receiver_ty: smelt_hir::TypeId,
+        method: smelt_hir::Symbol,
+        args: &[smelt_hir::ExprId],
+        ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        let method_text = self.ctx.krate.symbols.get(method).unwrap_or_default();
+        match method_text {
+            "toString" if args.is_empty() => Ok(body.push_expr(Expr {
+                kind: ExprKind::PrimitiveCast {
+                    op: PrimitiveCastOp::ToString,
+                    operand: receiver,
+                },
+                ty,
+                span,
+            })),
+            "toLowerCase" | "toLocaleLowerCase" if args.is_empty() => {
+                Self::callback_string_case_to_body_expr(StringCaseOp::Lower, receiver, ty, body, span)
+            }
+            "toUpperCase" | "toLocaleUpperCase" if args.is_empty() => {
+                Self::callback_string_case_to_body_expr(StringCaseOp::Upper, receiver, ty, body, span)
+            }
+            "split" if (1..=2).contains(&args.len()) => {
+                let separator = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback split call requires a separator")
+                })?;
+                let limit = args.get(1).copied();
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::StringSplit {
+                        haystack: receiver,
+                        separator,
+                        limit,
+                    },
+                    ty,
+                    span,
+                }))
+            }
+            "has" if args.len() == 1
+                && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::Set(_))) =>
+            {
+                let item = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback Set.has call requires one argument")
+                })?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::SetContains {
+                        set: receiver,
+                        item,
+                    },
+                    ty,
+                    span,
+                }))
+            }
+            "includes" if args.len() == 1
+                && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_))) =>
+            {
+                let item = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback Array.includes call requires one argument")
+                })?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListContains {
+                        list: receiver,
+                        item,
+                    },
+                    ty,
+                    span,
+                }))
+            }
+            "push" if args.len() == 1
+                && matches!(self.ctx.krate.types.get(receiver_ty), Some(Type::List(_))) =>
+            {
+                let item = *args.first().ok_or_else(|| {
+                    SmeltError::unsupported(span, "callback Array.push call requires one argument")
+                })?;
+                Ok(body.push_expr(Expr {
+                    kind: ExprKind::ListPush {
+                        list: receiver,
+                        item,
+                    },
+                    ty,
+                    span,
+                }))
+            }
+            "slice" if args.len() <= 2 => {
+                let start = args.first().copied();
+                let end = args.get(1).copied();
+                match self.ctx.krate.types.get(receiver_ty) {
+                    Some(Type::String) => Ok(body.push_expr(Expr {
+                        kind: ExprKind::StringSlice {
+                            operand: receiver,
+                            start,
+                            end,
+                        },
+                        ty,
+                        span,
+                    })),
+                    Some(Type::List(_)) => Ok(body.push_expr(Expr {
+                        kind: ExprKind::ListSlice {
+                            list: receiver,
+                            start,
+                            end,
+                        },
+                        ty,
+                        span,
+                    })),
+                    _ => Err(SmeltError::unsupported(
+                        span,
+                        "callback slice receiver is not lowered into closure bodies yet",
+                    )),
+                }
+            }
+            _ => Err(SmeltError::unsupported(
+                span,
+                "callback methods are not lowered into closure bodies yet",
+            )),
+        }
+    }
+
+    /// Convert callback string case methods into normal HIR.
+    fn callback_string_case_to_body_expr(
+        op: StringCaseOp,
+        operand: smelt_hir::ExprId,
+        ty: smelt_hir::TypeId,
+        body: &mut Body,
+        span: Span,
+    ) -> Result<smelt_hir::ExprId, SmeltError> {
+        Ok(body.push_expr(Expr {
+            kind: ExprKind::StringCase { op, operand },
+            ty,
+            span,
+        }))
     }
 
     /// Resolve a callback function symbol back to its normal HIR item.
